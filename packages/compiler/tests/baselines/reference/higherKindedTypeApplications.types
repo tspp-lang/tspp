@@ -1,0 +1,119 @@
+//// [tests/cases/compiler/higherKindedTypeApplications.ts] ////
+
+=== higherKindedTypeApplications.tspp ===
+export type Id<F: Type => Type>: Type => Type = F;
+>Id : F
+>   : ^
+
+export type DirectApplication = Id<Array><number>;
+>DirectApplication : number[]
+>                  : ^^^^^^^^
+
+export type ParenthesizedApplication = (Id<Array>)<number>;
+>ParenthesizedApplication : number[]
+>                         : ^^^^^^^^
+
+export type NestedApplication = Id<Id<Array>><string>;
+>NestedApplication : string[]
+>                  : ^^^^^^^^
+
+export type LambdaApplication = (<T> =>> T)<string>;
+>LambdaApplication : string
+>                  : ^^^^^^
+
+export type Pair<A, B> = [A, B];
+>Pair : Pair<A, B>
+>     : ^^^^^^^^^^
+
+export type PreservePair<F: (Type, Type) => Type>: (Type, Type) => Type = F;
+>PreservePair : F
+>             : ^
+
+export type PairApplication = PreservePair<Pair><string, number>;
+>PairApplication : Pair<string, number>
+>                : ^^^^^^^^^^^^^^^^^^^^
+
+export type StringBox<T extends string> = { value: T; };
+>StringBox : StringBox<T>
+>          : ^^^^^^^^^^^^
+>value : T
+>      : ^
+
+export type ValidConstrainedApplication = Id<StringBox><"ok">;
+>ValidConstrainedApplication : StringBox<"ok">
+>                            : ^^^^^^^^^^^^^^^
+
+declare const numbers: DirectApplication;
+>numbers : number[]
+>        : ^^^^^^^^
+
+numbers.push(1);
+>numbers.push(1) : number
+>                : ^^^^^^
+>numbers.push : (...items: number[]) => number
+>             : ^^^^     ^^^^^^^^^^^^^^^      
+>numbers : number[]
+>        : ^^^^^^^^
+>push : (...items: number[]) => number
+>     : ^^^^     ^^^^^^^^^^^^^^^      
+>1 : 1
+>  : ^
+
+// @ts-expect-error -- the applied element type is number
+numbers.push("nope");
+>numbers.push("nope") : number
+>                     : ^^^^^^
+>numbers.push : (...items: number[]) => number
+>             : ^^^^     ^^^^^^^^^^^^^^^      
+>numbers : number[]
+>        : ^^^^^^^^
+>push : (...items: number[]) => number
+>     : ^^^^     ^^^^^^^^^^^^^^^      
+>"nope" : "nope"
+>       : ^^^^^^
+
+declare const pair: PairApplication;
+>pair : Pair<string, number>
+>     : ^^^^^^^^^^^^^^^^^^^^
+
+pair[0].toUpperCase();
+>pair[0].toUpperCase() : string
+>                      : ^^^^^^
+>pair[0].toUpperCase : () => string
+>                    : ^^^^^^      
+>pair[0] : string
+>        : ^^^^^^
+>pair : Pair<string, number>
+>     : ^^^^^^^^^^^^^^^^^^^^
+>0 : 0
+>  : ^
+>toUpperCase : () => string
+>            : ^^^^^^      
+
+pair[1].toFixed();
+>pair[1].toFixed() : string
+>                  : ^^^^^^
+>pair[1].toFixed : (fractionDigits?: number) => string
+>                : ^              ^^^      ^^^^^      
+>pair[1] : number
+>        : ^^^^^^
+>pair : Pair<string, number>
+>     : ^^^^^^^^^^^^^^^^^^^^
+>1 : 1
+>  : ^
+>toFixed : (fractionDigits?: number) => string
+>        : ^              ^^^      ^^^^^      
+
+// @ts-expect-error -- number[] is not a type constructor
+type AppliedOrdinaryType = Id<Array><number><string>;
+>AppliedOrdinaryType : error
+
+// @ts-expect-error -- Array accepts one type argument
+type WrongArity = Id<Array><number, string>;
+>WrongArity : error
+
+// @ts-expect-error -- StringBox retains its constraint through Id
+type InvalidConstrainedApplication = Id<StringBox><number>;
+>InvalidConstrainedApplication : StringBox<number>
+>                              : ^^^^^^^^^^^^^^^^^
+

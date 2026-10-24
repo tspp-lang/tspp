@@ -5,9 +5,10 @@
 1. `Type` 与 `Type0`；
 2. 普通泛型别名的 kind；
 3. 把类型构造器保存为一等类型值；
-4. 用高阶类型参数定义 `Functor`；
-5. `Type0 : Type1`、`Type1 : Type2`；
-6. 非累积宇宙带来的类型检查。
+4. 连续应用或给带括号的类型构造器结果传参；
+5. 用高阶类型参数定义 `Functor`；
+6. `Type0 : Type1`、`Type1 : Type2`；
+7. 非累积宇宙带来的类型检查。
 
 源码末尾保留了几个由 `// @ts-expect-error` 保护的反例。它们会触发 TS++ 语言服务的诊断，同时仍能让整个示例通过检查；如果某个反例不再报错，编译器会报告该指令未使用。
 
@@ -33,6 +34,14 @@ type Pair<A, B> = [A, B];
 ```typescript
 type Arrays: Type0 => Type0 = Array;
 type StringArray = Arrays<string>;
+```
+
+返回类型构造器的类型表达式可以继续直接应用；括号不会改变它的 kind：
+
+```typescript
+type IdentityConstructor<F: Type0 => Type0>: Type0 => Type0 = F;
+type DirectNumberArray = IdentityConstructor<Array><number>;
+type ParenthesizedNumberArray = (IdentityConstructor<Array>)<number>;
 ```
 
 kind 也能约束高阶类型参数：

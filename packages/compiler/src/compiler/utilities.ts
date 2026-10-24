@@ -11281,6 +11281,7 @@ export function isSourceElement(node: Node): boolean {
     case SyntaxKind.GetAccessor:
     case SyntaxKind.SetAccessor:
     case SyntaxKind.TypeReference:
+    case SyntaxKind.TypeApplication:
     case SyntaxKind.TypePredicate:
     case SyntaxKind.TypeQuery:
     case SyntaxKind.TypeLiteral:

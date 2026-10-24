@@ -21,7 +21,15 @@ const namedAge: NamedAge = ["Ada", 36];
 type Arrays: Type0 => Type0 = Array;
 type StringArray = Arrays<string>;
 
-// 4. 高阶类型参数让 Functor 可以抽象于 Array、Promise 等类型构造器。
+// 4. 类型构造器的计算结果可以继续直接应用，不需要额外声明中间别名。
+type IdentityConstructor<F: Type0 => Type0>: Type0 => Type0 = F;
+type DirectNumberArray = IdentityConstructor<Array><number>;
+type ParenthesizedNumberArray = (IdentityConstructor<Array>)<number>;
+
+const directNumbers: DirectNumberArray = [1, 2, 3];
+const parenthesizedNumbers: ParenthesizedNumberArray = directNumbers;
+
+// 5. 高阶类型参数让 Functor 可以抽象于 Array、Promise 等类型构造器。
 // 当前示例为 Array 提供一个 Functor 实现。
 interface Functor<F: Type0 => Type0> {
     map<A, B>(fa: F<A>, fn: (value: A) => B): F<B>;
@@ -37,7 +45,7 @@ const checkedLabels: StringArray = labels;
 
 labels.push("item-4");
 
-// 5. 类型宇宙本身也有类型：Type0 : Type1、Type1 : Type2，以此类推。
+// 6. 类型宇宙本身也有类型：Type0 : Type1、Type1 : Type2，以此类推。
 // TypeN 没有固定的最大层级；编译器按需识别任意非负整数 N。
 type UniverseZero: Type1 = Type0;
 type UniverseOne: Type2 = Type1;
@@ -50,7 +58,7 @@ type NumberArrayThroughUniverseAlias = ArraysThroughUniverseAlias<number>;
 type IdentityAtOne<K: Type1>: Type1 = K;
 type PreservedType0: Type1 = IdentityAtOne<Type0>;
 
-// 6. 当前采用非累积宇宙：Type0 与 Type1 不会自动互相提升或兼容。
+// 7. 当前采用非累积宇宙：Type0 与 Type1 不会自动互相提升或兼容。
 // 以下是由 @ts-expect-error 保护的反例：它们必须持续产生预期错误。
 type LocalArray<T> = T[];
 // @ts-expect-error -- 缺少保存类型构造器所需的 kind 标注
@@ -63,17 +71,19 @@ type InvalidUniverse: Type0 = Type0;
 // @ts-expect-error -- labels 的元素是 string
 labels.push(4);
 
-export { arrayFunctor, checkedLabels, labels, namedAge };
+export { arrayFunctor, checkedLabels, directNumbers, labels, namedAge, parenthesizedNumbers };
 export type {
     Apply2,
     Arrays,
     ArraysThroughUniverseAlias,
+    DirectNumberArray,
     Functor,
     IdentityAtOne,
     NamedAge,
     NumberArrayThroughUniverseAlias,
     NumberAtType0,
     Pair,
+    ParenthesizedNumberArray,
     PreservedType0,
     StringArray,
     StringAtType,

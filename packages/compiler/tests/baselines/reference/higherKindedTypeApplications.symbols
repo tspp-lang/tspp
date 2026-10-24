@@ -1,0 +1,106 @@
+//// [tests/cases/compiler/higherKindedTypeApplications.ts] ////
+
+=== higherKindedTypeApplications.tspp ===
+export type Id<F: Type => Type>: Type => Type = F;
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>F : Symbol(F, Decl(higherKindedTypeApplications.tspp, 0, 15))
+>F : Symbol(F, Decl(higherKindedTypeApplications.tspp, 0, 15))
+
+export type DirectApplication = Id<Array><number>;
+>DirectApplication : Symbol(DirectApplication, Decl(higherKindedTypeApplications.tspp, 0, 50))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>Array : Symbol(Array, Decl(lib.es5.d.ts, --, --), Decl(lib.es5.d.ts, --, --), Decl(lib.es2015.core.d.ts, --, --), Decl(lib.es2015.iterable.d.ts, --, --), Decl(lib.es2015.symbol.wellknown.d.ts, --, --) ... and 4 more)
+
+export type ParenthesizedApplication = (Id<Array>)<number>;
+>ParenthesizedApplication : Symbol(ParenthesizedApplication, Decl(higherKindedTypeApplications.tspp, 2, 50))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>Array : Symbol(Array, Decl(lib.es5.d.ts, --, --), Decl(lib.es5.d.ts, --, --), Decl(lib.es2015.core.d.ts, --, --), Decl(lib.es2015.iterable.d.ts, --, --), Decl(lib.es2015.symbol.wellknown.d.ts, --, --) ... and 4 more)
+
+export type NestedApplication = Id<Id<Array>><string>;
+>NestedApplication : Symbol(NestedApplication, Decl(higherKindedTypeApplications.tspp, 3, 59))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>Array : Symbol(Array, Decl(lib.es5.d.ts, --, --), Decl(lib.es5.d.ts, --, --), Decl(lib.es2015.core.d.ts, --, --), Decl(lib.es2015.iterable.d.ts, --, --), Decl(lib.es2015.symbol.wellknown.d.ts, --, --) ... and 4 more)
+
+export type LambdaApplication = (<T> =>> T)<string>;
+>LambdaApplication : Symbol(LambdaApplication, Decl(higherKindedTypeApplications.tspp, 4, 54))
+>T : Symbol(T, Decl(higherKindedTypeApplications.tspp, 5, 34))
+>T : Symbol(T, Decl(higherKindedTypeApplications.tspp, 5, 34))
+
+export type Pair<A, B> = [A, B];
+>Pair : Symbol(Pair, Decl(higherKindedTypeApplications.tspp, 5, 52))
+>A : Symbol(A, Decl(higherKindedTypeApplications.tspp, 7, 17))
+>B : Symbol(B, Decl(higherKindedTypeApplications.tspp, 7, 19))
+>A : Symbol(A, Decl(higherKindedTypeApplications.tspp, 7, 17))
+>B : Symbol(B, Decl(higherKindedTypeApplications.tspp, 7, 19))
+
+export type PreservePair<F: (Type, Type) => Type>: (Type, Type) => Type = F;
+>PreservePair : Symbol(PreservePair, Decl(higherKindedTypeApplications.tspp, 7, 32))
+>F : Symbol(F, Decl(higherKindedTypeApplications.tspp, 8, 25))
+>F : Symbol(F, Decl(higherKindedTypeApplications.tspp, 8, 25))
+
+export type PairApplication = PreservePair<Pair><string, number>;
+>PairApplication : Symbol(PairApplication, Decl(higherKindedTypeApplications.tspp, 8, 76))
+>PreservePair : Symbol(PreservePair, Decl(higherKindedTypeApplications.tspp, 7, 32))
+>Pair : Symbol(Pair, Decl(higherKindedTypeApplications.tspp, 5, 52))
+
+export type StringBox<T extends string> = { value: T; };
+>StringBox : Symbol(StringBox, Decl(higherKindedTypeApplications.tspp, 9, 65))
+>T : Symbol(T, Decl(higherKindedTypeApplications.tspp, 11, 22))
+>value : Symbol(value, Decl(higherKindedTypeApplications.tspp, 11, 43))
+>T : Symbol(T, Decl(higherKindedTypeApplications.tspp, 11, 22))
+
+export type ValidConstrainedApplication = Id<StringBox><"ok">;
+>ValidConstrainedApplication : Symbol(ValidConstrainedApplication, Decl(higherKindedTypeApplications.tspp, 11, 56))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>StringBox : Symbol(StringBox, Decl(higherKindedTypeApplications.tspp, 9, 65))
+
+declare const numbers: DirectApplication;
+>numbers : Symbol(numbers, Decl(higherKindedTypeApplications.tspp, 14, 13))
+>DirectApplication : Symbol(DirectApplication, Decl(higherKindedTypeApplications.tspp, 0, 50))
+
+numbers.push(1);
+>numbers.push : Symbol(Array.push, Decl(lib.es5.d.ts, --, --))
+>numbers : Symbol(numbers, Decl(higherKindedTypeApplications.tspp, 14, 13))
+>push : Symbol(Array.push, Decl(lib.es5.d.ts, --, --))
+
+// @ts-expect-error -- the applied element type is number
+numbers.push("nope");
+>numbers.push : Symbol(Array.push, Decl(lib.es5.d.ts, --, --))
+>numbers : Symbol(numbers, Decl(higherKindedTypeApplications.tspp, 14, 13))
+>push : Symbol(Array.push, Decl(lib.es5.d.ts, --, --))
+
+declare const pair: PairApplication;
+>pair : Symbol(pair, Decl(higherKindedTypeApplications.tspp, 19, 13))
+>PairApplication : Symbol(PairApplication, Decl(higherKindedTypeApplications.tspp, 8, 76))
+
+pair[0].toUpperCase();
+>pair[0].toUpperCase : Symbol(String.toUpperCase, Decl(lib.es5.d.ts, --, --))
+>pair : Symbol(pair, Decl(higherKindedTypeApplications.tspp, 19, 13))
+>0 : Symbol(0)
+>toUpperCase : Symbol(String.toUpperCase, Decl(lib.es5.d.ts, --, --))
+
+pair[1].toFixed();
+>pair[1].toFixed : Symbol(Number.toFixed, Decl(lib.es5.d.ts, --, --))
+>pair : Symbol(pair, Decl(higherKindedTypeApplications.tspp, 19, 13))
+>1 : Symbol(1)
+>toFixed : Symbol(Number.toFixed, Decl(lib.es5.d.ts, --, --))
+
+// @ts-expect-error -- number[] is not a type constructor
+type AppliedOrdinaryType = Id<Array><number><string>;
+>AppliedOrdinaryType : Symbol(AppliedOrdinaryType, Decl(higherKindedTypeApplications.tspp, 21, 18))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>Array : Symbol(Array, Decl(lib.es5.d.ts, --, --), Decl(lib.es5.d.ts, --, --), Decl(lib.es2015.core.d.ts, --, --), Decl(lib.es2015.iterable.d.ts, --, --), Decl(lib.es2015.symbol.wellknown.d.ts, --, --) ... and 4 more)
+
+// @ts-expect-error -- Array accepts one type argument
+type WrongArity = Id<Array><number, string>;
+>WrongArity : Symbol(WrongArity, Decl(higherKindedTypeApplications.tspp, 24, 53))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>Array : Symbol(Array, Decl(lib.es5.d.ts, --, --), Decl(lib.es5.d.ts, --, --), Decl(lib.es2015.core.d.ts, --, --), Decl(lib.es2015.iterable.d.ts, --, --), Decl(lib.es2015.symbol.wellknown.d.ts, --, --) ... and 4 more)
+
+// @ts-expect-error -- StringBox retains its constraint through Id
+type InvalidConstrainedApplication = Id<StringBox><number>;
+>InvalidConstrainedApplication : Symbol(InvalidConstrainedApplication, Decl(higherKindedTypeApplications.tspp, 26, 44))
+>Id : Symbol(Id, Decl(higherKindedTypeApplications.tspp, 0, 0))
+>StringBox : Symbol(StringBox, Decl(higherKindedTypeApplications.tspp, 9, 65))
+

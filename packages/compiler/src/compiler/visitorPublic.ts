@@ -813,6 +813,14 @@ const visitEachChildTable: VisitEachChildTable = {
     );
   },
 
+  [SyntaxKind.TypeApplication]: function visitEachChildOfTypeApplicationNode(node, visitor, context, nodesVisitor, nodeVisitor, _tokenVisitor) {
+    return context.factory.updateTypeApplicationNode(
+      node,
+      Debug.checkDefined(nodeVisitor(node.target, visitor, isTypeNode)),
+      Debug.checkDefined(nodesVisitor(node.typeArguments, visitor, isTypeNode)),
+    );
+  },
+
   [SyntaxKind.FunctionType]: function visitEachChildOfFunctionTypeNode(node, visitor, context, nodesVisitor, nodeVisitor, _tokenVisitor) {
     return context.factory.updateFunctionTypeNode(
       node,

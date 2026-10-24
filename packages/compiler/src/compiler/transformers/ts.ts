@@ -706,6 +706,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
       case SyntaxKind.FunctionType:
       case SyntaxKind.TypeQuery:
       case SyntaxKind.TypeReference:
+      case SyntaxKind.TypeApplication:
       case SyntaxKind.UnionType:
       case SyntaxKind.IntersectionType:
       case SyntaxKind.ConditionalType:

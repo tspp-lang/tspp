@@ -409,6 +409,7 @@ import {
   TryStatement,
   TupleTypeNode,
   TypeAliasDeclaration,
+  TypeApplicationNode,
   TypeAssertion,
   TypeLambdaNode,
   TypeLiteralNode,
@@ -1678,6 +1679,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
           return emitTypePredicate(node as TypePredicateNode);
         case SyntaxKind.TypeReference:
           return emitTypeReference(node as TypeReferenceNode);
+        case SyntaxKind.TypeApplication:
+          return emitTypeApplication(node as TypeApplicationNode);
         case SyntaxKind.FunctionType:
           return emitFunctionType(node as FunctionTypeNode);
         case SyntaxKind.DependentFunctionType:
@@ -2453,6 +2456,15 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
       return;
     }
     emit(node.typeName);
+    emitTypeArguments(node, node.typeArguments);
+  }
+
+  function emitTypeApplication(node: TypeApplicationNode) {
+    if (tsppCompatibilityDeclaration) {
+      writeKeyword("unknown");
+      return;
+    }
+    emit(node.target);
     emitTypeArguments(node, node.typeArguments);
   }
 

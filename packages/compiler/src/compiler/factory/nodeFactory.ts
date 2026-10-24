@@ -455,6 +455,7 @@ import {
   TupleTypeNode,
   Type,
   TypeAliasDeclaration,
+  TypeApplicationNode,
   TypeAssertion,
   TypeElement,
   TypeKindNode,
@@ -611,6 +612,8 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
     updateTypePredicateNode,
     createTypeReferenceNode,
     updateTypeReferenceNode,
+    createTypeApplicationNode,
+    updateTypeApplicationNode,
     createFunctionTypeNode,
     updateFunctionTypeNode,
     createConstructorTypeNode,
@@ -2424,6 +2427,23 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
     return node.typeName !== typeName
         || node.typeArguments !== typeArguments
       ? update(createTypeReferenceNode(typeName, typeArguments), node)
+      : node;
+  }
+
+  // @api
+  function createTypeApplicationNode(target: TypeNode, typeArguments: readonly TypeNode[]) {
+    const node = createBaseNode<TypeApplicationNode>(SyntaxKind.TypeApplication);
+    node.target = parenthesizerRules().parenthesizeNonArrayTypeOfPostfixType(target);
+    node.typeArguments = parenthesizerRules().parenthesizeTypeArguments(createNodeArray(typeArguments))!;
+    node.transformFlags = TransformFlags.ContainsTypeScript;
+    return node;
+  }
+
+  // @api
+  function updateTypeApplicationNode(node: TypeApplicationNode, target: TypeNode, typeArguments: NodeArray<TypeNode>) {
+    return node.target !== target
+        || node.typeArguments !== typeArguments
+      ? update(createTypeApplicationNode(target, typeArguments), node)
       : node;
   }
 

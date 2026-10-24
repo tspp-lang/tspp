@@ -226,6 +226,7 @@ import {
   TryStatement,
   TupleTypeNode,
   TypeAliasDeclaration,
+  TypeApplicationNode,
   TypeAssertion,
   TypeLambdaNode,
   TypeLiteralNode,
@@ -490,6 +491,10 @@ export function isTypePredicateNode(node: Node): node is TypePredicateNode {
 
 export function isTypeReferenceNode(node: Node): node is TypeReferenceNode {
   return node.kind === SyntaxKind.TypeReference;
+}
+
+export function isTypeApplicationNode(node: Node): node is TypeApplicationNode {
+  return node.kind === SyntaxKind.TypeApplication;
 }
 
 export function isFunctionTypeNode(node: Node): node is FunctionTypeNode {

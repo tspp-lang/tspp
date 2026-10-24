@@ -393,6 +393,7 @@ import {
   TryStatement,
   TupleTypeNode,
   TypeAliasDeclaration,
+  TypeApplicationNode,
   TypeAssertion,
   TypeElement,
   TypeLambdaNode,
@@ -725,6 +726,10 @@ const forEachChildTable: ForEachChildTable = {
   },
   [SyntaxKind.TypeReference]: function forEachChildInTypeReference<T>(node: TypeReferenceNode, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
     return visitNode(cbNode, node.typeName) ||
+      visitNodes(cbNode, cbNodes, node.typeArguments);
+  },
+  [SyntaxKind.TypeApplication]: function forEachChildInTypeApplication<T>(node: TypeApplicationNode, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
+    return visitNode(cbNode, node.target) ||
       visitNodes(cbNode, cbNodes, node.typeArguments);
   },
   [SyntaxKind.TypePredicate]: function forEachChildInTypePredicate<T>(node: TypePredicateNode, cbNode: (node: Node) => T | undefined, _cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
@@ -5025,6 +5030,12 @@ namespace Parser {
             parseExpected(SyntaxKind.CloseBracketToken);
             type = finishNode(factory.createArrayTypeNode(type), pos);
           }
+          break;
+        case SyntaxKind.LessThanToken:
+          if (!fileExtensionIs(fileName, Extension.Tspp) && !fileExtensionIs(fileName, Extension.Dtspp)) {
+            return type;
+          }
+          type = finishNode(factory.createTypeApplicationNode(type, Debug.checkDefined(parseTypeArgumentsOfTypeReference())), pos);
           break;
         default:
           return type;
