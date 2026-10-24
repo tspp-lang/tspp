@@ -1,4 +1,3 @@
-import { hasProperty } from "./core.js";
 import {
   isVerificationNumericSort,
   isVerificationStructuredSort,
@@ -11,7 +10,8 @@ import {
 
 /*
  * Standard SMT-LIB 2.6 theory signatures and the sort checker for the
- * verification IR. Every application symbol is resolved here or against a
+ * verification IR. Like verificationIR.ts, this module has no compiler
+ * dependencies: the standalone `ts-plus-plus/smt` bundle includes it. Every application symbol is resolved here or against a
  * function the problem declares; nothing outside the standard theories is
  * accepted, so the printed SMT-LIB never depends on one particular solver.
  */
@@ -266,15 +266,28 @@ function inferApplicationSort(
     recordSort(declared.sort, scope);
     return declared.sort;
   }
-  const signature = theorySignatures.get(expression.symbol);
-  if (!signature) throw new Error(`Symbol '${expression.symbol}' is neither a standard SMT-LIB theory symbol nor a declared function.`);
-  const result = signature(operandSorts, scope.features, expression.operands);
-  if (isSignatureError(result)) throw new Error(`'${expression.symbol}' ${result.error}, got (${operandSorts.map(sortText).join(" ")}).`);
+  return inferTheoryApplicationSort(expression.symbol, operandSorts, expression.operands, scope.features);
+}
+
+/**
+ * The result sort of applying a standard theory symbol, or a thrown error for
+ * an unknown symbol or ill-sorted operands.
+ */
+export function inferTheoryApplicationSort(
+  symbol: string,
+  operandSorts: readonly VerificationSort[],
+  operands: readonly VerificationExpression[],
+  features: VerificationLogicFeatures = createVerificationLogicFeatures(),
+): VerificationSort {
+  const signature = theorySignatures.get(symbol);
+  if (!signature) throw new Error(`Symbol '${symbol}' is neither a standard SMT-LIB theory symbol nor a declared function.`);
+  const result = signature(operandSorts, features, operands);
+  if (isSignatureError(result)) throw new Error(`'${symbol}' ${result.error}, got (${operandSorts.map(sortText).join(" ")}).`);
   return result;
 }
 
 function isSignatureError(result: SignatureResult): result is SignatureError {
-  return typeof result !== "string" && hasProperty(result, "error");
+  return typeof result !== "string" && Object.prototype.hasOwnProperty.call(result, "error");
 }
 
 function bindAll(

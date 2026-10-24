@@ -1082,4 +1082,154 @@ describe("unittests:: tspp:: formal contracts", () => {
       assert.include(artifact.solverInput, "(assert (not (tspp.std.isEven.Int 4)))");
     });
   });
+
+  describe("logic libraries", () => {
+    // A compact ambient typing; the published declaration is exercised by packages/examples.
+    const smtTypes = `
+      declare module "ts-plus-plus/smt" {
+        export interface Sort<T> { readonly value?: T; }
+        export interface Term<T> { readonly value?: T; }
+        export type Parameter = readonly [string, Sort<any>];
+        export type Terms<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? Term<T> : never; };
+        export type Values<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? T : never; };
+        export interface LogicFunction<A extends readonly unknown[], R> { (...args: A): R; readonly "tspp.logic.definition": unknown; }
+        export const Int: Sort<bigint>;
+        export function definePredicate<const P extends readonly Parameter[]>(name: string, parameters: P, body: (...args: Terms<P>) => any): LogicFunction<Values<P>, boolean>;
+        export function defineRecursiveFunction<const P extends readonly Parameter[], R>(name: string, parameters: P, result: Sort<R>, body: (self: any, ...args: Terms<P>) => any): LogicFunction<Values<P>, R>;
+        export function declareFunction<const P extends readonly Parameter[], R>(name: string, parameters: P, result: Sort<R>, options?: { axioms?: (self: any) => any }): LogicFunction<Values<P>, R>;
+        export const js: any;
+        export function and(...values: any[]): any;
+        export function not(value: any): any;
+        export function eq(left: any, right: any): any;
+        export function le(left: any, right: any): any;
+        export function ge(left: any, right: any): any;
+        export function add(...values: any[]): any;
+        export function sub(...values: any[]): any;
+        export function ite(c: any, a: any, b: any): any;
+        export function apply(fn: any, ...args: any[]): any;
+        export function axiom(label: string, formula: any): any;
+        export function forall(parameters: any, body: (...args: any) => any): any;
+      }
+    `;
+    const library = `
+      import * as smt from "ts-plus-plus/smt";
+      export const isMultipleOf = smt.definePredicate(
+        "isMultipleOf",
+        [["value", smt.Int], ["factor", smt.Int]],
+        (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+      );
+      export const triangular = smt.defineRecursiveFunction("triangular", [["n", smt.Int]], smt.Int, (self, n) => smt.ite(smt.le(n, 0n), 0n, smt.add(n, smt.apply(self, smt.sub(n, 1n)))));
+      export const bound = smt.declareFunction("bound", [["n", smt.Int]], smt.Int, {
+        axioms: self => [smt.axiom("bound is non-negative", smt.forall([["n", smt.Int]], n => smt.ge(smt.apply(self, n), 0n)))],
+      });
+      export const broken = smt.definePredicate("broken", [["value", smt.Int]], value => smt.add(value, 1n));
+      // Top-level code outside the logic declarations must not run at compile time.
+      (globalThis as any).tsppLogicSideEffect = ((globalThis as any).tsppLogicSideEffect ?? 0) + 1;
+    `;
+
+    async function createLogicProgram(main: string, tsppFeatures = ["formalContracts", "smtLibraries"]) {
+      const options: ts.CompilerOptions = { noLib: true, noImplicitAny: false, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, tsppFeatures };
+      const fs = vfs.createFromFileSystem(Harness.IO, /*ignoreCase*/ true, {
+        documents: [
+          new documents.TextDocument("/smt.d.ts", smtTypes),
+          new documents.TextDocument("/logic.tspp", library),
+          new documents.TextDocument("/main.tspp", main),
+        ],
+        cwd: "/",
+      });
+      const host = new fakes.CompilerHost(fs, options);
+      const program = await ts.createProgramAsync({ host, rootNames: ["/smt.d.ts", "/logic.tspp", "/main.tspp"], options });
+      const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+      return { program, messages };
+    }
+
+    it("proves contracts that call user-defined logic functions", async () => {
+      const before = (globalThis as any).tsppLogicSideEffect;
+      const { program, messages } = await createLogicProgram(`
+        import { isMultipleOf, triangular } from "./logic";
+        export function roundDown(value: bigint, factor: bigint) with {
+          requires: [value >= 0n, factor > 0n];
+          ensures: isMultipleOf(result, factor);
+        }: bigint {
+          return value - value % factor;
+        }
+        export function sumTo(n: bigint) with { requires: n >= 0n; ensures: result === triangular(n); }: bigint {
+          let index = 0n;
+          let total = 0n;
+          while (index < n) with { invariant: [index >= 0n, index <= n, total === triangular(index)]; } {
+            index += 1n;
+            total += index;
+          }
+          return total;
+        }
+      `);
+      assert.deepEqual(messages, []);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.isTrue(artifacts.every(artifact => artifact.status === "proved"), artifacts.map(artifact => `${artifact.name}: ${artifact.status} ${artifact.message}`).join("\n"));
+      const roundDown = artifacts.find(artifact => artifact.name.startsWith("roundDown postcondition"))!;
+      assert.include(roundDown.solverInput, "; logic function isMultipleOf (ts-plus-plus/smt)\n(define-fun isMultipleOf ((value Int) (factor Int)) Bool");
+      assert.isUndefined(roundDown.trustedInputs);
+      const sumTo = artifacts.find(artifact => artifact.name.startsWith("sumTo postcondition"))!;
+      assert.include(sumTo.solverInput, "(define-fun-rec triangular");
+      assert.deepEqual(sumTo.trustedInputs, ["recursive definition triangular (recursive logic function triangular (ts-plus-plus/smt))"]);
+      assert.equal((globalThis as any).tsppLogicSideEffect, before, "only the logic declarations run at compile time");
+    });
+
+    it("reports a failed proof with a counterexample through a logic function", async () => {
+      const { program } = await createLogicProgram(`
+        import { isMultipleOf } from "./logic";
+        export function wrong(value: bigint) with { ensures: isMultipleOf(result, 3n); }: bigint { return value; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "failed");
+      assert.match(artifact.counterexample!, /^value = -?\d+$/);
+    });
+
+    it("reports the axioms a proof relies on", async () => {
+      const { program } = await createLogicProgram(`
+        import { bound } from "./logic";
+        export function check(n: bigint) with { ensures: bound(n) + 1n > 0n; }: bigint { return n; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "proved");
+      assert.deepEqual(artifact.trustedInputs, ["bound is non-negative (axiom of bound)"]);
+      assert.include(artifact.solverInput, "(declare-fun bound (Int) Int)");
+    });
+
+    it("keeps logic functions out of executable code", async () => {
+      const { program, messages } = await createLogicProgram(`
+        import { isMultipleOf } from "./logic";
+        export function f(x: bigint) with { requires: x > 0n; }: bigint {
+          if (isMultipleOf(x, 2n)) return x;
+          return 0n;
+        }
+      `);
+      assert.include(messages.join("\n"), "Logic function 'isMultipleOf' can only be used in a formal verification specification.");
+      assert.isTrue(program.getVerificationArtifacts!().every(artifact => artifact.status === "unknown"));
+    });
+
+    it("requires the smtLibraries feature", async () => {
+      const { program, messages } = await createLogicProgram(
+        `
+        import { isMultipleOf } from "./logic";
+        export function f(x: bigint) with { ensures: isMultipleOf(result, 1n); }: bigint { return x; }
+      `,
+        ["formalContracts"],
+      );
+      assert.include(messages.join("\n"), "smtLibraries");
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "unknown");
+      assert.include(artifact.message, "requires the TS++ feature 'smtLibraries'");
+    });
+
+    it("turns a definition that fails at compile time into an unknown with its reason", async () => {
+      const { program } = await createLogicProgram(`
+        import { broken } from "./logic";
+        export function f(x: bigint) with { ensures: broken(result); }: bigint { return x; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "unknown");
+      assert.include(artifact.message, "Logic function 'broken' could not be evaluated: The body of 'broken' has sort Int, expected Bool.");
+    });
+  });
 });

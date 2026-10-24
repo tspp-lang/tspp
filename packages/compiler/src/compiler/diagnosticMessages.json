@@ -8675,5 +8675,9 @@
   "Enable missing TS++ features and their required dependencies": {
     "category": "Message",
     "code": 18091
+  },
+  "Logic function '{0}' can only be used in a formal verification specification.": {
+    "category": "Error",
+    "code": 18092
   }
 }

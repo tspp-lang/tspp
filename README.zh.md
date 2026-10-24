@@ -113,10 +113,11 @@ TS++ 把 TypeScript 作为稳定的兼容层与 FFI 边界：
 | --- | --- | --- | --- | --- |
 | `higherKindedTypes` | 高阶类型参数和一等类型构造器；种类注解（如 `F: Type => Type`）需要额外开启 `typeUniverses` | 无 | 是 | 是 |
 | `nominalTypes` | `newtype` 名义类型声明、`data` ADT 可辨识联合、变体构造器与穷尽值层 `match` | 无 | 是 | 否（生成运行时变体值、构造器与匹配分派） |
-| `macros` | `macro function` 声明与编译期 `macro f(Target);` 语句展开 | 无 | 是 | 否（宏调用可以替换生成的语句） |
+| `macros` | `macro function` 声明与编译期 `macro f(Target);` 语句展开；公共 SDK `ts-plus-plus/macros` | 无 | 是 | 否（宏调用可以替换生成的语句） |
 | `formalContracts` | 由 SMT 求解器验证的 `requires`、`ensures` 和 `while` 循环不变式（输出标准 SMT-LIB 2.6，不依赖特定求解器） | 无 | 是 | 是 |
 | `standardLibraryPredicates` | 标准库数值谓词 `isEven`、`isOdd`、`isPositive`、`isNegative`、`isNonNegative`、`isZero`、`divides`、`between`；`number` 需设置 `numberModel`（`"mathematical-real"` 或 `"safe-integer"`） | `formalContracts` | 是 | 是 |
 | `refinementTypes` | 由 SMT 求解器验证结构类型别名引入点的谓词 | `formalContracts` | 是 | 是 |
+| `smtLibraries` | 用 `ts-plus-plus/smt` 编写的用户逻辑函数、谓词与公理，可在契约中调用；逻辑库模块在编译期执行 | `formalContracts` | 是 | 是（逻辑函数只用于规格） |
 | `typeComputation` | 类型层局部绑定 `let X = T in U`、模式匹配 `match T { ... }` 与类型 lambda `<T> =>> Body` | 无 | 是 | 是 |
 | `modernSyntax` | 值层 `let ... in ...` 表达式、`do { ... }` 语句块表达式、`do` 函数/方法隐式返回，以及 `use pattern <- expr` 尾随回调解糖 | 无 | 是 | 否（生成运行时 IIFE、尾随闭包回调与显式 return） |
 | `typeUniverses` | `Type0`、`Type1` 等类型宇宙与 kind 分层 | `higherKindedTypes` | 是 | 是 |
@@ -175,6 +176,26 @@ function sumTo(n: bigint) with {
 每个证明义务都会得到 `proved`、`failed`、`unknown` 或 `error` 状态，任务结果还会区分取消与超时。不支持的语法以及求解器不可用都会产生 `unknown` 编译错误，绝不会伪装成证明成功。`Program.getVerificationArtifacts()` 会公开实际求解器输入、可重放的 SMT-LIB、状态、解码后的源码级反例、原始模型、证明所依赖的受信输入和源码位置。SMT-LIB 中每条断言都带有标注其类别与来源的注释，库定义也会注明出处。开发扩展中的 **TS++: Show Verification SMT-LIB** 命令会在源码旁一次打开当前文件的全部输入，按源码位置排序并标注对应行号。
 
 可以在被验证函数中使用 `assert: condition;` 创建局部证明义务。`assume: condition;` 则不进行证明，直接把可信条件加入后续路径事实；它适合验证器无法建模的外部边界，但错误假设会使证明失去意义。依赖了假设的证明会在消息和 `trustedInputs` 中说明这一点。`assert:`/`assume:` 语句形式保留给证明指令，因此用户自定义的 `assert` 或 `assume` 函数在任何位置都保持普通调用语义。两者都会从 JavaScript 输出中擦除。在开发扩展中悬停于证明义务上，可以直接看到状态与源码级反例。
+
+### 逻辑库
+
+开启 `smtLibraries` 后，契约可以调用在普通模块中用 `ts-plus-plus/smt` 定义的逻辑函数：
+
+```ts
+import * as smt from "ts-plus-plus/smt";
+
+export const isMultipleOf = smt.definePredicate(
+  "isMultipleOf",
+  [["value", smt.Int], ["factor", smt.Int]],
+  (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+);
+```
+
+之后 `requires: isMultipleOf(x, 3n)` 的用法与标准谓词相同。编译器按函数类型携带的定义识别调用，而不是按名字；它通过与宏相同的执行接缝，在编译期只执行这个声明及其依赖，并把结果当作不受信输入重新校验。逻辑函数只能用于规格：在其他位置调用会得到编译错误，运行时调用会抛错。非递归定义生成 `define-fun`，不引入受信输入；`defineRecursiveFunction`（`define-fun-rec`，不检查终止性）和 `declareFunction` 的公理属于受信输入，证明用到时会被报告。`ts-plus-plus/smt` 是一个独立的小模块；编译期间编译器提供自己内置的同一份实现，因此 IR 总与当前编译器一致。
+
+## 编译期宏 SDK
+
+宏从 `ts-plus-plus/macros` 导入 API，正在运行的编译器会把这个模块提供给它执行的每个宏（Node 与浏览器宿主相同）。版本 1（`macroApiVersion`）承诺以下内容稳定：宏类型（`MacroTarget`、`MacroContext`、`MacroResult`、`MacroReturn`、`MacroFailure`、`MacroDiagnostic`、`MacroFunction`、`MacroTimeout`）、精选的 AST 节点类型与类型守卫、`SyntaxKind`、`NodeFlags`、`DiagnosticCategory`、`forEachChild` 和 `idText`；`context.factory` 是推荐的节点创建方式。`context.program`、`context.checker` 以及 `import * as ts from "ts-plus-plus"` 仍然可用，但它们是只读、与编译器版本耦合的能力，不做兼容性承诺。
 
 ## 穷尽值匹配
 

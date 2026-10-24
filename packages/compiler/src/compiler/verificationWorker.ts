@@ -270,12 +270,13 @@ const { parentPort, workerData } = require("node:worker_threads");
 async function run() {
   const z3 = require(workerData.z3Path);
   const { Z3 } = await z3.init();
-  const context = Z3.mk_context(Z3.mk_config());
-  const evaluate = text => Z3.eval_smtlib2_string(context, text);
+  const config = Z3.mk_config();
   const responses = [];
   for (const request of workerData.requests) {
+    // A fresh context per query: Z3's (reset) keeps define-fun-rec definitions.
+    const context = Z3.mk_context(config);
+    const evaluate = text => Z3.eval_smtlib2_string(context, text);
     try {
-      await evaluate("(reset)");
       const loaded = await evaluate("(set-option :timeout " + request.timeoutMs + ")\n" + request.script);
       const loadError = loaded.match(/\(error [^\n]*/);
       if (loadError) {
@@ -292,6 +293,9 @@ async function run() {
     }
     catch (error) {
       responses.push({ status: "error", message: error instanceof Error ? error.message : String(error) });
+    }
+    finally {
+      Z3.del_context(context);
     }
   }
   return responses;

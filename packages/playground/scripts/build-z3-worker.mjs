@@ -108,12 +108,13 @@ function initApi() {
 async function runRequests(requests) {
   const api = await initApi();
   const Z3 = api.Z3;
-  const context = Z3.mk_context(Z3.mk_config());
-  const evaluate = text => Z3.eval_smtlib2_string(context, text);
+  const config = Z3.mk_config();
   const responses = [];
   for (const request of requests) {
+    // A fresh context per query: Z3's (reset) keeps define-fun-rec definitions.
+    const context = Z3.mk_context(config);
+    const evaluate = text => Z3.eval_smtlib2_string(context, text);
     try {
-      await evaluate("(reset)");
       const loaded = await evaluate("(set-option :timeout " + request.timeoutMs + ")\\n" + request.script);
       const loadError = loaded.match(/\\(error [^\\n]*/);
       if (loadError) {
@@ -130,6 +131,9 @@ async function runRequests(requests) {
     }
     catch (error) {
       responses.push({ status: "error", message: (error && error.message) || String(error) });
+    }
+    finally {
+      Z3.del_context(context);
     }
   }
   return responses;

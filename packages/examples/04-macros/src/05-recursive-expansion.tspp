@@ -2,16 +2,16 @@
  * 宏可以返回另一个宏调用。编译器会持续展开返回的宏调用，
  * 直到最终结果仅包含普通语句为止。
  */
-import * as ts from "ts-plus-plus";
+import * as macros from "ts-plus-plus/macros";
 
 interface RecursiveUser {
   id: number;
 }
 
 export macro function beginRecursiveExpansion(
-  [target]: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroResult {
+  [target]: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroResult {
   // 返回对 continueRecursiveExpansion 的宏调用
   return context.factory.createMacroInvocationStatement(
     context.factory.createIdentifier("continueRecursiveExpansion"),
@@ -20,9 +20,9 @@ export macro function beginRecursiveExpansion(
 }
 
 export macro function continueRecursiveExpansion(
-  [target]: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroResult {
+  [target]: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroResult {
   // 返回对 finishRecursiveExpansion 的宏调用
   return context.factory.createMacroInvocationStatement(
     context.factory.createIdentifier("finishRecursiveExpansion"),
@@ -31,13 +31,13 @@ export macro function continueRecursiveExpansion(
 }
 
 export macro function finishRecursiveExpansion(
-  [target]: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroResult {
+  [target]: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroResult {
   // 生成普通 const 变量声明语句，终止递归展开
   const literal = context.factory.createStringLiteral(target.name);
   return context.factory.createVariableStatement(
-    [context.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    [context.factory.createModifier(macros.SyntaxKind.ExportKeyword)],
     context.factory.createVariableDeclarationList(
       [
         context.factory.createVariableDeclaration(
@@ -47,7 +47,7 @@ export macro function finishRecursiveExpansion(
           literal,
         ),
       ],
-      ts.NodeFlags.Const,
+      macros.NodeFlags.Const,
     ),
   );
 }

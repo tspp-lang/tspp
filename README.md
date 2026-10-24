@@ -116,10 +116,11 @@ Current features:
 | --- | --- | --- | --- | --- |
 | `higherKindedTypes` | Higher-kinded parameters and first-class type constructors; kind annotations such as `F: Type => Type` additionally require `typeUniverses` | — | Yes | Yes |
 | `nominalTypes` | `newtype` nominal declarations, `data` ADT discriminated unions, variant constructors, and exhaustive value-level `match` | — | Yes | No (emits runtime constructors, variant values, and match dispatch) |
-| `macros` | `macro function` declarations and compile-time `macro f(Target);` statement expansion | — | Yes | No (macro calls can replace emitted statements) |
+| `macros` | `macro function` declarations and compile-time `macro f(Target);` statement expansion; public SDK `ts-plus-plus/macros` | — | Yes | No (macro calls can replace emitted statements) |
 | `formalContracts` | SMT-verified `requires`, `ensures`, and `while` invariants (standard SMT-LIB 2.6, solver-independent) | — | Yes | Yes |
 | `standardLibraryPredicates` | Built-in numeric predicates `isEven`, `isOdd`, `isPositive`, `isNegative`, `isNonNegative`, `isZero`, `divides`, and `between`; `number` requires a `numberModel` (`"mathematical-real"` or `"safe-integer"`) | `formalContracts` | Yes | Yes |
 | `refinementTypes` | SMT-verified predicates on structural type aliases | `formalContracts` | Yes | Yes |
+| `smtLibraries` | User logic functions, predicates, and axioms written with `ts-plus-plus/smt` and called from contracts; logic modules run at compile time | `formalContracts` | Yes | Yes (logic functions are specification-only) |
 | `typeComputation` | Type-level `let X = T in U` bindings, pattern matching `match T { ... }`, and type lambdas `<T> =>> Body` | — | Yes | Yes |
 | `modernSyntax` | Value-level `let ... in ...` expressions, `do { ... }` block expressions, `do` functions/methods with implicit return, and `use pattern <- expr` trailing closure desugaring | — | Yes | No (emits runtime IIFEs, trailing closure callbacks, and explicit returns) |
 | `typeUniverses` | `Type0`, `Type1`, … and kind stratification | `higherKindedTypes` | Yes | Yes |
@@ -178,6 +179,26 @@ The current subset covers `boolean`, `bigint`, and `string`, local variables, as
 Every obligation is reported as `proved`, `failed`, `unknown`, or `error`, with task outcomes distinguishing cancellation and timeout. Unsupported syntax and unavailable solver environments are compilation errors with an `unknown` result, never a successful proof. `Program.getVerificationArtifacts()` exposes the exact solver input, replayable SMT-LIB, status, decoded source-level counterexample, raw model, the trusted inputs a proof relies on, and source location. Each assertion in the SMT-LIB carries a comment with its kind and source, and library definitions carry their origin. The development extension's **TS++: Show Verification SMT-LIB** command opens every replayable input for the current file beside the source, ordered and annotated with its source lines.
 
 Use `assert: condition;` inside a verified function to create a local proof obligation. `assume: condition;` skips proof and adds a trusted fact to the following path; it is intended for external boundaries the verifier cannot model, and a false assumption makes subsequent proofs unsound. A proof that uses an assumption says so in its message and `trustedInputs`. The `assert:`/`assume:` statement form is reserved for these proof directives, so calls to user-defined functions named `assert` or `assume` keep their ordinary meaning in all positions. Both directives are erased from JavaScript output. Hovering an obligation in the development extension shows its status and source-level counterexample directly.
+
+### Logic libraries
+
+With `smtLibraries`, contracts can call logic functions defined in ordinary modules with `ts-plus-plus/smt`:
+
+```ts
+import * as smt from "ts-plus-plus/smt";
+
+export const isMultipleOf = smt.definePredicate(
+  "isMultipleOf",
+  [["value", smt.Int], ["factor", smt.Int]],
+  (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+);
+```
+
+`requires: isMultipleOf(x, 3n)` then works like a standard predicate. Calls are recognized by the definition the function's type carries, not by name; the compiler evaluates only that declaration and its dependencies at compile time, through the same execution seam as macros, and re-validates the result as untrusted input. Logic functions are specification-only: calling one elsewhere is a compile error, and calling it at runtime throws. Non-recursive definitions become `define-fun`s and add no trusted input; `defineRecursiveFunction` (`define-fun-rec`, unchecked termination) and the axioms of `declareFunction` are trusted inputs and are reported when a proof uses them. `ts-plus-plus/smt` is a small standalone module; during compilation the compiler serves its own copy, so the IR always matches the running compiler.
+
+## Compile-time macro SDK
+
+Macros import their API from `ts-plus-plus/macros`, which the running compiler serves to every macro it executes (in Node and in browser hosts). Version 1 (`macroApiVersion`) promises stability for the macro types (`MacroTarget`, `MacroContext`, `MacroResult`, `MacroReturn`, `MacroFailure`, `MacroDiagnostic`, `MacroFunction`, `MacroTimeout`), the curated AST node types and type guards, `SyntaxKind`, `NodeFlags`, `DiagnosticCategory`, `forEachChild`, and `idText`; `context.factory` is the supported way to create nodes. `context.program`, `context.checker`, and `import * as ts from "ts-plus-plus"` remain available as read-only, same-version-coupled capabilities without a compatibility promise.
 
 ## Exhaustive value matching
 

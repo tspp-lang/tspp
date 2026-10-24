@@ -162,7 +162,7 @@ const absoluteB = verificationApplication("abs", b);
  * sign(a) * sign(b) * floor(|a| / |b|); SMT `div` by a positive divisor is
  * floor division, so `div` of the absolute values is the truncated magnitude.
  */
-const truncatedDivision: VerificationFunction = {
+export const truncatedDivision: VerificationFunction = {
   name: "tspp.js.trunc.div",
   parameters: [{ name: "a", sort: "Int" }, { name: "b", sort: "Int" }],
   sort: "Int",
@@ -179,7 +179,7 @@ const truncatedDivision: VerificationFunction = {
  * JavaScript `%` on integers: the remainder takes the sign of the dividend,
  * e.g. -3n % 2n === -1n, whereas SMT `mod` is always non-negative.
  */
-const truncatedRemainder: VerificationFunction = {
+export const truncatedRemainder: VerificationFunction = {
   name: "tspp.js.trunc.rem",
   parameters: [{ name: "a", sort: "Int" }, { name: "b", sort: "Int" }],
   sort: "Int",

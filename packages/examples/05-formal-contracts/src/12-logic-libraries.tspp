@@ -1,0 +1,67 @@
+// Logic functions are ordinary declarations written with ts-plus-plus/smt.
+// They usually live in their own module and are imported like any other
+// value; this chapter keeps them in one file. The compiler evaluates only
+// these declarations and what they reference at compile time (the rest of the
+// file does not run then) and prints each definition into the SMT-LIB of
+// every proof that uses it.
+import * as smt from "ts-plus-plus/smt";
+
+// A non-recursive predicate becomes a `define-fun`: a conservative definition
+// that adds no trusted input. `smt.js.rem` is JavaScript's `%`, the same
+// definition the compiler uses for program code.
+export const isMultipleOf = smt.definePredicate(
+  "isMultipleOf",
+  [["value", smt.Int], ["factor", smt.Int]],
+  (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+);
+
+// Quantifiers are ordinary terms: "value is the largest multiple of factor
+// that is at most limit".
+export const isLargestMultipleBelow = smt.definePredicate(
+  "isLargestMultipleBelow",
+  [["value", smt.Int], ["factor", smt.Int], ["limit", smt.Int]],
+  (value, factor, limit) =>
+    smt.and(
+      smt.apply(isMultipleOf, value, factor),
+      smt.le(value, limit),
+      smt.forall([["other", smt.Int]], other => smt.implies(smt.and(smt.apply(isMultipleOf, other, factor), smt.le(other, limit)), smt.le(other, value))),
+    ),
+);
+
+// A recursive definition is a `define-fun-rec`. Nothing checks that it
+// terminates, so every proof that reaches it reports it as a trusted input.
+export const triangular = smt.defineRecursiveFunction(
+  "triangular",
+  [["n", smt.Int]],
+  smt.Int,
+  (self, n) => smt.ite(smt.le(n, 0n), 0n, smt.add(n, smt.apply(self, smt.sub(n, 1n)))),
+);
+
+// Contracts call logic functions like ordinary functions. They are
+// recognized by the definition their type carries, not by name, and they
+// cannot run: calling one outside a specification is a compile error.
+
+export function roundDown(value: bigint, factor: bigint) with {
+  requires: [value >= 0n, factor > 0n];
+  ensures: [isMultipleOf(result, factor), result <= value, value - result < factor, isLargestMultipleBelow(result, factor, value)];
+}: bigint {
+  return value - value % factor;
+}
+
+export function sumTo(n: bigint) with {
+  requires: n >= 0n;
+  ensures: result === triangular(n);
+}: bigint {
+  let index = 0n;
+  let total = 0n;
+  while (index < n) with {
+    invariant: [index >= 0n, index <= n, total === triangular(index)];
+  } {
+    index += 1n;
+    total += index;
+  }
+  return total;
+}
+
+console.log(`roundDown(17, 5) = ${roundDown(17n, 5n)}`);
+console.log(`sumTo(10) = ${sumTo(10n)}`);

@@ -816,6 +816,7 @@ import {
   isVariableDeclarationList,
   isVariableLike,
   isVariableStatement,
+  isVoidExpression,
   isWithProperty,
   isWriteAccess,
   isWriteOnlyAccess,
@@ -1221,6 +1222,7 @@ import {
   printMlttTerm,
   weakHeadNormalizeMltt,
 } from "./mlttCore.js";
+import { logicDefinitionKey } from "./smtLibrary.js";
 import {
   getStandardPredicateDefinition,
   isStandardPredicateSymbol,
@@ -39994,6 +39996,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       error(node.expression, Diagnostics.Standard_predicate_0_can_only_be_used_in_a_formal_verification_predicate, idText(node.expression));
     }
 
+    if (isCallExpression(node) && getPropertyOfType(getTypeOfExpression(node.expression), logicDefinitionKey as __String)) {
+      if (!isLogicFunctionContext(node)) {
+        error(node.expression, Diagnostics.Logic_function_0_can_only_be_used_in_a_formal_verification_specification, getTextOfNode(node.expression));
+      }
+      else {
+        requireTsppFeature(node.expression, "smtLibraries");
+      }
+    }
+
     const signature = getResolvedSignature(node, /*candidatesOutArray*/ undefined, checkMode);
     if (signature === resolvingSignature) {
       // CheckMode.SkipGenericFunctions is enabled and this is a call to a generic function that
@@ -48438,6 +48449,16 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       if (predicateResult) return predicateResult;
     }
     return checkTruthinessOfType(checkExpression(node, checkMode), node);
+  }
+
+  /** Specifications that may call logic functions: contract clauses and `assert:`/`assume:` conditions. */
+  function isLogicFunctionContext(node: Node): boolean {
+    if (isVerificationPredicateContext(node)) return true;
+    for (let current: Node | undefined = node; current; current = current.parent) {
+      if (isVoidExpression(current) && (current.tsppAssert || current.tsppAssume)) return true;
+      if (isFunctionLike(current)) return false;
+    }
+    return false;
   }
 
   function isVerificationPredicateContext(node: Node): boolean {

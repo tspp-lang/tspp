@@ -110,8 +110,19 @@ export interface VerificationFunction {
   readonly sort: VerificationSort;
   readonly body?: VerificationExpression;
   readonly recursive?: boolean;
+  /**
+   * Closed Boolean formulas asserted whenever the function is reachable.
+   * Axioms are trusted inputs: they are named and reported when a proof
+   * depends on them, because a wrong axiom can make every goal provable.
+   */
+  readonly axioms?: readonly VerificationAxiom[];
   /** Where the symbol comes from, printed next to its SMT-LIB declaration. */
   readonly origin: string;
+}
+
+export interface VerificationAxiom {
+  readonly label: string;
+  readonly expression: VerificationExpression;
 }
 
 /**

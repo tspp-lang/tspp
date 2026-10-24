@@ -1,4 +1,8 @@
 import {
+  CompileTimeModuleLoader,
+  createCompileTimeModuleLoader,
+} from "./compileTimeModules.js";
+import {
   isArrayLiteralExpression,
   isBinaryExpression,
   isBlock,
@@ -19,6 +23,7 @@ import {
   isPropertyAssignment,
   isReturnStatement,
   isShorthandPropertyAssignment,
+  isSourceFile,
   isStringLiteral,
   isSwitchStatement,
   isTypeAliasDeclaration,
@@ -34,6 +39,7 @@ import {
   getLineAndCharacterOfPosition,
   skipTrivia,
 } from "./scanner.js";
+import { logicDefinitionKey } from "./smtLibrary.js";
 import {
   getStandardPredicateDefinition,
   getStandardPredicateFunction,
@@ -41,6 +47,7 @@ import {
   standardPredicateDefinitions,
   type StandardPredicateName,
 } from "./standardPredicates.js";
+import { hasTsppFeature } from "./tsppFeatures.js";
 import {
   Block,
   CallExpression,
@@ -67,10 +74,13 @@ import {
   TypeChecker,
   TypeFlags,
   TypeNode,
+  VariableDeclaration,
+  VariableStatement,
   VerificationArtifact,
   WhileStatement,
   WithClause,
 } from "./types.js";
+import { getSourceFileOfNode } from "./utilities.js";
 import {
   idText,
   isFunctionLike,
@@ -78,6 +88,7 @@ import {
 import {
   createVerificationConstant as freshConstant,
   createVerificationContext,
+  LogicFunctionResolver,
   VerificationContext,
 } from "./verificationContext.js";
 import {
@@ -104,6 +115,10 @@ import {
   VerificationTerm,
 } from "./verificationIR.js";
 import {
+  LogicFunctionDefinitions,
+  readLogicFunction,
+} from "./verificationLogicLibrary.js";
+import {
   getNumberModelAssumption,
   getSafeIntegerRangeFact,
   isVerificationNumberModel,
@@ -112,6 +127,8 @@ import {
   lowerNumericLiteral,
   ProgramArithmeticOperator,
   ProgramOperationResult,
+  truncatedDivision,
+  truncatedRemainder,
   VerificationNumberModel,
 } from "./verificationProgramSemantics.js";
 import {
@@ -121,7 +138,10 @@ import {
   VerificationRefinementState as SymbolicState,
   VerificationReturnPath as ReturnPath,
 } from "./verificationRefinement.js";
-import { encodeVerificationProblem } from "./verificationSmt.js";
+import {
+  encodeVerificationProblem,
+  VerificationSmtEncoding,
+} from "./verificationSmt.js";
 import {
   createVerificationArtifact,
   createVerificationDiagnostic,
@@ -151,14 +171,15 @@ export async function verifyFormalContracts(program: Program, host?: CompilerHos
   cancellationToken?.throwIfCancellationRequested();
   const checker = program.getTypeChecker();
   const pending: PendingVerificationTask[] = [];
+  const logicFunctions = createLogicFunctionResolver(program, host);
   for (const sourceFile of program.getSourceFiles()) {
     cancellationToken?.throwIfCancellationRequested();
     if (sourceFile.isDeclarationFile) continue;
-    analyzeTopLevelCalls(checker, sourceFile, pending);
+    analyzeTopLevelCalls(checker, sourceFile, pending, logicFunctions);
     visit(sourceFile, node => {
       cancellationToken?.throwIfCancellationRequested();
       if (!isFunctionDeclaration(node) || !node.body || !needsVerification(checker, node)) return;
-      analyzeFunction(checker, sourceFile, node, pending);
+      analyzeFunction(checker, sourceFile, node, pending, logicFunctions);
     });
   }
 
@@ -215,25 +236,25 @@ function needsVerification(checker: TypeChecker, declaration: FunctionDeclaratio
   return found;
 }
 
-function analyzeTopLevelCalls(checker: TypeChecker, sourceFile: SourceFile, pending: PendingVerificationTask[]): void {
+function analyzeTopLevelCalls(checker: TypeChecker, sourceFile: SourceFile, pending: PendingVerificationTask[], logicFunctions: LogicFunctionResolver): void {
   const visitTopLevel = (node: Node): void => {
     if (node !== sourceFile && isFunctionLike(node)) return;
     if (isVariableDeclaration(node) && node.initializer) {
       const refinement = getRefinementTypeTarget(checker, node.type);
       if (refinement) {
-        const context = createVerificationContext(checker, sourceFile, refinement, pending, getNumberModel(refinement.withClause));
+        const context = createVerificationContext(checker, sourceFile, refinement, pending, getNumberModel(refinement.withClause), logicFunctions);
         verifyRefinementValue(context, { values: new Map(), facts: [] }, node, refinement, node.initializer);
       }
     }
     if (isCallExpression(node)) {
       const refinement = getRefinementTarget(checker, node);
       if (refinement) {
-        const context = createVerificationContext(checker, sourceFile, refinement, pending, getNumberModel(refinement.withClause));
+        const context = createVerificationContext(checker, sourceFile, refinement, pending, getNumberModel(refinement.withClause), logicFunctions);
         verifyRefinementIntroduction(context, { values: new Map(), facts: [] }, node, refinement);
       }
       const target = getCallTarget(checker, node);
       if (target && getProperties(target.withClause, "requires").length) {
-        const context = createVerificationContext(checker, sourceFile, target, pending, getNumberModel(target.withClause));
+        const context = createVerificationContext(checker, sourceFile, target, pending, getNumberModel(target.withClause), logicFunctions);
         verifyCallPreconditions(context, { values: new Map(), facts: [] }, node, target, /*resultUsed*/ false);
       }
     }
@@ -245,9 +266,9 @@ function analyzeTopLevelCalls(checker: TypeChecker, sourceFile: SourceFile, pend
   visitTopLevel(sourceFile);
 }
 
-function analyzeFunction(checker: TypeChecker, sourceFile: SourceFile, declaration: FunctionDeclaration, pending: PendingVerificationTask[]): void {
+function analyzeFunction(checker: TypeChecker, sourceFile: SourceFile, declaration: FunctionDeclaration, pending: PendingVerificationTask[], logicFunctions: LogicFunctionResolver): void {
   const returnRefinement = getRefinementTypeTarget(checker, declaration.type);
-  const context = createVerificationContext(checker, sourceFile, declaration, pending, getNumberModel(declaration.withClause) || getNumberModel(returnRefinement?.withClause));
+  const context = createVerificationContext(checker, sourceFile, declaration, pending, getNumberModel(declaration.withClause) || getNumberModel(returnRefinement?.withClause), logicFunctions);
   const initial: SymbolicState = { values: new Map(), facts: [] };
   for (const parameter of declaration.parameters) {
     if (!isIdentifier(parameter.name)) {
@@ -897,6 +918,8 @@ function getNarrowedVariantName(checker: TypeChecker, type: Type): string | unde
 }
 
 function translateCallExpression(context: VerificationContext, state: SymbolicState, expression: CallExpression, resultUsed: boolean, result?: Term): Term | string {
+  const logicFunction = getLogicFunctionDeclaration(context.checker, expression);
+  if (logicFunction) return translateLogicFunctionCall(context, state, expression, logicFunction, result);
   const standardPredicate = getStandardPredicateName(context.checker, expression);
   if (standardPredicate) return translateStandardPredicate(context, state, expression, standardPredicate, result);
   const callee = isIdentifier(expression.expression) ? getAliasedSymbolOf(context.checker, expression.expression) : undefined;
@@ -907,6 +930,114 @@ function translateCallExpression(context: VerificationContext, state: SymbolicSt
   const target = getCallTarget(context.checker, expression);
   if (!target) return `Call '${sourceText(context, expression)}' does not resolve to a supported project function declaration.`;
   return verifyCallPreconditions(context, state, expression, target, resultUsed);
+}
+
+/**
+ * Recognizes a call to a logic function defined with `ts-plus-plus/smt` by
+ * the definition its callee's type carries, not by name. Returns the
+ * declaration to evaluate, or a reason when the function cannot be read.
+ */
+function getLogicFunctionDeclaration(checker: TypeChecker, expression: CallExpression): VariableDeclaration | string | undefined {
+  const callee = expression.expression;
+  if (!isIdentifier(callee) && !isPropertyAccessExpression(callee)) return undefined;
+  if (!checker.getPropertyOfType(checker.getTypeAtLocation(callee), logicDefinitionKey)) return undefined;
+  const symbol = getAliasedSymbolOf(checker, isIdentifier(callee) ? callee : callee.name);
+  const declaration = symbol?.valueDeclaration;
+  const name = isIdentifier(callee) ? idText(callee) : idText(callee.name);
+  if (
+    !declaration || !isVariableDeclaration(declaration) || !declaration.initializer || !isIdentifier(declaration.name) ||
+    !isVariableStatement(declaration.parent.parent) || !isSourceFile(declaration.parent.parent.parent) || declaration.parent.parent.parent.isDeclarationFile
+  ) {
+    return `Logic function '${name}' must be a top-level variable initialized in a .ts or .tspp source file.`;
+  }
+  return declaration;
+}
+
+function translateLogicFunctionCall(
+  context: VerificationContext,
+  state: SymbolicState,
+  expression: CallExpression,
+  declaration: VariableDeclaration | string,
+  result: Term | undefined,
+): Term | string {
+  if (typeof declaration === "string") return declaration;
+  const name = idText(declaration.name as Identifier);
+  if (!context.specification) return `Logic function '${name}' can only be used in specifications; it is not executable.`;
+  const definitions = context.logicFunctions.resolve(declaration);
+  if (typeof definitions === "string") return definitions;
+  const definition = definitions.function;
+  if (expression.arguments.length !== definition.parameters.length) {
+    return `Logic function '${name}' expects ${definition.parameters.length} argument(s).`;
+  }
+  const operands: VerificationExpression[] = [];
+  for (let i = 0; i < expression.arguments.length; i++) {
+    const argument = translateExpression(context, state, expression.arguments[i], result);
+    if (typeof argument === "string") return argument;
+    if (!verificationSortsEqual(argument.sort, definition.parameters[i].sort)) {
+      return `Argument ${i + 1} of logic function '${name}' does not have the SMT sort of parameter '${definition.parameters[i].name}'.`;
+    }
+    operands.push(argument.expression);
+  }
+  for (const reached of definitions.functions) {
+    const reason = registerLibraryFunction(context, reached);
+    if (reason) return reason;
+  }
+  return { sort: definition.sort, expression: verificationApplication(definition.name, ...operands) };
+}
+
+/**
+ * Adds a library function to the context. Program-semantics definitions are
+ * always the compiler's own; any other name must not be defined differently
+ * by two libraries used in one declaration.
+ */
+function registerLibraryFunction(context: VerificationContext, definition: VerificationFunction): string | undefined {
+  if (definition.name.startsWith("tspp.js.")) {
+    const canonical = [truncatedDivision, truncatedRemainder].find(candidate => candidate.name === definition.name);
+    if (!canonical) return `Logic function '${definition.name}' uses the reserved 'tspp.' prefix.`;
+    useFunction(context, canonical);
+    return undefined;
+  }
+  const existing = context.functions.get(definition.name);
+  if (existing && existing !== definition && JSON.stringify(existing) !== JSON.stringify(definition)) {
+    return `Two different logic functions are named '${definition.name}'.`;
+  }
+  useFunction(context, definition);
+  return undefined;
+}
+
+/** Evaluates logic modules on demand, once per program, with the compile-time module loader. */
+function createLogicFunctionResolver(program: Program, host: CompilerHost | undefined): LogicFunctionResolver {
+  const results = new Map<VariableDeclaration, LogicFunctionDefinitions | string>();
+  let loader: CompileTimeModuleLoader | undefined;
+  return {
+    resolve(declaration) {
+      let result = results.get(declaration);
+      if (result === undefined) {
+        result = resolve(declaration);
+        results.set(declaration, result);
+      }
+      return result;
+    },
+  };
+
+  function resolve(declaration: VariableDeclaration): LogicFunctionDefinitions | string {
+    const name = idText(declaration.name as Identifier);
+    if (!hasTsppFeature(program.getCompilerOptions(), "smtLibraries")) {
+      return `Logic function '${name}' requires the TS++ feature 'smtLibraries', which evaluates logic libraries at compile time.`;
+    }
+    if (!host) return `Logic function '${name}' cannot be evaluated without a compiler host.`;
+    try {
+      loader ??= createCompileTimeModuleLoader(program, host);
+      const statement = declaration.parent.parent as VariableStatement;
+      const exports = loader.evaluate(getSourceFileOfNode(declaration), [statement], [name]);
+      // An exported const compiles to `exports.name = ...` with no local binding.
+      const value = (exports.__tsppLocals as Record<string, unknown> | undefined)?.[name] ?? exports[name];
+      return readLogicFunction(value, name);
+    }
+    catch (error) {
+      return `Logic function '${name}' could not be evaluated: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
 }
 
 function getStandardPredicateName(checker: TypeChecker, expression: CallExpression): StandardPredicateName | undefined {
@@ -1246,7 +1377,16 @@ function addQuery(
     goal,
     modelAssumptions: modelAssumption ? [modelAssumption] : undefined,
   };
-  const { solverInput, replayableSmtLib, query } = encodeVerificationProblem(problem);
+  let encoding: VerificationSmtEncoding;
+  try {
+    encoding = encodeVerificationProblem(problem);
+  }
+  catch (error) {
+    // Library definitions are user input; a malformed one makes this obligation unknown, not the compiler crash.
+    addUnknown(context, node, kind, obligation, name, `The SMT problem is malformed: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  const { solverInput, replayableSmtLib, query } = encoding;
   context.pending.push({
     query,
     artifact: createVerificationArtifact(context.sourceFile, node, kind, obligation, name, "unknown", solverInput, replayableSmtLib, "Waiting for the SMT solver."),

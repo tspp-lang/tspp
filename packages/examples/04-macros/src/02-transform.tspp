@@ -3,7 +3,7 @@
  * 运行：pnpm build && pnpm start
  * 预期：输出 User。
  */
-import * as ts from "ts-plus-plus";
+import * as macros from "ts-plus-plus/macros";
 
 export interface User {
   id: number;
@@ -11,9 +11,9 @@ export interface User {
 }
 
 export macro function exposeTypeName(
-  [target]: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroReturn {
+  [target]: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroReturn {
   // 下面的 factory 调用构造：
   //   export const UserTypeName: "User" = "User";
   const declaration = context.factory.createVariableDeclaration(
@@ -26,10 +26,10 @@ export macro function exposeTypeName(
   );
 
   return context.factory.createVariableStatement(
-    [context.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    [context.factory.createModifier(macros.SyntaxKind.ExportKeyword)],
     context.factory.createVariableDeclarationList(
       [declaration],
-      ts.NodeFlags.Const,
+      macros.NodeFlags.Const,
     ),
   );
 }

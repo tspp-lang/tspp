@@ -353,6 +353,7 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import { createAnalysisTaskId } from "./analysisTasks.js";
+import { createCompileTimeModuleLoader } from "./compileTimeModules.js";
 import { verifyFormalContracts } from "./formalVerification.js";
 import {
   canUseMacroWorkers,
@@ -1532,20 +1533,6 @@ const defaultMacroTimeoutMs = 10_000;
 const maximumMacroTimeoutMs = 2_147_483_647;
 const maximumNestedMacroExpansionDepth = 32;
 
-/** Default CompilerHost.evaluateMacroModule: runs the CommonJS module in this
- *  process and serves non-local specifiers through Node's module loader. */
-function evaluateMacroModuleInNode(javascript: string, fileName: string, requireLocal: (specifier: string) => unknown, moduleRecord: { exports: Record<string, unknown>; }) {
-  let nativeRequire: NodeRequire | undefined;
-  const macroRequire = (specifier: string) => {
-    const local = requireLocal(specifier);
-    if (local !== undefined) return local;
-    nativeRequire ??= (require("module") as typeof import("module")).createRequire(fileName);
-    return nativeRequire(specifier);
-  };
-  // eslint-disable-next-line no-new-func -- The macro module is compiler-generated JavaScript and requires a CommonJS wrapper.
-  const execute = new Function("require", "exports", "module", "__filename", "__dirname", javascript);
-  execute(macroRequire, moduleRecord.exports, moduleRecord, fileName, getDirectoryPath(fileName));
-}
 let cachedMacroBenchmarkMs: number | undefined;
 
 interface MacroTimeoutBudget {
@@ -1587,13 +1574,10 @@ function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsyn
 function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsync?: false): MacroExpansionResult;
 function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsync = false): MacroExpansionResult | Promise<MacroExpansionResult> {
   const checker = program.getTypeChecker();
-  const options = program.getCompilerOptions();
   const sourceFiles = new Map<string, ExpandedMacroSourceFile>();
   const diagnostics: Diagnostic[] = [];
   const printer = createPrinter();
-  const moduleCache = new Map<string, Record<string, unknown>>();
-  let macroProgram: Program | undefined;
-  let macroHost: CompilerHost | undefined;
+  const modules = createCompileTimeModuleLoader(program, host);
   let macroInputKey: string | undefined;
 
   function getMacroInputKey() {
@@ -1621,127 +1605,11 @@ function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsyn
     });
   }
 
-  function getMacroProgram() {
-    if (!macroProgram) {
-      macroHost = Object.create(host) as CompilerHost;
-      macroHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
-        const source = host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
-        if (!source || source.isDeclarationFile || !fileExtensionIs(fileName, Extension.Tspp)) return source;
-        return createSourceFile(fileName, source.text, languageVersionOrOptions, /*setParentNodes*/ true, getScriptKindFromFileName(fileName));
-      };
-      macroProgram = createProgram({
-        rootNames: program.getRootFileNames(),
-        options: {
-          ...options,
-          declaration: false,
-          declarationMap: false,
-          emitDeclarationOnly: false,
-          incremental: false,
-          composite: false,
-          module: ModuleKind.CommonJS,
-          noEmit: false,
-          noEmitOnError: false,
-          sourceMap: false,
-        },
-        host: macroHost,
-      });
-    }
-    return macroProgram;
-  }
-
-  function evaluateMacroModule(sourceFile: SourceFile, macroEntry = true): Record<string, unknown> {
-    const cacheKey = `${macroEntry ? "macro" : "module"}:${sourceFile.fileName}`;
-    const cached = moduleCache.get(cacheKey);
-    if (cached) return cached;
-
-    const buildProgram = getMacroProgram();
-    const buildSource = buildProgram.getSourceFile(sourceFile.fileName);
-    if (!buildSource) throw new Error(`Macro source '${sourceFile.fileName}' is not part of the program.`);
-    let javascript = "";
-    const retainedStatements = macroEntry ? getMacroDependencyStatements(sourceFile) : undefined;
-    const transformers: CustomTransformers | undefined = retainedStatements && {
-      before: [context => emittedSource => {
-        if (emittedSource.fileName !== buildSource.fileName) return emittedSource;
-        const statements = emittedSource.statements.filter(statement => retainedStatements.has(`${statement.pos}:${statement.end}`));
-        return context.factory.updateSourceFile(emittedSource, statements);
-      }],
-    };
-    buildProgram.emit(
-      buildSource,
-      (fileName, text) => {
-        if (/\.(?:c|m)?js$/i.test(fileName)) javascript = text;
-      },
-      /*cancellationToken*/ undefined,
-      /*emitOnlyDtsFiles*/ false,
-      transformers,
-    );
-    if (!javascript) throw new Error(`Macro source '${sourceFile.fileName}' did not produce JavaScript.`);
-
-    const names = sourceFile.statements
-      .filter(statement => statement.kind === SyntaxKind.FunctionDeclaration && hasSyntacticModifier(statement, ModifierFlags.Macro))
-      .map(statement => (statement as FunctionDeclaration).name && getTextOfNode((statement as FunctionDeclaration).name!))
-      .filter((name): name is string => !!name);
-    javascript += `\nmodule.exports.__tsppLocalMacros = {${names.map(name => `${JSON.stringify(name)}: typeof ${name} === "function" ? ${name} : undefined`).join(",")}};`;
-
-    const moduleRecord: { exports: Record<string, unknown>; } = { exports: {} };
-    moduleCache.set(cacheKey, moduleRecord.exports);
-    const requireLocal = (specifier: string) => {
-      const hostModule = macroHost!.resolveMacroModule?.(specifier, sourceFile.fileName);
-      if (hostModule !== undefined) return hostModule;
-      const resolved = resolveModuleName(specifier, sourceFile.fileName, buildProgram.getCompilerOptions(), macroHost!).resolvedModule;
-      const dependency = resolved && buildProgram.getSourceFile(resolved.resolvedFileName);
-      if (dependency && !dependency.isDeclarationFile && !fileExtensionIs(dependency.fileName, Extension.Json)) {
-        return evaluateMacroModule(dependency, /*macroEntry*/ false);
-      }
-      return undefined;
-    };
-    try {
-      evaluateHostMacroModule(javascript, sourceFile.fileName, requireLocal, moduleRecord);
-    }
-    catch (e) {
-      moduleCache.delete(cacheKey);
-      throw e;
-    }
-    moduleCache.set(cacheKey, moduleRecord.exports);
-    return moduleRecord.exports;
-  }
-
-  function evaluateHostMacroModule(javascript: string, fileName: string, requireLocal: (specifier: string) => unknown, moduleRecord: { exports: Record<string, unknown>; }) {
-    (host.evaluateMacroModule ?? evaluateMacroModuleInNode)(javascript, fileName, requireLocal, moduleRecord);
-  }
-
-  function getMacroDependencyStatements(sourceFile: SourceFile): Set<string> {
-    const statements = new Set<Statement>();
-    const pending: Statement[] = [];
-    for (const statement of sourceFile.statements) {
-      if (
-        statement.kind === SyntaxKind.FunctionDeclaration && hasSyntacticModifier(statement, ModifierFlags.Macro) ||
-        isImportDeclaration(statement) && !statement.importClause
-      ) {
-        add(statement);
-      }
-    }
-    while (pending.length) {
-      const statement = pending.pop()!;
-      forEachChildRecursively(statement, node => {
-        if (!isIdentifier(node)) return undefined;
-        const symbol = checker.getSymbolAtLocation(node);
-        for (const declaration of symbol?.declarations ?? emptyArray) {
-          if (getSourceFileOfNode(declaration) !== sourceFile) continue;
-          let current: Node = declaration;
-          while (current.parent && current.parent !== sourceFile) current = current.parent;
-          if (current.parent === sourceFile && isStatement(current)) add(current);
-        }
-        return undefined;
-      });
-    }
-    return new Set([...statements].map(statement => `${statement.pos}:${statement.end}`));
-
-    function add(statement: Statement) {
-      if (statements.has(statement)) return;
-      statements.add(statement);
-      pending.push(statement);
-    }
+  /** Evaluates the macro functions declared in `sourceFile`, with only their dependencies. */
+  function evaluateMacroModule(sourceFile: SourceFile): Record<string, unknown> {
+    const macros = sourceFile.statements.filter(statement => statement.kind === SyntaxKind.FunctionDeclaration && hasSyntacticModifier(statement, ModifierFlags.Macro)) as FunctionDeclaration[];
+    const names = macros.map(statement => statement.name && getTextOfNode(statement.name)).filter((name): name is string => !!name);
+    return modules.evaluate(sourceFile, macros, names);
   }
 
   function loadExternalMacro(invocation: MacroInvocationStatement, invocationSource: SourceFile): unknown {
@@ -1782,7 +1650,7 @@ function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsyn
     if (!isStringLiteral(importDeclaration.moduleSpecifier)) return undefined;
     const moduleSpecifier = importDeclaration.moduleSpecifier.text;
     const moduleRecord: { exports: Record<string, unknown>; } = { exports: {} };
-    evaluateHostMacroModule(
+    modules.run(
       `module.exports = require(${JSON.stringify(moduleSpecifier)});`,
       invocationSource.fileName,
       specifier => host.resolveMacroModule?.(specifier, invocationSource.fileName),
@@ -1851,7 +1719,7 @@ function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsyn
         const macroSource = getSourceFileOfNode(declaration);
         const declarationName = getTextOfNode(declaration.name!);
         const exports = evaluateMacroModule(macroSource);
-        const localMacros = exports.__tsppLocalMacros as Record<string, unknown> | undefined;
+        const localMacros = exports.__tsppLocals as Record<string, unknown> | undefined;
         macroFunction = localMacros === undefined ? exports[declarationName] : localMacros[declarationName] ?? exports[declarationName];
       }
       else {

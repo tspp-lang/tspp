@@ -13,6 +13,7 @@
 - [`09-local-proof-points.tspp`](./src/09-local-proof-points.tspp)：局部 `assert` 证明义务，以及显式可信但不生成证明义务的 `assume`。
 - [`10-program-semantics.tspp`](./src/10-program-semantics.tspp)：bigint `/` 与 `%` 的 JavaScript 截断语义、除数非零的定义性证明义务，以及“规格是纯逻辑”的约定。
 - [`11-safe-integer-model.tspp`](./src/11-safe-integer-model.tspp)：`numberModel: "safe-integer"` 下的 `number` 循环与取余，以及越界检查。
+- [`12-logic-libraries.tspp`](./src/12-logic-libraries.tspp)：用 `ts-plus-plus/smt` 定义逻辑函数（谓词、量词、递归函数），并在契约中调用（需开启 `smtLibraries`）。
 
 `divides(a, b)` 表示 `a` 整除 `b`；`between(value, lower, upper)` 是闭区间判断，即 `lower <= value <= upper`。
 
@@ -142,6 +143,54 @@ function lastDigit(value: number) with {
 
 没有 `numberModel` 时，涉及 `number` 的证明会得到 `unknown`。
 
+## 逻辑库：`ts-plus-plus/smt`
+
+标准谓词之外的逻辑可以由用户自己定义。逻辑库是普通的 `.tspp`/`.ts` 模块，用
+`ts-plus-plus/smt` 的类型化构造器构造 SMT 项：
+
+```ts
+import * as smt from "ts-plus-plus/smt";
+
+export const isMultipleOf = smt.definePredicate(
+  "isMultipleOf",
+  [["value", smt.Int], ["factor", smt.Int]],
+  (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+);
+```
+
+契约像调用普通函数一样调用它：
+
+```ts
+import { isMultipleOf } from "./logic"; // 逻辑库通常是独立模块
+
+function roundDown(value: bigint, factor: bigint) with {
+  requires: [value >= 0n, factor > 0n];
+  ensures: isMultipleOf(result, factor);
+}: bigint {
+  return value - value % factor;
+}
+```
+
+工作方式：
+
+- **按类型识别，而不是按名字。** 逻辑函数的类型携带其定义；编译器据此识别调用，并在编译期
+  只执行这个声明及其依赖（同文件的其他顶层代码不会执行）。这一步与宏共用同一个执行接缝，
+  因此需要开启 `smtLibraries`。
+- **不可执行。** 逻辑函数只能出现在规格（`requires`、`ensures`、不变式、谓词、`assert:`/`assume:`）
+  中，在其他位置调用会得到编译错误，运行时调用会抛错。
+- **可信边界。** `definePredicate`/`defineFunction` 生成非递归 `define-fun`，属于保守扩展，
+  不引入受信输入；`defineRecursiveFunction` 生成 `define-fun-rec`，由于不检查终止性，会作为
+  受信假设报告；`declareFunction(..., { axioms })` 的公理是受信输入，被证明实际用到时才会报告。
+- **重新检查。** 逻辑库是不受信的输入：编译器会重建并校验其中的每个定义，再交给 SMT 后端
+  做 sort 检查。定义有误时相关义务得到带原因的 `unknown`，不会导致编译器崩溃。
+- **构造器能力。** 支持 Core / Ints / Reals / Strings 的常用运算、`forall`/`exists`（可带
+  `patterns`）、`ite`、未解释 sort（`declareSort`）、`smt.js.div`/`smt.js.rem`（JavaScript 语义），
+  以及作为逃生口的 `smt.raw(text, sort, functions)`。参数 sort 与 TypeScript 类型的对应关系是
+  `Int ↔ bigint`、`Real ↔ number`、`Bool ↔ boolean`、`String ↔ string`。
+
+`ts-plus-plus/smt` 是一个不依赖编译器的独立小模块；编译期执行逻辑库时，编译器提供自己
+内置的同一份实现，因此生成的 IR 总是与当前编译器版本一致。
+
 ## 精化类型与传播
 
 精化直接写在普通结构类型别名上，不依赖 `newtype`：
@@ -239,6 +288,8 @@ average(10, 4) = 2
 keepsMultiple(12, 3) = 12
 triangle(10) = 45
 lastDigit(1234) = 4
+roundDown(17, 5) = 15
+sumTo(10) = 55
 ```
 
 可以在 `dist` 中确认生成的 JavaScript 不包含 `with`、`requires`、`ensures` 或 `invariant`。
