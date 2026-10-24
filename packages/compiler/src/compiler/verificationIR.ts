@@ -1,6 +1,14 @@
 /**
- * Solver-independent logical IR shared by formal contracts and refinement checks.
- * This module deliberately has no dependency on the TypeScript AST or on Z3.
+ * Solver-independent SMT IR shared by formal contracts and refinement checks.
+ * This module deliberately has no dependency on the TypeScript AST or on any
+ * particular solver: it models SMT-LIB 2.6 sorts, terms, declarations,
+ * definitions and assertions, and the SMT-LIB backend prints it verbatim.
+ *
+ * Function application is open: a term applies a symbol by name, and the
+ * symbol is resolved against the standard theory signatures
+ * (verificationSignatures.ts) or against a function the problem declares or
+ * defines. Program semantics (TypeScript/JavaScript operations) live in a
+ * separate layer that lowers onto these terms.
  *
  * @internal
  */
@@ -29,38 +37,54 @@ export interface VerificationSumSort {
   readonly variants: readonly VerificationVariant[];
 }
 
+/** A sort introduced with `declare-sort`: it has no theory and no constructors. */
+export interface VerificationUninterpretedSort {
+  readonly kind: "uninterpreted";
+  readonly name: string;
+}
+
+export type VerificationStructuredSort = VerificationProductSort | VerificationSumSort;
+
 /**
- * A closed verification type. Structured sorts are intentionally nominal in
- * the IR: TypeScript structural compatibility is resolved before lowering.
+ * A verification sort. Structured sorts are intentionally nominal in the IR:
+ * TypeScript structural compatibility is resolved before lowering.
  */
-export type VerificationSort = VerificationPrimitiveSort | VerificationProductSort | VerificationSumSort;
+export type VerificationSort = VerificationPrimitiveSort | VerificationStructuredSort | VerificationUninterpretedSort;
+
+export interface VerificationBinding {
+  readonly name: string;
+  readonly sort: VerificationSort;
+}
 
 export type VerificationExpression =
+  /** A free constant declared with `declare-const`. */
   | { readonly kind: "constant"; readonly name: string; readonly sort: VerificationSort; }
+  /** A variable bound by an enclosing quantifier, `let`, or function definition. */
+  | { readonly kind: "variable"; readonly name: string; readonly sort: VerificationSort; }
   | { readonly kind: "boolean"; readonly value: boolean; }
   | { readonly kind: "integer"; readonly value: string; }
   | { readonly kind: "real"; readonly value: string; }
   | { readonly kind: "string"; readonly value: string; }
-  | { readonly kind: "construct"; readonly sort: VerificationProductSort | VerificationSumSort; readonly variant?: string; readonly fields: readonly VerificationExpression[]; }
-  | { readonly kind: "select"; readonly target: VerificationExpression; readonly sort: VerificationProductSort | VerificationSumSort; readonly field: string; readonly variant?: string; }
+  | { readonly kind: "construct"; readonly sort: VerificationStructuredSort; readonly variant?: string; readonly fields: readonly VerificationExpression[]; }
+  | { readonly kind: "select"; readonly target: VerificationExpression; readonly sort: VerificationStructuredSort; readonly field: string; readonly variant?: string; }
   | { readonly kind: "is-variant"; readonly target: VerificationExpression; readonly sort: VerificationSumSort; readonly variant: string; }
-  | { readonly kind: "application"; readonly operator: VerificationOperator; readonly operands: readonly VerificationExpression[]; };
-
-export type VerificationOperator =
-  | "+"
-  | "-"
-  | "*"
-  | "mod"
-  | "is_int"
-  | "to_int"
-  | "="
-  | "<"
-  | "<="
-  | ">"
-  | ">="
-  | "and"
-  | "or"
-  | "not";
+  /** Applies a theory symbol or a declared/defined function. */
+  | { readonly kind: "application"; readonly symbol: string; readonly operands: readonly VerificationExpression[]; }
+  | {
+    readonly kind: "quantifier";
+    readonly quantifier: "forall" | "exists";
+    readonly bindings: readonly VerificationBinding[];
+    readonly body: VerificationExpression;
+    /** Instantiation patterns (`:pattern`); each inner list is one multi-pattern. */
+    readonly patterns?: readonly (readonly VerificationExpression[])[];
+  }
+  | { readonly kind: "let"; readonly bindings: readonly { readonly name: string; readonly value: VerificationExpression; }[]; readonly body: VerificationExpression; }
+  /**
+   * Escape hatch for SMT-LIB that has no structured constructor. The text is
+   * printed verbatim; `sort` is trusted, and `symbols` lists every declared
+   * or bound symbol the text refers to so declarations stay reachable.
+   */
+  | { readonly kind: "raw"; readonly text: string; readonly sort: VerificationSort; readonly symbols: readonly string[]; };
 
 export interface VerificationTerm {
   readonly expression: VerificationExpression;
@@ -73,15 +97,83 @@ export interface VerificationDeclaration {
   readonly sourceName?: string;
 }
 
+/**
+ * A function symbol available to a problem. Without a body it is declared
+ * (`declare-fun`, uninterpreted). With a body it is defined: a non-recursive
+ * definition (`define-fun`) is a conservative extension, while a recursive
+ * one (`define-fun-rec`) is only as trustworthy as an axiom, because nothing
+ * checks that it terminates.
+ */
+export interface VerificationFunction {
+  readonly name: string;
+  readonly parameters: readonly VerificationBinding[];
+  readonly sort: VerificationSort;
+  readonly body?: VerificationExpression;
+  readonly recursive?: boolean;
+  /** Where the symbol comes from, printed next to its SMT-LIB declaration. */
+  readonly origin: string;
+}
+
+/**
+ * Why an assertion is present. The kind decides the trust boundary: a
+ * trusted assertion is accepted without proof, and a proof that depends on
+ * it is only as sound as that input.
+ */
+export type VerificationAssertionKind =
+  /** A branch condition, binding, or other consequence of program flow. */
+  | "path"
+  /** A `requires` clause, discharged at every verified call site. */
+  | "precondition"
+  /** A refinement-type predicate, discharged wherever the type is introduced. */
+  | "refinement"
+  /** A loop invariant, discharged by initialization and preservation obligations. */
+  | "invariant"
+  /** A local `assert:` that was itself emitted as an obligation. */
+  | "assertion"
+  /** A local `assume:`: trusted input, never proved. */
+  | "assumption"
+  /** A user axiom: trusted input, may make the context inconsistent. */
+  | "axiom"
+  /** An assumption a number model makes about program values: trusted input. */
+  | "number-model";
+
+export interface VerificationAssertionOrigin {
+  readonly kind: VerificationAssertionKind;
+  /** Human-readable source, such as `assume: x >= 0n (file.tspp:4:3)`. */
+  readonly label?: string;
+}
+
+export interface VerificationAssertion {
+  readonly expression: VerificationExpression;
+  readonly origin: VerificationAssertionOrigin;
+}
+
 export interface VerificationProblem {
-  readonly structuredSorts?: readonly (VerificationProductSort | VerificationSumSort)[];
+  readonly structuredSorts?: readonly VerificationStructuredSort[];
+  readonly uninterpretedSorts?: readonly VerificationUninterpretedSort[];
+  /** Functions the problem may refer to; only reachable ones are printed. */
+  readonly functions?: readonly VerificationFunction[];
   readonly declarations: readonly VerificationDeclaration[];
-  readonly assumptions: readonly VerificationExpression[];
+  readonly assertions: readonly VerificationAssertion[];
   readonly goal: VerificationExpression;
+  /** Modelling choices that are trusted for the whole problem, such as a number model. */
+  readonly modelAssumptions?: readonly string[];
+}
+
+export function isTrustedAssertionKind(kind: VerificationAssertionKind): boolean {
+  return kind === "assumption" || kind === "axiom" || kind === "number-model";
+}
+
+export function verificationAssertion(expression: VerificationExpression, kind: VerificationAssertionKind, label?: string): VerificationAssertion {
+  return { expression, origin: { kind, label } };
 }
 
 export function verificationConstant(name: string, sort: VerificationSort): VerificationExpression {
   return { kind: "constant", name, sort };
+}
+
+export function verificationVariable(name: string, sort: VerificationSort): VerificationExpression {
+  return { kind: "variable", name, sort };
 }
 
 export function verificationBoolean(value: boolean): VerificationExpression {
@@ -100,12 +192,29 @@ export function verificationString(value: string): VerificationExpression {
   return { kind: "string", value };
 }
 
-export function verificationApplication(operator: VerificationOperator, ...operands: readonly VerificationExpression[]): VerificationExpression {
-  return { kind: "application", operator, operands };
+export function verificationApplication(symbol: string, ...operands: readonly VerificationExpression[]): VerificationExpression {
+  return { kind: "application", symbol, operands };
+}
+
+export function verificationQuantifier(
+  quantifier: "forall" | "exists",
+  bindings: readonly VerificationBinding[],
+  body: VerificationExpression,
+  patterns?: readonly (readonly VerificationExpression[])[],
+): VerificationExpression {
+  return { kind: "quantifier", quantifier, bindings, body, patterns };
+}
+
+export function verificationLet(bindings: readonly { readonly name: string; readonly value: VerificationExpression; }[], body: VerificationExpression): VerificationExpression {
+  return { kind: "let", bindings, body };
+}
+
+export function verificationRaw(text: string, sort: VerificationSort, symbols: readonly string[] = []): VerificationExpression {
+  return { kind: "raw", text, sort, symbols };
 }
 
 export function verificationConstruct(
-  sort: VerificationProductSort | VerificationSumSort,
+  sort: VerificationStructuredSort,
   fields: readonly VerificationExpression[],
   variant?: string,
 ): VerificationExpression {
@@ -114,7 +223,7 @@ export function verificationConstruct(
 
 export function verificationSelect(
   target: VerificationExpression,
-  sort: VerificationProductSort | VerificationSumSort,
+  sort: VerificationStructuredSort,
   field: string,
   variant?: string,
 ): VerificationExpression {
@@ -133,6 +242,10 @@ export function isVerificationPrimitiveSort(sort: VerificationSort): sort is Ver
   return typeof sort === "string";
 }
 
+export function isVerificationStructuredSort(sort: VerificationSort): sort is VerificationStructuredSort {
+  return typeof sort !== "string" && sort.kind !== "uninterpreted";
+}
+
 export function isVerificationNumericSort(sort: VerificationSort): sort is "Int" | "Real" {
   return sort === "Int" || sort === "Real";
 }
@@ -147,8 +260,8 @@ export function isVerificationNumericSort(sort: VerificationSort): sort is "Int"
  * traversal only caches a key when its own subtree did not reference an
  * enclosing sort.
  */
-const structuredSortRootKeys = new WeakMap<VerificationProductSort | VerificationSumSort, string>();
-const structuredSortKeys = new WeakMap<VerificationProductSort | VerificationSumSort, string>();
+const structuredSortRootKeys = new WeakMap<VerificationStructuredSort, string>();
+const structuredSortKeys = new WeakMap<VerificationStructuredSort, string>();
 
 interface SortKeyResult {
   readonly key: string;
@@ -157,13 +270,14 @@ interface SortKeyResult {
 
 export function verificationSortKey(sort: VerificationSort): string {
   if (typeof sort === "string") return sort;
+  if (sort.kind === "uninterpreted") return `uninterpreted:${sort.name}`;
   let key = structuredSortRootKeys.get(sort);
   if (key === undefined) structuredSortRootKeys.set(sort, key = sortKeyWorker(sort, new Set()).key);
   return key;
 }
 
-function sortKeyWorker(sort: VerificationSort, active: Set<VerificationProductSort | VerificationSumSort>): SortKeyResult {
-  if (typeof sort === "string") return { key: sort, sawReference: false };
+function sortKeyWorker(sort: VerificationSort, active: Set<VerificationStructuredSort>): SortKeyResult {
+  if (typeof sort === "string" || sort.kind === "uninterpreted") return { key: verificationSortKey(sort), sawReference: false };
   const cached = structuredSortKeys.get(sort);
   if (cached !== undefined) return { key: cached, sawReference: false };
   if (active.has(sort)) return { key: `ref:${sort.kind}:${sort.name}`, sawReference: true };
@@ -180,7 +294,7 @@ function sortKeyWorker(sort: VerificationSort, active: Set<VerificationProductSo
 
 function fieldKeyText(
   field: VerificationField,
-  active: Set<VerificationProductSort | VerificationSumSort>,
+  active: Set<VerificationStructuredSort>,
   trace: { sawReference: boolean; },
 ): string {
   const fieldKey = sortKeyWorker(field.sort, active);

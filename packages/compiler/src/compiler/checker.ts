@@ -1230,6 +1230,7 @@ import {
   hasTsppFeature,
   isTsppProject,
 } from "./tsppFeatures.js";
+import { isVerificationNumberModel } from "./verificationProgramSemantics.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -46883,7 +46884,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       }
       requireTsppFeature(property, "formalContracts");
       if (name === "numberModel") {
-        if (!isStringLiteralLike(property.value) || property.value.text !== "mathematical-real") {
+        if (!isStringLiteralLike(property.value) || !isVerificationNumberModel(property.value.text)) {
           error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: invalid value`, "a formal contract");
         }
       }
@@ -48364,7 +48365,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
         requireTsppFeature(property, "formalContracts");
         if (name === "numberModel") {
-          if (!isStringLiteralLike(property.value) || property.value.text !== "mathematical-real") {
+          if (!isStringLiteralLike(property.value) || !isVerificationNumberModel(property.value.text)) {
             error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: invalid value`, "a loop invariant");
           }
         }
@@ -50941,7 +50942,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         continue;
       }
       if (name === "numberModel") {
-        if (!isStringLiteralLike(property.value) || property.value.text !== "mathematical-real") {
+        if (!isStringLiteralLike(property.value) || !isVerificationNumberModel(property.value.text)) {
           error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: invalid value`, "a refinement type");
         }
       }

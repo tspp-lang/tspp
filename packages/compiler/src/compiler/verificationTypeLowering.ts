@@ -12,6 +12,10 @@ import {
   VerificationSort,
   VerificationSumSort,
 } from "./verificationIR.js";
+import {
+  getNumberModelSort,
+  VerificationNumberModel,
+} from "./verificationProgramSemantics.js";
 
 /** @internal */
 export type VerificationTypeLoweringResult =
@@ -26,7 +30,7 @@ export function verificationTypeLoweringFailed(result: VerificationTypeLoweringR
 /** @internal */
 export interface VerificationTypeLoweringContext {
   readonly checker: TypeChecker;
-  readonly numberModel: boolean;
+  readonly numberModel: VerificationNumberModel | undefined;
 }
 
 /**
@@ -36,14 +40,17 @@ export interface VerificationTypeLoweringContext {
  * @internal
  */
 export function lowerVerificationType(context: VerificationTypeLoweringContext, type: Type): VerificationTypeLoweringResult {
-  return lowerTypeWorker(context, type, new Map());
+  return lowerTypeWorker(context, type, new Map(), /*nested*/ false);
 }
 
-function lowerTypeWorker(context: VerificationTypeLoweringContext, type: Type, loweredTypes: Map<Type, VerificationSort>): VerificationTypeLoweringResult {
+function lowerTypeWorker(context: VerificationTypeLoweringContext, type: Type, loweredTypes: Map<Type, VerificationSort>, nested: boolean): VerificationTypeLoweringResult {
   if (type.flags & TypeFlags.BooleanLike) return { sort: "Bool" };
   if (type.flags & TypeFlags.BigIntLike) return { sort: "Int" };
   if (type.flags & TypeFlags.NumberLike) {
-    return context.numberModel ? { sort: "Real" } : { reason: 'TypeScript number requires numberModel: "mathematical-real".' };
+    if (!context.numberModel) return { reason: 'TypeScript number requires a numberModel ("mathematical-real" or "safe-integer").' };
+    // A safe-integer value carries a range fact; fields of structured values have nowhere to attach it yet.
+    if (nested && context.numberModel === "safe-integer") return { reason: 'A number field of a structured value is outside the "safe-integer" number model in this version.' };
+    return { sort: getNumberModelSort(context.numberModel) };
   }
   if (type.flags & TypeFlags.StringLike) return { sort: "String" };
   const existing = loweredTypes.get(type);
@@ -97,7 +104,7 @@ function lowerProperties(
     if (property.flags & SymbolFlags.Optional) return { reason: `Optional property '${name}' is outside the supported verification subset.` };
     const propertyType = context.checker.getTypeOfPropertyOfType(type, name);
     if (!propertyType) return { reason: `Property '${name}' has no type available for verification.` };
-    const lowered = lowerTypeWorker(context, propertyType, loweredTypes);
+    const lowered = lowerTypeWorker(context, propertyType, loweredTypes, /*nested*/ true);
     if (verificationTypeLoweringFailed(lowered)) return { reason: `Property '${name}' cannot be lowered: ${lowered.reason}` };
     fields.push({ name, sort: lowered.sort });
   }

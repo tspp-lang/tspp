@@ -3,6 +3,14 @@ import type {
   SourceFile,
   Symbol,
 } from "./types.js";
+import {
+  verificationApplication,
+  VerificationExpression,
+  VerificationFunction,
+  verificationInteger,
+  verificationReal,
+  verificationVariable,
+} from "./verificationIR.js";
 
 /** @internal */
 export type StandardPredicateName =
@@ -67,4 +75,70 @@ export function isStandardPredicateSymbol(symbol: Symbol | undefined): boolean {
     const fileName = sourceFile.fileName.replace(/\\/g, "/");
     return fileName === "lib.tspp.d.ts" || fileName.endsWith("/lib.tspp.d.ts");
   });
+}
+
+const standardPredicateFunctions = new Map<string, VerificationFunction>();
+
+/**
+ * The logic definition of a standard predicate over one numeric sort. Each
+ * predicate is an ordinary non-recursive `define-fun` in the verification
+ * library, so the generated SMT-LIB shows exactly what it means.
+ *
+ * @internal
+ */
+export function getStandardPredicateFunction(definition: StandardPredicateDefinition, sort: "Int" | "Real"): VerificationFunction {
+  const name = `tspp.std.${definition.name}.${sort}`;
+  let result = standardPredicateFunctions.get(name);
+  if (!result) {
+    const parameterNames = definition.arity === 1 ? ["value"] : definition.kind === "divides" ? ["divisor", "value"] : ["value", "lower", "upper"];
+    const parameters = parameterNames.map(parameterName => ({ name: parameterName, sort }));
+    const [first, second, third] = parameters.map(parameter => verificationVariable(parameter.name, sort));
+    result = {
+      name,
+      parameters,
+      sort: "Bool",
+      body: getStandardPredicateBody(definition.kind, sort, first, second, third),
+      origin: `TS++ standard predicate ${definition.name} over ${sort} (lib.tspp.d.ts)`,
+    };
+    standardPredicateFunctions.set(name, result);
+  }
+  return result;
+}
+
+function getStandardPredicateBody(
+  kind: StandardPredicateKind,
+  sort: "Int" | "Real",
+  first: VerificationExpression,
+  second: VerificationExpression,
+  third: VerificationExpression,
+): VerificationExpression {
+  const zero = sort === "Real" ? verificationReal("0") : verificationInteger("0");
+  // Parity and divisibility are integer notions: a Real argument must be integral.
+  const integer = (value: VerificationExpression) => sort === "Int" ? value : verificationApplication("to_int", value);
+  const integral = (body: VerificationExpression, ...values: VerificationExpression[]) => sort === "Int" ? body : verificationApplication("and", ...values.map(value => verificationApplication("is_int", value)), body);
+  switch (kind) {
+    case "even":
+    case "odd":
+      return integral(verificationApplication("=", verificationApplication("mod", integer(first), verificationInteger("2")), verificationInteger(kind === "even" ? "0" : "1")), first);
+    case "positive":
+      return verificationApplication(">", first, zero);
+    case "negative":
+      return verificationApplication("<", first, zero);
+    case "nonNegative":
+      return verificationApplication(">=", first, zero);
+    case "zero":
+      return verificationApplication("=", first, zero);
+    case "divides":
+      return integral(
+        verificationApplication(
+          "and",
+          verificationApplication("not", verificationApplication("=", first, zero)),
+          verificationApplication("=", verificationApplication("mod", integer(second), integer(first)), verificationInteger("0")),
+        ),
+        first,
+        second,
+      );
+    case "between":
+      return verificationApplication("and", verificationApplication(">=", first, second), verificationApplication("<=", first, third));
+  }
 }

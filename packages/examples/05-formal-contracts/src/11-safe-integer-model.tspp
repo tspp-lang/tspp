@@ -1,0 +1,37 @@
+// The "safe-integer" model treats number as an integer within
+// ±Number.MAX_SAFE_INTEGER, where IEEE-754 arithmetic is exact. Every executed
+// `+`, `-` and `*` must provably stay in that range; only the range of the
+// parameters is trusted.
+export function triangle(n: number) with {
+  numberModel: "safe-integer";
+  requires: n >= 0 && n <= 1000;
+  ensures: result >= 0;
+}: number {
+  let index = 0;
+  let total = 0;
+  while (index < n) with {
+    // `index * 1000` is a specification: it is logic, so it cannot overflow.
+    invariant: [index >= 0, index <= n, total >= 0, total <= index * 1000];
+  } {
+    total += index;
+    index += 1;
+  }
+  return total;
+}
+
+// `%` keeps JavaScript's truncating semantics and needs a non-zero divisor.
+export function lastDigit(value: number) with {
+  numberModel: "safe-integer";
+  requires: value >= 0;
+  ensures: result >= 0 && result < 10;
+}: number {
+  return value % 10;
+}
+
+console.log(`triangle(10) = ${triangle(10)}`);
+console.log(`lastDigit(1234) = ${lastDigit(1234)}`);
+
+// Uncomment to see an overflow counterexample (x = 4503599627370496 or larger):
+// export function double(x: number) with { numberModel: "safe-integer"; }: number {
+//   return x * 2;
+// }

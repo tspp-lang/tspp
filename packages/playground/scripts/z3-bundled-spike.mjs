@@ -5,8 +5,8 @@
  *      (self -> a stub with onmessage/postMessage/ location, no process)
  *   2. post { z3WasmUrl } (converted to a file:// URL that the shim's fetch maps
  *      to a real read) and await { kind: "ready" }
- *   3. post a query { id, inputs } shaped like the tspp worker will send, and
- *      await the results; assert one proved-style answer
+ *   3. post { id, requests } shaped like the tspp worker will send (standard
+ *      SMT-LIB scripts plus follow-up commands), and await the raw responses
  *
  * Run with: node scripts/z3-bundled-spike.mjs
  */
@@ -116,21 +116,21 @@ check("z3 init inside bundled worker", ready && initMessage?.kind === "ready", i
 if (initMessage?.kind === "ready") {
   posted.length = 0;
   const queryId = 7;
-  workerOnMessage({ data: { id: queryId, inputs: ["(declare-const x Int)\n(assert (> x 3))\n(check-sat)"] } });
+  workerOnMessage({ data: { id: queryId, requests: [{ script: "(set-logic QF_LIA)\n(declare-const x Int)\n(assert (> x 3))\n", timeoutMs: 10_000, onSat: "(get-value (x))" }] } });
   const replied = await waitFor(() => posted.some(m => m?.id === queryId), 90_000, "query reply");
   const reply = posted.find(m => m?.id === queryId);
   // This simulation has NO SharedArrayBuffer (Node's web-worker globals are
   // stubbed), so check() cannot spawn pthread workers here. What this pin
-  // verifies is the round-trip protocol: the query reaches runQueries, Z3
+  // verifies is the round-trip protocol: the request reaches runRequests, Z3
   // reports the threading limitation through the error channel, and a
   // well-formed reply comes back. End-to-end sat/unsat proving happens in a
   // real cross-origin-isolated browser (coi-serviceworker boots it).
-  const checkFailedResult = reply?.results?.[0];
+  const checkFailedResult = reply?.responses?.[0];
   const threadingError = checkFailedResult?.status === "error"
     && /thread|SharedArrayBuffer|pthread|worker/i.test(String(checkFailedResult.message));
   check(
     "bundled worker round-trips a query (no-SAB env reports the threading limit)",
-    replied && reply?.ok === true && Array.isArray(reply.results) && threadingError,
+    replied && reply?.ok === true && Array.isArray(reply.responses) && threadingError,
     reply ? JSON.stringify(reply).slice(0, 140) : "no reply",
   );
 }

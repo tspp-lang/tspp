@@ -11,6 +11,11 @@ import {
   VerificationStatus,
 } from "./types.js";
 import { VerificationQueryCache } from "./verificationIncremental.js";
+import type { VerificationQuery } from "./verificationSmt.js";
+import {
+  getVerificationFollowUps,
+  interpretVerificationResponse,
+} from "./verificationSmtResponse.js";
 
 /** @internal */
 export interface VerificationSolverResult {
@@ -19,6 +24,34 @@ export interface VerificationSolverResult {
   readonly counterexample?: string;
   readonly model?: string;
   readonly reason?: AnalysisTaskReason;
+  /** Trusted inputs a proved obligation depends on. */
+  readonly trustedInputs?: readonly string[];
+}
+
+/**
+ * One standard SMT-LIB query for a solver backend. The backend loads
+ * `script` into a fresh solver state, runs `(check-sat)`, then runs the
+ * follow-up command that matches the answer and returns its raw output.
+ * `timeoutMs` is the per-query budget; how a backend enforces it (an option,
+ * a flag, killing a process) is backend-specific and never part of `script`.
+ *
+ * @internal
+ */
+export interface VerificationSolverRequest {
+  readonly script: string;
+  readonly timeoutMs: number;
+  readonly onSat?: string;
+  readonly onUnsat?: string;
+  readonly onUnknown?: string;
+}
+
+/** The raw answer of a solver backend to one request. @internal */
+export interface VerificationSolverResponse {
+  readonly status: "sat" | "unsat" | "unknown" | "error";
+  /** Output of the follow-up command, verbatim. */
+  readonly output?: string;
+  /** Error text, for status "error". */
+  readonly message?: string;
 }
 
 /** @internal */
@@ -41,79 +74,95 @@ const defaultVerificationWorkerBudget: VerificationWorkerBudget = {
   maxOldGenerationSizeMb: defaultAnalysisWorkerBudget.maxOldGenerationSizeMb,
 };
 
+/** The solver's own per-query limit; the worker budget above is the wall-clock backstop. */
+const solverTimeoutMs = 10_000;
+
 const maximumCachedVerificationQueries = 2048;
 const verificationResultCache = new VerificationQueryCache<VerificationSolverResult>(maximumCachedVerificationQueries);
 
+function createVerificationSolverRequest(query: VerificationQuery): VerificationSolverRequest {
+  return { script: query.script, timeoutMs: solverTimeoutMs, ...getVerificationFollowUps(query) };
+}
+
 /** @internal */
 export async function runVerificationQueries(
-  inputs: readonly string[],
+  queries: readonly VerificationQuery[],
   budget: VerificationWorkerBudget = defaultVerificationWorkerBudget,
   cancellationToken?: CancellationToken,
   host?: CompilerHost,
 ): Promise<readonly VerificationSolverResult[]> {
   cancellationToken?.throwIfCancellationRequested();
-  const results: (VerificationSolverResult | undefined)[] = new Array(inputs.length);
-  const missingInputs: string[] = [];
+  const results: (VerificationSolverResult | undefined)[] = new Array(queries.length);
+  const missingQueries: VerificationQuery[] = [];
   const missingIndexes = new Map<string, number[]>();
-  for (let index = 0; index < inputs.length; index++) {
-    const input = inputs[index];
-    const cached = verificationResultCache.get(input);
+  for (let index = 0; index < queries.length; index++) {
+    const query = queries[index];
+    // The script is the dependency key: it contains every declaration,
+    // definition, assertion, and source mapping the answer depends on.
+    const cached = verificationResultCache.get(query.script);
     if (cached) {
       results[index] = cached;
       continue;
     }
-    let indexes = missingIndexes.get(input);
+    let indexes = missingIndexes.get(query.script);
     if (!indexes) {
       verificationResultCache.recordMiss();
-      missingInputs.push(input);
-      missingIndexes.set(input, indexes = []);
+      missingQueries.push(query);
+      missingIndexes.set(query.script, indexes = []);
     }
     indexes.push(index);
   }
-  if (missingInputs.length) {
-    // Host-supplied solver first (a browser language worker injects its own Z3
-    // backend); fall back to the node:worker_threads worker. Both produce the
-    // same VerificationSolverResult shape, so the cache and callers are shared.
+  if (missingQueries.length) {
+    const requests = missingQueries.map(createVerificationSolverRequest);
+    // Host-supplied solver first (a browser language worker injects its own
+    // backend); fall back to the node:worker_threads Z3 backend. Both answer
+    // with raw SMT-LIB responses that are interpreted here.
     const missingResults = host?.solveVerificationQueries
-      ? await withHostSolverBudget(host.solveVerificationQueries(missingInputs, cancellationToken), budget, missingInputs.length)
+      ? await withHostSolverBudget(host.solveVerificationQueries(requests, cancellationToken), missingQueries, budget)
       : await scheduleAnalysisWorker(
         "compiler-analysis",
-        () => runVerificationQueriesWorker(missingInputs, budget, cancellationToken),
+        () => runVerificationQueriesWorker(missingQueries, requests, budget, cancellationToken),
         cancellationToken,
       );
-    for (let index = 0; index < missingInputs.length; index++) {
-      const input = missingInputs[index];
+    for (let index = 0; index < missingQueries.length; index++) {
+      const script = missingQueries[index].script;
       const result = missingResults[index];
-      if (result.status === "proved" || result.status === "failed") cacheVerificationResult(input, result);
-      for (const resultIndex of missingIndexes.get(input)!) results[resultIndex] = result;
+      if (result.status === "proved" || result.status === "failed") cacheVerificationResult(script, result);
+      for (const resultIndex of missingIndexes.get(script)!) results[resultIndex] = result;
     }
   }
   return results as VerificationSolverResult[];
 }
 
-/** Guards a host solver against hanging forever: the host's Z3 (for example the
- *  playground's browser worker) may be slow to warm up or wedged, and the
- *  compiler's own budget should still apply. Timed-out queries become the same
- *  "unknown: timeout" results the Node path produces; rejections become the
- *  same "unknown: unavailable" results, so callers never see a throw. */
+function interpretResponses(queries: readonly VerificationQuery[], responses: readonly VerificationSolverResponse[]): readonly VerificationSolverResult[] {
+  return queries.map((query, index) => withStructuredReason(interpretVerificationResponse(query, responses[index])));
+}
+
+/** Guards a host solver against hanging forever: the host's solver (for
+ *  example the playground's browser worker) may be slow to warm up or
+ *  wedged, and the compiler's own budget should still apply. Timed-out
+ *  queries become the same "unknown: timeout" results the Node path
+ *  produces; rejections become the same "unknown: unavailable" results, so
+ *  callers never see a throw. */
 function withHostSolverBudget(
-  solving: Promise<readonly VerificationSolverResult[]>,
+  solving: Promise<readonly VerificationSolverResponse[]>,
+  queries: readonly VerificationQuery[],
   budget: VerificationWorkerBudget,
-  inputCount: number,
 ): Promise<readonly VerificationSolverResult[]> {
+  const inputCount = queries.length;
   return new Promise<readonly VerificationSolverResult[]>(resolve => {
     const timer = globalThis.setTimeout(() => {
-      resolve(Array.from({ length: inputCount }, () => timedOutResult("Z3 verification worker timed out.")));
+      resolve(Array.from({ length: inputCount }, () => timedOutResult("The SMT solver timed out.")));
     }, Math.max(budget.minimumTimeoutMs, inputCount * budget.timeoutPerQueryMs));
     solving.then(
-      results => {
+      responses => {
         globalThis.clearTimeout(timer);
-        resolve(results.map(withStructuredReason));
+        resolve(interpretResponses(queries, responses));
       },
       error => {
         globalThis.clearTimeout(timer);
         const message = error instanceof Error ? error.message : String(error);
-        resolve(Array.from({ length: inputCount }, () => unavailableResult(`Z3 could not run: ${message}`)));
+        resolve(Array.from({ length: inputCount }, () => unavailableResult(`The SMT solver could not run: ${message}`)));
       },
     );
   });
@@ -129,12 +178,13 @@ export function clearVerificationCache(): void {
   verificationResultCache.clear();
 }
 
-function cacheVerificationResult(input: string, result: VerificationSolverResult): void {
-  verificationResultCache.set(input, result);
+function cacheVerificationResult(script: string, result: VerificationSolverResult): void {
+  verificationResultCache.set(script, result);
 }
 
 async function runVerificationQueriesWorker(
-  inputs: readonly string[],
+  queries: readonly VerificationQuery[],
+  requests: readonly VerificationSolverRequest[],
   budget: VerificationWorkerBudget,
   cancellationToken: CancellationToken | undefined,
 ): Promise<readonly VerificationSolverResult[]> {
@@ -143,14 +193,14 @@ async function runVerificationQueriesWorker(
     // bare `require` becomes a Proxy-based shim whose typeof is still "function",
     // so the require("node:worker_threads") below would throw a confusing
     // "Dynamic require of ..." error instead of the clean unavailable result.
-    if (!isNodeLikeSystem()) return inputs.map(() => unavailableResult("Z3 is unavailable in this runtime."));
+    if (!isNodeLikeSystem()) return requests.map(() => unavailableResult("No SMT solver is available in this runtime."));
     const { Worker } = require("node:worker_threads") as typeof import("node:worker_threads");
     const z3Path = require.resolve("z3-solver");
     return await new Promise<readonly VerificationSolverResult[]>((resolve, reject) => {
       let settled = false;
       const worker = new Worker(z3WorkerScript, {
         eval: true,
-        workerData: { inputs, z3Path },
+        workerData: { requests, z3Path },
         resourceLimits: { maxOldGenerationSizeMb: budget.maxOldGenerationSizeMb },
       });
       const timer = globalThis.setTimeout(() => {
@@ -158,24 +208,24 @@ async function runVerificationQueriesWorker(
         settled = true;
         if (cancellationPoll) globalThis.clearInterval(cancellationPoll);
         void worker.terminate();
-        resolve(inputs.map(() => timedOutResult("Z3 verification worker timed out.")));
-      }, Math.max(budget.minimumTimeoutMs, inputs.length * budget.timeoutPerQueryMs));
+        resolve(requests.map(() => timedOutResult("The SMT solver worker timed out.")));
+      }, Math.max(budget.minimumTimeoutMs, requests.length * budget.timeoutPerQueryMs));
       const cancellationPoll = cancellationToken && globalThis.setInterval(() => {
         if (settled || !cancellationToken.isCancellationRequested()) return;
         settled = true;
         globalThis.clearTimeout(timer);
         globalThis.clearInterval(cancellationPoll);
         void worker.terminate();
-        resolve(inputs.map(() => cancelledResult("Z3 verification was cancelled.")));
+        resolve(requests.map(() => cancelledResult("Verification was cancelled.")));
       }, 25);
-      worker.once("message", (message: { ok: boolean; results?: VerificationSolverResult[]; error?: string; }) => {
+      worker.once("message", (message: { ok: boolean; responses?: VerificationSolverResponse[]; error?: string; }) => {
         if (settled) return;
         settled = true;
         globalThis.clearTimeout(timer);
         if (cancellationPoll) globalThis.clearInterval(cancellationPoll);
         void worker.terminate();
-        if (message.ok && message.results) resolve(message.results.map(withStructuredReason));
-        else reject(new Error(message.error ?? "Z3 verification worker failed."));
+        if (message.ok && message.responses) resolve(interpretResponses(queries, message.responses));
+        else reject(new Error(message.error ?? "The SMT solver worker failed."));
       });
       worker.once("error", error => {
         if (settled) return;
@@ -189,7 +239,7 @@ async function runVerificationQueriesWorker(
   }
   catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return inputs.map(() => unavailableResult(`Z3 could not run: ${message}`));
+    return requests.map(() => unavailableResult(`The SMT solver could not run: ${message}`));
   }
 }
 
@@ -209,112 +259,46 @@ function withStructuredReason(result: VerificationSolverResult): VerificationSol
   return { ...result, reason: result.reason ?? analysisReasonForVerificationStatus(result.status, result.message) };
 }
 
+/**
+ * The Z3 backend: it only executes standard SMT-LIB text through Z3's
+ * SMT-LIB front end. The timeout option is the one Z3-specific command, and
+ * it lives here, outside the generated script.
+ */
 const z3WorkerScript = String.raw`
 const { parentPort, workerData } = require("node:worker_threads");
 
 async function run() {
   const z3 = require(workerData.z3Path);
-  const api = await z3.init();
-  const context = new api.Context("tspp-verification");
-  const results = [];
-  for (const input of workerData.inputs) {
+  const { Z3 } = await z3.init();
+  const context = Z3.mk_context(Z3.mk_config());
+  const evaluate = text => Z3.eval_smtlib2_string(context, text);
+  const responses = [];
+  for (const request of workerData.requests) {
     try {
-      const solver = new context.Solver();
-      solver.fromString(input);
-      const answer = await solver.check();
-      if (answer === "unsat") results.push({ status: "proved", message: "Z3 proved the negated obligation unsatisfiable." });
-      else if (answer === "sat") {
-        const modelObject = solver.model();
-        const model = modelObject.toString();
-        const metadataMatch = input.match(/^; tspp-model (.+)$/m);
-        const metadata = metadataMatch ? JSON.parse(metadataMatch[1]) : { declarations: [], sorts: [] };
-        const definitions = parseModelDefinitions(model);
-        const selected = metadata.declarations.filter(declaration => definitions.has(declaration.symbol) || declaration.sort === "Int" || declaration.sort === "Real" || declaration.sort === "Bool" || declaration.sort === "String");
-        const duplicateSourceNames = new Set();
-        const seenSourceNames = new Set();
-        for (const declaration of selected) {
-          const sourceName = declaration.sourceName;
-          if (seenSourceNames.has(sourceName)) duplicateSourceNames.add(sourceName);
-          seenSourceNames.add(sourceName);
-        }
-        const sorts = new Map(metadata.sorts.map(sort => [sort.sort, sort]));
-        const assignments = selected.map(declaration => {
-          const sourceName = declaration.sourceName;
-          const label = duplicateSourceNames.has(sourceName) ? sourceName + " (" + declaration.symbol + ")" : sourceName;
-          let modelValue = definitions.get(declaration.symbol);
-          if (modelValue === undefined && (declaration.sort === "Int" || declaration.sort === "Real" || declaration.sort === "Bool" || declaration.sort === "String")) {
-            modelValue = modelObject.eval(context[declaration.sort].const(declaration.symbol), true).toString();
-          }
-          const value = formatModelValue(modelValue, declaration.sort, sorts);
-          return label + " = " + value;
-        });
-        results.push({ status: "failed", message: "Z3 found a counterexample.", counterexample: assignments.join(", ") || "the obligation is false for every assignment", model });
+      await evaluate("(reset)");
+      const loaded = await evaluate("(set-option :timeout " + request.timeoutMs + ")\n" + request.script);
+      const loadError = loaded.match(/\(error [^\n]*/);
+      if (loadError) {
+        responses.push({ status: "error", message: loadError[0] });
+        continue;
       }
-      else results.push({ status: "unknown", message: "Z3 returned unknown: " + solver.reasonUnknown() });
+      const answer = (await evaluate("(check-sat)")).trim();
+      if (answer !== "sat" && answer !== "unsat" && answer !== "unknown") {
+        responses.push({ status: "error", message: answer || "check-sat produced no answer" });
+        continue;
+      }
+      const followUp = answer === "sat" ? request.onSat : answer === "unsat" ? request.onUnsat : request.onUnknown;
+      responses.push({ status: answer, output: followUp ? await evaluate(followUp) : undefined });
     }
     catch (error) {
-      results.push({ status: "error", message: error instanceof Error ? error.message : String(error) });
+      responses.push({ status: "error", message: error instanceof Error ? error.message : String(error) });
     }
   }
-  return results;
-}
-
-function tokenizeSExpressions(text) {
-  return text.match(/\(|\)|\|(?:\\.|[^|])*\||"(?:""|[^"])*"|[^\s()]+/g) || [];
-}
-
-function parseSExpressions(text) {
-  const tokens = tokenizeSExpressions(text);
-  let index = 0;
-  function parse() {
-    const token = tokens[index++];
-    if (token !== "(") return token;
-    const result = [];
-    while (index < tokens.length && tokens[index] !== ")") result.push(parse());
-    index++;
-    return result;
-  }
-  const result = [];
-  while (index < tokens.length) result.push(parse());
-  return result;
-}
-
-function parseModelDefinitions(model) {
-  const definitions = new Map();
-  function visit(value) {
-    if (!Array.isArray(value)) return;
-    if (value[0] === "define-fun" && value.length >= 5 && Array.isArray(value[2]) && value[2].length === 0) definitions.set(value[1], value[4]);
-    else for (const child of value) visit(child);
-  }
-  for (const expression of parseSExpressions(model)) visit(expression);
-  return definitions;
-}
-
-function formatModelValue(value, sortName, sorts) {
-  const structured = sorts.get(sortName);
-  if (!structured) return formatPrimitiveModelValue(value);
-  if (!Array.isArray(value)) return formatPrimitiveModelValue(value);
-  const normalize = name => typeof name === "string" && name.startsWith("|") && name.endsWith("|") ? name.slice(1, -1) : name;
-  const variant = structured.variants.find(candidate => normalize(candidate.constructor) === normalize(value[0]));
-  if (!variant) return formatSExpression(value);
-  const fields = variant.fields.map((field, index) => field.name + ": " + formatModelValue(value[index + 1], field.sort, sorts));
-  if (structured.kind === "sum") fields.unshift('_tag: "' + variant.name.replace(/"/g, '\\"') + '"');
-  return "{ " + fields.join(", ") + " }";
-}
-
-function formatPrimitiveModelValue(value) {
-  if (Array.isArray(value) && value[0] === "-" && value.length === 2) return "-" + formatPrimitiveModelValue(value[1]);
-  if (Array.isArray(value) && value[0] === "/" && value.length === 3) return formatPrimitiveModelValue(value[1]) + "/" + formatPrimitiveModelValue(value[2]);
-  if (typeof value === "string" && value.startsWith('"') && value.endsWith('"')) return JSON.stringify(value.slice(1, -1).replace(/""/g, '"'));
-  return formatSExpression(value);
-}
-
-function formatSExpression(value) {
-  return Array.isArray(value) ? "(" + value.map(formatSExpression).join(" ") + ")" : String(value);
+  return responses;
 }
 
 run().then(
-  results => parentPort.postMessage({ ok: true, results }),
+  responses => parentPort.postMessage({ ok: true, responses }),
   error => parentPort.postMessage({ ok: false, error: error instanceof Error ? error.message : String(error) }),
 );
 `;

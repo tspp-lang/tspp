@@ -1,15 +1,18 @@
 /**
  * Builds public/vendor/z3.worker.js — a single-file classic-worker script that
- * loads the z3-solver browser build and answers SMT-LIB queries over postMessage.
+ * loads the z3-solver browser build and runs standard SMT-LIB requests over
+ * postMessage. It only executes SMT-LIB text; the compiler interprets every
+ * answer (counterexamples, unsat cores), so any SMT-LIB 2.6 solver could
+ * replace it.
  *
  * Why a separate worker: the tspp language worker is an ES-module worker and the
  * compiler bundle is runtime-fetched; Z3 is a 35 MB wasm + emscripten module that
  * must not block the editor. A classic worker can also spawn Z3's pthread workers
  * from its own blob URL. The main worker talks to it over postMessage:
  *   -> { z3WasmUrl }                        (first message: where z3-built.wasm lives)
- *   -> { id, inputs: string[] }             (inputs are raw SMT-LIB solverInput texts)
+ *   -> { id, requests }                     (VerificationSolverRequest[]: script, timeoutMs, follow-ups)
  *   <- { kind: "ready" | "init-error" }
- *   <- { id, ok, results | error }          (mirrors VerificationSolverResult shape)
+ *   <- { id, ok, responses | error }        (VerificationSolverResponse[]: status, raw output)
  *
  * The wasm binary is fetched at init time from z3WasmUrl and handed to emscripten
  * via moduleOverrides.instantiateWasm (no XHR path, no cross-origin script load).
@@ -96,32 +99,40 @@ function initApi() {
   return apiPromise;
 }
 
-// High-level Solver: long-running check() runs on pthread workers spawned from
-// this script's real URL (via the _scriptName override in initApi), which
-// requires cross-origin isolation. The playground boots coi-serviceworker
-// (see index.html) so SharedArrayBuffer is available even on GitHub Pages; the
-// high-level API also serializes concurrent checks through its async mutex.
-async function runQueries(inputs) {
+// Z3's SMT-LIB front end (eval_smtlib2_string): long-running commands run on
+// pthread workers spawned from this script's real URL (via the _scriptName
+// override in initApi), which requires cross-origin isolation. The playground
+// boots coi-serviceworker (see index.html) so SharedArrayBuffer is available
+// even on GitHub Pages. The timeout option is the one Z3-specific command; the
+// compiler's scripts themselves are standard SMT-LIB.
+async function runRequests(requests) {
   const api = await initApi();
-  const context = new api.Context("tspp-verification");
-  const results = [];
-  for (const input of inputs) {
+  const Z3 = api.Z3;
+  const context = Z3.mk_context(Z3.mk_config());
+  const evaluate = text => Z3.eval_smtlib2_string(context, text);
+  const responses = [];
+  for (const request of requests) {
     try {
-      const solver = new context.Solver();
-      solver.fromString(input);
-      const answer = await solver.check();
-      if (answer === "unsat") results.push({ status: "proved", message: "Z3 proved the obligation (negation unsat)." });
-      else if (answer === "sat") {
-        const model = solver.model().toString();
-        results.push({ status: "failed", message: "Z3 found a counterexample.", model });
+      await evaluate("(reset)");
+      const loaded = await evaluate("(set-option :timeout " + request.timeoutMs + ")\\n" + request.script);
+      const loadError = loaded.match(/\\(error [^\\n]*/);
+      if (loadError) {
+        responses.push({ status: "error", message: loadError[0] });
+        continue;
       }
-      else results.push({ status: "unknown", message: "Z3 returned unknown: " + solver.reasonUnknown() });
+      const answer = (await evaluate("(check-sat)")).trim();
+      if (answer !== "sat" && answer !== "unsat" && answer !== "unknown") {
+        responses.push({ status: "error", message: answer || "check-sat produced no answer" });
+        continue;
+      }
+      const followUp = answer === "sat" ? request.onSat : answer === "unsat" ? request.onUnsat : request.onUnknown;
+      responses.push({ status: answer, output: followUp ? await evaluate(followUp) : undefined });
     }
     catch (error) {
-      results.push({ status: "error", message: (error && error.message) || String(error) });
+      responses.push({ status: "error", message: (error && error.message) || String(error) });
     }
   }
-  return results;
+  return responses;
 }
 
 if (!IS_EM_PTHREAD) {
@@ -140,10 +151,10 @@ self.onmessage = async event => {
     }
     return;
   }
-  if (!data || typeof data.id !== "number" || !Array.isArray(data.inputs)) return;
+  if (!data || typeof data.id !== "number" || !Array.isArray(data.requests)) return;
   try {
-    const results = await runQueries(data.inputs);
-    self.postMessage({ id: data.id, ok: true, results });
+    const responses = await runRequests(data.requests);
+    self.postMessage({ id: data.id, ok: true, responses });
   }
   catch (error) {
     self.postMessage({ id: data.id, ok: false, error: String((error && error.message) || error) });

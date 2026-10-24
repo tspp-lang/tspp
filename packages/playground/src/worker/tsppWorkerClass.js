@@ -61,7 +61,7 @@ export class TsppWorker extends TypeScriptWorker {
    * @param {*} compilerHost the compiler's CompilerHost for this language service
    */
   setCompilerHost(compilerHost) {
-    compilerHost.solveVerificationQueries = (inputs, cancellationToken) => solveZ3Batch(inputs, cancellationToken);
+    compilerHost.solveVerificationQueries = (requests, cancellationToken) => solveZ3Batch(requests, cancellationToken);
     compilerHost.resolveMacroModule = specifier => specifier === "ts-plus-plus" ? this.tspp : undefined;
     compilerHost.evaluateMacroModule = (javascript, fileName, requireLocal, module) => evaluateMacroModule(javascript, fileName, requireLocal, module);
   }

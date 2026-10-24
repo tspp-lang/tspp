@@ -115,16 +115,18 @@ const ok: bigint = pos(5n);
 `;
 const PLACEHOLDER = "Formal verification is running asynchronously.";
 
-let mockSolve = () => ({ status: "unknown", message: "no mock installed" });
+// Mocks answer the compiler's raw SMT-LIB protocol (VerificationSolverResponse);
+// the compiler itself turns them into proved/failed/unknown artifacts.
+let mockSolve = () => ({ status: "error", message: "no mock installed" });
 let debugSolverCalls = [];
 const capturedHosts = [];
 const originalSetCompilerHost = TsppWorker.prototype.setCompilerHost;
 TsppWorker.prototype.setCompilerHost = function (compilerHost) {
   originalSetCompilerHost.call(this, compilerHost);
   // Swap the bridge for the mock before the first program build schedules its solve.
-  compilerHost.solveVerificationQueries = async inputs => {
-    debugSolverCalls.push(inputs.length);
-    return inputs.map(() => mockSolve());
+  compilerHost.solveVerificationQueries = async requests => {
+    debugSolverCalls.push(requests.length);
+    return requests.map(request => mockSolve(request));
   };
   capturedHosts.push(compilerHost);
 };
@@ -164,12 +166,12 @@ async function settleArtifacts(worker) {
   return artifacts;
 }
 
-const vWorker = makeSolvedWorker(CONTRACTS, () => ({ status: "proved", message: "Z3 proved the obligation (negation unsat)." }));
+const vWorker = makeSolvedWorker(CONTRACTS, () => ({ status: "unsat" }));
 const vArtifacts = await settleArtifacts(vWorker);
 check("verification artifacts include call-site precondition", vArtifacts.length === 2, `${vArtifacts.length} artifacts: ${vArtifacts.map(a => a.obligation).join(", ")}`);
 check(
   "artifacts settle proved through the host seam",
-  vArtifacts.every(a => a.status === "proved" && a.message.includes("Z3 proved")),
+  vArtifacts.every(a => a.status === "proved" && a.message.includes("solver proved")),
   vArtifacts.map(a => `${a.obligation}:${a.status}`).join(", "),
 );
 check(
@@ -192,7 +194,11 @@ check(
   diagsProved.length === 0,
   `${diagsProved.length} remain: ${diagsProved.map(d => String(d.messageText).slice(0, 40)).join(" | ") || "clean"}`,
 );
-const fWorker = makeSolvedWorker(CONTRACTS_VARIANT, () => ({ status: "failed", message: "Z3 found a counterexample.", counterexample: "n = -1" }));
+// Answers the request's own `(get-value (...))` follow-up with -1 for every symbol.
+const fWorker = makeSolvedWorker(CONTRACTS_VARIANT, request => {
+  const symbols = request.onSat?.match(/^\(get-value \((.*)\)\)$/)?.[1].split(" ") ?? [];
+  return { status: "sat", output: `(${symbols.map(symbol => `(${symbol} (- 1))`).join(" ")})` };
+});
 const fArtifacts = await settleArtifacts(fWorker);
 // The shared precondition query may legitimately hit the compiler's result
 // cache (identical SMT-LIB across scenarios) — what matters is that the new
@@ -222,7 +228,9 @@ const CONTRACTS_VARIANT2 = `function pos(n: bigint) with {
 }
 const ok: bigint = pos(5n);
 `;
-const uWorker = makeSolvedWorker(CONTRACTS_VARIANT2, () => ({ status: "unknown", message: "Z3 is unavailable in this runtime." }));
+const uWorker = makeSolvedWorker(CONTRACTS_VARIANT2, () => {
+  throw new Error("z3 worker did not become ready in time");
+});
 const uArtifacts = await settleArtifacts(uWorker);
 const uUnknown = uArtifacts.filter(a => a.status === "unknown" && a.reason?.code === "unavailable");
 check(

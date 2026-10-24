@@ -51,7 +51,7 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     name: "formalContracts",
     dependencies: [],
     initComments: [
-      "获得：requires、ensures 与循环 invariant 的静态 SMT 验证。",
+      "获得：requires、ensures 与循环 invariant 的静态 SMT 验证（输出标准 SMT-LIB 2.6，不依赖特定求解器）。",
       "影响：TS超集=是；透明擦除=是。",
     ],
   },
@@ -59,7 +59,7 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     name: "standardLibraryPredicates",
     dependencies: ["formalContracts"],
     initComments: [
-      '获得：标准库数值谓词 isEven、isOdd、isPositive、isNegative、isNonNegative、isZero、divides、between；number 需 numberModel: "mathematical-real"。',
+      '获得：标准库数值谓词 isEven、isOdd、isPositive、isNegative、isNonNegative、isZero、divides、between；number 需 numberModel（"mathematical-real" 或 "safe-integer"）。',
       "影响：TS超集=是；透明擦除=是。",
     ],
   },
@@ -67,7 +67,7 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     name: "refinementTypes",
     dependencies: ["formalContracts"],
     initComments: [
-      "获得：由 Z3 验证类型引入点的谓词精化类型别名。",
+      "获得：由 SMT 求解器验证类型引入点的谓词精化类型别名。",
       "影响：TS超集=是；透明擦除=是。",
     ],
   },

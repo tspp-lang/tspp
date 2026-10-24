@@ -902,4 +902,184 @@ describe("unittests:: tspp:: formal contracts", () => {
     }
     assert.instanceOf(error, ts.OperationCanceledException);
   });
+
+  describe("program semantics and trust boundaries", () => {
+    const artifactsNamed = (program: ts.Program, fragment: string) => program.getVerificationArtifacts!().filter(artifact => artifact.name.includes(fragment));
+
+    it("proves bigint '%' and '/' with JavaScript's truncating semantics", async () => {
+      const { program } = await createProgram(`
+        function remainderOfNegative(a: bigint) with {
+          requires: a < 0n;
+          ensures: result <= 0n;
+        }: bigint {
+          return a % 3n;
+        }
+        function halve(a: bigint) with {
+          requires: a === -7n;
+          ensures: result === -3n;
+        }: bigint {
+          return a / 2n;
+        }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      // SMT 'mod' would make 'a % 3n' non-negative and 'div' would round -3.5 down to -4.
+      assert.deepEqual(artifacts.map(artifact => `${artifact.name}: ${artifact.status}`), [
+        "remainderOfNegative postcondition 1, return path 1: proved",
+        "halve postcondition 1, return path 1: proved",
+      ]);
+      assert.include(artifacts[0].solverInput, "(define-fun tspp.js.trunc.rem ((a Int) (b Int)) Int");
+      assert.include(artifacts[1].solverInput, "(define-fun tspp.js.trunc.div ((a Int) (b Int)) Int");
+      assert.isEmpty(program.getSemanticDiagnostics());
+    });
+
+    it("emits a definedness obligation for a variable divisor", async () => {
+      const { program } = await createProgram(`
+        function unchecked(a: bigint, b: bigint): bigint {
+          assert: a === a;
+          return a % b;
+        }
+        function checked(a: bigint, b: bigint) with { requires: b > 0n; }: bigint {
+          let total = 0n;
+          if (a > 0n) total = a / b;
+          return total;
+        }
+      `);
+      const [failed] = artifactsNamed(program, "unchecked divisor");
+      assert.equal(failed.kind, "program-semantics");
+      assert.equal(failed.obligation, "nonzero-divisor");
+      assert.equal(failed.name, "unchecked divisor of 'a % b' is non-zero");
+      assert.equal(failed.status, "failed");
+      assert.include(failed.counterexample!, "b = 0");
+      const [proved] = artifactsNamed(program, "checked divisor of 'a / b'");
+      assert.equal(proved.status, "proved");
+      const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+      assert.deepEqual(messages, ["unchecked divisor of 'a % b' is non-zero: proof failed. The SMT solver found a counterexample. Counterexample: a = 0, b = 0."]);
+    });
+
+    it("treats specifications as logic without runtime obligations", async () => {
+      const { program } = await createProgram(`
+        function same(a: bigint, b: bigint) with {
+          requires: b !== 0n && a % b === 0n;
+          ensures: result % b === 0n;
+        }: bigint {
+          return a;
+        }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.deepEqual(artifacts.map(artifact => artifact.kind), ["function-contract"]);
+      assert.equal(artifacts[0].status, "proved");
+    });
+
+    it("reports the trusted inputs a proof relies on", async () => {
+      const { program } = await createProgram(`
+        function trusted(x: bigint): bigint {
+          assume: x > 10n;
+          assume: x < 1000n;
+          assert: x > 5n;
+          return x;
+        }
+      `);
+      const [assertion] = program.getVerificationArtifacts!().filter(artifact => artifact.kind === "assertion");
+      assert.equal(assertion.status, "proved");
+      assert.deepEqual(assertion.trustedInputs, ["assume: x > 10n (file.tspp:3:19)"]);
+      assert.include(assertion.message, "The proof relies on trusted input: assume: x > 10n (file.tspp:3:19).");
+      assert.include(assertion.solverInput, "; [assumption, trusted] assume: x > 10n (file.tspp:3:19)\n(assert (! (> v0 10) :named tspp.trusted.0))");
+
+      const { program: untrusted } = await createProgram(`
+        function plain(x: bigint) with { requires: x > 10n; ensures: result > 5n; }: bigint { return x; }
+      `);
+      const [contract] = untrusted.getVerificationArtifacts!();
+      assert.equal(contract.status, "proved");
+      assert.isUndefined(contract.trustedInputs);
+      assert.include(contract.solverInput, "; [precondition] requires: x > 10n (file.tspp:2:52)");
+    });
+
+    it("reports the mathematical-real model as a trusted assumption", async () => {
+      const { program } = await createProgram(`
+        function addOne(x: number) with {
+          numberModel: "mathematical-real";
+          ensures: result > x;
+        }: number { return x + 1; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "proved");
+      assert.lengthOf(artifact.trustedInputs!, 1);
+      assert.include(artifact.trustedInputs![0], 'numberModel "mathematical-real"');
+      assert.include(artifact.solverInput, "; Trusted model assumptions:");
+    });
+
+    it("verifies number arithmetic under the safe-integer model", async () => {
+      const { program } = await createProgram(`
+        function sum(n: number) with {
+          numberModel: "safe-integer";
+          requires: n >= 0 && n <= 1000;
+          ensures: result >= 0;
+        }: number {
+          let i = 0;
+          let total = 0;
+          while (i < n) with { invariant: [i >= 0, i <= n, total >= 0, total <= i * 1000]; } {
+            total += i;
+            i += 1;
+          }
+          return total;
+        }
+        // Declaring a number model is enough to verify a function's runtime obligations.
+        function double(x: number) with { numberModel: "safe-integer"; }: number {
+          return x * 2;
+        }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      const sumArtifacts = artifacts.filter(artifact => artifact.name.startsWith("sum "));
+      assert.isTrue(sumArtifacts.every(artifact => artifact.status === "proved"), sumArtifacts.map(artifact => `${artifact.name}: ${artifact.status} ${artifact.message}`).join("\n"));
+      // Specifications are logic: 'i * 1000' in the invariant creates no range obligation.
+      assert.deepEqual(sumArtifacts.filter(artifact => artifact.kind === "program-semantics").map(artifact => artifact.name), [
+        "sum 'total += i' stays within the safe-integer range",
+        "sum 'i += 1' stays within the safe-integer range",
+      ]);
+      assert.include(sumArtifacts[0].solverInput, "(set-logic QF_LIA)");
+      const [overflow] = artifactsNamed(program, "double");
+      assert.equal(overflow.obligation, "safe-integer-range");
+      assert.equal(overflow.status, "failed");
+      assert.match(overflow.counterexample!, /^x = -?\d{16}$/);
+    });
+
+    it("keeps values the safe-integer model cannot represent outside the subset", async () => {
+      const { program } = await createProgram(`
+        function half(x: number) with { numberModel: "safe-integer"; ensures: result >= 0; }: number { return 0.5; }
+        function ratio(x: number) with { numberModel: "safe-integer"; ensures: result >= 0; }: number { return x / 2; }
+        function field(point: { x: number }) with { numberModel: "safe-integer"; ensures: result >= 0; }: number { return 1; }
+      `);
+      const messages = program.getVerificationArtifacts!().map(artifact => `${artifact.status}: ${artifact.message}`);
+      assert.deepEqual(messages, [
+        "unknown: Numeric literal '0.5' is not a safe integer.",
+        "unknown: Operator '/' on number is not integer division and is outside the safe-integer model.",
+        `unknown: Property 'x' cannot be lowered: A number field of a structured value is outside the "safe-integer" number model in this version.`,
+      ]);
+    });
+
+    it("accepts only known number models", async () => {
+      const { program } = await createProgram(`
+        function a(x: number) with { numberModel: "safe-integer"; ensures: result === x; }: number { return x; }
+        function b(x: number) with { numberModel: "ieee-float64"; ensures: result === x; }: number { return x; }
+      `);
+      const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+      assert.isTrue(messages.some(message => message.includes("numberModel: invalid value")), messages.join("\n"));
+      assert.isFalse(messages.some(message => message.includes("a postcondition")) && messages.length > 2);
+    });
+
+    it("prints standard predicates as library definitions", async () => {
+      const { program } = await createProgram(
+        `
+        type Even = bigint with { predicate: isEven(value); };
+        const four: Even = 4n;
+      `,
+        ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
+      );
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "proved");
+      assert.include(artifact.solverInput, "; TS++ standard predicate isEven over Int (lib.tspp.d.ts)");
+      assert.include(artifact.solverInput, "(define-fun tspp.std.isEven.Int ((value Int)) Bool (= (mod value 2) 0))");
+      assert.include(artifact.solverInput, "(assert (not (tspp.std.isEven.Int 4)))");
+    });
+  });
 });
