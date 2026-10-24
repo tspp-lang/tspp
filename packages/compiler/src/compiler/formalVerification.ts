@@ -40,13 +40,6 @@ import {
   skipTrivia,
 } from "./scanner.js";
 import { logicDefinitionKey } from "./smtLibrary.js";
-import {
-  getStandardPredicateDefinition,
-  getStandardPredicateFunction,
-  isStandardPredicateSymbol,
-  standardPredicateDefinitions,
-  type StandardPredicateName,
-} from "./standardPredicates.js";
 import { hasTsppFeature } from "./tsppFeatures.js";
 import {
   Block,
@@ -157,8 +150,6 @@ import { runVerificationQueries } from "./verificationWorker.js";
 
 type Sort = VerificationSort;
 type Term = VerificationTerm;
-
-const standardPredicateNames = new Set<string>(standardPredicateDefinitions.map(definition => definition.name));
 
 export interface FormalVerificationResult {
   readonly artifacts: readonly VerificationArtifact[];
@@ -920,8 +911,6 @@ function getNarrowedVariantName(checker: TypeChecker, type: Type): string | unde
 function translateCallExpression(context: VerificationContext, state: SymbolicState, expression: CallExpression, resultUsed: boolean, result?: Term): Term | string {
   const logicFunction = getLogicFunctionDeclaration(context.checker, expression);
   if (logicFunction) return translateLogicFunctionCall(context, state, expression, logicFunction, result);
-  const standardPredicate = getStandardPredicateName(context.checker, expression);
-  if (standardPredicate) return translateStandardPredicate(context, state, expression, standardPredicate, result);
   const callee = isIdentifier(expression.expression) ? getAliasedSymbolOf(context.checker, expression.expression) : undefined;
   const refinement = getRefinementNewtype(callee);
   if (refinement) return verifyRefinementIntroduction(context, state, expression, refinement);
@@ -1040,46 +1029,9 @@ function createLogicFunctionResolver(program: Program, host: CompilerHost | unde
   }
 }
 
-function getStandardPredicateName(checker: TypeChecker, expression: CallExpression): StandardPredicateName | undefined {
-  if (!isIdentifier(expression.expression)) return undefined;
-  const name = idText(expression.expression);
-  if (!standardPredicateNames.has(name)) return undefined;
-  const symbol = checker.getSymbolAtLocation(expression.expression);
-  if (symbol && !isStandardPredicateSymbol(symbol)) return undefined;
-  return getStandardPredicateDefinition(name)?.name;
-}
-
 function getAliasedSymbolOf(checker: TypeChecker, node: Node): Symbol | undefined {
   const symbol = checker.getSymbolAtLocation(node);
   return symbol && symbol.flags & SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
-}
-
-function translateStandardPredicate(
-  context: VerificationContext,
-  state: SymbolicState,
-  expression: CallExpression,
-  name: StandardPredicateName,
-  result?: Term,
-): Term | string {
-  const definition = getStandardPredicateDefinition(name);
-  if (!definition) return `Unknown standard predicate '${name}'.`;
-  if (expression.arguments.length !== definition.arity) {
-    return `Standard predicate '${name}' expects ${definition.arity} argument(s).`;
-  }
-
-  const argumentTerms: Term[] = [];
-  for (const argument of expression.arguments) {
-    const term = translateExpression(context, state, argument, result);
-    if (typeof term === "string") return term;
-    if (!isVerificationNumericSort(term.sort)) return `Standard predicate '${name}' requires bigint or number arguments.`;
-    argumentTerms.push(term);
-  }
-  const sort = argumentTerms[0].sort as "Int" | "Real";
-  if (argumentTerms.some(term => term.sort !== sort)) {
-    return `Standard predicate '${name}' requires arguments of the same numeric type.`;
-  }
-  const predicate = useFunction(context, getStandardPredicateFunction(definition, sort));
-  return { sort: "Bool", expression: verificationApplication(predicate, ...argumentTerms.map(term => term.expression)) };
 }
 
 function getDataVariantTarget(checker: TypeChecker, expression: Identifier): DataVariant | undefined {
@@ -1268,10 +1220,69 @@ function verifyCallPreconditions(
 
   const returnSort = getSort(callContext, expression);
   if (!returnSort) return `Return type of '${targetName}' is outside the supported verification subset.`;
-  if (resultUsed) {
-    callerState.reason ??= `The result of call '${sourceText(context, expression)}' is outside the supported verification subset until callee ensures summaries are supported.`;
+  const resultTerm = freshConstant(callContext, `${targetName} result`, returnSort);
+  if (resultUsed) applyCallSummary(callContext, callerState, calleeState, expression, target, resultTerm);
+  return resultTerm;
+}
+
+/**
+ * Uses a callee's `ensures` as facts about the value a call returns. The
+ * summary is only as sound as the callee's own proof, so the callee must
+ * have a body (its postconditions are then verified separately) and must not
+ * reach the caller again: assuming a recursive callee's postcondition would
+ * assume what the caller is proving.
+ */
+function applyCallSummary(
+  context: VerificationContext,
+  callerState: SymbolicState,
+  calleeState: SymbolicState,
+  expression: CallExpression,
+  target: FunctionDeclaration,
+  result: Term,
+): void {
+  const targetName = contractName(target);
+  const call = sourceText(context, expression);
+  if (!target.body || getSourceFileOfNode(target).isDeclarationFile) {
+    callerState.reason ??= `The result of call '${call}' is outside the supported verification subset: '${targetName}' has no body, so nothing about its result can be verified.`;
+    return;
   }
-  return freshConstant(callContext, `${targetName} result`, returnSort);
+  const ensures = getProperties(target.withClause, "ensures");
+  // Without ensures the result is an arbitrary value of its sort, which is sound as it is.
+  if (!ensures.length) return;
+  if (isFunctionDeclaration(context.declaration) && reachesFunction(context.checker, target, context.declaration, new Set())) {
+    callerState.reason ??= `The result of recursive call '${call}' cannot use the ensures of '${targetName}': assuming them would assume what is being proved.`;
+    return;
+  }
+  const summary: VerificationAssertion[] = [];
+  for (const property of ensures) {
+    const term = translateSpecification(context, calleeState, property, result);
+    if (typeof term === "string") {
+      callerState.reason ??= term;
+      return;
+    }
+    if (term.sort !== "Bool") {
+      callerState.reason ??= "An ensures expression must have Boolean SMT semantics.";
+      return;
+    }
+    summary.push(verificationAssertion(term.expression, "summary", `${targetName} ensures: ${sourceText(context, property)} (call at ${sourceLocation(context, expression)})`));
+  }
+  // The summary refers to the callee's parameters, so their bindings come along.
+  const bindings = calleeState.facts.slice(callerState.facts.length).filter(fact => fact.origin.kind === "path");
+  callerState.facts.push(...bindings, ...summary);
+}
+
+/** Whether `from` can call `to`, directly or through other project functions with bodies. */
+function reachesFunction(checker: TypeChecker, from: FunctionDeclaration, to: FunctionDeclaration, visited: Set<FunctionDeclaration>): boolean {
+  if (from === to) return true;
+  if (visited.has(from) || !from.body) return false;
+  visited.add(from);
+  let found = false;
+  visit(from.body, node => {
+    if (found || !isCallExpression(node)) return;
+    const callee = getCallTarget(checker, node);
+    if (callee && reachesFunction(checker, callee, to, visited)) found = true;
+  });
+  return found;
 }
 
 function comparisonOperator(kind: SyntaxKind): "<" | "<=" | ">" | ">=" | undefined {

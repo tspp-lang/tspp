@@ -70,8 +70,19 @@ export type Parameter = readonly [name: string, sort: Sort<any>];
 /** The terms a body receives for its parameters. */
 export type ParameterTerms<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? Term<T> : never; };
 
+/**
+ * The TypeScript type a contract uses for a value of logic type `T`. An Int
+ * also accepts `number`: under the "safe-integer" number model a number is an
+ * SMT Int. Under "mathematical-real" it is a Real, and such a call is reported
+ * as a sort mismatch.
+ */
+export type ProgramValue<T> = [T] extends [bigint] ? bigint | number : T;
+
+/** The logic type of a value a contract passes as `T`; the inverse of `ProgramValue`. */
+export type LogicValue<T> = [bigint] extends [T] ? bigint : T;
+
 /** The TypeScript values a contract passes for the parameters. */
-export type ParameterValues<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? T : never; };
+export type ParameterValues<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? ProgramValue<T> : never; };
 
 /** The serialized definition a logic function carries for the compiler. */
 export interface LogicDefinition {
@@ -312,7 +323,7 @@ export const js: {
 };
 
 /** Applies a logic function to terms. */
-export function apply<A extends readonly unknown[], R>(fn: LogicFunction<A, R>, ...args: { [K in keyof A]: TermLike<A[K]>; }): Term<R> {
+export function apply<A extends readonly unknown[], R>(fn: LogicFunction<A, R>, ...args: { [K in keyof A]: TermLike<LogicValue<A[K]>>; }): Term<LogicValue<R>> {
   const definition = fn[logicDefinitionKey];
   return applyDefinition(definition.function, definition.dependencies, args);
 }
@@ -402,7 +413,7 @@ export function defineFunction<const P extends readonly Parameter[], R>(
   parameters: P,
   result: Sort<R>,
   body: (...args: ParameterTerms<P>) => TermLike<R>,
-): LogicFunction<ParameterValues<P>, R> {
+): LogicFunction<ParameterValues<P>, ProgramValue<R>> {
   checkName(name, "function");
   const { bindings, terms } = bind(parameters);
   const value = term(body(...terms));
@@ -419,12 +430,12 @@ export function defineRecursiveFunction<const P extends readonly Parameter[], R>
   name: string,
   parameters: P,
   result: Sort<R>,
-  body: (self: LogicFunction<ParameterValues<P>, R>, ...args: ParameterTerms<P>) => TermLike<R>,
-): LogicFunction<ParameterValues<P>, R> {
+  body: (self: LogicFunction<ParameterValues<P>, ProgramValue<R>>, ...args: ParameterTerms<P>) => TermLike<R>,
+): LogicFunction<ParameterValues<P>, ProgramValue<R>> {
   checkName(name, "function");
   const { bindings, terms } = bind(parameters);
   const header: VerificationFunction = { name, parameters: bindings, sort: result.sort, origin: `recursive logic function ${name} (ts-plus-plus/smt)` };
-  const self = createLogicFunction<ParameterValues<P>, R>(header, [], /*validate*/ false);
+  const self = createLogicFunction<ParameterValues<P>, ProgramValue<R>>(header, [], /*validate*/ false);
   const value = term(body(self, ...terms));
   const definition: VerificationFunction = { ...header, body: value.expression, recursive: true };
   return createLogicFunction(definition, value.functions.filter(dependency => dependency !== header));
@@ -439,13 +450,13 @@ export function declareFunction<const P extends readonly Parameter[], R>(
   name: string,
   parameters: P,
   result: Sort<R>,
-  options?: { readonly axioms?: (self: LogicFunction<ParameterValues<P>, R>) => readonly Axiom[]; },
-): LogicFunction<ParameterValues<P>, R> {
+  options?: { readonly axioms?: (self: LogicFunction<ParameterValues<P>, ProgramValue<R>>) => readonly Axiom[]; },
+): LogicFunction<ParameterValues<P>, ProgramValue<R>> {
   checkName(name, "function");
   const { bindings } = bind(parameters);
   const header: VerificationFunction = { name, parameters: bindings, sort: result.sort, origin: `declared logic function ${name} (ts-plus-plus/smt)` };
   if (!options?.axioms) return createLogicFunction(header, []);
-  const self = createLogicFunction<ParameterValues<P>, R>(header, [], /*validate*/ false);
+  const self = createLogicFunction<ParameterValues<P>, ProgramValue<R>>(header, [], /*validate*/ false);
   const axioms = options.axioms(self);
   const definition: VerificationFunction = { ...header, axioms: axioms.map(item => item.axiom) };
   return createLogicFunction(definition, mergeFunctions(axioms.map(item => item.functions)).filter(dependency => dependency !== header));

@@ -115,7 +115,6 @@ TS++ 把 TypeScript 作为稳定的兼容层与 FFI 边界：
 | `nominalTypes` | `newtype` 名义类型声明、`data` ADT 可辨识联合、变体构造器与穷尽值层 `match` | 无 | 是 | 否（生成运行时变体值、构造器与匹配分派） |
 | `macros` | `macro function` 声明与编译期 `macro f(Target);` 语句展开；公共 SDK `ts-plus-plus/macros` | 无 | 是 | 否（宏调用可以替换生成的语句） |
 | `formalContracts` | 由 SMT 求解器验证的 `requires`、`ensures` 和 `while` 循环不变式（输出标准 SMT-LIB 2.6，不依赖特定求解器） | 无 | 是 | 是 |
-| `standardLibraryPredicates` | 标准库数值谓词 `isEven`、`isOdd`、`isPositive`、`isNegative`、`isNonNegative`、`isZero`、`divides`、`between`；`number` 需设置 `numberModel`（`"mathematical-real"` 或 `"safe-integer"`） | `formalContracts` | 是 | 是 |
 | `refinementTypes` | 由 SMT 求解器验证结构类型别名引入点的谓词 | `formalContracts` | 是 | 是 |
 | `smtLibraries` | 用 `ts-plus-plus/smt` 编写的用户逻辑函数、谓词与公理，可在契约中调用；逻辑库模块在编译期执行 | `formalContracts` | 是 | 是（逻辑函数只用于规格） |
 | `typeComputation` | 类型层局部绑定 `let X = T in U`、模式匹配 `match T { ... }` 与类型 lambda `<T> =>> Body` | 无 | 是 | 是 |
@@ -139,8 +138,8 @@ TS++ 把 TypeScript 作为稳定的兼容层与 FFI 边界：
 验证分为以下几层（设计讨论见 [issue #27](https://github.com/tspp-lang/tspp/issues/27)）：
 
 1. **SMT IR**：与求解器无关的 SMT-LIB 2.6 模型，包括 sort（基本类型、datatype、未解释 sort）、开放的符号应用、带 pattern 的量词、`let`、声明与定义的函数，以及原始 SMT-LIB 逃生口。每个应用都会按标准理论签名（Core、Ints、Reals、Reals_Ints、Strings、Datatypes）或已声明函数做 sort 检查，不再维护封闭的运算符枚举。
-2. **程序语义**：TypeScript/JavaScript 运算如何映射到 IR。每个运算降低为逻辑项**以及**其运行时行为所需的定义性证明义务：bigint `%` 是 JavaScript 的截断余数（`-3n % 2n === -1n`，在输出中是一个 `define-fun`，而不是 SMT 的 `mod`），并要求除数可证明非零。规格（`requires`、`ensures`、不变式、谓词、`assert:`/`assume:`）会被擦除、从不执行，因此它们是纯逻辑，不产生运行时义务。
-3. **证明上下文**：每条断言都记录来源以及是否受信。`assume:`、公理和数值模型假设属于受信输入；`requires`、不变式和精化事实会在别处被证明。受信断言会被命名，证明成功时会根据求解器的 unsat core 报告该证明实际依赖的受信输入。
+2. **程序语义**：TypeScript/JavaScript 运算如何映射到 IR。每个运算降低为逻辑项**以及**其运行时行为所需的定义性证明义务：bigint `%` 是 JavaScript 的截断余数（`-3n % 2n === -1n`，在输出中是一个 `define-fun`，而不是 SMT 的 `mod`），并要求除数可证明非零。规格（`requires`、`ensures`、不变式、谓词、`assert:`/`assume:`）会被擦除、从不执行，因此它们是纯逻辑，不产生运行时义务；规格中除数为零时结果是未指定的值，需要排除时在规格里写出条件即可（`b !== 0n && a % b === 0n`）。
+3. **证明上下文**：每条断言都记录来源以及是否受信。`assume:`、公理和数值模型假设属于受信输入；`requires`、不变式、精化事实和被调函数摘要会在别处被证明。受信断言会被命名，证明成功时会根据求解器的 unsat core 报告该证明实际依赖的受信输入。
 4. **后端**：生成的脚本只包含标准命令和理论符号，`set-logic` 根据实际使用的理论计算（`QF_LIA`、`QF_NIA`、`UFDTLIA` 等，否则为 `ALL`）。求解过程是纯 SMT-LIB 协议（`check-sat`、`get-value`、`get-unsat-core`、`get-info :reason-unknown`）；超时等求解器选项属于后端适配器，不会出现在脚本中。内置后端为 Z3，宿主可以接入任意 SMT-LIB 2.6 求解器。
 
 TypeScript 自身的控制流分析仍作为事实来源被复用，而不是被替换。宏与验证共享有界分析 worker 队列，能够传播取消和超时结果，并在增量 Program 之间复用按完整义务内容寻址的成功结果。
@@ -168,10 +167,12 @@ function sumTo(n: bigint) with {
 
 每个 `with` 属性名只能出现一次；`requires`、`ensures` 或 `invariant` 包含多个条件时使用数组。
 
-当前子集支持 `boolean`、`bigint`、`string`、局部变量、赋值、分支、`switch`、多返回路径、带不变式的循环，以及对能够静态解析到项目函数声明的直接调用检查 `requires`。记录与记录字面量、带唯一字符串 `_tag` 的封闭判别联合、TS++ `data` 构造器和递归代数数据会通过 TypeScript checker 已经计算出的类型与控制流窄化降低为 Verification IR 的积类型/和类型，再编码为 SMT-LIB datatype；验证器不会并行实现另一套 TypeScript 类型窄化。可选字段、索引签名和开放联合目前会明确得到 `unknown`。验证函数内部调用时，调用者前提与当前符号路径事实也会参与证明。支持的算术为 `+`、`-`、`*`，以及 `bigint` 上按 JavaScript 截断语义的 `/` 和 `%`。只有在契约中选择 `numberModel` 后才支持 `number`：
+当前子集支持 `boolean`、`bigint`、`string`、局部变量、赋值、分支、`switch`、多返回路径、带不变式的循环，以及对能够静态解析到项目函数声明的直接调用检查 `requires`。记录与记录字面量、带唯一字符串 `_tag` 的封闭判别联合、TS++ `data` 构造器和递归代数数据会通过 TypeScript checker 已经计算出的类型与控制流窄化降低为 Verification IR 的积类型/和类型，再编码为 SMT-LIB datatype；验证器不会并行实现另一套 TypeScript 类型窄化。可选字段、索引签名和开放联合目前会明确得到 `unknown`。验证函数内部调用时，调用者前提与当前符号路径事实也会参与证明。直接调用的返回值会使用被调函数的 `ensures` 作为事实（标注为 `[summary]`，并在被调函数自身的证明中单独验证）；被调函数没有 `ensures` 时返回值是该类型的任意值，没有函数体或会递归调用回当前函数时返回值得到 `unknown`。支持的算术为 `+`、`-`、`*`，以及 `bigint` 上按 JavaScript 截断语义的 `/` 和 `%`。只有在契约中选择 `numberModel` 后才支持 `number`：
 
 - `"mathematical-real"`：把 `number` 抽象成数学实数，不建模舍入、溢出、NaN、Infinity 与 -0，因此它是一条受信假设，所有依赖它的证明都会报告这一点。
-- `"safe-integer"`：把 `number` 建模为 ±`Number.MAX_SAFE_INTEGER` 范围内的整数，此时 IEEE-754 运算是精确的。执行代码中的每个 `+`、`-`、`*` 都必须可证明不越界，number `%` 需要非零除数；`/`（不是整数除法）与小数字面量不在模型内。只有参数的范围是受信输入。
+- `"safe-integer"`：把 `number` 建模为 ±`Number.MAX_SAFE_INTEGER` 范围内的整数，此时 IEEE-754 运算是精确的。执行代码中的每个 `+`、`-`、`*` 都必须可证明不越界，number `%` 需要非零除数；`/`（不是整数除法）与小数字面量不在模型内。只有参数的范围是受信输入。该模型作用于 `number` 类型的变量、参数和返回值；记录与 `data` 中的 `number` 字段不在模型内。
+
+`numberModel` 按函数、精化类型或循环逐个声明，不提供文件级或项目级默认值，使所用的数值语义在用到它的地方可见。
 
 每个证明义务都会得到 `proved`、`failed`、`unknown` 或 `error` 状态，任务结果还会区分取消与超时。不支持的语法以及求解器不可用都会产生 `unknown` 编译错误，绝不会伪装成证明成功。`Program.getVerificationArtifacts()` 会公开实际求解器输入、可重放的 SMT-LIB、状态、解码后的源码级反例、原始模型、证明所依赖的受信输入和源码位置。SMT-LIB 中每条断言都带有标注其类别与来源的注释，库定义也会注明出处。开发扩展中的 **TS++: Show Verification SMT-LIB** 命令会在源码旁一次打开当前文件的全部输入，按源码位置排序并标注对应行号。
 
@@ -191,7 +192,7 @@ export const isMultipleOf = smt.definePredicate(
 );
 ```
 
-之后 `requires: isMultipleOf(x, 3n)` 的用法与标准谓词相同。编译器按函数类型携带的定义识别调用，而不是按名字；它通过与宏相同的执行接缝，在编译期只执行这个声明及其依赖，并把结果当作不受信输入重新校验。逻辑函数只能用于规格：在其他位置调用会得到编译错误，运行时调用会抛错。非递归定义生成 `define-fun`，不引入受信输入；`defineRecursiveFunction`（`define-fun-rec`，不检查终止性）和 `declareFunction` 的公理属于受信输入，证明用到时会被报告。`ts-plus-plus/smt` 是一个独立的小模块；编译期间编译器提供自己内置的同一份实现，因此 IR 总与当前编译器一致。
+之后 `requires: isMultipleOf(x, 3n)` 会按这个定义验证。TS++ 不内置任何谓词，`isEven`、`between` 等同样这样定义。契约中的 `Int` 参数也接受 `number`，用于 `safe-integer` 模型。编译器按函数类型携带的定义识别调用，而不是按名字；它通过与宏相同的执行接缝，在编译期只执行这个声明及其依赖，并把结果当作不受信输入重新校验。逻辑函数只能用于规格：在其他位置调用会得到编译错误，运行时调用会抛错。非递归定义生成 `define-fun`，不引入受信输入；`defineRecursiveFunction`（`define-fun-rec`，不检查终止性）和 `declareFunction` 的公理属于受信输入，证明用到时会被报告。`ts-plus-plus/smt` 是一个独立的小模块；编译期间编译器提供自己内置的同一份实现，因此 IR 总与当前编译器一致。
 
 ## 编译期宏 SDK
 

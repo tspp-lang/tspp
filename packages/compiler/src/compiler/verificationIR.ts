@@ -141,6 +141,8 @@ export type VerificationAssertionKind =
   | "invariant"
   /** A local `assert:` that was itself emitted as an obligation. */
   | "assertion"
+  /** A callee's `ensures` at a call site, proved separately for the callee. */
+  | "summary"
   /** A local `assume:`: trusted input, never proved. */
   | "assumption"
   /** A user axiom: trusted input, may make the context inconsistent. */

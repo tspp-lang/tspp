@@ -192,99 +192,29 @@ describe("unittests:: tspp:: formal contracts", () => {
     assert.isTrue(ts.isLabeledStatement(functionBody.statements[0]));
   });
 
-  it("supports standard predicates only in verification contexts", async () => {
-    const { program } = await createProgram(
-      `
-      const runtimeCall = isEven(2n);
-    `,
-      ["formalContracts", "standardLibraryPredicates"],
-    );
-    const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
-    assert.include(messages.join("\n"), "Standard predicate 'isEven' can only be used in a formal verification predicate");
-  });
-
-  it("allows an ordinary same-named function outside verification contexts", async () => {
-    const { program } = await createProgram(
-      `
-      function isEven(_value: bigint): boolean { return true; }
-      const runtimeCall = isEven(2n);
-    `,
-      ["formalContracts", "standardLibraryPredicates"],
-    );
-    assert.isEmpty(program.getSemanticDiagnostics());
-  });
-
-  it("verifies intrinsic standard predicates", async () => {
-    const { program } = await createProgram(
-      `
-      type Even = bigint with { predicate: isEven(value); };
-      const good: Even = 2n;
-      const bad: Even = 3n;
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
-    const artifacts = program.getVerificationArtifacts!();
-    assert.lengthOf(artifacts, 2);
-    assert.equal(artifacts[0].status, "proved");
-    assert.equal(artifacts[1].status, "failed");
-  });
-
-  it("verifies the isNegative standard predicate", async () => {
-    const { program } = await createProgram(
-      `
-      type Negative = bigint with { predicate: isNegative(value); };
-      const good: Negative = -2n;
-      const bad: Negative = 2n;
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
-    const artifacts = program.getVerificationArtifacts!();
-    assert.lengthOf(artifacts, 2);
-    assert.equal(artifacts[0].status, "proved");
-    assert.equal(artifacts[1].status, "failed");
-  });
-
-  it("proves standard predicates applied to the implicit result value", async () => {
-    const { program } = await createProgram(
-      `
+  it("proves arithmetic facts about the implicit result value", async () => {
+    const { program } = await createProgram(`
       function evenPlusTwo(n: bigint) with {
-        requires: isEven(n);
-        ensures: isEven(result);
+        requires: n % 2n === 0n;
+        ensures: result % 2n === 0n;
       }: bigint {
         return n + 2n;
       }
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
+    `);
     const artifacts = program.getVerificationArtifacts!();
     assert.lengthOf(artifacts, 1);
     assert.equal(artifacts[0].status, "proved");
     assert.isEmpty(program.getSemanticDiagnostics());
   });
 
-  it("checks intrinsic standard predicate arguments", async () => {
-    const { program } = await createProgram(
-      `
-      type BadType = bigint with { predicate: isEven("x"); };
-      type BadArity = bigint with { predicate: divides(value); };
-      type MixedNumericKinds = bigint with { predicate: divides(2n, 4); };
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
-    const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")).join("\n");
-    assert.include(messages, "number | bigint");
-    assert.include(messages, "Expected 2 arguments, but got 1");
-    assert.include(messages, "not assignable to parameter of type 'bigint'");
-  });
-
-  it("does not treat a shadowing function as an intrinsic standard predicate", async () => {
+  it("does not treat an ordinary boolean function as a logic predicate", async () => {
     const { program } = await createProgram(
       `
       function isEven(_value: bigint): boolean { return false; }
       type Local = bigint with { predicate: isEven(value); };
       const value: Local = 2n;
     `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
+      ["formalContracts", "refinementTypes"],
     );
     assert.isFalse(program.getVerificationArtifacts!().every(artifact => artifact.status === "proved"));
   });
@@ -1066,20 +996,40 @@ describe("unittests:: tspp:: formal contracts", () => {
       assert.isTrue(messages.some(message => message.includes("numberModel: invalid value")), messages.join("\n"));
       assert.isFalse(messages.some(message => message.includes("a postcondition")) && messages.length > 2);
     });
+  });
 
-    it("prints standard predicates as library definitions", async () => {
-      const { program } = await createProgram(
-        `
-        type Even = bigint with { predicate: isEven(value); };
-        const four: Even = 4n;
-      `,
-        ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-      );
+  describe("call summaries", () => {
+    it("uses a verified callee's ensures at the call site", async () => {
+      const { program } = await createProgram(`
+        function double(x: bigint) with { ensures: result === x * 2n; }: bigint { return x + x; }
+        function quadruple(x: bigint) with { ensures: result === x * 4n; }: bigint { return double(double(x)); }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.isTrue(artifacts.every(artifact => artifact.status === "proved"), artifacts.map(artifact => `${artifact.name}: ${artifact.status} ${artifact.message}`).join("\n"));
+      const quadruple = artifacts.find(artifact => artifact.name.startsWith("quadruple postcondition"))!;
+      assert.include(quadruple.solverInput, "; [summary] double ensures: result === x * 2n (call at file.tspp:3:");
+      // A summary is proved for the callee, so it is not a trusted input.
+      assert.isUndefined(quadruple.trustedInputs);
+    });
+
+    it("leaves the result unconstrained when the callee has no ensures", async () => {
+      const { program } = await createProgram(`
+        function opaque(x: bigint): bigint { return x; }
+        function caller(x: bigint) with { ensures: result === x; }: bigint { return opaque(x); }
+      `);
       const [artifact] = program.getVerificationArtifacts!();
-      assert.equal(artifact.status, "proved");
-      assert.include(artifact.solverInput, "; TS++ standard predicate isEven over Int (lib.tspp.d.ts)");
-      assert.include(artifact.solverInput, "(define-fun tspp.std.isEven.Int ((value Int)) Bool (= (mod value 2) 0))");
-      assert.include(artifact.solverInput, "(assert (not (tspp.std.isEven.Int 4)))");
+      assert.equal(artifact.status, "failed");
+    });
+
+    it("does not assume the ensures of a recursive callee", async () => {
+      const { program } = await createProgram(`
+        function grow(x: bigint) with { ensures: result > x; }: bigint { return grow(x); }
+        function even(n: bigint) with { ensures: result >= 0n; }: bigint { return odd(n); }
+        function odd(n: bigint) with { ensures: result >= 0n; }: bigint { return even(n); }
+      `);
+      const messages = program.getVerificationArtifacts!().map(artifact => `${artifact.status}: ${artifact.message}`);
+      assert.lengthOf(messages, 3);
+      assert.isTrue(messages.every(message => message.startsWith("unknown: The result of recursive call")), messages.join("\n"));
     });
   });
 
@@ -1091,7 +1041,7 @@ describe("unittests:: tspp:: formal contracts", () => {
         export interface Term<T> { readonly value?: T; }
         export type Parameter = readonly [string, Sort<any>];
         export type Terms<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? Term<T> : never; };
-        export type Values<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? T : never; };
+        export type Values<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? ([T] extends [bigint] ? bigint | number : T) : never; };
         export interface LogicFunction<A extends readonly unknown[], R> { (...args: A): R; readonly "tspp.logic.definition": unknown; }
         export const Int: Sort<bigint>;
         export function definePredicate<const P extends readonly Parameter[]>(name: string, parameters: P, body: (...args: Terms<P>) => any): LogicFunction<Values<P>, boolean>;
@@ -1220,6 +1170,26 @@ describe("unittests:: tspp:: formal contracts", () => {
       const [artifact] = program.getVerificationArtifacts!();
       assert.equal(artifact.status, "unknown");
       assert.include(artifact.message, "requires the TS++ feature 'smtLibraries'");
+    });
+
+    it("accepts safe-integer numbers for Int parameters", async () => {
+      const { program, messages } = await createLogicProgram(`
+        import { isMultipleOf } from "./logic";
+        export function tripled(x: number) with {
+          numberModel: "safe-integer";
+          requires: x >= 0 && x <= 1000;
+          ensures: isMultipleOf(result, 3);
+        }: number {
+          return x * 3;
+        }
+        export function real(x: number) with { numberModel: "mathematical-real"; ensures: isMultipleOf(result, 3); }: number { return x; }
+      `);
+      assert.deepEqual(messages, ["real postcondition 1, return path 1: verification unknown. Argument 1 of logic function 'isMultipleOf' does not have the SMT sort of parameter 'value'."]);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.isTrue(artifacts.filter(artifact => artifact.name.startsWith("tripled")).every(artifact => artifact.status === "proved"));
+      const real = artifacts.find(artifact => artifact.name.startsWith("real"))!;
+      assert.equal(real.status, "unknown");
+      assert.include(real.message, "does not have the SMT sort of parameter 'value'");
     });
 
     it("turns a definition that fails at compile time into an unknown with its reason", async () => {

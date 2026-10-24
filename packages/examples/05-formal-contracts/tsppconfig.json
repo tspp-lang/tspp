@@ -1,6 +1,6 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "tsppFeatures": ["nominalTypes", "formalContracts", "refinementTypes", "standardLibraryPredicates", "smtLibraries"]
+    "tsppFeatures": ["nominalTypes", "formalContracts", "refinementTypes", "smtLibraries"]
   }
 }

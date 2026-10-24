@@ -1,6 +1,6 @@
 # 05 — 形式化契约与循环不变式
 
-这个示例按文件分别展示 `formalContracts`、`refinementTypes` 和 `standardLibraryPredicates`：
+这个示例按文件分别展示 `formalContracts`、`refinementTypes` 和 `smtLibraries`：
 
 - [`01-function-contracts.tspp`](./src/01-function-contracts.tspp)：`requires`、`ensures`、隐式返回值 `result` 和多返回路径；
 - [`02-loop-invariants.tspp`](./src/02-loop-invariants.tspp)：循环不变式的初始化与保持性证明；
@@ -9,7 +9,6 @@
 - [`05-refined-newtype.tspp`](./src/05-refined-newtype.tspp)：在 `newtype` 构造入口应用 `with` 谓词约束。
 - [`06-sum-types.tspp`](./src/06-sum-types.tspp)：把 `data` 和封闭判别联合降低为 SMT 和类型，并复用 TypeScript 的控制流窄化。
 - [`07-recursive-data.tspp`](./src/07-recursive-data.tspp)：递归 `data`、variant 构造器和由 checker 窄化的 `switch`。
-- [`08-standard-predicates.tspp`](./src/08-standard-predicates.tspp)：标准库谓词 `isEven`、`isOdd`、`isPositive`、`isNegative`、`isNonNegative`、`isZero`、`divides` 与 `between` 在 `bigint` 和 `number`（需 `numberModel: "mathematical-real"`）上的精化类型引入。
 - [`09-local-proof-points.tspp`](./src/09-local-proof-points.tspp)：局部 `assert` 证明义务，以及显式可信但不生成证明义务的 `assume`。
 - [`10-program-semantics.tspp`](./src/10-program-semantics.tspp)：bigint `/` 与 `%` 的 JavaScript 截断语义、除数非零的定义性证明义务，以及“规格是纯逻辑”的约定。
 - [`11-safe-integer-model.tspp`](./src/11-safe-integer-model.tspp)：`numberModel: "safe-integer"` 下的 `number` 循环与取余，以及越界检查。
@@ -40,6 +39,12 @@ function successor(value: bigint) with {
 `ensures` 中的 `result` 表示当前路径实际返回的值。能够静态解析到项目函数声明的直接调用也会验证
 `requires`，例如 `successor(-5n)` 会在调用位置报告反例 `value = -5`。验证函数内部的调用时，
 调用者的 `requires` 和当前符号路径事实也会参与证明。
+
+直接调用的返回值会使用被调函数的 `ensures`：例如 `ensures: result === x * 2n` 的 `double`，
+调用 `double(double(x))` 时可以直接证明结果等于 `x * 4n`。这些事实在 SMT-LIB 中标注为 `[summary]`；
+被调函数的 `ensures` 会在被调函数自身的证明中单独验证，因此它们不是受信输入。被调函数没有 `ensures`
+时，返回值是该类型的任意值；被调函数没有函数体（例如 `declare function`），或者会递归调用回当前
+函数时，返回值得到 `unknown`，因为这时使用它的 `ensures` 等于假设正在证明的结论。
 
 动态调用、复杂参数绑定和无法解析的调用不在当前直接调用子集内；相关值进入证明时会明确得到
 `unknown`，不会被当作验证成功。
@@ -108,7 +113,9 @@ function average(total: bigint, count: bigint) with {
 ```
 
 规格（`requires`、`ensures`、不变式、精化谓词、`assert:`/`assume:`）会被擦除、从不执行，
-因此它们是纯逻辑公式，其中的运算不产生运行时证明义务。
+因此它们是纯逻辑公式，其中的运算不产生运行时证明义务。规格中的除数为零时，结果是一个未指定的值
+（沿用 SMT `mod`/`div` 对零的处理），不会报错，规格也不做额外的良构性检查；需要排除这种情况时，
+在规格里写出条件即可，例如 `requires: b !== 0n && a % b === 0n`。
 
 ## `number` 模型
 
@@ -141,12 +148,14 @@ function lastDigit(value: number) with {
 }
 ```
 
-没有 `numberModel` 时，涉及 `number` 的证明会得到 `unknown`。
+没有 `numberModel` 时，涉及 `number` 的证明会得到 `unknown`。`numberModel` 按函数、精化类型和循环逐个
+声明，不提供文件级或项目级默认值：选择哪种数值语义应当在用到它的地方显式可见。`safe-integer` 只作用于
+`number` 类型的变量、参数和返回值；记录或 `data` 中的 `number` 字段不在该模型内，会得到 `unknown`。
 
 ## 逻辑库：`ts-plus-plus/smt`
 
-标准谓词之外的逻辑可以由用户自己定义。逻辑库是普通的 `.tspp`/`.ts` 模块，用
-`ts-plus-plus/smt` 的类型化构造器构造 SMT 项：
+TS++ 不内置任何逻辑谓词（早期内置的 `isEven`、`between` 等已经移除），需要的逻辑由用户自己定义。
+逻辑库是普通的 `.tspp`/`.ts` 模块，用 `ts-plus-plus/smt` 的类型化构造器构造 SMT 项：
 
 ```ts
 import * as smt from "ts-plus-plus/smt";
@@ -185,8 +194,20 @@ function roundDown(value: bigint, factor: bigint) with {
   做 sort 检查。定义有误时相关义务得到带原因的 `unknown`，不会导致编译器崩溃。
 - **构造器能力。** 支持 Core / Ints / Reals / Strings 的常用运算、`forall`/`exists`（可带
   `patterns`）、`ite`、未解释 sort（`declareSort`）、`smt.js.div`/`smt.js.rem`（JavaScript 语义），
-  以及作为逃生口的 `smt.raw(text, sort, functions)`。参数 sort 与 TypeScript 类型的对应关系是
-  `Int ↔ bigint`、`Real ↔ number`、`Bool ↔ boolean`、`String ↔ string`。
+  以及作为逃生口的 `smt.raw(text, sort, functions)`。逻辑库使用理论 sort 与未解释 sort。参数 sort 与
+  TypeScript 类型的对应关系是 `Int ↔ bigint`、`Real ↔ number`、`Bool ↔ boolean`、`String ↔ string`；
+  `Int` 参数在契约中也接受 `number`，用于 `safe-integer` 模型（此时 `number` 就是 SMT `Int`）。
+
+原来的内置谓词可以这样定义（`number` 版本在 `safe-integer` 模型下可直接复用这些 `Int` 定义）：
+
+```ts
+export const isEven = smt.definePredicate("isEven", [["value", smt.Int]], value => smt.eq(smt.mod(value, 2n), 0n));
+export const between = smt.definePredicate(
+  "between",
+  [["value", smt.Int], ["lower", smt.Int], ["upper", smt.Int]],
+  (value, lower, upper) => smt.and(smt.le(lower, value), smt.le(value, upper)),
+);
+```
 
 `ts-plus-plus/smt` 是一个不依赖编译器的独立小模块；编译期执行逻辑库时，编译器提供自己
 内置的同一份实现，因此生成的 IR 总是与当前编译器版本一致。
@@ -239,7 +260,7 @@ SMT-LIB 标注对应的源码行号、状态和说明。编译器 API 也可以�
 - `set-logic` 按实际用到的理论计算（例如 `QF_LIA`、`QF_NIA`、`UFDTLIA`），无法归类时才使用 `ALL`；
 - 超时等求解器选项不写入脚本，由后端负责；
 - 每条断言前都有注释说明其类别（`path`、`precondition`、`invariant`、`assumption` 等）和源码位置，
-  受信断言额外标注 `trusted`；标准谓词和程序语义定义以 `define-fun` 给出并注明出处。
+  受信断言额外标注 `trusted`；逻辑库和程序语义的定义以 `define-fun` 给出并注明出处。
 
 证明结果分为 `proved`、`failed`、`unknown` 和 `error`。不支持的表达式、控制流或运行环境
 会得到带原因的 `unknown` 编译错误。
@@ -268,20 +289,6 @@ absolute(-5) = 5
 successor(5) = 6
 countTo(4) = 4
 scaledSum(2, 6) = 4
-even = 42
-odd = 43
-positive = 42
-non-negative = 0
-zero = 0
-divisible by three = 42
-teen = 17
-even real = 42
-odd real = 43
-positive real = 42
-non-negative real = 0
-zero real = 0
-divisible by three real = 42
-teen real = 2
 halveTowardZero(-7) = -3
 remainder(-7, 2) = -1
 average(10, 4) = 2
