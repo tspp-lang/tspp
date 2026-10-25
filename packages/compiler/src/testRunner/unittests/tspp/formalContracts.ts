@@ -1077,7 +1077,11 @@ describe("unittests:: tspp:: formal contracts", () => {
       (globalThis as any).tsppLogicSideEffect = ((globalThis as any).tsppLogicSideEffect ?? 0) + 1;
     `;
 
-    async function createLogicProgram(main: string, tsppFeatures = ["formalContracts", "smtLibraries"]) {
+    async function createLogicProgram(
+      main: string,
+      tsppFeatures = ["formalContracts", "smtLibraries"],
+      configureHost?: (host: ts.CompilerHost, options: ts.CompilerOptions) => void,
+    ) {
       const options: ts.CompilerOptions = { noLib: true, noImplicitAny: false, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, tsppFeatures };
       const fs = vfs.createFromFileSystem(Harness.IO, /*ignoreCase*/ true, {
         documents: [
@@ -1088,6 +1092,7 @@ describe("unittests:: tspp:: formal contracts", () => {
         cwd: "/",
       });
       const host = new fakes.CompilerHost(fs, options);
+      configureHost?.(host, options);
       const program = await ts.createProgramAsync({ host, rootNames: ["/smt.d.ts", "/logic.tspp", "/main.tspp"], options });
       const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
       return { program, messages };
@@ -1123,6 +1128,29 @@ describe("unittests:: tspp:: formal contracts", () => {
       assert.include(sumTo.solverInput, "(define-fun-rec triangular");
       assert.deepEqual(sumTo.trustedInputs, ["recursive definition triangular (recursive logic function triangular (ts-plus-plus/smt))"]);
       assert.equal((globalThis as any).tsppLogicSideEffect, before, "only the logic declarations run at compile time");
+    });
+
+    it("does not inherit an outer program's cached resolution hooks", async () => {
+      const { messages } = await createLogicProgram(
+        `
+          import { isMultipleOf } from "./logic";
+          export function identity(value: bigint) with {
+            requires: value > 0n;
+            ensures: isMultipleOf(result, 1n);
+          }: bigint {
+            return value;
+          }
+        `,
+        ["formalContracts", "smtLibraries"],
+        (host, outerOptions) => {
+          host.resolveModuleNameLiterals = (moduleLiterals, containingFile, _redirectedReference, options) => {
+            if (options !== outerOptions) throw new Error("The nested build program reused the outer program's resolution hook.");
+            return moduleLiterals.map(moduleLiteral => ts.resolveModuleName(moduleLiteral.text, containingFile, options, host));
+          };
+        },
+      );
+
+      assert.deepEqual(messages, []);
     });
 
     it("reports a failed proof with a counterexample through a logic function", async () => {

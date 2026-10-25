@@ -92,6 +92,13 @@ export function createCompileTimeModuleLoader(program: Program, host: CompilerHo
       buildHost.scheduleAsyncFormalVerification = undefined;
       buildHost.isAsyncFormalVerificationPending = undefined;
       buildHost.getResolvedAsyncFormalVerification = undefined;
+      // A server host owns watched resolution entries for its outer project.
+      // Reusing those hooks in this nested emit-only program corrupts their
+      // file/watcher counts when the nested program releases its resolutions.
+      buildHost.resolveModuleNameLiterals = undefined;
+      buildHost.resolveModuleNames = undefined;
+      buildHost.resolveTypeReferenceDirectiveReferences = undefined;
+      buildHost.resolveTypeReferenceDirectives = undefined;
       buildHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
         const source = host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
         if (!source || source.isDeclarationFile || !fileExtensionIs(fileName, Extension.Tspp)) return source;
