@@ -1,4 +1,5 @@
 import {
+  getRawSmtTermError,
   VerificationAxiom,
   VerificationBinding,
   VerificationExpression,
@@ -378,11 +379,14 @@ function quantifier<P extends readonly Parameter[]>(
 }
 
 /**
- * Raw SMT-LIB with no structured constructor. The text is printed verbatim;
- * `symbols` must list every logic function it applies, so their definitions
- * are emitted too. Raw text makes the problem's logic `ALL`.
+ * One raw SMT-LIB term with no structured constructor. Declarations, solver
+ * commands, and additional top-level expressions are rejected. `symbols`
+ * must list every logic function the term applies, so their definitions are
+ * emitted too. Raw text makes the problem's logic `ALL`.
  */
 export function raw<T>(text: string, sort: Sort<T>, functions: readonly LogicFunction<any, any>[] = []): Term<T> {
+  const error = getRawSmtTermError(text);
+  if (error) throw new TypeError(`Raw SMT-LIB must contain exactly one term: ${error}.`);
   const definitions = functions.map(fn => fn[logicDefinitionKey]);
   return makeTerm(
     { kind: "raw", text, sort: sort.sort, symbols: definitions.map(definition => definition.function.name) },

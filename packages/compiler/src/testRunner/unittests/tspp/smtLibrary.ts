@@ -107,6 +107,15 @@ describe("unittests:: tspp:: smt library", () => {
     assert.equal(result.status, "proved");
   });
 
+  it("keeps raw SMT-LIB inside a single term boundary", () => {
+    assert.throws(() => smt.raw("", smt.Bool), "text is empty");
+    assert.throws(() => smt.raw("(check-sat)", smt.Bool), "solver command");
+    assert.throws(() => smt.raw("true) (assert false", smt.Bool), "more than one top-level expression");
+    assert.throws(() => smt.raw("(>= 1 0) (assert false)", smt.Bool), "more than one top-level expression");
+    assert.throws(() => smt.raw("true ; swallow generated delimiters", smt.Bool), "trailing line comment");
+    assert.doesNotThrow(() => smt.raw('; explanation\n(= |name with spaces| "a""b") ; done\n', smt.Bool));
+  });
+
   describe("reading untrusted definitions", () => {
     const valid = isMultipleOf["tspp.logic.definition"];
     const read = (definition: unknown) => readLogicFunction({ "tspp.logic.definition": definition }, "lib");
@@ -124,6 +133,7 @@ describe("unittests:: tspp:: smt library", () => {
       assert.include(read({ ...valid, function: { ...valid.function, sort: { kind: "sum", name: "S", variants: [] } } }) as string, "a sort must be");
       assert.include(read({ ...valid, function: { ...valid.function, name: "tspp.std.isEven.Int" } }) as string, "reserved");
       assert.include(read({ ...valid, function: { ...valid.function, body: { kind: "integer", value: "1; (assert false)" } } }) as string, "not a valid numeral");
+      assert.include(read({ ...valid, function: { ...valid.function, body: { kind: "raw", text: "true) (assert false", sort: "Bool", symbols: [] } } }) as string, "exactly one term");
       let deep: unknown = { kind: "boolean", value: true };
       for (let i = 0; i < 300; i++) deep = { kind: "application", symbol: "not", operands: [deep] };
       assert.include(read({ ...valid, function: { ...valid.function, body: deep } }) as string, "nests deeper");

@@ -3,6 +3,7 @@ import {
   smtApiVersion,
 } from "./smtLibrary.js";
 import {
+  getRawSmtTermError,
   VerificationAxiom,
   VerificationBinding,
   VerificationExpression,
@@ -135,9 +136,13 @@ function readExpression(value: unknown, budget: { nodes: number; }, depth: numbe
       });
       return { kind: "let", bindings, body: next(value.body) };
     }
-    case "raw":
+    case "raw": {
       if (!Array.isArray(value.symbols)) fail("raw symbols must be an array.");
-      return { kind: "raw", text: readString(value.text, "raw SMT-LIB text"), sort: readSort(value.sort), symbols: value.symbols.map(symbol => readString(symbol, "a raw symbol")) };
+      const text = readString(value.text, "raw SMT-LIB text");
+      const error = getRawSmtTermError(text);
+      if (error) fail(`raw SMT-LIB must contain exactly one term: ${error}.`);
+      return { kind: "raw", text, sort: readSort(value.sort), symbols: value.symbols.map(symbol => readString(symbol, "a raw symbol")) };
+    }
     default:
       // Free constants and datatype terms describe program state; a library cannot introduce them.
       return fail(`term kind '${String(value.kind)}' is not allowed in a logic library.`);

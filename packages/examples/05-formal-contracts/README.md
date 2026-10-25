@@ -194,7 +194,8 @@ function roundDown(value: bigint, factor: bigint) with {
   做 sort 检查。定义有误时相关义务得到带原因的 `unknown`，不会导致编译器崩溃。
 - **构造器能力。** 支持 Core / Ints / Reals / Strings 的常用运算、`forall`/`exists`（可带
   `patterns`）、`ite`、未解释 sort（`declareSort`）、`smt.js.div`/`smt.js.rem`（JavaScript 语义），
-  以及作为逃生口的 `smt.raw(text, sort, functions)`。逻辑库使用理论 sort 与未解释 sort。参数 sort 与
+  以及作为单一 SMT term 逃生口的 `smt.raw(text, sort, functions)`；raw 文本不能包含声明、求解命令或
+  额外的顶层表达式。逻辑库使用理论 sort 与未解释 sort。参数 sort 与
   TypeScript 类型的对应关系是 `Int ↔ bigint`、`Real ↔ number`、`Bool ↔ boolean`、`String ↔ string`；
   `Int` 参数在契约中也接受 `number`，用于 `safe-integer` 模型（此时 `number` 就是 SMT `Int`）。
 

@@ -263,6 +263,8 @@ describe("unittests:: tspp:: verification IR", () => {
       assert.include(encoding.solverInput, "(assert (not (>= (* x x) 0)))");
       assert.equal((await runVerificationQueries([encoding.query]))[0].status, "proved");
       assert.throws(() => encodeVerificationProblem({ declarations: [], assertions: [], goal: verificationRaw("(f 1)", "Bool", ["f"]) }), "undeclared symbol 'f'");
+      assert.throws(() => encodeVerificationProblem({ declarations: [], assertions: [], goal: verificationRaw("(reset)", "Bool") }), "solver command");
+      assert.throws(() => encodeVerificationProblem({ declarations: [], assertions: [], goal: verificationRaw("true) (assert false", "Bool") }), "exactly one term");
     });
 
     it("binds let variables in parallel and checks their sorts", async () => {

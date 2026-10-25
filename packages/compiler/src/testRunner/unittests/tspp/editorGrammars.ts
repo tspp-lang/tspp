@@ -28,6 +28,7 @@ interface ExtensionManifest {
   readonly contributes: {
     readonly grammars: readonly {
       readonly scopeName: string;
+      readonly injectTo?: readonly string[];
       readonly embeddedLanguages?: Readonly<Record<string, string>>;
     }[];
   };
@@ -39,6 +40,7 @@ describe("unittests:: tspp:: editor grammars", () => {
     "tspp-kind-operators.tmLanguage.json",
     "tspp-macros.tmLanguage.json",
     "tspp-nominal-declarations.tmLanguage.json",
+    "tspp-declaration-keywords.tmLanguage.json",
     "tspp-operators.tmLanguage.json",
     "tspp-type-computation.tmLanguage.json",
     "tspp-modern-syntax.tmLanguage.json",
@@ -160,7 +162,7 @@ describe("unittests:: tspp:: editor grammars", () => {
   });
 
   it("gives declaration keywords stable scopes across TS++ expression contexts", () => {
-    const patterns = collectPatterns(readGrammar("tspp-operators.tmLanguage.json"));
+    const patterns = collectPatterns(readGrammar("tspp-declaration-keywords.tmLanguage.json"));
     const exportKeyword = patterns.find(pattern => pattern.name === "keyword.control.export.ts");
     const constKeyword = patterns.find(pattern => pattern.name?.includes("keyword.declaration.const.tspp"));
     assert.isDefined(exportKeyword);
@@ -168,6 +170,10 @@ describe("unittests:: tspp:: editor grammars", () => {
     assert.strictEqual(exportKeyword.match, "\\bexport\\b");
     assert.strictEqual(constKeyword.match, "\\bconst\\b");
     assert.include(constKeyword.name!, "storage.type.function.ts");
+
+    const keywordGrammar = readExtensionManifest().contributes.grammars.find(grammar => grammar.scopeName === "tspp.declaration-keywords");
+    assert.isDefined(keywordGrammar);
+    assert.deepEqual(keywordGrammar.injectTo, ["source.tspp"], "Declaration overrides must not change ordinary TypeScript files");
   });
 
   it("highlights modern syntax let-in and do keywords", () => {

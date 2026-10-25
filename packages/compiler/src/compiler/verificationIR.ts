@@ -80,9 +80,10 @@ export type VerificationExpression =
   }
   | { readonly kind: "let"; readonly bindings: readonly { readonly name: string; readonly value: VerificationExpression; }[]; readonly body: VerificationExpression; }
   /**
-   * Escape hatch for SMT-LIB that has no structured constructor. The text is
-   * printed verbatim; `sort` is trusted, and `symbols` lists every declared
-   * or bound symbol the text refers to so declarations stay reachable.
+   * Escape hatch for one SMT-LIB term that has no structured constructor. The
+   * text is printed verbatim after its lexical boundary is checked; `sort` is
+   * trusted, and `symbols` lists every declared or bound symbol the text
+   * refers to so declarations stay reachable.
    */
   | { readonly kind: "raw"; readonly text: string; readonly sort: VerificationSort; readonly symbols: readonly string[]; };
 
@@ -224,6 +225,138 @@ export function verificationLet(bindings: readonly { readonly name: string; read
 
 export function verificationRaw(text: string, sort: VerificationSort, symbols: readonly string[] = []): VerificationExpression {
   return { kind: "raw", text, sort, symbols };
+}
+
+const smtCommandNames = new Set([
+  "assert",
+  "check-sat",
+  "check-sat-assuming",
+  "declare-const",
+  "declare-datatype",
+  "declare-datatypes",
+  "declare-fun",
+  "declare-sort",
+  "define-fun",
+  "define-fun-rec",
+  "define-funs-rec",
+  "define-sort",
+  "echo",
+  "exit",
+  "get-assertions",
+  "get-assignment",
+  "get-info",
+  "get-model",
+  "get-option",
+  "get-proof",
+  "get-unsat-assumptions",
+  "get-unsat-core",
+  "get-value",
+  "pop",
+  "push",
+  "reset",
+  "reset-assertions",
+  "set-info",
+  "set-logic",
+  "set-option",
+]);
+
+/**
+ * Checks the lexical boundary promised by the raw escape hatch. This is not a
+ * second SMT parser: the backend still checks the term's sort and the solver
+ * parses its contents. It only proves that the text is one balanced SMT-LIB
+ * term, rather than a suffix that can escape into the solver command stream.
+ * @internal
+ */
+export function getRawSmtTermError(text: string): string | undefined {
+  let position = 0;
+
+  const skipTrivia = (): string | undefined => {
+    while (position < text.length) {
+      const code = text.charCodeAt(position);
+      if (code === 0x20 || code === 0x09 || code === 0x0a || code === 0x0d) {
+        position++;
+        continue;
+      }
+      if (code !== 0x3b) return undefined; // ; line comment
+      position++;
+      while (position < text.length && text[position] !== "\r" && text[position] !== "\n") position++;
+      if (position === text.length) return "a trailing line comment would consume the surrounding generated expression";
+    }
+    return undefined;
+  };
+
+  const triviaError = skipTrivia();
+  if (triviaError) return triviaError;
+  if (position === text.length) return "the text is empty";
+
+  const start = position;
+  if (text.charCodeAt(position) === 0x28) { // (
+    position++;
+    const headTriviaError = skipTrivia();
+    if (headTriviaError) return headTriviaError;
+    const headStart = position;
+    while (position < text.length && !/[\s();]/.test(text[position])) position++;
+    const head = text.slice(headStart, position);
+    if (smtCommandNames.has(head)) return `'${head}' is a solver command, not a term`;
+    position = start;
+
+    let depth = 0;
+    let state: "normal" | "string" | "quoted" | "comment" = "normal";
+    for (; position < text.length; position++) {
+      const char = text[position];
+      if (state === "comment") {
+        if (char === "\r" || char === "\n") state = "normal";
+        continue;
+      }
+      if (state === "string") {
+        if (char === '"') {
+          if (text[position + 1] === '"') position++;
+          else state = "normal";
+        }
+        continue;
+      }
+      if (state === "quoted") {
+        if (char === "|") state = "normal";
+        continue;
+      }
+      if (char === ";") state = "comment";
+      else if (char === '"') state = "string";
+      else if (char === "|") state = "quoted";
+      else if (char === "(") depth++;
+      else if (char === ")") {
+        if (--depth === 0) {
+          position++;
+          break;
+        }
+      }
+    }
+    if (state === "string") return "it contains an unterminated string";
+    if (state === "quoted") return "it contains an unterminated quoted symbol";
+    if (depth !== 0) return "its parentheses are not balanced";
+  }
+  else if (text.charCodeAt(position) === 0x22 || text.charCodeAt(position) === 0x7c) { // " or |
+    const delimiter = text[position++];
+    let closed = false;
+    while (position < text.length) {
+      if (text[position++] !== delimiter) continue;
+      if (delimiter === '"' && text[position] === '"') {
+        position++;
+        continue;
+      }
+      closed = true;
+      break;
+    }
+    if (!closed) return delimiter === '"' ? "it contains an unterminated string" : "it contains an unterminated quoted symbol";
+  }
+  else {
+    if (text.charCodeAt(position) === 0x29) return "it starts with an unmatched ')'";
+    while (position < text.length && !/[\s();]/.test(text[position])) position++;
+  }
+
+  const trailingTriviaError = skipTrivia();
+  if (trailingTriviaError) return trailingTriviaError;
+  if (position !== text.length) return "it contains more than one top-level expression";
+  return undefined;
 }
 
 export function verificationConstruct(

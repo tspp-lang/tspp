@@ -240,9 +240,9 @@ import * as macros from "ts-plus-plus/macros";
 
 | 层级 | 内容 | 承诺 |
 | --- | --- | --- |
-| 稳定 API | `MacroTarget`、`MacroContext`、`MacroResult`、`MacroReturn`、`MacroFailure`、`MacroDiagnostic`、`MacroFunction`、`MacroTimeout`；常用 AST 节点类型与类型守卫（`isFunctionDeclaration`、`isReturnStatement`、`isDataDeclaration` 等）；`SyntaxKind`、`NodeFlags`、`DiagnosticCategory`、`forEachChild`、`idText` | 删除或改变其中任何一项都需要提升 `macroApiVersion`（当前为 `1`） |
+| 稳定 API | facade 的导出名称；`MacroTarget`、`MacroContext`、`MacroResult`、`MacroReturn`、`MacroFailure`、`MacroDiagnostic`、`MacroFunction`、`MacroTimeout`；常用类型守卫（`isFunctionDeclaration`、`isReturnStatement`、`isDataDeclaration` 等）；`SyntaxKind`、`NodeFlags`、`DiagnosticCategory`、`forEachChild`、`idText` | 删除导出或改变 facade 自有类型需要提升 `macroApiVersion`（当前为 `1`） |
 | 节点创建 | `context.factory` 是唯一推荐的 AST 创建入口 | 节点形状跟随编译器 AST（与 TypeScript AST 一致） |
-| 同版本耦合 | `context.program`、`context.checker`，以及 `import * as ts from "ts-plus-plus"` 暴露的完整编译器 | 只读、能力强，但随编译器内部演进，不做兼容性承诺 |
+| 同版本耦合 | 导出的 AST/编译器类型的结构、`context.program`、`context.checker`，以及 `import * as ts from "ts-plus-plus"` 暴露的完整编译器 | 只读、能力强，但随编译器内部演进，不做兼容性承诺 |
 
 需要稳定性时只使用前两层；确实需要类型信息时再使用 `context.checker`，并接受它与编译器版本耦合。
 

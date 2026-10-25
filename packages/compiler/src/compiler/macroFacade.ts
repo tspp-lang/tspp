@@ -3,18 +3,19 @@
  *
  * Compatibility promise, version 1 (`macroApiVersion`):
  *
- * - Stable: everything exported from this module. The macro types
+ * - Stable facade: all export names, the macro-owned types
  *   (`MacroTarget`, `MacroContext`, `MacroResult`, `MacroReturn`,
  *   `MacroFailure`, `MacroDiagnostic`, `MacroFunction`, `MacroTimeout`), the
- *   curated AST node types and type guards, `SyntaxKind`, `NodeFlags`,
- *   `DiagnosticCategory`, `forEachChild`, and `idText`. Removing or changing
- *   any of them requires a new `macroApiVersion`.
+ *   curated type guards, `SyntaxKind`, `NodeFlags`, `DiagnosticCategory`,
+ *   `forEachChild`, and `idText`. Removing an export or changing a
+ *   facade-owned type requires a new `macroApiVersion`.
  * - Node creation: `context.factory` is the one supported way to build AST.
  *   Node shapes follow the compiler's AST, which tracks TypeScript's.
- * - Same-version coupled: `context.program` and `context.checker` give
- *   read-only access to the whole compiler. They are intentionally powerful
- *   and follow the running compiler's internals without a compatibility
- *   promise, as does `import * as ts from "ts-plus-plus"`.
+ * - Same-version coupled: the structural shapes of exported compiler types
+ *   (`Node`, `Program`, `TypeChecker`, `Type`, `Symbol`, and related AST node
+ *   types), together with `context.program` and `context.checker`, follow the
+ *   running compiler's internals without a compatibility promise. The same
+ *   applies to `import * as ts from "ts-plus-plus"`.
  *
  * At compile time the compiler serves this module itself, so a macro always
  * runs against the compiler that loaded it.

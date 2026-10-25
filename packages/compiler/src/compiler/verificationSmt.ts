@@ -1,4 +1,5 @@
 import {
+  getRawSmtTermError,
   isTrustedAssertionKind,
   VerificationAssertion,
   verificationAssertion,
@@ -197,8 +198,11 @@ function encodeExpression(expression: VerificationExpression, names: EncodingNam
     }
     case "let":
       return `(let (${expression.bindings.map(binding => `(${encodeSymbol(binding.name)} ${encodeExpression(binding.value, names)})`).join(" ")}) ${encodeExpression(expression.body, names)})`;
-    case "raw":
+    case "raw": {
+      const error = getRawSmtTermError(expression.text);
+      if (error) throw new Error(`Raw SMT-LIB must contain exactly one term: ${error}.`);
       return expression.text;
+    }
   }
 }
 

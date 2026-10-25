@@ -67,6 +67,13 @@
         }
       },
       {
+        "scopeName": "tspp.declaration-keywords",
+        "path": "./syntaxes/tspp-declaration-keywords.tmLanguage.json",
+        "injectTo": [
+          "source.tspp"
+        ]
+      },
+      {
         "scopeName": "tspp.nominal-declarations",
         "path": "./syntaxes/tspp-nominal-declarations.tmLanguage.json",
         "injectTo": [

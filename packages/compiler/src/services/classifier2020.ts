@@ -240,11 +240,7 @@ function classifySymbol(symbol: Symbol, meaning: SemanticMeaning): TokenType | u
 }
 
 function reclassifyByType(typeChecker: TypeChecker, node: Node, typeIdx: TokenType): TokenType {
-  // Classify values by the operation they primarily support. A callable value is still a
-  // function when it also carries properties (for example, a TS++ LogicFunction carries
-  // its compiler definition as metadata). Using the presence of properties as a veto made
-  // declarations look like variables while the same symbol looked like a function at a
-  // call site.
+  // type based classifications
   if (typeIdx === TokenType.variable || typeIdx === TokenType.property || typeIdx === TokenType.parameter) {
     const type = typeChecker.getTypeAtLocation(node);
     if (type) {
@@ -254,7 +250,7 @@ function reclassifyByType(typeChecker: TypeChecker, node: Node, typeIdx: TokenTy
       if (typeIdx !== TokenType.parameter && test(t => t.getConstructSignatures().length > 0)) {
         return TokenType.class;
       }
-      if (test(t => t.getCallSignatures().length > 0) || isExpressionInCallExpression(node)) {
+      if (test(t => t.getCallSignatures().length > 0) && !test(t => t.getProperties().length > 0) || isExpressionInCallExpression(node)) {
         return typeIdx === TokenType.property ? TokenType.member : TokenType.function;
       }
     }
