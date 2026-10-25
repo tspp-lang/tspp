@@ -6,6 +6,7 @@
 //// interface B = { (): string; }; var b: B
 //// var s: String;
 //// var t: { (): string; foo: string};
+//// const logic: { (): string; readonly metadata: unknown } = null!;
 
 const c2 = classification("2020");
 verify.semanticClassificationsAre("2020",
@@ -26,6 +27,8 @@ verify.semanticClassificationsAre("2020",
     c2.semanticToken("interface", "B"), 
     c2.semanticToken("variable.declaration", "s"), 
     c2.semanticToken("interface.defaultLibrary", "String"), 
-    c2.semanticToken("variable.declaration", "t"), 
+    c2.semanticToken("function.declaration", "t"),
     c2.semanticToken("property.declaration", "foo"), 
+    c2.semanticToken("function.declaration.readonly", "logic"),
+    c2.semanticToken("property.declaration.readonly", "metadata"),
 );;

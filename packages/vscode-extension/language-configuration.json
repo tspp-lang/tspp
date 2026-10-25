@@ -29,8 +29,7 @@
   "colorizedBracketPairs": [
     ["(", ")"],
     ["[", "]"],
-    ["{", "}"],
-    ["<", ">"]
+    ["{", "}"]
   ],
   "folding": {
     "markers": {

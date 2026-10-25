@@ -155,10 +155,11 @@ function collectTokens(program: Program, sourceFile: SourceFile, span: TextSpan,
     else if (isIdentifier(node) && !inJSXElement && !inImportClause(node) && !isInfinityOrNaNString(node.escapedText)) {
       let symbol = typeChecker.getSymbolAtLocation(node);
       if (symbol) {
-        if (symbol.flags & SymbolFlags.Alias) {
+        const isNamespaceAlias = !!(symbol.flags & SymbolFlags.Alias) && symbol.declarations?.some(isNamespaceImport);
+        if (symbol.flags & SymbolFlags.Alias && !isNamespaceAlias) {
           symbol = typeChecker.getAliasedSymbol(symbol);
         }
-        let typeIdx = classifySymbol(symbol, getMeaningFromLocation(node));
+        let typeIdx = isNamespaceAlias ? TokenType.namespace : classifySymbol(symbol, getMeaningFromLocation(node));
         if (typeIdx !== undefined) {
           let modifierSet = 0;
           if (node.parent) {
@@ -239,7 +240,11 @@ function classifySymbol(symbol: Symbol, meaning: SemanticMeaning): TokenType | u
 }
 
 function reclassifyByType(typeChecker: TypeChecker, node: Node, typeIdx: TokenType): TokenType {
-  // type based classifications
+  // Classify values by the operation they primarily support. A callable value is still a
+  // function when it also carries properties (for example, a TS++ LogicFunction carries
+  // its compiler definition as metadata). Using the presence of properties as a veto made
+  // declarations look like variables while the same symbol looked like a function at a
+  // call site.
   if (typeIdx === TokenType.variable || typeIdx === TokenType.property || typeIdx === TokenType.parameter) {
     const type = typeChecker.getTypeAtLocation(node);
     if (type) {
@@ -249,7 +254,7 @@ function reclassifyByType(typeChecker: TypeChecker, node: Node, typeIdx: TokenTy
       if (typeIdx !== TokenType.parameter && test(t => t.getConstructSignatures().length > 0)) {
         return TokenType.class;
       }
-      if (test(t => t.getCallSignatures().length > 0) && !test(t => t.getProperties().length > 0) || isExpressionInCallExpression(node)) {
+      if (test(t => t.getCallSignatures().length > 0) || isExpressionInCallExpression(node)) {
         return typeIdx === TokenType.property ? TokenType.member : TokenType.function;
       }
     }

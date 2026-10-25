@@ -129,9 +129,10 @@ describe("unittests:: tspp:: editor grammars", () => {
     assert.isTrue(patterns.some(pattern => pattern.include === "source.ts#expression"), "The selected branch must return to TypeScript expression highlighting");
   });
 
-  it("uses TypeScript-style colorized angle-bracket pairs", () => {
+  it("only colorizes structurally unambiguous bracket pairs", () => {
     const configuration = readLanguageConfiguration();
-    assert.deepInclude(configuration.colorizedBracketPairs, ["<", ">"]);
+    assert.deepEqual(configuration.colorizedBracketPairs, [["(", ")"], ["[", "]"], ["{", "}"]]);
+    assert.notDeepInclude(configuration.colorizedBracketPairs, ["<", ">"]);
     assert.deepInclude(configuration.surroundingPairs, ["<", ">"]);
   });
 
@@ -156,6 +157,17 @@ describe("unittests:: tspp:: editor grammars", () => {
     const operatorGrammar = readExtensionManifest().contributes.grammars.find(grammar => grammar.scopeName === "tspp.operators");
     assert.isDefined(operatorGrammar);
     assert.strictEqual(operatorGrammar.embeddedLanguages?.[operatorScope], "plaintext");
+  });
+
+  it("gives declaration keywords stable scopes across TS++ expression contexts", () => {
+    const patterns = collectPatterns(readGrammar("tspp-operators.tmLanguage.json"));
+    const exportKeyword = patterns.find(pattern => pattern.name === "keyword.control.export.ts");
+    const constKeyword = patterns.find(pattern => pattern.name?.includes("keyword.declaration.const.tspp"));
+    assert.isDefined(exportKeyword);
+    assert.isDefined(constKeyword);
+    assert.strictEqual(exportKeyword.match, "\\bexport\\b");
+    assert.strictEqual(constKeyword.match, "\\bconst\\b");
+    assert.include(constKeyword.name!, "storage.type.function.ts");
   });
 
   it("highlights modern syntax let-in and do keywords", () => {
