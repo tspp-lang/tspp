@@ -1150,6 +1150,7 @@ export function createResolutionCache(resolutionHost: ResolutionCacheHost, rootD
   }
 
   function watchFailedLookupLocationOfResolution(resolution: ResolutionWithFailedLookupLocations) {
+    if (!resolution.files?.size) return;
     Debug.assert(!!resolution.files?.size);
 
     const { failedLookupLocations, affectingLocations, alternateResult } = resolution;
@@ -1384,6 +1385,7 @@ export function createResolutionCache(resolutionHost: ResolutionCacheHost, rootD
     Debug.checkDefined(resolution.files).delete(filePath);
     if (resolution.files!.size) return;
     resolution.files = undefined;
+    nonRelativeExternalModuleResolutions.delete(resolution);
     const resolved = getResolutionWithResolvedFileName(resolution);
     if (resolved && resolved.resolvedFileName) {
       const key = resolutionHost.toPath(resolved.resolvedFileName);
