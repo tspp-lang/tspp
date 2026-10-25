@@ -192,99 +192,29 @@ describe("unittests:: tspp:: formal contracts", () => {
     assert.isTrue(ts.isLabeledStatement(functionBody.statements[0]));
   });
 
-  it("supports standard predicates only in verification contexts", async () => {
-    const { program } = await createProgram(
-      `
-      const runtimeCall = isEven(2n);
-    `,
-      ["formalContracts", "standardLibraryPredicates"],
-    );
-    const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
-    assert.include(messages.join("\n"), "Standard predicate 'isEven' can only be used in a formal verification predicate");
-  });
-
-  it("allows an ordinary same-named function outside verification contexts", async () => {
-    const { program } = await createProgram(
-      `
-      function isEven(_value: bigint): boolean { return true; }
-      const runtimeCall = isEven(2n);
-    `,
-      ["formalContracts", "standardLibraryPredicates"],
-    );
-    assert.isEmpty(program.getSemanticDiagnostics());
-  });
-
-  it("verifies intrinsic standard predicates", async () => {
-    const { program } = await createProgram(
-      `
-      type Even = bigint with { predicate: isEven(value); };
-      const good: Even = 2n;
-      const bad: Even = 3n;
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
-    const artifacts = program.getVerificationArtifacts!();
-    assert.lengthOf(artifacts, 2);
-    assert.equal(artifacts[0].status, "proved");
-    assert.equal(artifacts[1].status, "failed");
-  });
-
-  it("verifies the isNegative standard predicate", async () => {
-    const { program } = await createProgram(
-      `
-      type Negative = bigint with { predicate: isNegative(value); };
-      const good: Negative = -2n;
-      const bad: Negative = 2n;
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
-    const artifacts = program.getVerificationArtifacts!();
-    assert.lengthOf(artifacts, 2);
-    assert.equal(artifacts[0].status, "proved");
-    assert.equal(artifacts[1].status, "failed");
-  });
-
-  it("proves standard predicates applied to the implicit result value", async () => {
-    const { program } = await createProgram(
-      `
+  it("proves arithmetic facts about the implicit result value", async () => {
+    const { program } = await createProgram(`
       function evenPlusTwo(n: bigint) with {
-        requires: isEven(n);
-        ensures: isEven(result);
+        requires: n % 2n === 0n;
+        ensures: result % 2n === 0n;
       }: bigint {
         return n + 2n;
       }
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
+    `);
     const artifacts = program.getVerificationArtifacts!();
     assert.lengthOf(artifacts, 1);
     assert.equal(artifacts[0].status, "proved");
     assert.isEmpty(program.getSemanticDiagnostics());
   });
 
-  it("checks intrinsic standard predicate arguments", async () => {
-    const { program } = await createProgram(
-      `
-      type BadType = bigint with { predicate: isEven("x"); };
-      type BadArity = bigint with { predicate: divides(value); };
-      type MixedNumericKinds = bigint with { predicate: divides(2n, 4); };
-    `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
-    );
-    const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")).join("\n");
-    assert.include(messages, "number | bigint");
-    assert.include(messages, "Expected 2 arguments, but got 1");
-    assert.include(messages, "not assignable to parameter of type 'bigint'");
-  });
-
-  it("does not treat a shadowing function as an intrinsic standard predicate", async () => {
+  it("does not treat an ordinary boolean function as a logic predicate", async () => {
     const { program } = await createProgram(
       `
       function isEven(_value: bigint): boolean { return false; }
       type Local = bigint with { predicate: isEven(value); };
       const value: Local = 2n;
     `,
-      ["formalContracts", "refinementTypes", "standardLibraryPredicates"],
+      ["formalContracts", "refinementTypes"],
     );
     assert.isFalse(program.getVerificationArtifacts!().every(artifact => artifact.status === "proved"));
   });
@@ -901,5 +831,403 @@ describe("unittests:: tspp:: formal contracts", () => {
       error = caught;
     }
     assert.instanceOf(error, ts.OperationCanceledException);
+  });
+
+  describe("program semantics and trust boundaries", () => {
+    const artifactsNamed = (program: ts.Program, fragment: string) => program.getVerificationArtifacts!().filter(artifact => artifact.name.includes(fragment));
+
+    it("proves bigint '%' and '/' with JavaScript's truncating semantics", async () => {
+      const { program } = await createProgram(`
+        function remainderOfNegative(a: bigint) with {
+          requires: a < 0n;
+          ensures: result <= 0n;
+        }: bigint {
+          return a % 3n;
+        }
+        function halve(a: bigint) with {
+          requires: a === -7n;
+          ensures: result === -3n;
+        }: bigint {
+          return a / 2n;
+        }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      // SMT 'mod' would make 'a % 3n' non-negative and 'div' would round -3.5 down to -4.
+      assert.deepEqual(artifacts.map(artifact => `${artifact.name}: ${artifact.status}`), [
+        "remainderOfNegative postcondition 1, return path 1: proved",
+        "halve postcondition 1, return path 1: proved",
+      ]);
+      assert.include(artifacts[0].solverInput, "(define-fun tspp.js.trunc.rem ((a Int) (b Int)) Int");
+      assert.include(artifacts[1].solverInput, "(define-fun tspp.js.trunc.div ((a Int) (b Int)) Int");
+      assert.isEmpty(program.getSemanticDiagnostics());
+    });
+
+    it("emits a definedness obligation for a variable divisor", async () => {
+      const { program } = await createProgram(`
+        function unchecked(a: bigint, b: bigint): bigint {
+          assert: a === a;
+          return a % b;
+        }
+        function checked(a: bigint, b: bigint) with { requires: b > 0n; }: bigint {
+          let total = 0n;
+          if (a > 0n) total = a / b;
+          return total;
+        }
+      `);
+      const [failed] = artifactsNamed(program, "unchecked divisor");
+      assert.equal(failed.kind, "program-semantics");
+      assert.equal(failed.obligation, "nonzero-divisor");
+      assert.equal(failed.name, "unchecked divisor of 'a % b' is non-zero");
+      assert.equal(failed.status, "failed");
+      assert.include(failed.counterexample!, "b = 0");
+      const [proved] = artifactsNamed(program, "checked divisor of 'a / b'");
+      assert.equal(proved.status, "proved");
+      const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+      assert.deepEqual(messages, ["unchecked divisor of 'a % b' is non-zero: proof failed. The SMT solver found a counterexample. Counterexample: a = 0, b = 0."]);
+    });
+
+    it("treats specifications as logic without runtime obligations", async () => {
+      const { program } = await createProgram(`
+        function same(a: bigint, b: bigint) with {
+          requires: b !== 0n && a % b === 0n;
+          ensures: result % b === 0n;
+        }: bigint {
+          return a;
+        }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.deepEqual(artifacts.map(artifact => artifact.kind), ["function-contract"]);
+      assert.equal(artifacts[0].status, "proved");
+    });
+
+    it("reports the trusted inputs a proof relies on", async () => {
+      const { program } = await createProgram(`
+        function trusted(x: bigint): bigint {
+          assume: x > 10n;
+          assume: x < 1000n;
+          assert: x > 5n;
+          return x;
+        }
+      `);
+      const [assertion] = program.getVerificationArtifacts!().filter(artifact => artifact.kind === "assertion");
+      assert.equal(assertion.status, "proved");
+      assert.deepEqual(assertion.trustedInputs, ["assume: x > 10n (file.tspp:3:19)"]);
+      assert.include(assertion.message, "The proof relies on trusted input: assume: x > 10n (file.tspp:3:19).");
+      assert.include(assertion.solverInput, "; [assumption, trusted] assume: x > 10n (file.tspp:3:19)\n(assert (! (> v0 10) :named tspp.trusted.0))");
+
+      const { program: untrusted } = await createProgram(`
+        function plain(x: bigint) with { requires: x > 10n; ensures: result > 5n; }: bigint { return x; }
+      `);
+      const [contract] = untrusted.getVerificationArtifacts!();
+      assert.equal(contract.status, "proved");
+      assert.isUndefined(contract.trustedInputs);
+      assert.include(contract.solverInput, "; [precondition] requires: x > 10n (file.tspp:2:52)");
+    });
+
+    it("reports the mathematical-real model as a trusted assumption", async () => {
+      const { program } = await createProgram(`
+        function addOne(x: number) with {
+          numberModel: "mathematical-real";
+          ensures: result > x;
+        }: number { return x + 1; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "proved");
+      assert.lengthOf(artifact.trustedInputs!, 1);
+      assert.include(artifact.trustedInputs![0], 'numberModel "mathematical-real"');
+      assert.include(artifact.solverInput, "; Trusted model assumptions:");
+    });
+
+    it("verifies number arithmetic under the safe-integer model", async () => {
+      const { program } = await createProgram(`
+        function sum(n: number) with {
+          numberModel: "safe-integer";
+          requires: n >= 0 && n <= 1000;
+          ensures: result >= 0;
+        }: number {
+          let i = 0;
+          let total = 0;
+          while (i < n) with { invariant: [i >= 0, i <= n, total >= 0, total <= i * 1000]; } {
+            total += i;
+            i += 1;
+          }
+          return total;
+        }
+        // Declaring a number model is enough to verify a function's runtime obligations.
+        function double(x: number) with { numberModel: "safe-integer"; }: number {
+          return x * 2;
+        }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      const sumArtifacts = artifacts.filter(artifact => artifact.name.startsWith("sum "));
+      assert.isTrue(sumArtifacts.every(artifact => artifact.status === "proved"), sumArtifacts.map(artifact => `${artifact.name}: ${artifact.status} ${artifact.message}`).join("\n"));
+      // Specifications are logic: 'i * 1000' in the invariant creates no range obligation.
+      assert.deepEqual(sumArtifacts.filter(artifact => artifact.kind === "program-semantics").map(artifact => artifact.name), [
+        "sum 'total += i' stays within the safe-integer range",
+        "sum 'i += 1' stays within the safe-integer range",
+      ]);
+      assert.include(sumArtifacts[0].solverInput, "(set-logic QF_LIA)");
+      const [overflow] = artifactsNamed(program, "double");
+      assert.equal(overflow.obligation, "safe-integer-range");
+      assert.equal(overflow.status, "failed");
+      assert.match(overflow.counterexample!, /^x = -?\d{16}$/);
+    });
+
+    it("keeps values the safe-integer model cannot represent outside the subset", async () => {
+      const { program } = await createProgram(`
+        function half(x: number) with { numberModel: "safe-integer"; ensures: result >= 0; }: number { return 0.5; }
+        function ratio(x: number) with { numberModel: "safe-integer"; ensures: result >= 0; }: number { return x / 2; }
+        function field(point: { x: number }) with { numberModel: "safe-integer"; ensures: result >= 0; }: number { return 1; }
+      `);
+      const messages = program.getVerificationArtifacts!().map(artifact => `${artifact.status}: ${artifact.message}`);
+      assert.deepEqual(messages, [
+        "unknown: Numeric literal '0.5' is not a safe integer.",
+        "unknown: Operator '/' on number is not integer division and is outside the safe-integer model.",
+        `unknown: Property 'x' cannot be lowered: A number field of a structured value is outside the "safe-integer" number model in this version.`,
+      ]);
+    });
+
+    it("accepts only known number models", async () => {
+      const { program } = await createProgram(`
+        function a(x: number) with { numberModel: "safe-integer"; ensures: result === x; }: number { return x; }
+        function b(x: number) with { numberModel: "ieee-float64"; ensures: result === x; }: number { return x; }
+      `);
+      const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+      assert.isTrue(messages.some(message => message.includes("numberModel: invalid value")), messages.join("\n"));
+      assert.isFalse(messages.some(message => message.includes("a postcondition")) && messages.length > 2);
+    });
+  });
+
+  describe("call summaries", () => {
+    it("uses a verified callee's ensures at the call site", async () => {
+      const { program } = await createProgram(`
+        function double(x: bigint) with { ensures: result === x * 2n; }: bigint { return x + x; }
+        function quadruple(x: bigint) with { ensures: result === x * 4n; }: bigint { return double(double(x)); }
+      `);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.isTrue(artifacts.every(artifact => artifact.status === "proved"), artifacts.map(artifact => `${artifact.name}: ${artifact.status} ${artifact.message}`).join("\n"));
+      const quadruple = artifacts.find(artifact => artifact.name.startsWith("quadruple postcondition"))!;
+      assert.include(quadruple.solverInput, "; [summary] double ensures: result === x * 2n (call at file.tspp:3:");
+      // A summary is proved for the callee, so it is not a trusted input.
+      assert.isUndefined(quadruple.trustedInputs);
+    });
+
+    it("leaves the result unconstrained when the callee has no ensures", async () => {
+      const { program } = await createProgram(`
+        function opaque(x: bigint): bigint { return x; }
+        function caller(x: bigint) with { ensures: result === x; }: bigint { return opaque(x); }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "failed");
+    });
+
+    it("does not assume the ensures of a recursive callee", async () => {
+      const { program } = await createProgram(`
+        function grow(x: bigint) with { ensures: result > x; }: bigint { return grow(x); }
+        function even(n: bigint) with { ensures: result >= 0n; }: bigint { return odd(n); }
+        function odd(n: bigint) with { ensures: result >= 0n; }: bigint { return even(n); }
+      `);
+      const messages = program.getVerificationArtifacts!().map(artifact => `${artifact.status}: ${artifact.message}`);
+      assert.lengthOf(messages, 3);
+      assert.isTrue(messages.every(message => message.startsWith("unknown: The result of recursive call")), messages.join("\n"));
+    });
+  });
+
+  describe("logic libraries", () => {
+    // A compact ambient typing; the published declaration is exercised by packages/examples.
+    const smtTypes = `
+      declare module "ts-plus-plus/smt" {
+        export interface Sort<T> { readonly value?: T; }
+        export interface Term<T> { readonly value?: T; }
+        export type Parameter = readonly [string, Sort<any>];
+        export type Terms<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? Term<T> : never; };
+        export type Values<P extends readonly Parameter[]> = { [K in keyof P]: P[K] extends readonly [string, Sort<infer T>] ? ([T] extends [bigint] ? bigint | number : T) : never; };
+        export interface LogicFunction<A extends readonly unknown[], R> { (...args: A): R; readonly "tspp.logic.definition": unknown; }
+        export const Int: Sort<bigint>;
+        export function definePredicate<const P extends readonly Parameter[]>(name: string, parameters: P, body: (...args: Terms<P>) => any): LogicFunction<Values<P>, boolean>;
+        export function defineRecursiveFunction<const P extends readonly Parameter[], R>(name: string, parameters: P, result: Sort<R>, body: (self: any, ...args: Terms<P>) => any): LogicFunction<Values<P>, R>;
+        export function declareFunction<const P extends readonly Parameter[], R>(name: string, parameters: P, result: Sort<R>, options?: { axioms?: (self: any) => any }): LogicFunction<Values<P>, R>;
+        export const js: any;
+        export function and(...values: any[]): any;
+        export function not(value: any): any;
+        export function eq(left: any, right: any): any;
+        export function le(left: any, right: any): any;
+        export function ge(left: any, right: any): any;
+        export function add(...values: any[]): any;
+        export function sub(...values: any[]): any;
+        export function ite(c: any, a: any, b: any): any;
+        export function apply(fn: any, ...args: any[]): any;
+        export function axiom(label: string, formula: any): any;
+        export function forall(parameters: any, body: (...args: any) => any): any;
+      }
+    `;
+    const library = `
+      import * as smt from "ts-plus-plus/smt";
+      export const isMultipleOf = smt.definePredicate(
+        "isMultipleOf",
+        [["value", smt.Int], ["factor", smt.Int]],
+        (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+      );
+      export const triangular = smt.defineRecursiveFunction("triangular", [["n", smt.Int]], smt.Int, (self, n) => smt.ite(smt.le(n, 0n), 0n, smt.add(n, smt.apply(self, smt.sub(n, 1n)))));
+      export const bound = smt.declareFunction("bound", [["n", smt.Int]], smt.Int, {
+        axioms: self => [smt.axiom("bound is non-negative", smt.forall([["n", smt.Int]], n => smt.ge(smt.apply(self, n), 0n)))],
+      });
+      export const broken = smt.definePredicate("broken", [["value", smt.Int]], value => smt.add(value, 1n));
+      // Top-level code outside the logic declarations must not run at compile time.
+      (globalThis as any).tsppLogicSideEffect = ((globalThis as any).tsppLogicSideEffect ?? 0) + 1;
+    `;
+
+    async function createLogicProgram(
+      main: string,
+      tsppFeatures = ["formalContracts", "smtLibraries"],
+      configureHost?: (host: ts.CompilerHost, options: ts.CompilerOptions) => void,
+    ) {
+      const options: ts.CompilerOptions = { noLib: true, noImplicitAny: false, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, tsppFeatures };
+      const fs = vfs.createFromFileSystem(Harness.IO, /*ignoreCase*/ true, {
+        documents: [
+          new documents.TextDocument("/smt.d.ts", smtTypes),
+          new documents.TextDocument("/logic.tspp", library),
+          new documents.TextDocument("/main.tspp", main),
+        ],
+        cwd: "/",
+      });
+      const host = new fakes.CompilerHost(fs, options);
+      configureHost?.(host, options);
+      const program = await ts.createProgramAsync({ host, rootNames: ["/smt.d.ts", "/logic.tspp", "/main.tspp"], options });
+      const messages = program.getSemanticDiagnostics().map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
+      return { program, messages };
+    }
+
+    it("proves contracts that call user-defined logic functions", async () => {
+      const before = (globalThis as any).tsppLogicSideEffect;
+      const { program, messages } = await createLogicProgram(`
+        import { isMultipleOf, triangular } from "./logic";
+        export function roundDown(value: bigint, factor: bigint) with {
+          requires: [value >= 0n, factor > 0n];
+          ensures: isMultipleOf(result, factor);
+        }: bigint {
+          return value - value % factor;
+        }
+        export function sumTo(n: bigint) with { requires: n >= 0n; ensures: result === triangular(n); }: bigint {
+          let index = 0n;
+          let total = 0n;
+          while (index < n) with { invariant: [index >= 0n, index <= n, total === triangular(index)]; } {
+            index += 1n;
+            total += index;
+          }
+          return total;
+        }
+      `);
+      assert.deepEqual(messages, []);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.isTrue(artifacts.every(artifact => artifact.status === "proved"), artifacts.map(artifact => `${artifact.name}: ${artifact.status} ${artifact.message}`).join("\n"));
+      const roundDown = artifacts.find(artifact => artifact.name.startsWith("roundDown postcondition"))!;
+      assert.include(roundDown.solverInput, "; logic function isMultipleOf (ts-plus-plus/smt)\n(define-fun isMultipleOf ((value Int) (factor Int)) Bool");
+      assert.isUndefined(roundDown.trustedInputs);
+      const sumTo = artifacts.find(artifact => artifact.name.startsWith("sumTo postcondition"))!;
+      assert.include(sumTo.solverInput, "(define-fun-rec triangular");
+      assert.deepEqual(sumTo.trustedInputs, ["recursive definition triangular (recursive logic function triangular (ts-plus-plus/smt))"]);
+      assert.equal((globalThis as any).tsppLogicSideEffect, before, "only the logic declarations run at compile time");
+    });
+
+    it("does not inherit an outer program's cached resolution hooks", async () => {
+      const { messages } = await createLogicProgram(
+        `
+          import { isMultipleOf } from "./logic";
+          export function identity(value: bigint) with {
+            requires: value > 0n;
+            ensures: isMultipleOf(result, 1n);
+          }: bigint {
+            return value;
+          }
+        `,
+        ["formalContracts", "smtLibraries"],
+        (host, outerOptions) => {
+          host.resolveModuleNameLiterals = (moduleLiterals, containingFile, _redirectedReference, options) => {
+            if (options !== outerOptions) throw new Error("The nested build program reused the outer program's resolution hook.");
+            return moduleLiterals.map(moduleLiteral => ts.resolveModuleName(moduleLiteral.text, containingFile, options, host));
+          };
+        },
+      );
+
+      assert.deepEqual(messages, []);
+    });
+
+    it("reports a failed proof with a counterexample through a logic function", async () => {
+      const { program } = await createLogicProgram(`
+        import { isMultipleOf } from "./logic";
+        export function wrong(value: bigint) with { ensures: isMultipleOf(result, 3n); }: bigint { return value; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "failed");
+      assert.match(artifact.counterexample!, /^value = -?\d+$/);
+    });
+
+    it("reports the axioms a proof relies on", async () => {
+      const { program } = await createLogicProgram(`
+        import { bound } from "./logic";
+        export function check(n: bigint) with { ensures: bound(n) + 1n > 0n; }: bigint { return n; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "proved");
+      assert.deepEqual(artifact.trustedInputs, ["bound is non-negative (axiom of bound)"]);
+      assert.include(artifact.solverInput, "(declare-fun bound (Int) Int)");
+    });
+
+    it("keeps logic functions out of executable code", async () => {
+      const { program, messages } = await createLogicProgram(`
+        import { isMultipleOf } from "./logic";
+        export function f(x: bigint) with { requires: x > 0n; }: bigint {
+          if (isMultipleOf(x, 2n)) return x;
+          return 0n;
+        }
+      `);
+      assert.include(messages.join("\n"), "Logic function 'isMultipleOf' can only be used in a formal verification specification.");
+      assert.isTrue(program.getVerificationArtifacts!().every(artifact => artifact.status === "unknown"));
+    });
+
+    it("requires the smtLibraries feature", async () => {
+      const { program, messages } = await createLogicProgram(
+        `
+        import { isMultipleOf } from "./logic";
+        export function f(x: bigint) with { ensures: isMultipleOf(result, 1n); }: bigint { return x; }
+      `,
+        ["formalContracts"],
+      );
+      assert.include(messages.join("\n"), "smtLibraries");
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "unknown");
+      assert.include(artifact.message, "requires the TS++ feature 'smtLibraries'");
+    });
+
+    it("accepts safe-integer numbers for Int parameters", async () => {
+      const { program, messages } = await createLogicProgram(`
+        import { isMultipleOf } from "./logic";
+        export function tripled(x: number) with {
+          numberModel: "safe-integer";
+          requires: x >= 0 && x <= 1000;
+          ensures: isMultipleOf(result, 3);
+        }: number {
+          return x * 3;
+        }
+        export function real(x: number) with { numberModel: "mathematical-real"; ensures: isMultipleOf(result, 3); }: number { return x; }
+      `);
+      assert.deepEqual(messages, ["real postcondition 1, return path 1: verification unknown. Argument 1 of logic function 'isMultipleOf' does not have the SMT sort of parameter 'value'."]);
+      const artifacts = program.getVerificationArtifacts!();
+      assert.isTrue(artifacts.filter(artifact => artifact.name.startsWith("tripled")).every(artifact => artifact.status === "proved"));
+      const real = artifacts.find(artifact => artifact.name.startsWith("real"))!;
+      assert.equal(real.status, "unknown");
+      assert.include(real.message, "does not have the SMT sort of parameter 'value'");
+    });
+
+    it("turns a definition that fails at compile time into an unknown with its reason", async () => {
+      const { program } = await createLogicProgram(`
+        import { broken } from "./logic";
+        export function f(x: bigint) with { ensures: broken(result); }: bigint { return x; }
+      `);
+      const [artifact] = program.getVerificationArtifacts!();
+      assert.equal(artifact.status, "unknown");
+      assert.include(artifact.message, "Logic function 'broken' could not be evaluated: The body of 'broken' has sort Int, expected Bool.");
+    });
   });
 });

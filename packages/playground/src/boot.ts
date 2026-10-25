@@ -317,6 +317,13 @@ async function boot() {
     await declarationResponse.text(),
     "file:///node_modules/ts-plus-plus/index.d.ts",
   )
+  // ts-plus-plus/smt and ts-plus-plus/macros: typings only; the compiler serves the modules.
+  const facadesUrl = new URL(useDevCompiler ? "facades.dev.json" : "vendor/facades.json", document.baseURI).href
+  const facadesResponse = await fetch(facadesUrl)
+  if (facadesResponse.ok) {
+    const facades = await facadesResponse.json() as Record<string, string>
+    for (const [path, text] of Object.entries(facades)) monaco.languages.typescript.typescriptDefaults.addExtraLib(text, path)
+  }
 
   const sandboxEnv = await createTypeScriptSandbox(
     {

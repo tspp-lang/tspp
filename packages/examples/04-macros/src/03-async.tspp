@@ -1,19 +1,19 @@
-import * as ts from "ts-plus-plus";
+import * as macros from "ts-plus-plus/macros";
 
 /**
  * 异步宏使用 Promise 返回最终的 AST。这里故意等待一个计时器，用来证明编译器不是
  * 只接受已经完成的 Promise，而是真的会等待异步工作结束。
  */
 export async macro function exposeTypeNameLater(
-  [target]: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
+  [target]: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
 ) with {
   timeout: { type: "benchmark", multiplier: 100 };
-}: Promise<ts.MacroResult> {
+}: Promise<macros.MacroResult> {
   await new Promise<void>(resolve => setTimeout(resolve, 10));
 
   return context.factory.createVariableStatement(
-    [context.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    [context.factory.createModifier(macros.SyntaxKind.ExportKeyword)],
     context.factory.createVariableDeclarationList(
       [
         context.factory.createVariableDeclaration(
@@ -25,7 +25,7 @@ export async macro function exposeTypeNameLater(
           context.factory.createStringLiteral(target.name),
         ),
       ],
-      ts.NodeFlags.Const,
+      macros.NodeFlags.Const,
     ),
   );
 }

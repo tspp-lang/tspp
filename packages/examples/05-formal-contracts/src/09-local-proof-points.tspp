@@ -1,5 +1,6 @@
-// `assume` trusts a condition without asking Z3 to prove it. The condition is
+// `assume` trusts a condition without asking the solver to prove it. The condition is
 // available to later assertions and postconditions on the same control-flow path.
+// It is a trusted input: the proof of `next > 0n` below reports that it relies on it.
 export function incrementFromTrustedInput(value: bigint): bigint {
   assume: value >= 0n;
 

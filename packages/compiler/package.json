@@ -33,6 +33,14 @@
     "./tsc": "./built/local/tsc.js",
     "./tsserver": "./built/local/tsserver.js",
     "./sdk": "./built/local/lib/tsserver.js",
+    "./smt": {
+      "types": "./built/local/compiler/smtLibrary.d.ts",
+      "default": "./built/local/smt.js"
+    },
+    "./macros": {
+      "types": "./built/local/compiler/macroFacade.d.ts",
+      "default": "./built/local/macros.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {

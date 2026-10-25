@@ -116,10 +116,10 @@ Current features:
 | --- | --- | --- | --- | --- |
 | `higherKindedTypes` | Higher-kinded parameters and first-class type constructors; kind annotations such as `F: Type => Type` additionally require `typeUniverses` | — | Yes | Yes |
 | `nominalTypes` | `newtype` nominal declarations, `data` ADT discriminated unions, variant constructors, and exhaustive value-level `match` | — | Yes | No (emits runtime constructors, variant values, and match dispatch) |
-| `macros` | `macro function` declarations and compile-time `macro f(Target);` statement expansion | — | Yes | No (macro calls can replace emitted statements) |
-| `formalContracts` | Z3-backed `requires`, `ensures`, and `while` invariants | — | Yes | Yes |
-| `standardLibraryPredicates` | Built-in numeric predicates `isEven`, `isOdd`, `isPositive`, `isNegative`, `isNonNegative`, `isZero`, `divides`, and `between`; `number` requires `numberModel: "mathematical-real"` | `formalContracts` | Yes | Yes |
-| `refinementTypes` | Z3-verified predicates on structural type aliases | `formalContracts` | Yes | Yes |
+| `macros` | `macro function` declarations and compile-time `macro f(Target);` statement expansion; public SDK `ts-plus-plus/macros` | — | Yes | No (macro calls can replace emitted statements) |
+| `formalContracts` | SMT-verified `requires`, `ensures`, and `while` invariants (standard SMT-LIB 2.6, solver-independent) | — | Yes | Yes |
+| `refinementTypes` | SMT-verified predicates on structural type aliases | `formalContracts` | Yes | Yes |
+| `smtLibraries` | User logic functions, predicates, and axioms written with `ts-plus-plus/smt` and called from contracts; logic modules run at compile time | `formalContracts` | Yes | Yes (logic functions are specification-only) |
 | `typeComputation` | Type-level `let X = T in U` bindings, pattern matching `match T { ... }`, and type lambdas `<T> =>> Body` | — | Yes | Yes |
 | `modernSyntax` | Value-level `let ... in ...` expressions, `do { ... }` block expressions, `do` functions/methods with implicit return, and `use pattern <- expr` trailing closure desugaring | — | Yes | No (emits runtime IIFEs, trailing closure callbacks, and explicit returns) |
 | `typeUniverses` | `Type0`, `Type1`, … and kind stratification | `higherKindedTypes` | Yes | Yes |
@@ -138,7 +138,14 @@ The generated configuration is the authoritative, compiler-version-specific feat
 
 ## Verification architecture
 
-Contracts, control-flow facts, and refinement predicates lower to a solver-independent Verification IR. The SMT backend is the only layer that serializes that IR to SMT-LIB and invokes Z3, so TypeScript's own control-flow analysis is reused as a source of facts rather than replaced. Macro and verification work share a bounded analysis-worker queue, propagate cancellation and timeout outcomes, and reuse successful content-addressed obligations across incremental programs.
+Verification is layered (see [issue #27](https://github.com/tspp-lang/tspp/issues/27)):
+
+1. **SMT IR** — a solver-independent model of SMT-LIB 2.6: sorts (primitive, datatype, uninterpreted), open symbol application, quantifiers with patterns, `let`, declared and defined functions, and a raw SMT-LIB term escape hatch. Raw text must contain exactly one term and cannot inject declarations or solver-session commands. Every application is sort-checked against the standard theory signatures (Core, Ints, Reals, Reals_Ints, Strings, Datatypes) or a declared function; there is no closed operator list.
+2. **Program semantics** — how TypeScript/JavaScript operations map onto that IR. An operation lowers to a logic term *plus* the definedness obligations its runtime behaviour needs: bigint `%` is JavaScript's truncated remainder (`-3n % 2n === -1n`, a `define-fun` in the output, not SMT `mod`) and requires a provably non-zero divisor. Specifications (`requires`, `ensures`, invariants, predicates, `assert:`/`assume:`) are erased and never run, so they are logic and create no runtime obligations; a zero divisor in a specification yields an unspecified value, and a specification that must exclude it says so (`b !== 0n && a % b === 0n`).
+3. **Proof context** — every assertion records where it comes from and whether it is trusted. `assume:`, axioms, and number-model assumptions are trusted inputs; requires, invariants, refinement facts, and callee summaries are discharged elsewhere. Trusted assertions are named, and a proved obligation reports the trusted inputs in the solver's unsat core.
+4. **Backend** — the generated script contains only standard commands and theory symbols, with a `set-logic` computed from the theories it uses (`QF_LIA`, `QF_NIA`, `UFDTLIA`, … or `ALL`). Solving is a plain SMT-LIB protocol (`check-sat`, `get-value`, `get-unsat-core`, `get-info :reason-unknown`); timeouts and other solver options belong to the backend adapter, never to the script. Z3 is the bundled backend, and a host can plug in any SMT-LIB 2.6 solver.
+
+TypeScript's own control-flow analysis is reused as a source of facts rather than replaced. Macro and verification work share a bounded analysis-worker queue, propagate cancellation and timeout outcomes, and reuse successful content-addressed obligations across incremental programs.
 
 The MLTT core keeps its own terms, normalization, and definitional equality. A future MLTT refinement bridge should translate only its decidable arithmetic/equality fragment into Verification IR; it should not merge the MLTT core with the SMT representation.
 
@@ -163,11 +170,36 @@ function sumTo(n: bigint) with {
 
 Each `with` property name may appear only once. Use an array when `requires`, `ensures`, or `invariant` contains multiple conditions.
 
-The current subset covers `boolean`, `bigint`, and `string`, local variables, assignments, branches, `switch`, multiple returns, invariant-annotated loops, and `requires` checks at direct call sites that resolve to project function declarations. Records, record literals, closed discriminated unions with a unique string `_tag`, TS++ `data` constructors, and recursive algebraic data are lowered from the types and control-flow narrowing already computed by the TypeScript checker into Verification IR product/sum types and then into Z3 datatypes; the verifier does not implement a competing version of TypeScript narrowing. Optional properties, index signatures, and open unions currently produce an explicit `unknown`. Calls inside verified functions use the caller's assumptions and current symbolic path facts. `number` is available only after adding `numberModel: "mathematical-real";` to the function contract; this deliberately models numbers as mathematical reals rather than JavaScript IEEE-754 values.
+The current subset covers `boolean`, `bigint`, and `string`, local variables, assignments, branches, `switch`, multiple returns, invariant-annotated loops, and `requires` checks at direct call sites that resolve to project function declarations. Records, record literals, closed discriminated unions with a unique string `_tag`, TS++ `data` constructors, and recursive algebraic data are lowered from the types and control-flow narrowing already computed by the TypeScript checker into Verification IR product/sum types and then into SMT-LIB datatypes; the verifier does not implement a competing version of TypeScript narrowing. Optional properties, index signatures, and open unions currently produce an explicit `unknown`. Calls inside verified functions use the caller's assumptions and current symbolic path facts. The result of a direct call uses the callee's `ensures` as facts (marked `[summary]` and proved separately for the callee); a callee without `ensures` returns an arbitrary value of its type, and a callee without a body or one that can recurse back into the caller leaves the result `unknown`. Supported arithmetic is `+`, `-`, `*`, and, for `bigint`, `/` and `%` with JavaScript's truncating semantics. `number` is available only after choosing a `numberModel` in the contract:
 
-Every obligation is reported as `proved`, `failed`, `unknown`, or `error`, with task outcomes distinguishing cancellation and timeout. Unsupported syntax and unavailable solver environments are compilation errors with an `unknown` result, never a successful proof. `Program.getVerificationArtifacts()` exposes the exact solver input, replayable SMT-LIB, status, decoded source-level counterexample, raw model, and source location. The development extension's **TS++: Show Verification SMT-LIB** command opens every replayable input for the current file beside the source, ordered and annotated with its source lines.
+- `"mathematical-real"` models numbers as mathematical reals. Rounding, overflow, NaN, Infinity, and -0 are not modelled, so this is a trusted assumption that every proof under it reports.
+- `"safe-integer"` models numbers as integers within ±`Number.MAX_SAFE_INTEGER`, where IEEE-754 arithmetic is exact. Every `+`, `-`, `*` in executed code must provably stay in range, number `%` needs a non-zero divisor, and `/` (not integer division) and fractional literals are outside the model. Only the range of parameters is trusted. The model covers `number` variables, parameters, and results; `number` fields of records and `data` are outside it.
 
-Use `assert: condition;` inside a verified function to create a local proof obligation. `assume: condition;` skips proof and adds a trusted fact to the following path; it is intended for external boundaries the verifier cannot model, and a false assumption makes subsequent proofs unsound. The `assert:`/`assume:` statement form is reserved for these proof directives, so calls to user-defined functions named `assert` or `assume` keep their ordinary meaning in all positions. Both directives are erased from JavaScript output. Hovering an obligation in the development extension shows its status and source-level counterexample directly.
+`numberModel` is declared per function, refinement type, or loop, with no file- or project-wide default, so the numeric semantics in use is visible where it applies.
+
+Every obligation is reported as `proved`, `failed`, `unknown`, or `error`, with task outcomes distinguishing cancellation and timeout. Unsupported syntax and unavailable solver environments are compilation errors with an `unknown` result, never a successful proof. `Program.getVerificationArtifacts()` exposes the exact solver input, replayable SMT-LIB, status, decoded source-level counterexample, raw model, the trusted inputs a proof relies on, and source location. Each assertion in the SMT-LIB carries a comment with its kind and source, and library definitions carry their origin. The development extension's **TS++: Show Verification SMT-LIB** command opens every replayable input for the current file beside the source, ordered and annotated with its source lines.
+
+Use `assert: condition;` inside a verified function to create a local proof obligation. `assume: condition;` skips proof and adds a trusted fact to the following path; it is intended for external boundaries the verifier cannot model, and a false assumption makes subsequent proofs unsound. A proof that uses an assumption says so in its message and `trustedInputs`. The `assert:`/`assume:` statement form is reserved for these proof directives, so calls to user-defined functions named `assert` or `assume` keep their ordinary meaning in all positions. Both directives are erased from JavaScript output. Hovering an obligation in the development extension shows its status and source-level counterexample directly.
+
+### Logic libraries
+
+With `smtLibraries`, contracts can call logic functions defined in ordinary modules with `ts-plus-plus/smt`:
+
+```ts
+import * as smt from "ts-plus-plus/smt";
+
+export const isMultipleOf = smt.definePredicate(
+  "isMultipleOf",
+  [["value", smt.Int], ["factor", smt.Int]],
+  (value, factor) => smt.and(smt.not(smt.eq(factor, 0n)), smt.eq(smt.js.rem(value, factor), 0n)),
+);
+```
+
+`requires: isMultipleOf(x, 3n)` then verifies against that definition; TS++ has no built-in predicates, so `isEven`, `between`, and the like are written the same way. `Int` parameters also accept `number` in contracts, for the `safe-integer` model. Calls are recognized by the definition the function's type carries, not by name; the compiler evaluates only that declaration and its dependencies at compile time, through the same execution seam as macros, and re-validates the result as untrusted input. Logic functions are specification-only: calling one elsewhere is a compile error, and calling it at runtime throws. Non-recursive definitions become `define-fun`s and add no trusted input; `defineRecursiveFunction` (`define-fun-rec`, unchecked termination) and the axioms of `declareFunction` are trusted inputs and are reported when a proof uses them. `ts-plus-plus/smt` is a small standalone module; during compilation the compiler serves its own copy, so the IR always matches the running compiler.
+
+## Compile-time macro SDK
+
+Macros import their API from `ts-plus-plus/macros`, which the running compiler serves to every macro it executes (in Node and in browser hosts). Version 1 (`macroApiVersion`) promises stable export names, macro-owned types (`MacroTarget`, `MacroContext`, `MacroResult`, `MacroReturn`, `MacroFailure`, `MacroDiagnostic`, `MacroFunction`, `MacroTimeout`), curated type guards, `SyntaxKind`, `NodeFlags`, `DiagnosticCategory`, `forEachChild`, and `idText`; `context.factory` is the supported way to create nodes. The structural shapes of exported compiler AST types, `context.program`, `context.checker`, and `import * as ts from "ts-plus-plus"` are read-only, same-version-coupled capabilities without a compatibility promise.
 
 ## Exhaustive value matching
 

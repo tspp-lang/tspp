@@ -28,6 +28,7 @@ interface ExtensionManifest {
   readonly contributes: {
     readonly grammars: readonly {
       readonly scopeName: string;
+      readonly injectTo?: readonly string[];
       readonly embeddedLanguages?: Readonly<Record<string, string>>;
     }[];
   };
@@ -39,6 +40,7 @@ describe("unittests:: tspp:: editor grammars", () => {
     "tspp-kind-operators.tmLanguage.json",
     "tspp-macros.tmLanguage.json",
     "tspp-nominal-declarations.tmLanguage.json",
+    "tspp-declaration-keywords.tmLanguage.json",
     "tspp-operators.tmLanguage.json",
     "tspp-type-computation.tmLanguage.json",
     "tspp-modern-syntax.tmLanguage.json",
@@ -129,9 +131,10 @@ describe("unittests:: tspp:: editor grammars", () => {
     assert.isTrue(patterns.some(pattern => pattern.include === "source.ts#expression"), "The selected branch must return to TypeScript expression highlighting");
   });
 
-  it("uses TypeScript-style colorized angle-bracket pairs", () => {
+  it("only colorizes structurally unambiguous bracket pairs", () => {
     const configuration = readLanguageConfiguration();
-    assert.deepInclude(configuration.colorizedBracketPairs, ["<", ">"]);
+    assert.deepEqual(configuration.colorizedBracketPairs, [["(", ")"], ["[", "]"], ["{", "}"]]);
+    assert.notDeepInclude(configuration.colorizedBracketPairs, ["<", ">"]);
     assert.deepInclude(configuration.surroundingPairs, ["<", ">"]);
   });
 
@@ -156,6 +159,21 @@ describe("unittests:: tspp:: editor grammars", () => {
     const operatorGrammar = readExtensionManifest().contributes.grammars.find(grammar => grammar.scopeName === "tspp.operators");
     assert.isDefined(operatorGrammar);
     assert.strictEqual(operatorGrammar.embeddedLanguages?.[operatorScope], "plaintext");
+  });
+
+  it("gives declaration keywords stable scopes across TS++ expression contexts", () => {
+    const patterns = collectPatterns(readGrammar("tspp-declaration-keywords.tmLanguage.json"));
+    const exportKeyword = patterns.find(pattern => pattern.name === "keyword.control.export.ts");
+    const constKeyword = patterns.find(pattern => pattern.name?.includes("keyword.declaration.const.tspp"));
+    assert.isDefined(exportKeyword);
+    assert.isDefined(constKeyword);
+    assert.strictEqual(exportKeyword.match, "\\bexport\\b");
+    assert.strictEqual(constKeyword.match, "\\bconst\\b");
+    assert.include(constKeyword.name!, "storage.type.function.ts");
+
+    const keywordGrammar = readExtensionManifest().contributes.grammars.find(grammar => grammar.scopeName === "tspp.declaration-keywords");
+    assert.isDefined(keywordGrammar);
+    assert.deepEqual(keywordGrammar.injectTo, ["source.tspp"], "Declaration overrides must not change ordinary TypeScript files");
   });
 
   it("highlights modern syntax let-in and do keywords", () => {

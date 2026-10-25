@@ -1,0 +1,45 @@
+// bigint `/` and `%` follow JavaScript, not SMT `div`/`mod`: both truncate
+// toward zero, so -7n / 2n === -3n and -7n % 2n === -1n. The generated SMT-LIB
+// spells this out as `tspp.js.trunc.div` and `tspp.js.trunc.rem` definitions.
+export function halveTowardZero(value: bigint) with {
+  requires: value === -7n;
+  ensures: result === -3n;
+}: bigint {
+  return value / 2n;
+}
+
+// A JavaScript remainder takes the sign of the dividend.
+export function remainder(value: bigint, divisor: bigint) with {
+  requires: divisor !== 0n;
+  ensures: [value < 0n || result >= 0n, value >= 0n || result <= 0n];
+}: bigint {
+  return value % divisor;
+}
+
+// Executed `/` and `%` throw a RangeError for 0n, so a divisor that is not a
+// non-zero literal creates a definedness obligation at the operation itself.
+// Here `requires` discharges it.
+export function average(total: bigint, count: bigint) with {
+  requires: count > 0n;
+}: bigint {
+  return total / count;
+}
+
+// Specifications are logic and never run: `%` inside `ensures` creates no
+// runtime obligation.
+export function keepsMultiple(value: bigint, factor: bigint) with {
+  requires: factor !== 0n && value % factor === 0n;
+  ensures: result % factor === 0n;
+}: bigint {
+  return value;
+}
+
+console.log(`halveTowardZero(-7) = ${halveTowardZero(-7n)}`);
+console.log(`remainder(-7, 2) = ${remainder(-7n, 2n)}`);
+console.log(`average(10, 4) = ${average(10n, 4n)}`);
+console.log(`keepsMultiple(12, 3) = ${keepsMultiple(12n, 3n)}`);
+
+// Uncomment to see the divisor obligation fail with the counterexample count = 0:
+// export function unchecked(total: bigint, count: bigint) with { ensures: true; }: bigint {
+//   return total / count;
+// }

@@ -816,6 +816,7 @@ import {
   isVariableDeclarationList,
   isVariableLike,
   isVariableStatement,
+  isVoidExpression,
   isWithProperty,
   isWriteAccess,
   isWriteOnlyAccess,
@@ -1222,15 +1223,12 @@ import {
   printMlttTerm,
   weakHeadNormalizeMltt,
 } from "./mlttCore.js";
-import {
-  getStandardPredicateDefinition,
-  isStandardPredicateSymbol,
-  type StandardPredicateName,
-} from "./standardPredicates.js";
+import { logicDefinitionKey } from "./smtLibrary.js";
 import {
   hasTsppFeature,
   isTsppProject,
 } from "./tsppFeatures.js";
+import { isVerificationNumberModel } from "./verificationProgramSemantics.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -29836,11 +29834,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       if (resolved) {
         links.resolvedSymbol = resolved;
       }
-      else if (isVerificationPredicateContext(node) && getStandardPredicateDefinition(idText(node))) {
-        const symbol = createSymbol(SymbolFlags.FunctionScopedVariable, node.escapedText);
-        symbol.links.type = anyType;
-        links.resolvedSymbol = symbol;
-      }
       else {
         links.resolvedSymbol = !nodeIsMissing(node) &&
             resolveName(
@@ -40010,14 +40003,13 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
   function checkCallExpression(node: CallExpression | NewExpression, checkMode?: CheckMode): Type {
     checkGrammarTypeArguments(node, node.typeArguments);
 
-    if (
-      isCallExpression(node) &&
-      isIdentifier(node.expression) &&
-      getStandardPredicateDefinition(idText(node.expression)) &&
-      isStandardPredicateSymbol(getResolvedSymbol(node.expression)) &&
-      !isVerificationPredicateContext(node)
-    ) {
-      error(node.expression, Diagnostics.Standard_predicate_0_can_only_be_used_in_a_formal_verification_predicate, idText(node.expression));
+    if (isCallExpression(node) && getPropertyOfType(getTypeOfExpression(node.expression), logicDefinitionKey as __String)) {
+      if (!isLogicFunctionContext(node)) {
+        error(node.expression, Diagnostics.Logic_function_0_can_only_be_used_in_a_formal_verification_specification, getTextOfNode(node.expression));
+      }
+      else {
+        requireTsppFeature(node.expression, "smtLibraries");
+      }
     }
 
     const signature = getResolvedSignature(node, /*candidatesOutArray*/ undefined, checkMode);
@@ -46936,7 +46928,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       }
       requireTsppFeature(property, "formalContracts");
       if (name === "numberModel") {
-        if (!isStringLiteralLike(property.value) || property.value.text !== "mathematical-real") {
+        if (!isStringLiteralLike(property.value) || !isVerificationNumberModel(property.value.text)) {
           error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: invalid value`, "a formal contract");
         }
       }
@@ -46951,13 +46943,9 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       if (!value.elements.length) {
         error(value, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: empty array`, owner);
       }
-      for (const element of value.elements) {
-        if (!checkVerificationPredicateExpression(element)) {
-          checkTruthinessExpression(element);
-        }
-      }
+      for (const element of value.elements) checkTruthinessExpression(element);
     }
-    else if (!checkVerificationPredicateExpression(value)) {
+    else {
       checkTruthinessExpression(value);
     }
   }
@@ -48417,7 +48405,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
         requireTsppFeature(property, "formalContracts");
         if (name === "numberModel") {
-          if (!isStringLiteralLike(property.value) || property.value.text !== "mathematical-real") {
+          if (!isStringLiteralLike(property.value) || !isVerificationNumberModel(property.value.text)) {
             error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: invalid value`, "a loop invariant");
           }
         }
@@ -48485,11 +48473,17 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
   }
 
   function checkTruthinessExpression(node: Expression, checkMode?: CheckMode) {
-    if (isVerificationPredicateContext(node)) {
-      const predicateResult = checkVerificationPredicateExpression(node, checkMode);
-      if (predicateResult) return predicateResult;
-    }
     return checkTruthinessOfType(checkExpression(node, checkMode), node);
+  }
+
+  /** Specifications that may call logic functions: contract clauses and `assert:`/`assume:` conditions. */
+  function isLogicFunctionContext(node: Node): boolean {
+    if (isVerificationPredicateContext(node)) return true;
+    for (let current: Node | undefined = node; current; current = current.parent) {
+      if (isVoidExpression(current) && (current.tsppAssert || current.tsppAssume)) return true;
+      if (isFunctionLike(current)) return false;
+    }
+    return false;
   }
 
   function isVerificationPredicateContext(node: Node): boolean {
@@ -48513,59 +48507,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       const variant = constituent.aliasSymbol?.declarations?.find(isDataVariant);
       return !!variant && !!getPropertyOfType(constituent, name);
     });
-  }
-
-  function getVerificationPredicateName(node: Expression): StandardPredicateName | undefined {
-    if (!isCallExpression(node)) return undefined;
-    const callee = node.expression;
-    if (!isIdentifier(callee)) return undefined;
-    const symbol = getResolvedSymbol(callee);
-    if (symbol === unknownSymbol || !isStandardPredicateSymbol(symbol)) return undefined;
-    return getStandardPredicateDefinition(idText(callee))?.name;
-  }
-
-  function checkVerificationPredicateCall(node: CallExpression, checkMode?: CheckMode): Type {
-    requireTsppFeature(node, "standardLibraryPredicates");
-    const definition = getStandardPredicateDefinition(idText(node.expression as Identifier))!;
-    if (node.arguments.length !== definition.arity) {
-      error(node, Diagnostics.Expected_0_arguments_but_got_1, definition.arity, node.arguments.length);
-    }
-    const argumentTypes = node.arguments.map(argument => checkExpression(argument, checkMode));
-    let numericKind: TypeFlags | undefined;
-    for (let i = 0; i < argumentTypes.length; i++) {
-      const type = getBaseConstraintOrType(argumentTypes[i]);
-      const kind = type.flags & TypeFlags.BigIntLike ? TypeFlags.BigIntLike : type.flags & TypeFlags.NumberLike ? TypeFlags.NumberLike : undefined;
-      if (!kind) {
-        error(node.arguments[i], Diagnostics.Argument_of_type_0_is_not_assignable_to_parameter_of_type_1, typeToString(argumentTypes[i]), "number | bigint");
-      }
-      else if (numericKind && kind !== numericKind) {
-        error(node.arguments[i], Diagnostics.Argument_of_type_0_is_not_assignable_to_parameter_of_type_1, typeToString(argumentTypes[i]), numericKind === TypeFlags.BigIntLike ? "bigint" : "number");
-      }
-      else {
-        numericKind = kind;
-      }
-    }
-    return booleanType;
-  }
-
-  function checkVerificationPredicateExpression(node: Expression, checkMode?: CheckMode): Type | undefined {
-    if (getVerificationPredicateName(node)) return checkVerificationPredicateCall(node as CallExpression, checkMode);
-    if (isParenthesizedExpression(node)) return checkVerificationPredicateExpression(node.expression, checkMode);
-    if (isPrefixUnaryExpression(node) && node.operator === SyntaxKind.ExclamationToken) {
-      return checkVerificationPredicateExpression(node.operand, checkMode);
-    }
-    if (
-      isBinaryExpression(node) &&
-      (node.operatorToken.kind === SyntaxKind.AmpersandAmpersandToken || node.operatorToken.kind === SyntaxKind.BarBarToken)
-    ) {
-      const left = checkVerificationPredicateExpression(node.left, checkMode);
-      const right = checkVerificationPredicateExpression(node.right, checkMode);
-      if (!left && !right) return undefined;
-      if (!left) checkExpression(node.left, checkMode);
-      if (!right) checkExpression(node.right, checkMode);
-      return booleanType;
-    }
-    return undefined;
   }
 
   function checkForStatement(node: ForStatement) {
@@ -50994,16 +50935,13 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         continue;
       }
       if (name === "numberModel") {
-        if (!isStringLiteralLike(property.value) || property.value.text !== "mathematical-real") {
+        if (!isStringLiteralLike(property.value) || !isVerificationNumberModel(property.value.text)) {
           error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, `${name}: invalid value`, "a refinement type");
         }
       }
       else {
         hasPredicate = true;
-        if (!checkVerificationPredicateExpression(property.value)) {
-          hasPredicate = true;
-          checkTruthinessExpression(property.value);
-        }
+        checkTruthinessExpression(property.value);
       }
     }
     if (!hasPredicate) {

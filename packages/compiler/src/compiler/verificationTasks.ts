@@ -14,13 +14,14 @@ import {
   VerificationArtifact,
   WithProperty,
 } from "./types.js";
+import type { VerificationQuery } from "./verificationSmt.js";
 
 const verificationDiagnosticCode = 18090;
 
 /** @internal */
 export interface PendingVerificationTask {
   artifact: VerificationArtifact;
-  query?: string;
+  query?: VerificationQuery;
 }
 
 /** @internal */
@@ -60,7 +61,7 @@ export function createVerificationArtifact(
 /** @internal */
 export function updateVerificationArtifact(
   artifact: VerificationArtifact,
-  update: Pick<VerificationArtifact, "status" | "message"> & Partial<Pick<VerificationArtifact, "counterexample" | "model" | "reason">>,
+  update: Pick<VerificationArtifact, "status" | "message"> & Partial<Pick<VerificationArtifact, "counterexample" | "model" | "reason" | "trustedInputs">>,
 ): VerificationArtifact {
   return {
     ...artifact,

@@ -1,0 +1,17 @@
+{
+  "name": "TS++ Declaration Keyword Isolation",
+  "scopeName": "tspp.declaration-keywords",
+  "injectionSelector": "L:source.tspp -comment -string",
+  "patterns": [
+    {
+      "comment": "Stable declaration keywords must not inherit a surrounding TS++ expression scope.",
+      "name": "keyword.control.export.ts",
+      "match": "\\bexport\\b"
+    },
+    {
+      "comment": "Const is a declaration keyword and intentionally shares the function keyword color.",
+      "name": "storage.type.function.ts keyword.declaration.const.tspp",
+      "match": "\\bconst\\b"
+    }
+  ]
+}

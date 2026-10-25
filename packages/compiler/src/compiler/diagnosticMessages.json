@@ -8652,10 +8652,6 @@
     "category": "Error",
     "code": 18085
   },
-  "Standard predicate '{0}' can only be used in a formal verification predicate.": {
-    "category": "Error",
-    "code": 18086
-  },
   "No inputs were found in config file '{0}'. The include patterns match '.tspp' files, but '.tspp' inputs are only enabled when the config file is named 'tsppconfig.json' or the 'tsppFeatures' option is set.": {
     "category": "Error",
     "code": 18087
@@ -8675,5 +8671,9 @@
   "Enable missing TS++ features and their required dependencies": {
     "category": "Message",
     "code": 18091
+  },
+  "Logic function '{0}' can only be used in a formal verification specification.": {
+    "category": "Error",
+    "code": 18092
   }
 }

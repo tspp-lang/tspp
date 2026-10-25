@@ -51,15 +51,7 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     name: "formalContracts",
     dependencies: [],
     initComments: [
-      "获得：requires、ensures 与循环 invariant 的静态 SMT 验证。",
-      "影响：TS超集=是；透明擦除=是。",
-    ],
-  },
-  {
-    name: "standardLibraryPredicates",
-    dependencies: ["formalContracts"],
-    initComments: [
-      '获得：标准库数值谓词 isEven、isOdd、isPositive、isNegative、isNonNegative、isZero、divides、between；number 需 numberModel: "mathematical-real"。',
+      "获得：requires、ensures 与循环 invariant 的静态 SMT 验证（输出标准 SMT-LIB 2.6，不依赖特定求解器）。",
       "影响：TS超集=是；透明擦除=是。",
     ],
   },
@@ -67,8 +59,16 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     name: "refinementTypes",
     dependencies: ["formalContracts"],
     initComments: [
-      "获得：由 Z3 验证类型引入点的谓词精化类型别名。",
+      "获得：由 SMT 求解器验证类型引入点的谓词精化类型别名。",
       "影响：TS超集=是；透明擦除=是。",
+    ],
+  },
+  {
+    name: "smtLibraries",
+    dependencies: ["formalContracts"],
+    initComments: [
+      "获得：用 ts-plus-plus/smt 定义逻辑函数、谓词与公理，并在契约中调用；逻辑库模块会在编译期执行。",
+      "影响：TS超集=是；透明擦除=是（逻辑函数只用于规格，运行时调用会抛错）。",
     ],
   },
   {

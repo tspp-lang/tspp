@@ -8,17 +8,18 @@
   "configurations": [
     {
       // Builds the compiler and language server, then opens the extension host.
-      "name": "TS++: VS Code Extension",
+      "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
       "args": [
-        "--new-window",
-        "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-extension",
+        "--disable-extensions",
         "${workspaceFolder}/packages/examples"
       ],
-      "preLaunchTask": "pnpm: build:editor"
+      "outFiles": [
+        "${workspaceFolder}/packages/vscode-extension/**/*.js"
+      ],
+      "preLaunchTask": "${defaultBuildTask}"
     },
     {
       // Builds the current compiler bundle, starts Vite, and opens the playground.

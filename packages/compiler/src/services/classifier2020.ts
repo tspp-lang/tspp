@@ -155,10 +155,11 @@ function collectTokens(program: Program, sourceFile: SourceFile, span: TextSpan,
     else if (isIdentifier(node) && !inJSXElement && !inImportClause(node) && !isInfinityOrNaNString(node.escapedText)) {
       let symbol = typeChecker.getSymbolAtLocation(node);
       if (symbol) {
-        if (symbol.flags & SymbolFlags.Alias) {
+        const isNamespaceAlias = !!(symbol.flags & SymbolFlags.Alias) && symbol.declarations?.some(isNamespaceImport);
+        if (symbol.flags & SymbolFlags.Alias && !isNamespaceAlias) {
           symbol = typeChecker.getAliasedSymbol(symbol);
         }
-        let typeIdx = classifySymbol(symbol, getMeaningFromLocation(node));
+        let typeIdx = isNamespaceAlias ? TokenType.namespace : classifySymbol(symbol, getMeaningFromLocation(node));
         if (typeIdx !== undefined) {
           let modifierSet = 0;
           if (node.parent) {

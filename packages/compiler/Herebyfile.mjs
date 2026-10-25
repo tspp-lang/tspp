@@ -641,6 +641,36 @@ const { main: watchGuard, watch: watchWatchGuard } = entrypointBuildTask({
   output: "./built/local/watchGuard.js",
 });
 
+/**
+ * The public facades `ts-plus-plus/smt` and `ts-plus-plus/macros`. Their
+ * declarations are the emitted `built/local/compiler/{smtLibrary,macroFacade}.d.ts`.
+ *
+ * - smt.js is standalone: the logic library is plain data, so programs that
+ *   import their logic definitions at runtime do not load the compiler.
+ * - macros.js re-exports from ./typescript.js, the compiler that runs macros.
+ */
+export const facades = task({
+  name: "facades",
+  description: "Bundles the ts-plus-plus/smt and ts-plus-plus/macros entry points",
+  run: async () => {
+    const copyright = await getCopyrightHeader();
+    /** @type {esbuild.BuildOptions} */
+    const common = { bundle: true, platform: "node", target: ["es2020", "node16"], format: "cjs", banner: { js: copyright }, logLevel: "warning" };
+    await esbuild.build({ ...common, entryPoints: ["./src/compiler/smtLibrary.ts"], outfile: "./built/local/smt.js" });
+    await esbuild.build({
+      ...common,
+      entryPoints: ["./src/compiler/macroFacade.ts"],
+      outfile: "./built/local/macros.js",
+      plugins: [{
+        name: "facade-uses-public-compiler",
+        setup(build) {
+          build.onResolve({ filter: /[\\/]_namespaces[\\/]ts\.js$/ }, () => ({ path: "./typescript.js", external: true }));
+        },
+      }],
+    });
+  },
+});
+
 export const generateTypesMap = task({
   name: "generate-types-map",
   run: async () => {
@@ -683,7 +713,7 @@ export const watchOtherOutputs = task({
 export const local = task({
   name: "local",
   description: "Builds the full compiler and services",
-  dependencies: [localize, tsc, tsserver, services, lssl, otherOutputs, dts, sdkPackageJson],
+  dependencies: [localize, tsc, tsserver, services, lssl, otherOutputs, dts, sdkPackageJson, facades],
 });
 export default local;
 

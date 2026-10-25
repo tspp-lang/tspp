@@ -5,6 +5,6 @@
   "scripts": {
     "check": "tspp --project tsppconfig.json",
     "build": "tspp --project tsppconfig.json --noEmit false --declaration --rootDir src --outDir dist",
-    "start": "node dist/01-function-contracts.js && node dist/02-loop-invariants.js && node dist/03-number-model.js && node dist/04-refinement-types.js && node dist/05-refined-newtype.js && node dist/06-sum-types.js && node dist/07-recursive-data.js && node dist/08-standard-predicates.js"
+    "start": "node dist/01-function-contracts.js && node dist/02-loop-invariants.js && node dist/03-number-model.js && node dist/04-refinement-types.js && node dist/05-refined-newtype.js && node dist/06-sum-types.js && node dist/07-recursive-data.js && node dist/09-local-proof-points.js && node dist/10-program-semantics.js && node dist/11-safe-integer-model.js && node dist/12-logic-libraries.js"
   }
 }

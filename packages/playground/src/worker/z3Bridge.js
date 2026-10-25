@@ -3,7 +3,7 @@
  *
  * Spawns the vendored classic worker (public/vendor/z3.worker.js — see
  * scripts/build-z3-worker.mjs) that owns the z3-solver WASM module, and
- * answers batches of SMT-LIB queries over postMessage. The language worker
+ * runs batches of standard SMT-LIB requests over postMessage. The language worker
  * itself is an ES-module worker and the compiler bundle is runtime-fetched;
  * Z3 needs its own pthread-capable classic worker, so the two never mix.
  *
@@ -87,7 +87,7 @@ async function spawnZ3Worker() {
         if (pending) {
           pendingQueries.delete(data.id);
           clearTimeout(pending.timer);
-          if (data.ok) pending.resolve(data.results);
+          if (data.ok) pending.resolve(data.responses);
           else pending.reject(new Error(data.error ?? "z3 worker query failed"));
         }
       }
@@ -114,17 +114,18 @@ function ensureZ3Worker() {
 }
 
 /**
- * Runs a batch of SMT-LIB query strings through the z3 worker. The returned
- * array mirrors the compiler's VerificationSolverResult shape (status/message/
- * counterexample/model) in input order, so the compiler's own result pipeline
- * (caching, reasons, artifacts, diagnostics) consumes it unchanged.
- * Identical concurrent batches share one run (the Verify sidebar polls while
- * solving).
- * @param {readonly string[]} inputs
+ * Runs a batch of SMT-LIB requests (the compiler's VerificationSolverRequest:
+ * script, timeoutMs and follow-up commands) through the z3 worker. The
+ * returned array holds raw VerificationSolverResponse values (status and
+ * follow-up output) in input order; the compiler interprets them, so its own
+ * result pipeline (caching, reasons, artifacts, diagnostics) is shared with
+ * the Node backend. Identical concurrent batches share one run (the Verify
+ * sidebar polls while solving).
+ * @param {readonly { script: string, timeoutMs: number, onSat?: string, onUnsat?: string, onUnknown?: string }[]} requests
  * @param {{ isCancellationRequested?: () => boolean } | undefined} cancellationToken
  */
-export async function solveBatch(inputs, cancellationToken) {
-  const key = inputs.join("\u0000");
+export async function solveBatch(requests, cancellationToken) {
+  const key = JSON.stringify(requests);
   const inFlight = inFlightBatches.get(key);
   if (inFlight) return inFlight;
 
@@ -139,7 +140,7 @@ export async function solveBatch(inputs, cancellationToken) {
           reject(new Error(`z3 query batch timed out after ${QUERY_TIMEOUT_MS}ms`));
         }, QUERY_TIMEOUT_MS);
         pendingQueries.set(id, { resolve, reject, timer });
-        worker.postMessage({ id, inputs: [...inputs] });
+        worker.postMessage({ id, requests: [...requests] });
       });
       // Per-query "error" entries mean a Z3 exception (bad worker URL, pthread
       // spawn failure, poisoned async mutex). The module may be unusable —

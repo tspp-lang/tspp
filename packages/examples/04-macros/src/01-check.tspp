@@ -3,23 +3,23 @@
  * 运行：pnpm check
  * 预期：检查通过，不生成额外代码。
  */
-import * as ts from "ts-plus-plus";
+import * as macros from "ts-plus-plus/macros";
 
 // 宏函数在编译期执行。targets 是调用处传入的声明，context 提供诊断等能力。
 export macro function requireReturnStatement(
-  targets: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroReturn {
+  targets: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroReturn {
   if (targets.length !== 1) {
     return context.fail(`expected 1 target, received ${targets.length}`);
   }
 
   const target = targets[0];
-  if (!ts.isFunctionDeclaration(target.node)) {
+  if (!macros.isFunctionDeclaration(target.node)) {
     return context.fail(`${target.name} must be a function declaration`);
   }
 
-  const hasReturn = target.node.body?.statements.some(ts.isReturnStatement) ?? false;
+  const hasReturn = target.node.body?.statements.some(macros.isReturnStatement) ?? false;
   return hasReturn
     ? undefined
     : context.fail(`${target.name} must contain a return statement`);

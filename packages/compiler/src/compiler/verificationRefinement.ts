@@ -1,6 +1,6 @@
 import { Node } from "./types.js";
 import {
-  VerificationExpression,
+  VerificationAssertion,
   VerificationTerm,
 } from "./verificationIR.js";
 
@@ -13,7 +13,8 @@ import {
  */
 export interface VerificationRefinementState {
   readonly values: Map<string, VerificationTerm>;
-  readonly facts: VerificationExpression[];
+  /** Proof facts on this path, each tagged with why it holds. */
+  readonly facts: VerificationAssertion[];
   reason?: string;
 }
 

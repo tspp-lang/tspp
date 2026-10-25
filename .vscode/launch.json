@@ -2,17 +2,25 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "TS++: VS Code Extension",
+      "name": "Run Extension",
       "type": "extensionHost",
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
       "args": [
-        "--new-window",
-        "--disable-extensions",
         "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-extension",
+        "--disable-extensions",
         "${workspaceFolder}/packages/examples"
       ],
-      "preLaunchTask": "pnpm: build:editor"
+      "outFiles": [
+        "${workspaceFolder}/packages/vscode-extension/**/*.js"
+      ],
+      "preLaunchTask": "${defaultBuildTask}"
+    },
+    {
+      "name": "TS++: Launch in Terminal (Keep Alive)",
+      "type": "node",
+      "request": "launch",
+      "program": "${workspaceFolder}/scripts/launch-editor.mjs",
+      "console": "integratedTerminal"
     },
     {
       "name": "TS++: Playground",

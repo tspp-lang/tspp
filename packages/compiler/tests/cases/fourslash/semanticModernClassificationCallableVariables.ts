@@ -26,6 +26,6 @@ verify.semanticClassificationsAre("2020",
     c2.semanticToken("interface", "B"), 
     c2.semanticToken("variable.declaration", "s"), 
     c2.semanticToken("interface.defaultLibrary", "String"), 
-    c2.semanticToken("variable.declaration", "t"), 
+    c2.semanticToken("variable.declaration", "t"),
     c2.semanticToken("property.declaration", "foo"), 
 );;

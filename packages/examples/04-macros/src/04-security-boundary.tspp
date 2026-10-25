@@ -1,4 +1,4 @@
-import * as ts from "ts-plus-plus";
+import * as macros from "ts-plus-plus/macros";
 
 // 宏实现运行在编译器的 Node.js 进程中，并没有沙箱。这里显式声明 require 只是为了
 // 获得类型；执行时拿到的是真正的 Node.js require，拥有与编译器相同的文件和模块权限。
@@ -11,13 +11,13 @@ declare function require(name: string): any;
  * 修改环境或依赖当前时间等不可重复的副作用。
  */
 export macro function exposePackageName(
-  _targets: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroResult {
+  _targets: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroResult {
   const packageJson = require("../package.json") as { name: string };
 
   return context.factory.createVariableStatement(
-    [context.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    [context.factory.createModifier(macros.SyntaxKind.ExportKeyword)],
     context.factory.createVariableDeclarationList(
       [
         context.factory.createVariableDeclaration(
@@ -29,7 +29,7 @@ export macro function exposePackageName(
           context.factory.createStringLiteral(packageJson.name),
         ),
       ],
-      ts.NodeFlags.Const,
+      macros.NodeFlags.Const,
     ),
   );
 }
@@ -44,7 +44,7 @@ console.log(checkedPackageName);
 //
 // export macro function neverFinishes() with {
 //   timeout: { type: "fixed", value: 50, unit: "ms" };
-// }: Promise<ts.MacroResult> {
+// }: Promise<macros.MacroResult> {
 //   return new Promise(() => { });
 // }
 // macro neverFinishes();

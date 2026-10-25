@@ -28,9 +28,9 @@
 
 ```ts
 export macro function check(
-  targets: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
-): ts.MacroReturn {
+  targets: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
+): macros.MacroReturn {
   // 在编译期检查 targets，或者返回新的 AST
 }
 
@@ -64,7 +64,7 @@ if (targets.length !== 1) {
 }
 
 const target = targets[0];
-if (!ts.isFunctionDeclaration(target.node)) {
+if (!macros.isFunctionDeclaration(target.node)) {
   return context.fail(`${target.name} must be a function declaration`);
 }
 ```
@@ -72,7 +72,7 @@ if (!ts.isFunctionDeclaration(target.node)) {
 然后直接读取函数声明的 AST：
 
 ```ts
-const hasReturn = target.node.body?.statements.some(ts.isReturnStatement) ?? false;
+const hasReturn = target.node.body?.statements.some(macros.isReturnStatement) ?? false;
 ```
 
 - 检查成功时返回 `undefined`，表示不插入任何代码；
@@ -139,11 +139,11 @@ const checkedName: "User" = UserTypeName;
 
 ```ts
 export async macro function exposeTypeNameLater(
-  [target]: readonly ts.MacroTarget[],
-  context: ts.MacroContext,
+  [target]: readonly macros.MacroTarget[],
+  context: macros.MacroContext,
 ) with {
   timeout: { type: "benchmark", multiplier: 100 };
-}: Promise<ts.MacroResult> {
+}: Promise<macros.MacroResult> {
   await new Promise<void>(resolve => setTimeout(resolve, 10));
   return context.factory.createVariableStatement(/* ... */);
 }
@@ -159,19 +159,19 @@ TypeScript Language Service 会先返回当前同步结果，在 Promise 完成�
 ```ts
 macro function fetchSchema(targets, context) with {
   timeout: { type: "fixed", value: 500, unit: "ms" };
-}: Promise<ts.MacroResult> {
+}: Promise<macros.MacroResult> {
   // ...
 }
 
 macro function generateBindings(targets, context) with {
   timeout: { type: "fixed", value: 2, unit: "s" };
-}: Promise<ts.MacroResult> {
+}: Promise<macros.MacroResult> {
   // ...
 }
 
 macro function analyzeProject(targets, context) with {
   timeout: { type: "benchmark", multiplier: 100 };
-}: Promise<ts.MacroResult> {
+}: Promise<macros.MacroResult> {
   // ...
 }
 
@@ -226,6 +226,25 @@ worker。worker 还设置了旧生代内存上限。不过这只是进程稳定�
 
 直接调用同步 `createProgram` 以及当前的 watch、incremental、solution build 路径仍在编译器
 线程中执行同步宏；这些入口完成异步调度改造前，不具备上述 worker 强制终止能力。
+
+## 公共宏 SDK：`ts-plus-plus/macros`
+
+宏只需要从 `ts-plus-plus/macros` 导入：
+
+```ts
+import * as macros from "ts-plus-plus/macros";
+```
+
+编译期执行宏时，这个模块由正在运行的编译器自己提供，因此宏总是与加载它的编译器版本一致，
+在 Node 和浏览器宿主（Playground）中行为相同。它分为两层：
+
+| 层级 | 内容 | 承诺 |
+| --- | --- | --- |
+| 稳定 API | facade 的导出名称；`MacroTarget`、`MacroContext`、`MacroResult`、`MacroReturn`、`MacroFailure`、`MacroDiagnostic`、`MacroFunction`、`MacroTimeout`；常用类型守卫（`isFunctionDeclaration`、`isReturnStatement`、`isDataDeclaration` 等）；`SyntaxKind`、`NodeFlags`、`DiagnosticCategory`、`forEachChild`、`idText` | 删除导出或改变 facade 自有类型需要提升 `macroApiVersion`（当前为 `1`） |
+| 节点创建 | `context.factory` 是唯一推荐的 AST 创建入口 | 节点形状跟随编译器 AST（与 TypeScript AST 一致） |
+| 同版本耦合 | 导出的 AST/编译器类型的结构、`context.program`、`context.checker`，以及 `import * as ts from "ts-plus-plus"` 暴露的完整编译器 | 只读、能力强，但随编译器内部演进，不做兼容性承诺 |
+
+需要稳定性时只使用前两层；确实需要类型信息时再使用 `context.checker`，并接受它与编译器版本耦合。
 
 ## 两个参数分别是什么
 

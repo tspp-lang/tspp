@@ -18,7 +18,10 @@ import {
   ThisContainer,
 } from "./_namespaces/ts.js";
 import type { MlttTerm } from "./mlttCore.js";
-import type { VerificationSolverResult } from "./verificationWorker.js";
+import type {
+  VerificationSolverRequest,
+  VerificationSolverResponse,
+} from "./verificationWorker.js";
 
 // branded string type used to store absolute, normalized and canonicalized paths
 // arbitrary file name can be converted to Path via toPath function
@@ -5423,8 +5426,9 @@ export type VerificationStatus = "proved" | "failed" | "unknown" | "error";
 
 /** A proof obligation and the exact SMT-LIB generated for it. */
 export interface VerificationArtifact extends AnalysisTaskArtifact {
-  readonly kind: "function-contract" | "loop-invariant" | "call-precondition" | "refinement" | "assertion" | "assumption";
-  readonly obligation: "precondition" | "postcondition" | "invariant-initialization" | "invariant-preservation" | "refinement-introduction" | "assertion" | "assumption";
+  readonly kind: "function-contract" | "loop-invariant" | "call-precondition" | "refinement" | "assertion" | "assumption" | "program-semantics";
+  /** `nonzero-divisor` and `safe-integer-range` are definedness obligations of the program-semantics layer. */
+  readonly obligation: "precondition" | "postcondition" | "invariant-initialization" | "invariant-preservation" | "refinement-introduction" | "assertion" | "assumption" | "nonzero-divisor" | "safe-integer-range";
   readonly name: string;
   readonly status: VerificationStatus;
   readonly solverInput: string;
@@ -5432,8 +5436,14 @@ export interface VerificationArtifact extends AnalysisTaskArtifact {
   readonly message: string;
   /** A source-level assignment demonstrating a failed obligation. */
   readonly counterexample?: string;
-  /** The raw Z3 model, when Z3 assigned at least one model constant. */
+  /** The solver's raw `get-value` response for a failed obligation. */
   readonly model?: string;
+  /**
+   * Trusted inputs a proved obligation may depend on: trusted assertions in
+   * the solver's unsat core (such as `assume:`) and trusted model assumptions
+   * (such as a number model).
+   */
+  readonly trustedInputs?: readonly string[];
 }
 
 export interface TypeChecker {
@@ -8651,12 +8661,14 @@ export interface CompilerHost extends ModuleResolutionHost {
   isAsyncFormalVerificationPending?(key: string): boolean;
   /** @internal */
   scheduleAsyncFormalVerification?(key: string, evaluation: Promise<AsyncFormalVerification>): void;
-  /** @internal Solves SMT-LIB verification queries in the host runtime. When
-   *  provided, runVerificationQueries delegates to this instead of spawning the
-   *  node:worker_threads Z3 worker, letting non-Node hosts (the playground's
-   *  browser language worker) supply their own solver backend. Results use the
-   *  same VerificationSolverResult shape as the Node worker. */
-  solveVerificationQueries?(inputs: readonly string[], cancellationToken?: CancellationToken): Promise<readonly VerificationSolverResult[]>;
+  /** @internal Runs standard SMT-LIB verification queries in the host
+   *  runtime. When provided, runVerificationQueries delegates to this instead
+   *  of spawning the node:worker_threads Z3 backend, letting non-Node hosts
+   *  (the playground's browser language worker) supply any SMT-LIB 2.6
+   *  solver. For each request the host loads `script`, runs `(check-sat)`,
+   *  then runs the follow-up command for that answer and returns its raw
+   *  output; the compiler interprets every response itself. */
+  solveVerificationQueries?(requests: readonly VerificationSolverRequest[], cancellationToken?: CancellationToken): Promise<readonly VerificationSolverResponse[]>;
   /** @internal Resolves a runtime dependency imported by a compile-time macro.
    *  Browser hosts use this to expose packages that already exist in the host
    *  runtime without relying on Node's module loader. */
