@@ -139,7 +139,7 @@ function interpretResponses(queries: readonly VerificationQuery[], responses: re
 }
 
 /** Guards a host solver against hanging forever: the host's solver (for
- *  example the playground's browser worker) may be slow to warm up or
+ *  example a browser language worker) may be slow to warm up or
  *  wedged, and the compiler's own budget should still apply. Timed-out
  *  queries become the same "unknown: timeout" results the Node path
  *  produces; rejections become the same "unknown: unavailable" results, so
@@ -267,15 +267,33 @@ function withStructuredReason(result: VerificationSolverResult): VerificationSol
 const z3WorkerScript = String.raw`
 const { parentPort, workerData } = require("node:worker_threads");
 
+// Z3.eval_smtlib2_string passes the text through ccall's "string" argument,
+// which lives on the wasm stack only until the call returns, but the async
+// entry point reads it later on a pthread. When that thread starts late (as in
+// browsers) Z3 parses overwritten memory, so the text is kept on the heap
+// until Z3 has answered.
+async function evalSmtLib2(em, context, text) {
+  const bytes = new TextEncoder().encode(text);
+  const pointer = em._malloc(bytes.length + 1);
+  em.HEAPU8.set(bytes, pointer);
+  em.HEAPU8[pointer + bytes.length] = 0;
+  try {
+    return await em.async_call(em._async_Z3_eval_smtlib2_string, context, pointer);
+  }
+  finally {
+    em._free(pointer);
+  }
+}
+
 async function run() {
   const z3 = require(workerData.z3Path);
-  const { Z3 } = await z3.init();
+  const { Z3, em } = await z3.init();
   const config = Z3.mk_config();
   const responses = [];
   for (const request of workerData.requests) {
     // A fresh context per query: Z3's (reset) keeps define-fun-rec definitions.
     const context = Z3.mk_context(config);
-    const evaluate = text => Z3.eval_smtlib2_string(context, text);
+    const evaluate = text => evalSmtLib2(em, context, text);
     try {
       const loaded = await evaluate("(set-option :timeout " + request.timeoutMs + ")\n" + request.script);
       const loadError = loaded.match(/\(error [^\n]*/);
