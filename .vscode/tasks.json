@@ -48,10 +48,10 @@
       }
     },
     {
-      "label": "pnpm: playground:debug",
+      "label": "pnpm: playground:dev",
       "type": "shell",
       "command": "pnpm",
-      "args": ["playground:debug"],
+      "args": ["playground:dev"],
       "isBackground": true,
       "problemMatcher": {
         "owner": "vite",

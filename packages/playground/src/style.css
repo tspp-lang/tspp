@@ -1,223 +1,114 @@
-/* tspp playground: minimal additions on top of the vendored official CSS
-   (src/vendor/playground.css, compiled from TypeScript-Website's play.scss). */
-
-/* the official site loads bootstrap's reboot, which the vendored play.scss
-   assumes (padding-inside-width boxes, e.g. .dropdown-dialog width:800px + padding) */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
 :root {
-  --code-font: Consolas, Monaco, "Courier New", monospace;
-  --brand-primary: #2bcbd6;
-  --brand-primary-dark: #1eaeb9;
-  --brand-primary-light: #5debf4;
-  --brand-surface-dark: #121f24;
-  --brand-header-dark: #0d171b;
-  --brand-sidebar-dark: #132227;
-  --brand-border-dark: #1d333a;
-
-  --brand-surface-light: #f0f7f8;
-  --brand-header-light: #e4f2f4;
-  --brand-sidebar-light: #ecf6f8;
-  --brand-border-light: #d0e7eb;
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --panel: #f6f7f9;
+  --border: #d9dde3;
+  --text: #1f2328;
+  --muted: #656d76;
+  --accent: #3178c6;
+  --error: #cf222e;
+  --warning: #9a6700;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --border: #3c3c3c;
+    --text: #e6e6e6;
+    --muted: #9da5b0;
+    --accent: #4f9ce8;
+    --error: #f47067;
+    --warning: #d4a72c;
+  }
 }
 
-/* Playground brand accent: Teal (#2BCBD6) & Custom Chrome Backgrounds */
-.dark-theme {
-  --link-color: #2bcbd6 !important;
-  --blue-tinged-bg: #162c2f !important;
-  --blue-tinged-strong: #1e3f43 !important;
-  --sidebar-list-active-background-color: #1a3539 !important;
-  --playground-dragbar-bg: var(--brand-sidebar-dark) !important;
-  --playground-dragbar-border: var(--brand-border-dark) !important;
-  --playground-dropdown-bg: var(--brand-sidebar-dark) !important;
-  --playground-dropdown-border: var(--brand-border-dark) !important;
-  --playground-toolbar-hover-bg: #192d34 !important;
-  --raised-background-color: var(--brand-surface-dark) !important;
-}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); }
 
-html,
-html.light-theme {
-  --link-color: #148b94 !important;
-  --blue-tinged-bg: #e6f8f9 !important;
-  --blue-tinged-strong: #cbf0f3 !important;
-  --sidebar-list-active-background-color: #daf3f5 !important;
-  --playground-dragbar-bg: var(--brand-sidebar-light) !important;
-  --playground-dragbar-border: var(--brand-border-light) !important;
-  --playground-dropdown-bg: var(--brand-sidebar-light) !important;
-  --playground-dropdown-border: var(--brand-border-light) !important;
-  --playground-toolbar-hover-bg: #d7ebed !important;
-  --raised-background-color: var(--brand-surface-light) !important;
-}
-
-html,
-body {
-  background: #0d171b;
-  color: #d4d4d4;
-}
-
-/* Top Header Bar */
-main > nav.navbar-sub {
-  background-color: var(--brand-header-dark);
-  border-bottom: 1px solid var(--brand-border-dark);
-  padding: 0 0.5rem;
-}
-
-/* Editor toolbar (below top nav, above Monaco) */
-#playground-container #editor-container #editor-toolbar {
-  background-color: var(--brand-header-dark);
-  border-bottom: 1px solid var(--brand-border-dark);
-}
-
-#playground-container #editor-container #editor-toolbar ul.right {
-  background-color: var(--brand-header-dark) !important;
-}
-
-/* Right Sidebar Background & Border */
-#playground-container .playground-sidebar {
-  background-color: var(--brand-sidebar-dark) !important;
-  border-left: 1px solid var(--brand-border-dark);
-}
-
-/* Header & brand title styling */
-.navbar-sub li.name {
+header {
   display: flex;
   align-items: center;
-  width: auto !important;
-  padding-right: 1rem;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel);
 }
-.navbar-sub li.name .brand-logo {
-  width: 26px;
-  height: 26px;
-  border-radius: 5px;
-  margin-left: 0.5rem;
-  object-fit: cover;
+header h1 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
+header h1 img { width: 22px; height: 22px; }
+#status { color: var(--muted); font-size: 12px; }
+.spacer { flex: 1; }
+select, button {
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
 }
-.navbar-sub li.name span {
-  padding-top: 0 !important;
-  padding-left: 0.6rem !important;
-  color: var(--brand-primary);
-  font-weight: 700;
-  letter-spacing: 0.5px;
-}
+button { cursor: pointer; }
+#share-link { width: 240px; font: inherit; font-size: 12px; color: inherit; background: var(--bg); border: 1px solid var(--accent); border-radius: 6px; padding: 4px 8px; }
+button:hover { border-color: var(--accent); }
 
-/* Navbar links hover & interactive accents */
-.navbar-sub li a {
-  color: #c5d3d7;
+main { flex: 1; display: flex; min-height: 0; }
+#editor-column { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+#editor { flex: 1; min-height: 0; }
+#tabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--border); background: var(--panel); }
+.tab {
+  flex: none;
+  border: 0;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  padding: 6px 12px;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
 }
+.tab.active { color: var(--text); background: var(--bg); box-shadow: inset 0 -2px var(--accent); }
+aside {
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--panel);
+  min-height: 0;
+}
+aside section { display: flex; flex-direction: column; min-height: 0; }
+aside section:first-child { flex: 3; border-bottom: 1px solid var(--border); }
+aside section:last-child { flex: 2; }
+aside h2 {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.scroll { overflow: auto; padding: 0 12px 12px; }
 
-.navbar-sub li a:hover {
-  color: var(--brand-primary);
-}
+.feature { display: grid; grid-template-columns: auto 1fr; column-gap: 6px; padding: 4px 0; cursor: pointer; }
+.feature input { margin: 2px 0 0; }
+.feature-name { font-family: ui-monospace, Consolas, monospace; }
+.feature-description { grid-column: 2; color: var(--muted); font-size: 12px; }
+.feature.implied { cursor: help; }
+.feature.implied .feature-name { color: var(--muted); }
 
-.navbar-sub li.dropdown ul.dropdown-menu.versions li.beta {
-  color: var(--brand-primary) !important;
-}
+#problems { list-style: none; margin: 0; padding: 0; }
+.problem { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
+.problem-location { flex: none; min-width: 44px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+.problem-message { white-space: pre-wrap; word-break: break-word; }
+.problem.error .problem-location { color: var(--error); }
+.problem.warning .problem-location { color: var(--warning); }
+#problem-count { margin-left: 4px; }
 
-/* Dropdown menus & dialogs */
-.navbar-sub li.dropdown ul.dropdown-menu {
-  background-color: var(--brand-sidebar-dark);
-  border: 1px solid var(--brand-border-dark);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
-}
-
-.navbar-sub li.dropdown ul.dropdown-menu a {
-  color: #d4d4d4;
-}
-
-.navbar-sub li.dropdown ul.dropdown-menu li:hover {
-  background-color: rgba(43, 203, 214, 0.12);
-  color: var(--brand-primary);
-}
-
-/* Loader animation */
-#loader .lds-grid div {
-  background: var(--brand-primary) !important;
-}
-
-/* Restart required notification & loaders */
-#playground-container .playground-sidebar .playground-plugin-container #restart-required {
-  border-color: var(--brand-primary) !important;
-  color: var(--brand-primary) !important;
-}
-
-/* Active sidebar tab underline and text */
-#playground-container .playground-sidebar .playground-plugin-tabview {
-  border-bottom: 1px solid var(--brand-border-dark);
-  padding-bottom: 8px;
-}
-
-#playground-container .playground-sidebar .playground-plugin-tabview button {
-  color: #9ab1b7;
-}
-
-#playground-container .playground-sidebar .playground-plugin-tabview button.active {
-  border-bottom: 2px solid var(--brand-primary) !important;
-  color: var(--brand-primary) !important;
-}
-
-#playground-container .playground-sidebar .playground-plugin-tabview button:hover {
-  color: var(--brand-primary-light);
-}
-
-/* Sidebar navigation selection */
-#playground-container #navigation-container ul li.selectable.selected {
-  background-color: var(--blue-tinged-strong) !important;
-  border-left: 3px solid var(--brand-primary);
-}
-
-/* Config dialog links and close button */
-.navbar-sub li.dropdown .dropdown-dialog {
-  background-color: var(--brand-sidebar-dark) !important;
-  border: 1px solid var(--brand-border-dark);
-}
-
-.navbar-sub li.dropdown .dropdown-dialog a {
-  color: var(--brand-primary) !important;
-}
-
-button.examples-close {
-  background-color: var(--brand-primary) !important;
-  color: #0b1a1c !important;
-  font-weight: 700;
-  border: none;
-  padding: 4px 12px;
-  border-radius: 3px;
-  cursor: pointer;
-}
-
-/* the TS++ Features sidebar plugin */
-.tspp-feature-option {
-  cursor: pointer;
-}
-.tspp-feature-option input {
-  margin-right: 4px;
-  vertical-align: middle;
-  accent-color: var(--brand-primary);
-}
-/* dependency-enabled (not hand-checked): grayed, not directly toggleable */
-.tspp-feature-option.tspp-feature-implicit {
-  color: #6d858b;
-  cursor: help;
-}
-.tspp-feature-option.tspp-feature-implicit span {
-  font-style: italic;
-}
-
-/* example links inside the examples dropdown */
-#examples-list {
-  display: block;
-  padding: 1rem;
-}
-#examples-list a.example-link {
-  display: block;
-  padding: 6px 10px;
-  color: var(--link-color, #2bcbd6);
-}
-#examples-list a.example-link:hover {
-  background: rgba(43, 203, 214, 0.12);
-  color: var(--brand-primary-light);
+@media (max-width: 760px) {
+  header { flex-wrap: wrap; padding: 8px 16px; }
+  .spacer { display: none; }
+  #examples { flex: 1 1 200px; min-width: 0; }
+  main { flex-direction: column; }
+  #editor-column { min-height: 55vh; }
+  aside { width: auto; border-left: 0; border-top: 1px solid var(--border); }
 }

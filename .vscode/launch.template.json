@@ -15,13 +15,13 @@
       "console": "integratedTerminal"
     },
     {
-      // Builds the current compiler bundle, starts Vite, and opens the playground.
+      // Starts the playground dev server on the compiler sources and opens it.
       "name": "TS++: Playground",
       "type": "pwa-chrome",
       "request": "launch",
-      "url": "http://localhost:5173/?ts=dev",
+      "url": "http://localhost:5173/",
       "webRoot": "${workspaceFolder}/packages/playground",
-      "preLaunchTask": "pnpm: playground:debug"
+      "preLaunchTask": "pnpm: playground:dev"
     }
   ]
 }

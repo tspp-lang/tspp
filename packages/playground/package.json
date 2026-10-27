@@ -2,32 +2,23 @@
   "name": "tspp-playground",
   "version": "0.0.0",
   "private": true,
-  "packageManager": "pnpm@12.4.2",
-  "description": "Online playground for ts-plus-plus (TS++) — Monaco editor + forked language-service worker over the tspp compiler bundle.",
+  "description": "Browser playground for TS++: a Monaco editor backed by the compiler sources running in a web worker.",
   "type": "module",
   "scripts": {
-    "postinstall": "node scripts/patch-monaco-worker.mjs",
-    "spike": "node spike/load-spike.mjs",
-    "worker-spike": "node scripts/worker-spike.mjs",
-    "z3-spike": "node scripts/z3-load-spike.mjs && node scripts/z3-bundled-spike.mjs",
-    "z3:worker": "node scripts/build-z3-worker.mjs",
-    "bundle": "node scripts/build-bundle.mjs",
-    "bundle:dev": "node scripts/build-bundle.mjs --dev",
-    "examples": "node scripts/generate-examples.mjs",
-    "generate": "pnpm --filter ts-plus-plus build:compiler && pnpm bundle && pnpm z3:worker && pnpm examples",
-    "dev": "pnpm generate && node scripts/patch-monaco-worker.mjs && vite",
-    "build": "pnpm generate && node scripts/patch-monaco-worker.mjs && vite build",
+    "diagnostics": "pnpm --filter ts-plus-plus exec hereby generate-diagnostics",
+    "dev": "pnpm run diagnostics && vite",
+    "build": "pnpm run diagnostics && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tspp/examples": "workspace:*",
+    "lz-string": "^1.5.0",
     "monaco-editor": "^0.57.0",
     "ts-plus-plus": "workspace:*"
   },
   "devDependencies": {
-    "lz-string": "^1.5.0",
-    "sass": "^1.105.2",
-    "typescript": "5.9",
-    "vite": "^8.3.4",
-    "esbuild": "^0.27.3"
+    "esbuild": "^0.27.3",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.4"
   }
 }

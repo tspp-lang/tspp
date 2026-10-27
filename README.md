@@ -26,11 +26,10 @@ The repository root coordinates the monorepo. Each product lives under `packages
 - `language-server` — the TS++ Language Server Protocol implementation;
 - `vscode-extension` — the repository-local VS Code development extension;
 - `examples` — runnable compiler and editor examples;
-- `playground` — the browser playground and its vendored TypeScript Playground baseline.
+- `playground` — the browser playground, which runs the compiler sources in a web worker.
 
 Run `npm ci` at the root for the compiler and npm workspaces. The language server keeps its
-upstream pnpm lock (`npm run build:language-server` handles it), while the playground keeps its
-own application lock (`npm --prefix packages/playground ci`). Use `npm run build:all` to build
+upstream pnpm lock (`npm run build:language-server` handles it). Use `npm run build:all` to build
 the compiler, language server, tests, and playground.
 
 ## Contributors

@@ -26,9 +26,9 @@ TS++ 以 [TypeScript 6.0.3 的 `050880ce` 源码快照](https://github.com/micro
 - `language-server`：TS++ 的 Language Server Protocol 实现；
 - `vscode-extension`：仓库内使用的 VS Code 开发扩展；
 - `examples`：编译器和编辑器示例；
-- `playground`：浏览器游乐场及其 TypeScript Playground 上游基线。
+- `playground`：浏览器游乐场，在 Web Worker 中直接运行编译器源码。
 
-在根目录运行 `npm ci` 可安装编译器和 npm workspaces 的依赖。语言服务器保留上游的 pnpm 锁文件，`npm run build:language-server` 会负责调用它；游乐场保留自己的应用锁文件，可用 `npm --prefix packages/playground ci` 安装。运行 `npm run build:all` 可构建编译器、语言服务器、测试和游乐场。
+在根目录运行 `npm ci` 可安装编译器和 npm workspaces 的依赖。语言服务器保留上游的 pnpm 锁文件，`npm run build:language-server` 会负责调用它。运行 `npm run build:all` 可构建编译器、语言服务器、测试和游乐场。
 
 ## 贡献者
 

@@ -8664,7 +8664,7 @@ export interface CompilerHost extends ModuleResolutionHost {
   /** @internal Runs standard SMT-LIB verification queries in the host
    *  runtime. When provided, runVerificationQueries delegates to this instead
    *  of spawning the node:worker_threads Z3 backend, letting non-Node hosts
-   *  (the playground's browser language worker) supply any SMT-LIB 2.6
+   *  (a browser language worker, for example) supply any SMT-LIB 2.6
    *  solver. For each request the host loads `script`, runs `(check-sat)`,
    *  then runs the follow-up command for that answer and returns its raw
    *  output; the compiler interprets every response itself. */

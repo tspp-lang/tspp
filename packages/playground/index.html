@@ -1,95 +1,42 @@
 <!doctype html>
-<html class="dark-theme">
+<html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TS++ Playground</title>
-    <link rel="icon" type="image/png" href="avatar.png" />
-    <!-- Client-side cross-origin isolation (coi-serviceworker, MIT, Guido Zuidhof):
-         GitHub Pages cannot set COOP/COEP headers, but the browser-side Z3 backend
-         needs SharedArrayBuffer for its pthread workers. The service worker re-serves
-         every request with the headers attached and reloads the page once; after that
-         window.crossOriginIsolated is true. A no-op when isolation is already in place.
-         Served from the site root so its scope covers the whole origin (a /vendor/
-         scope would never control the document itself). -->
-    <script src="/coi-serviceworker.js"></script>
+    <link rel="icon" href="./tspp.svg" type="image/svg+xml" />
+    <!-- Z3 runs with threads, which need cross-origin isolation (SharedArrayBuffer).
+         GitHub Pages cannot send COOP/COEP headers, so coi-serviceworker (MIT, Guido
+         Zuidhof) adds them; it does nothing when the server already sends them. -->
+    <script src="./coi-serviceworker.js"></script>
   </head>
   <body>
-    <!-- DOM skeleton transcribed from the official TypeScript-Website play.tsx (MIT),
-         minus React/Gatsby/i18n internals. The playground vendors into this shape.
-         <main> is required: the vendored play.scss keys off "main>nav" for the
-         dropdown positioning context and dropdown backgrounds. -->
-    <main role="main">
-    <nav class="navbar-sub">
-      <ul class="nav">
-        <li class="name hide-small"><img src="avatar.png" alt="TS++" class="brand-logo" /><span>TS++ Playground</span></li>
-
-        <li class="dropdown">
-          <a id="compiler-options-button" href="#" class="dropdown-toggle" role="button" aria-haspopup="menu"
-            aria-expanded="false" aria-controls="compiler-options-dropdown" style="overflow: hidden; white-space: nowrap">TS Config <span class="caret"></span></a>
-          <div id="compiler-options-dropdown" class="dropdown-dialog" aria-labelledby="compiler-options-button">
-            <h3>TS Config</h3>
-            <div class="info" id="config-container">
-              <button class="examples-close">Close</button>
-              <div id="compiler-dropdowns"></div>
-            </div>
-          </div>
-        </li>
-
-        <li class="dropdown">
-          <a href="#" id="examples-button" class="dropdown-toggle" role="button" aria-haspopup="menu"
-            aria-expanded="false" aria-controls="examples">Examples <span class="caret"></span></a>
-          <div class="dropdown-dialog" id="examples" aria-labelledby="examples-button">
-            <button class="examples-close" aria-label="Close dropdown" role="button">Close</button>
-            <div id="examples-list"></div>
-          </div>
-        </li>
-      </ul>
-
-      <ul class="nav navbar-nav navbar-right hidden-xs">
-        <li><a href="#" id="playground-settings" role="button">Settings</a></li>
-      </ul>
-    </nav>
-
-    <div class="raised" style="padding-top: 0; margin-top: 0; margin-bottom: 3rem; padding-bottom: 1.5rem">
-      <div id="loader">
-        <div class="lds-grid"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
-        <p id="loading-message" role="status">Downloading TS++ compiler...</p>
+    <header>
+      <h1><img src="./tspp.svg" alt="" />TS++ Playground</h1>
+      <span id="status">Loading compiler…</span>
+      <span class="spacer"></span>
+      <select id="examples" aria-label="Examples">
+        <option value="">Examples…</option>
+      </select>
+      <input id="share-link" type="text" readonly hidden aria-label="Share link" />
+      <button id="share" type="button">Share</button>
+    </header>
+    <main>
+      <div id="editor-column">
+        <nav id="tabs" hidden></nav>
+        <div id="editor"></div>
       </div>
-      <div id="playground-container" style="display: none">
-        <div id="editor-container">
-          <div id="editor-toolbar" class="navbar-sub">
-            <ul>
-              <li id="versions" class="dropdown">
-                <a href="#" id="versions-button" style="overflow: hidden; white-space: nowrap">Version... <span class="caret" /></a>
-                <ul class="dropdown-menu versions" id="versions-dropdown" aria-labelledby="versions-button"></ul>
-              </li>
-              <li><a id="run-button" href="#" role="button">Run</a></li>
-
-              <li class="dropdown">
-                <a href="#" id="exports-dropdown" class="dropdown-toggle" role="button" aria-haspopup="true"
-                  aria-expanded="false" aria-controls="export-dropdown-menu" style="overflow: hidden; white-space: nowrap">Export <span class="caret"></span></a>
-                <ul class="dropdown-menu" id="export-dropdown-menu">
-                  <li><a id="export-copy-md" href="#">Copy as Markdown Issue</a></li>
-                  <li role="separator" class="divider"></li>
-                  <li><a id="export-copy-link" href="#">Copy as Link</a></li>
-                  <li><a id="export-copy-link-preview" href="#">Copy as Link with Preview</a></li>
-                </ul>
-              </li>
-              <li><a id="share-button" href="#" role="button">Share</a></li>
-            </ul>
-
-            <ul class="right">
-              <li><a id="sidebar-toggle" aria-label="Hide Sidebar" href="#">&#x21E5;</a></li>
-            </ul>
-          </div>
-          <div id="example-file-bar"></div>
-          <div id="monaco-editor-embed"></div>
-        </div>
-      </div>
-    </div>
+      <aside>
+        <section>
+          <h2>Features</h2>
+          <div id="features" class="scroll"></div>
+        </section>
+        <section>
+          <h2>Problems<span id="problem-count"></span></h2>
+          <div class="scroll"><ul id="problems"></ul></div>
+        </section>
+      </aside>
     </main>
-
-    <script type="module" src="/src/boot.ts"></script>
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

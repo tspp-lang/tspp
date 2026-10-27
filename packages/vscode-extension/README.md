@@ -5,7 +5,7 @@ This repository-local extension powers the TS++ example experience in an Extensi
 The root launch configuration offers two F5 targets:
 
 - `TS++: VS Code Extension` builds the compiler and language server, then opens `packages/examples` in an Extension Development Host;
-- `TS++: Playground` builds the browser compiler bundle, starts Vite, and opens the playground.
+- `TS++: Playground` starts the playground dev server on the compiler sources and opens it.
 
 The status-bar item opens a quick picker, so users can switch examples without restarting the development host. The extension also verifies that the repository compiler exists and highlights TS++ `=>` kind arrows, `->` dependent-function arrows, and compile-time macro syntax.
 
