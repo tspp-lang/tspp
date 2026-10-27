@@ -99,6 +99,7 @@ import {
   flatten,
   forEach,
   forEachAncestorDirectory,
+  forEachChild,
   forEachChildRecursively,
   forEachDynamicImportOrRequireCall,
   forEachEmittedFile,
@@ -2070,6 +2071,46 @@ function restoreMacroWorkerResult(program: Program, result: MacroWorkerResult): 
   return { sourceFiles, diagnostics };
 }
 
+/** Parses `fileName` from the expanded text and inserts each invocation's generated statements after it. */
+function createExpandedSourceFile(fileName: string, expanded: ExpandedMacroSourceFile, languageVersionOrOptions: ScriptTarget | CreateSourceFileOptions): SourceFile {
+  const sourceFile = createSourceFile(fileName, expanded.text, languageVersionOrOptions, /*setParentNodes*/ true, getScriptKindFromFileName(fileName));
+  const invocationMap = new Map(expanded.invocations.map(invocation => [`${invocation.pos}:${invocation.end}`, invocation.statements]));
+  const visitor: Visitor = node => {
+    if (node.kind === SyntaxKind.MacroInvocationStatement) {
+      const statements = invocationMap.get(`${node.pos}:${node.end}`);
+      // Keep the original invocation in the tree so editor positions and symbol
+      // references remain tied to the user's source. The TypeScript transformer
+      // erases it before emit; generated statements follow it in the same scope.
+      if (statements) {
+        // Synthesized statements have no source coordinates. Give their roots an
+        // empty range at the invocation boundary so syntax-list scanning can skip
+        // them while editor positions continue to address only original text.
+        for (const statement of statements) {
+          setTextRange(statement, { pos: node.end, end: node.end });
+        }
+        return [node, ...statements];
+      }
+    }
+    return visitEachChild(node, visitor, /*context*/ undefined);
+  };
+  const expandedFile = setParentRecursive(visitEachChild(sourceFile, visitor, /*context*/ undefined), /*incremental*/ false);
+  // visitEachChild re-creates every node on the path to an inserted statement
+  // (the source file itself included) through the factory, which flags the copy
+  // Synthesized and points `original` at the parsed node. In the expanded
+  // program those copies are the parse tree: they are bound and checked. Left
+  // flagged, getParseTreeNode (used by checker APIs such as
+  // getSuggestionDiagnostics) redirects to the unexpanded nodes, which this
+  // program never bound. Macro-generated nodes keep their flags.
+  const restoreParseTreeNode = (node: Node): void => {
+    if (node.flags & NodeFlags.Synthesized && node.original && getSourceFileOfNode(node.original) === sourceFile) {
+      (node as Mutable<Node>).flags &= ~NodeFlags.Synthesized;
+    }
+    forEachChild(node, restoreParseTreeNode);
+  };
+  restoreParseTreeNode(expandedFile);
+  return expandedFile;
+}
+
 function markMacroResultSynthetic(root: Node): void {
   setTextRange(root, { pos: -1, end: -1 });
   forEachChildRecursively(root, node => {
@@ -2164,19 +2205,7 @@ export async function createProgramAsync(createProgramOptions: CreateProgramOpti
     const expanded = expansion.sourceFiles.get(fileName) ?? expansion.sourceFiles.get(normalizePath(fileName));
     if (!expanded) return host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
 
-    const sourceFile = createSourceFile(fileName, expanded.text, languageVersionOrOptions, /*setParentNodes*/ true, getScriptKindFromFileName(fileName));
-    const invocationMap = new Map(expanded.invocations.map(invocation => [`${invocation.pos}:${invocation.end}`, invocation.statements]));
-    const visitor: Visitor = node => {
-      if (node.kind === SyntaxKind.MacroInvocationStatement) {
-        const statements = invocationMap.get(`${node.pos}:${node.end}`);
-        if (statements) {
-          for (const statement of statements) setTextRange(statement, { pos: node.end, end: node.end });
-          return [node, ...statements];
-        }
-      }
-      return visitEachChild(node, visitor, /*context*/ undefined);
-    };
-    return setParentRecursive(visitEachChild(sourceFile, visitor, /*context*/ undefined), /*incremental*/ false);
+    return createExpandedSourceFile(fileName, expanded, languageVersionOrOptions);
   };
 
   let expandedProgram: Program;
@@ -2759,27 +2788,7 @@ export function createProgram(_rootNamesOrOptions: readonly string[] | CreatePro
         expandedHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
           const expanded = expansion.sourceFiles.get(fileName) ?? expansion.sourceFiles.get(normalizePath(fileName));
           if (expanded) {
-            const sourceFile = createSourceFile(fileName, expanded.text, languageVersionOrOptions, /*setParentNodes*/ true, getScriptKindFromFileName(fileName));
-            const invocationMap = new Map(expanded.invocations.map(invocation => [`${invocation.pos}:${invocation.end}`, invocation.statements]));
-            const visitor: Visitor = node => {
-              if (node.kind === SyntaxKind.MacroInvocationStatement) {
-                const statements = invocationMap.get(`${node.pos}:${node.end}`);
-                // Keep the original invocation in the tree so editor positions and symbol
-                // references remain tied to the user's source. The TypeScript transformer
-                // erases it before emit; generated statements follow it in the same scope.
-                if (statements) {
-                  // Synthesized statements have no source coordinates. Give their roots an
-                  // empty range at the invocation boundary so syntax-list scanning can skip
-                  // them while editor positions continue to address only original text.
-                  for (const statement of statements) {
-                    setTextRange(statement, { pos: node.end, end: node.end });
-                  }
-                  return [node, ...statements];
-                }
-              }
-              return visitEachChild(node, visitor, /*context*/ undefined);
-            };
-            return setParentRecursive(visitEachChild(sourceFile, visitor, /*context*/ undefined), /*incremental*/ false);
+            return createExpandedSourceFile(fileName, expanded, languageVersionOrOptions);
           }
           return host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
         };

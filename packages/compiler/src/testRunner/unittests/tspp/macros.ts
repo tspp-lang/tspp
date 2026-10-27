@@ -131,6 +131,15 @@ describe("unittests:: tspp:: macros", () => {
     assert.include(expansion.text, 'var UserTypeName: "User" = "User";');
   });
 
+  it("checks suggestion diagnostics on the expanded file", async () => {
+    // The expanded file is rebuilt by the factory; the checker must treat it as the
+    // parse tree rather than following `original` to the unexpanded, unbound file.
+    const content = expandingSource + "\nfunction probe() { const unusedLocal = 1; }\n";
+    const suggestionCodes = (program: ts.Program) => program.getSuggestionDiagnostics(program.getSourceFile("/file.tspp")!).map(diagnostic => diagnostic.code);
+    assert.include(suggestionCodes(createProgram(content).program), 6133);
+    assert.include(suggestionCodes((await createAsyncProgram(content)).program), 6133);
+  });
+
   it("keeps macro functions in JS, erases calls, and preserves the declaration marker", () => {
     const { fs, program } = createProgram(expandingSource, { declaration: true });
     const result = program.emit();
