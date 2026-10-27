@@ -7,19 +7,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      // Builds the compiler and language server, then opens the extension host.
-      "name": "Run Extension",
-      "type": "extensionHost",
+      // Builds the compiler and language server, then opens the extension host in a persistent terminal.
+      "name": "TS++: Launch in Terminal (Keep Alive)",
+      "type": "node",
       "request": "launch",
-      "args": [
-        "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-extension",
-        "--disable-extensions",
-        "${workspaceFolder}/packages/examples"
-      ],
-      "outFiles": [
-        "${workspaceFolder}/packages/vscode-extension/**/*.js"
-      ],
-      "preLaunchTask": "${defaultBuildTask}"
+      "program": "${workspaceFolder}/scripts/launch-editor.mjs",
+      "console": "integratedTerminal"
     },
     {
       // Builds the current compiler bundle, starts Vite, and opens the playground.
