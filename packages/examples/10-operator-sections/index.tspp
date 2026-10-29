@@ -1,0 +1,52 @@
+// ==========================================
+// TS++ 示例 10: 算子切片与占位符表达式 (operatorSections)
+// ==========================================
+
+// 1. 基本算术运算切片
+// `(_ + 1)` 脱糖为 `(__p0) => __p0 + 1`
+export const addOne: (x: number) => number = (_ + 1);
+
+// `(10 - _)` 脱糖为 `(__p0) => 10 - __p0`
+export const subtractFromTen: (x: number) => number = (10 - _);
+
+// `(_ * 2)` 脱糖为 `(__p0) => __p0 * 2`
+export const double: (x: number) => number = (_ * 2);
+
+// 2. 多占位符二元运算切片
+// `(_ + _)` 脱糖为 `(__p0, __p1) => __p0 + __p1`
+export const sum: (a: number, b: number) => number = (_ + _);
+
+// `(_ * _)` 脱糖为 `(__p0, __p1) => __p0 * __p1`
+export const multiply: (a: number, b: number) => number = (_ * _);
+
+// 3. 属性访问与方法调用切片
+export interface User {
+  id: number;
+  name: string;
+  age: number;
+}
+
+// `(_.name)` 脱糖为 `(__p0) => __p0.name`
+export const getUserName: (user: User) => string = (_.name);
+
+// `(_.age >= 18)` 比较运算切片
+export const isAdult: (user: User) => boolean = (_.age >= 18);
+
+// 4. 在数组/高阶函数管道中直接内联使用
+export function processNumbers(numbers: number[]): number[] {
+  // 直接作为实参传递，自动脱糖为箭头函数
+  return numbers
+    .filter(_ > 0)
+    .map(_ * 2);
+}
+
+export function sumAll(numbers: number[]): number {
+  return numbers.reduce(_ + _, 0);
+}
+
+export function getUserNames(users: User[]): string[] {
+  return users
+    .filter(_.age >= 18)
+    .map(_.name);
+}
+

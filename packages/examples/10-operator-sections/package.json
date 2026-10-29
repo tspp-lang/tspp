@@ -1,0 +1,10 @@
+{
+  "name": "tspp-example-10-operator-sections",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tspp --project tsppconfig.json",
+    "build": "tspp --project tsppconfig.json --noEmit false --outDir dist"
+  }
+}
+
