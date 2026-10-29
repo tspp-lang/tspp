@@ -1695,7 +1695,11 @@ const commandOptionsWithoutBuild: CommandLineOption[] = [
     type: "list",
     element: {
       name: "tsppFeature",
-      type: new Map(tsppFeatureDefinitions.map(definition => [definition.name.toLowerCase(), definition.name])),
+      type: new Map([
+        ...tsppFeatureDefinitions.map(definition => [definition.name.toLowerCase(), definition.name] as const),
+        ["newtypedeclarations", "nominalTypes"],
+        ["datadeclarations", "nominalTypes"],
+      ]),
       defaultValueDescription: undefined,
     },
     affectsSemanticDiagnostics: true,

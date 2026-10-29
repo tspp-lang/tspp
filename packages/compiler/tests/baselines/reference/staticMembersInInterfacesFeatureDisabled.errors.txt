@@ -1,0 +1,28 @@
+staticMembersInInterfacesFeatureDisabled.ts(2,5): error TS1070: 'static' modifier cannot appear on a type member.
+staticMembersInInterfacesFeatureDisabled.ts(2,5): error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
+staticMembersInInterfacesFeatureDisabled.ts(6,7): error TS2420: Class 'DisabledStaticImplementation' incorrectly implements interface 'DisabledStaticContract'.
+  Property 'create' is missing in type 'DisabledStaticImplementation' but required in type 'DisabledStaticContract'.
+
+
+==== staticMembersInInterfacesFeatureDisabled.ts (3 errors) ====
+    interface DisabledStaticContract {
+        static create(): DisabledStaticContract;
+        ~~~~~~
+!!! error TS1070: 'static' modifier cannot appear on a type member.
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
+        value: string;
+    }
+    
+    class DisabledStaticImplementation implements DisabledStaticContract {
+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS2420: Class 'DisabledStaticImplementation' incorrectly implements interface 'DisabledStaticContract'.
+!!! error TS2420:   Property 'create' is missing in type 'DisabledStaticImplementation' but required in type 'DisabledStaticContract'.
+!!! related TS2728 staticMembersInInterfacesFeatureDisabled.ts:2:5: 'create' is declared here.
+        static create(): DisabledStaticImplementation {
+            return new DisabledStaticImplementation();
+        }
+    
+        value = "disabled";
+    }
+    

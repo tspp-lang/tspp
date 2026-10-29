@@ -1,0 +1,30 @@
+//// [tests/cases/compiler/staticMembersInInterfacesFeatureDisabled.ts] ////
+
+=== staticMembersInInterfacesFeatureDisabled.ts ===
+interface DisabledStaticContract {
+>DisabledStaticContract : Symbol(DisabledStaticContract, Decl(staticMembersInInterfacesFeatureDisabled.ts, 0, 0))
+
+    static create(): DisabledStaticContract;
+>create : Symbol(DisabledStaticContract.create, Decl(staticMembersInInterfacesFeatureDisabled.ts, 0, 34))
+>DisabledStaticContract : Symbol(DisabledStaticContract, Decl(staticMembersInInterfacesFeatureDisabled.ts, 0, 0))
+
+    value: string;
+>value : Symbol(DisabledStaticContract.value, Decl(staticMembersInInterfacesFeatureDisabled.ts, 1, 44))
+}
+
+class DisabledStaticImplementation implements DisabledStaticContract {
+>DisabledStaticImplementation : Symbol(DisabledStaticImplementation, Decl(staticMembersInInterfacesFeatureDisabled.ts, 3, 1))
+>DisabledStaticContract : Symbol(DisabledStaticContract, Decl(staticMembersInInterfacesFeatureDisabled.ts, 0, 0))
+
+    static create(): DisabledStaticImplementation {
+>create : Symbol(DisabledStaticImplementation.create, Decl(staticMembersInInterfacesFeatureDisabled.ts, 5, 70))
+>DisabledStaticImplementation : Symbol(DisabledStaticImplementation, Decl(staticMembersInInterfacesFeatureDisabled.ts, 3, 1))
+
+        return new DisabledStaticImplementation();
+>DisabledStaticImplementation : Symbol(DisabledStaticImplementation, Decl(staticMembersInInterfacesFeatureDisabled.ts, 3, 1))
+    }
+
+    value = "disabled";
+>value : Symbol(DisabledStaticImplementation.value, Decl(staticMembersInInterfacesFeatureDisabled.ts, 8, 5))
+}
+

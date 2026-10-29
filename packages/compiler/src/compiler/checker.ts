@@ -3144,6 +3144,10 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     if (declaration.pos <= usage.pos && !(isPropertyDeclaration(declaration) && isThisProperty(usage.parent) && !declaration.initializer && !declaration.exclamationToken)) {
       // declaration is before usage
       if (declaration.kind === SyntaxKind.BindingElement) {
+        const bindingDeclaration = declaration.parent.parent;
+        if (isUseBindingStatement(bindingDeclaration)) {
+          return bindingDeclaration.pos <= usage.pos;
+        }
         // still might be illegal if declaration and usage are both binding elements (eg var [a = b, b = b] = [1, 2])
         const errorBindingElement = getAncestor(usage, SyntaxKind.BindingElement) as BindingElement;
         if (errorBindingElement) {
@@ -3438,7 +3442,9 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     withinDeferredContext: boolean,
   ) {
     addLazyDiagnostic(() => {
+      if (errorLocation && errorLocation.flags & NodeFlags.Synthesized) return;
       const name = result.escapedName;
+      const blockScopedErrorLocation = errorLocation && getParseTreeNode(errorLocation);
       const isInExternalModule = lastLocation && isSourceFile(lastLocation) && isExternalOrCommonJsModule(lastLocation);
       // Only check for block-scoped variable if we have an error location and are looking for the
       // name with variable meaning
@@ -3452,13 +3458,13 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       // try to resolve name in /*1*/ which is used in variable position,
       // we want to check for block-scoped
       if (
-        errorLocation &&
+        blockScopedErrorLocation &&
         (meaning & SymbolFlags.BlockScopedVariable ||
           ((meaning & SymbolFlags.Class || meaning & SymbolFlags.Enum) && (meaning & SymbolFlags.Value) === SymbolFlags.Value))
       ) {
         const exportOrLocalSymbol = getExportSymbolOfValueSymbolIfExported(result);
         if (exportOrLocalSymbol.flags & SymbolFlags.BlockScopedVariable || exportOrLocalSymbol.flags & SymbolFlags.Class || exportOrLocalSymbol.flags & SymbolFlags.Enum) {
-          checkResolvedBlockScopedVariable(exportOrLocalSymbol, errorLocation);
+          checkResolvedBlockScopedVariable(exportOrLocalSymbol, blockScopedErrorLocation);
         }
       }
 
@@ -29823,28 +29829,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         symbol.links.type = implicitType;
         return links.resolvedSymbol = symbol;
       }
-      const resolved = !nodeIsMissing(node) && resolveName(
-        node,
-        node,
-        SymbolFlags.Value | SymbolFlags.ExportValue,
-        /*nameNotFoundMessage*/ undefined,
-        !isWriteOnlyAccess(node),
-        /*excludeGlobals*/ false,
-      );
-      if (resolved) {
-        links.resolvedSymbol = resolved;
-      }
-      else {
-        links.resolvedSymbol = !nodeIsMissing(node) &&
-            resolveName(
-              node,
-              node,
-              SymbolFlags.Value | SymbolFlags.ExportValue,
-              getCannotFindNameDiagnosticForName(node),
-              !isWriteOnlyAccess(node),
-              /*excludeGlobals*/ false,
-            ) || unknownSymbol;
-      }
+      links.resolvedSymbol = !nodeIsMissing(node) &&
+          resolveName(
+            node,
+            node,
+            SymbolFlags.Value | SymbolFlags.ExportValue,
+            getCannotFindNameDiagnosticForName(node),
+            !isWriteOnlyAccess(node),
+            /*excludeGlobals*/ false,
+          ) || unknownSymbol;
     }
     return links.resolvedSymbol;
   }
@@ -50217,12 +50210,58 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             if (!checkTypeAssignableTo(typeWithThis, baseWithThis, /*errorNode*/ undefined)) {
               issueMemberSpecificError(node, typeWithThis, baseWithThis, genericDiag);
             }
+            else {
+              const staticInterfaceType = getStaticInterfaceType(t, type);
+              if (staticInterfaceType && !checkTypeAssignableTo(staticType, staticInterfaceType, /*errorNode*/ undefined)) {
+                issueMemberSpecificError(node, staticType, staticInterfaceType, Diagnostics.Class_static_side_0_incorrectly_implements_static_side_of_interface_1);
+              }
+            }
           }
           else {
             error(typeRefNode, Diagnostics.A_class_can_only_implement_an_object_type_or_intersection_of_object_types_with_statically_known_members);
           }
         }
       };
+    }
+
+    function getStaticInterfaceType(interfaceType: Type, implementingInstanceType: Type): Type | undefined {
+      if (!hasTsppFeature(compilerOptions, "staticInterfaceMembers")) {
+        return undefined;
+      }
+      if (
+        !(interfaceType.flags & TypeFlags.Object)
+        || !(getObjectFlags(interfaceType) & (ObjectFlags.ClassOrInterface | ObjectFlags.Reference))
+        || !(interfaceType.symbol.flags & SymbolFlags.Interface)
+      ) {
+        return undefined;
+      }
+
+      const staticTypes: Type[] = [];
+      const staticMembers = createSymbolTable();
+      for (const member of getExportsOfSymbol(interfaceType.symbol).values()) {
+        if (some(member.declarations, declaration => declaration.parent.kind === SyntaxKind.InterfaceDeclaration && hasStaticModifier(declaration))) {
+          staticMembers.set(member.escapedName, member);
+        }
+      }
+      if (staticMembers.size) {
+        const interfaceThisType = getDeclaredTypeOfClassOrInterface(interfaceType.symbol).thisType;
+        const members = interfaceThisType
+          ? createInstantiatedSymbolTable(arrayFrom(staticMembers.values()), createTypeMapper([interfaceThisType], [implementingInstanceType]), /*mappingThisOnly*/ true)
+          : staticMembers;
+        const staticType = createAnonymousType(/*symbol*/ undefined, members, emptyArray, emptyArray, emptyArray);
+        staticTypes.push(staticType);
+      }
+
+      for (const baseType of getBaseTypes(interfaceType as InterfaceType)) {
+        const staticBaseType = getStaticInterfaceType(baseType, implementingInstanceType);
+        if (staticBaseType) {
+          staticTypes.push(staticBaseType);
+        }
+      }
+
+      return staticTypes.length === 0 ? undefined
+        : staticTypes.length === 1 ? staticTypes[0]
+        : getIntersectionType(staticTypes);
     }
   }
 
@@ -50823,6 +50862,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       grammarErrorOnNode(node, Diagnostics._0_declarations_can_only_be_declared_inside_a_block, "interface");
     }
 
+    for (const member of node.members) {
+      if (hasStaticModifier(member)) {
+        requireTsppFeature(member, "staticInterfaceMembers");
+      }
+    }
     checkTypeParameters(node.typeParameters);
     addLazyDiagnostic(() => {
       checkTypeNameIsReserved(node.name, Diagnostics.Interface_name_cannot_be_0);
@@ -52935,7 +52979,10 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
           copySymbol(argumentsSymbol, meaning);
         }
 
-        isStaticSymbol = isStatic(location);
+        isStaticSymbol = isStatic(location)
+          || hasTsppFeature(compilerOptions, "staticInterfaceMembers")
+            && location.parent?.kind === SyntaxKind.InterfaceDeclaration
+            && hasStaticModifier(location);
         location = location.parent;
       }
 
@@ -54998,7 +55045,14 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
       }
       else {
         if (modifier.kind !== SyntaxKind.ReadonlyKeyword) {
-          if (node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature) {
+          if (
+            (node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature)
+            && !(
+              modifier.kind === SyntaxKind.StaticKeyword
+              && node.parent.kind === SyntaxKind.InterfaceDeclaration
+              && hasTsppFeature(compilerOptions, "staticInterfaceMembers")
+            )
+          ) {
             return grammarErrorOnNode(modifier, Diagnostics._0_modifier_cannot_appear_on_a_type_member, tokenToString(modifier.kind));
           }
           if (node.kind === SyntaxKind.IndexSignature && (modifier.kind !== SyntaxKind.StaticKeyword || !isClassLike(node.parent))) {

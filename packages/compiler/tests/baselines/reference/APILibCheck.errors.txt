@@ -1,0 +1,36 @@
+typescript.internal.d.ts(13211,36): error TS2304: Cannot find name 'MlttTerm'.
+typescript.internal.d.ts(13212,36): error TS2304: Cannot find name 'MlttTerm'.
+typescript.internal.d.ts(14755,54): error TS2304: Cannot find name 'VerificationSolverRequest'.
+typescript.internal.d.ts(14755,140): error TS2304: Cannot find name 'VerificationSolverResponse'.
+
+
+==== index.ts (0 errors) ====
+    import ts = require("typescript");
+    import tsInternal = require("typescript-internal");
+    import tsserverlibrary = require("tsserverlibrary");
+    import tsserverlibraryInternal = require("tsserverlibrary-internal");
+    
+==== node_modules/typescript/package.json (0 errors) ====
+    {
+        "name": "typescript",
+        "types": "/.ts/typescript.d.ts"
+    }
+    
+==== node_modules/typescript-internal/package.json (0 errors) ====
+    {
+        "name": "typescript-internal",
+        "types": "/.ts/typescript.internal.d.ts"
+    }
+    
+==== node_modules/tsserverlibrary/package.json (0 errors) ====
+    {
+        "name": "tsserverlibrary",
+        "types": "/.ts/tsserverlibrary.d.ts"
+    }
+    
+==== node_modules/tsserverlibrary-internal/package.json (0 errors) ====
+    {
+        "name": "tsserverlibrary-internal",
+        "types": "/.ts/tsserverlibrary.internal.d.ts"
+    }
+    

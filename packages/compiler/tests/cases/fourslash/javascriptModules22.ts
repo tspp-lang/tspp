@@ -19,13 +19,13 @@
 
 // @Filename: app.js
 //// import {a} from "./mod"
-//// import def, {sausages} from "./mod2"
+//// import defaultValue, {sausages} from "./mod2"
 //// a./**/
 
 verify.completions({ marker: "", includes: "toString" });
 
 edit.backspace(2);
-edit.insert("def.");
+edit.insert("defaultValue.");
 verify.completions({ includes: "name" });
 
 edit.insert("name;\nsausages.");

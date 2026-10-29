@@ -14,7 +14,7 @@
 //  * From T, pick a set of properties whose keys are in the union K
 //  */
 // type Pick<T, K extends keyof T> = [|{| defId: 1 |}{
-//     [P in K]: T[P];
+//   [P in K]: T[P];
 // }|];
 // 
 // /**
@@ -63,7 +63,7 @@
 //  * From T, pick a set of properties whose keys are in the union K
 //  */
 // type Pick<T, K extends keyof T> = [|{| defId: 1 |}{
-//     [P in K]: T[P];
+//   [P in K]: T[P];
 // }|];
 // 
 // /**

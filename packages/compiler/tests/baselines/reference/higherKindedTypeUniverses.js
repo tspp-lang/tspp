@@ -83,3 +83,39 @@ export type RejectWrongConstructor<F: Type0 => Type0> = AcceptsLevelOneConstruct
 export type RejectUniverseAtZero = LevelZeroBox<Type0>;
 export type NotAUniverse = string;
 export type RejectOrdinaryKindAlias: NotAUniverse => NotAUniverse = Array;
+//// [higherKindedTypeUniverses.d.ts]
+export interface LevelZeroBox<A> {
+    value: A;
+}
+export interface LevelOneBox<K> {
+    readonly kind?: never;
+}
+export interface AcceptsLevelOneConstructor<F> {
+    readonly value?: never;
+}
+export type LegacyIdentity<A> = A;
+export type LevelZeroIdentity<A> = A;
+export type LevelOneIdentity<K> = K;
+export type LevelTwoIdentity<K> = K;
+export type UniverseZero = unknown;
+export type UniverseOne = unknown;
+export type ArrayThroughUniverseAlias<T0 = unknown> = unknown;
+export type StringArrayThroughUniverseAlias = ArrayThroughUniverseAlias<string>;
+export type ConstantAtOne<K> = string;
+export type ApplyAtOne<F, K> = unknown;
+export type AppliedConstant<K> = ApplyAtOne<unknown, K>;
+export type PreserveOne<K> = LevelOneBox<LevelOneIdentity<K>>;
+export type PreserveTwo<K> = LevelTwoIdentity<K>;
+export type HugeIdentity<K> = K;
+export type PreserveHuge<K> = HugeIdentity<K>;
+export type HugeUniverse = unknown;
+export type BoxedUniverseZero = LevelOneBox<unknown>;
+export type LegacyString = LegacyIdentity<string>;
+export type LevelZeroString = LevelZeroIdentity<string>;
+export type RejectStringAtOne = LevelOneBox<string>;
+export type RejectOneAtZero<K> = LevelZeroBox<K>;
+export type RejectZeroAtOne<K> = LevelOneBox<K>;
+export type RejectWrongConstructor<F> = AcceptsLevelOneConstructor<unknown>;
+export type RejectUniverseAtZero = LevelZeroBox<unknown>;
+export type NotAUniverse = string;
+export type RejectOrdinaryKindAlias<T0 = unknown> = unknown;

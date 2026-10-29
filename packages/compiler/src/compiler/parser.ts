@@ -7683,6 +7683,13 @@ namespace Parser {
     return (tokenIsIdentifierOrKeyword(token()) || token() === SyntaxKind.NumericLiteral || token() === SyntaxKind.BigIntLiteral || token() === SyntaxKind.StringLiteral) && !scanner.hasPrecedingLineBreak();
   }
 
+  function nextTokenIsTsppTypeDeclaration() {
+    nextToken();
+    if (!isIdentifier() || scanner.hasPrecedingLineBreak()) return false;
+    nextToken();
+    return token() === SyntaxKind.LessThanToken || token() === SyntaxKind.ColonToken || token() === SyntaxKind.EqualsToken;
+  }
+
   function isDeclaration(): boolean {
     while (true) {
       switch (token()) {
@@ -7725,7 +7732,7 @@ namespace Parser {
           return nextTokenIsIdentifierOnSameLine();
         case SyntaxKind.NewtypeKeyword:
         case SyntaxKind.DataKeyword:
-          return nextTokenIsIdentifierOnSameLine();
+          return nextTokenIsTsppTypeDeclaration();
         case SyntaxKind.MacroKeyword:
           return nextToken() === SyntaxKind.FunctionKeyword;
         case SyntaxKind.ModuleKeyword:

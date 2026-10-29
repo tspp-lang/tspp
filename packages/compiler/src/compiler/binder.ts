@@ -117,7 +117,9 @@ import {
   hasDynamicName,
   hasJSDocNodes,
   HasLocals,
+  hasStaticModifier,
   hasSyntacticModifier,
+  hasTsppFeature,
   Identifier,
   identifierToKeywordKind,
   idText,
@@ -2300,14 +2302,20 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
       case SyntaxKind.TypeLiteral:
       case SyntaxKind.JSDocTypeLiteral:
       case SyntaxKind.ObjectLiteralExpression:
-      case SyntaxKind.InterfaceDeclaration:
       case SyntaxKind.JsxAttributes:
-        // Interface/Object-types always have their children added to the 'members' of
+        // Object-types always have their children added to the 'members' of
         // their container. They are only accessible through an instance of their
         // container, and are never in scope otherwise (even inside the body of the
         // object / type / interface declaring them). An exception is type parameters,
         // which are in scope without qualification (similar to 'locals').
         return declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
+
+      case SyntaxKind.InterfaceDeclaration:
+        // TS++ interfaces have distinct instance and static contracts, mirroring
+        // the member/export split already used for classes.
+        return hasStaticModifier(node) && hasTsppFeature(options, "staticInterfaceMembers")
+          ? declareSymbol(container.symbol.exports ||= createSymbolTable(), container.symbol, node, symbolFlags, symbolExcludes)
+          : declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
 
       case SyntaxKind.FunctionType:
       case SyntaxKind.ConstructorType:

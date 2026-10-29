@@ -181,30 +181,22 @@ jobs:
   #     - name: Check baselines
   #       run: git diff --staged --exit-code
 
-  # test:
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       config:
-  #         - os: ubuntu-latest
-  #           node-version: '22'
-  #           bundle: true
-  #         - os: ubuntu-latest
-  #           node-version: '22'
-  #           bundle: false
-  #   runs-on: ${{ matrix.config.os }}
-  #   name: Test Node ${{ matrix.config.node-version }} on ${{ matrix.config.os }}${{ (!matrix.config.bundle && ' with --no-bundle') || '' }}
-  #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: actions/setup-node@v4
-  #       with:
-  #         node-version: ${{ matrix.config.node-version }}
-  #         cache: pnpm
-  #     - run: pnpm install --frozen-lockfile
-  #     - name: Tests
-  #       env:
-  #         BUNDLE: ${{ matrix.config.bundle }}
-  #       run: pnpm test -- --no-lint --bundle="$BUNDLE"
+  compiler-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.2
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: Full compiler test suite
+        run: pnpm --filter ts-plus-plus test
 
   required:
     runs-on: ubuntu-latest
@@ -218,8 +210,8 @@ jobs:
       - examples
       - language-server
       - playground
+      - compiler-tests
       # - baselines
-      # - test
     steps:
       - name: Check required jobs
         env:

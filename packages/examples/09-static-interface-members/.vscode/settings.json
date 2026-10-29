@@ -1,0 +1,3 @@
+{
+  "typescript.tsdk": "../../compiler/built/local"
+}

@@ -1,0 +1,65 @@
+interface Serializable {
+  static readonly mediaType: string;
+  static deserialize(data: string): this;
+
+  serialize(): string;
+}
+
+class User implements Serializable {
+  static readonly mediaType = "application/vnd.example.user+json";
+
+  static deserialize(data: string): User {
+    const value = JSON.parse(data) as { name: string };
+    return new User(value.name);
+  }
+
+  constructor(readonly name: string) {}
+
+  serialize(): string {
+    return JSON.stringify({ name: this.name });
+  }
+}
+
+interface VersionedSerializable extends Serializable {
+  static fromVersion(version: number): this;
+}
+
+class VersionedUser implements VersionedSerializable {
+  static readonly mediaType = "application/vnd.example.versioned-user+json";
+
+  static deserialize(data: string): VersionedUser {
+    const value = JSON.parse(data) as { name: string; version: number };
+    return new VersionedUser(value.name, value.version);
+  }
+
+  static fromVersion(version: number): VersionedUser {
+    return new VersionedUser("anonymous", version);
+  }
+
+  constructor(
+    readonly name: string,
+    readonly version: number,
+  ) {}
+
+  serialize(): string {
+    return JSON.stringify({ name: this.name, version: this.version });
+  }
+}
+
+const user = User.deserialize('{"name":"Ada"}');
+console.log(User.mediaType, user.serialize());
+
+// 取消注释即可看到静态侧缺失诊断：
+// class Broken implements Serializable {
+//   serialize(): string {
+//     return "broken";
+//   }
+// }
+
+// 静态成员属于构造器契约，不会出现在实例类型上：
+// user.deserialize("{}");
+
+// 接口类型参数属于实例侧，不能被共享的静态成员引用：
+// interface InvalidBox<T> {
+//   static create(value: T): InvalidBox<T>;
+// }

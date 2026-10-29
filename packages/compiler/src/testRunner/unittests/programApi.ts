@@ -101,8 +101,6 @@ describe("unittests:: programApi:: Program.getMissingFilePaths", () => {
       "d:/pretend/nonexistent3.ts",
 
       // From no-extension reference
-      "d:/pretend/nonexistent4.tspp",
-      "d:/pretend/nonexistent4.d.tspp",
       "d:/pretend/nonexistent4.ts",
       "d:/pretend/nonexistent4.tsx",
       "d:/pretend/nonexistent4.d.ts",

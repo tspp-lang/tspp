@@ -8675,5 +8675,9 @@
   "Logic function '{0}' can only be used in a formal verification specification.": {
     "category": "Error",
     "code": 18092
+  },
+  "Class static side '{0}' incorrectly implements static side of interface '{1}'.": {
+    "category": "Error",
+    "code": 18093
   }
 }

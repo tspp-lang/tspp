@@ -40,6 +40,14 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     ],
   },
   {
+    name: "staticInterfaceMembers",
+    dependencies: [],
+    initComments: [
+      "获得：interface 中的 static 成员契约，并由 class implements 同时检查实例侧与静态侧。",
+      "影响：TS超集=是；透明擦除=是。",
+    ],
+  },
+  {
     name: "macros",
     dependencies: [],
     initComments: [

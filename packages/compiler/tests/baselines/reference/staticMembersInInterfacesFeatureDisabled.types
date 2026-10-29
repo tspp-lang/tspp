@@ -1,0 +1,35 @@
+//// [tests/cases/compiler/staticMembersInInterfacesFeatureDisabled.ts] ////
+
+=== staticMembersInInterfacesFeatureDisabled.ts ===
+interface DisabledStaticContract {
+    static create(): DisabledStaticContract;
+>create : () => DisabledStaticContract
+>       : ^^^^^^                      
+
+    value: string;
+>value : string
+>      : ^^^^^^
+}
+
+class DisabledStaticImplementation implements DisabledStaticContract {
+>DisabledStaticImplementation : DisabledStaticImplementation
+>                             : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    static create(): DisabledStaticImplementation {
+>create : () => DisabledStaticImplementation
+>       : ^^^^^^                            
+
+        return new DisabledStaticImplementation();
+>new DisabledStaticImplementation() : DisabledStaticImplementation
+>                                   : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>DisabledStaticImplementation : typeof DisabledStaticImplementation
+>                             : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    }
+
+    value = "disabled";
+>value : string
+>      : ^^^^^^
+>"disabled" : "disabled"
+>           : ^^^^^^^^^^
+}
+

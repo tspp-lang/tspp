@@ -605,6 +605,11 @@ Set the JavaScript language version for emitted JavaScript and include compatibl
 one of: es6/es2015, es2016, es2017, es2018, es2019, es2020, es2021, es2022, es2023, es2024, es2025, esnext
 default: es2025
 
+[94m--tsppFeatures[39m
+Enable TS++ language features listed in tsppconfig.json.
+one or more: higherkindedtypes, nominaltypes/newtypedeclarations/datadeclarations, typecomputation, modernsyntax, staticinterfacemembers, macros, formalcontracts, refinementtypes, smtlibraries, typeuniverses, dependentfunctiontypes, dependentfunctioninterop, typematching, naturalnumbers, naturalnumberaddition, naturalnumberelimination, booleans, booleanelimination, identitytypes, sigmatypes
+default: undefined
+
 [94m--useDefineForClassFields[39m
 Emit ECMAScript-standard-compliant class fields.
 type: boolean

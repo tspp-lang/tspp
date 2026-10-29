@@ -72,7 +72,7 @@ const chosenString = chooseByBoolean(true);
       path: "/home/src/workspaces/project/index.tspp",
       content: `
 type MatchValue: Type1 =
-  (A: Type0) ->
+  {A: Type0} ->
   (value: A) ->
   TypeMatch<A, Case<string, number>, Case<number, string>, Default<boolean>>;
 declare const matchValue: MatchValue;

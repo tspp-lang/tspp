@@ -4,7 +4,7 @@
 
 // @Filename: test.tspp
 ////type MatchValue: Type1 =
-////  (A: Type0) ->
+////  {A: Type0} ->
 ////  (value: A) ->
 ////  TypeMatch<
 ////    A,
@@ -20,7 +20,7 @@
 ////const /*numberResult*/matchedNumber = matchValue(count);
 ////const /*unionResult*/matchedUnion = matchValue(textOrCount);
 ////type UnwrapArray: Type1 =
-////  (A: Type0) ->
+////  {A: Type0} ->
 ////  (value: A) ->
 ////  TypeMatch<A, Case<Array<infer T>, T>, Default<A>>;
 ////declare const unwrapArray: UnwrapArray;

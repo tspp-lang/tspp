@@ -75,6 +75,7 @@ import {
   ExportDeclaration,
   Extension,
   extensionFromPath,
+  fileExtensionIs,
   FileReference,
   FileTextChanges,
   filter,
@@ -2354,8 +2355,7 @@ export function createLanguageService(
   }
 
   function getMlttQuickInfo(sf: SourceFile, targetNode: Node): QuickInfo | undefined {
-    const ext = extensionFromPath(sf.fileName);
-    if (ext !== Extension.Tspp && ext !== Extension.Dtspp) {
+    if (!fileExtensionIs(sf.fileName, Extension.Tspp) && !fileExtensionIs(sf.fileName, Extension.Dtspp)) {
       return undefined;
     }
 

@@ -23,12 +23,12 @@ export type AliasApply<F: Type => Type, A> = F<A>;
 
 export interface Functor<F: Type => Type> {
     map<A, B>(fa: F<A>, fn: (value: A) => B): F<B>;
->map : <A, B>(fa: F<A>, fn: (value: A) => B) => F<B>
->    : ^ ^^ ^^  ^^    ^^  ^^               ^^^^^    
+>map : <A: Type0, B: Type0>(fa: F<A>, fn: (value: A) => B) => F<B>
+>    : ^ ^^^^^^^^^ ^^^^^^^^^  ^^    ^^  ^^               ^^^^^
 >fa : "higherKindedTypesBasic".Functor.F<A>
 >   : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 >fn : (value: A) => B
->   : ^     ^^ ^^^^^ 
+>   : ^     ^^ ^^^^^
 >value : A
 >      : ^
 }
@@ -53,7 +53,7 @@ applied.value.push("ok");
 >applied.value.push("ok") : number
 >                         : ^^^^^^
 >applied.value.push : (...items: string[]) => number
->                   : ^^^^     ^^^^^^^^^^^^^^^      
+>                   : ^^^^     ^^^^^^^^^^^^^^^
 >applied.value : string[]
 >              : ^^^^^^^^
 >applied : Apply<Array, string>
@@ -61,7 +61,7 @@ applied.value.push("ok");
 >value : string[]
 >      : ^^^^^^^^
 >push : (...items: string[]) => number
->     : ^^^^     ^^^^^^^^^^^^^^^      
+>     : ^^^^     ^^^^^^^^^^^^^^^
 >"ok" : "ok"
 >     : ^^^^
 
@@ -69,7 +69,7 @@ applied.value.push(1);
 >applied.value.push(1) : number
 >                      : ^^^^^^
 >applied.value.push : (...items: string[]) => number
->                   : ^^^^     ^^^^^^^^^^^^^^^      
+>                   : ^^^^     ^^^^^^^^^^^^^^^
 >applied.value : string[]
 >              : ^^^^^^^^
 >applied : Apply<Array, string>
@@ -77,7 +77,7 @@ applied.value.push(1);
 >value : string[]
 >      : ^^^^^^^^
 >push : (...items: string[]) => number
->     : ^^^^     ^^^^^^^^^^^^^^^      
+>     : ^^^^     ^^^^^^^^^^^^^^^
 >1 : 1
 >  : ^
 
@@ -89,7 +89,7 @@ pair.value[0].toUpperCase();
 >pair.value[0].toUpperCase() : string
 >                            : ^^^^^^
 >pair.value[0].toUpperCase : () => string
->                          : ^^^^^^      
+>                          : ^^^^^^
 >pair.value[0] : string
 >              : ^^^^^^
 >pair.value : Pair<string, number>
@@ -101,13 +101,13 @@ pair.value[0].toUpperCase();
 >0 : 0
 >  : ^
 >toUpperCase : () => string
->            : ^^^^^^      
+>            : ^^^^^^
 
 pair.value[1].toFixed();
 >pair.value[1].toFixed() : string
 >                        : ^^^^^^
 >pair.value[1].toFixed : (fractionDigits?: number) => string
->                      : ^              ^^^      ^^^^^      
+>                      : ^              ^^^      ^^^^^
 >pair.value[1] : number
 >              : ^^^^^^
 >pair.value : Pair<string, number>
@@ -119,7 +119,7 @@ pair.value[1].toFixed();
 >1 : 1
 >  : ^
 >toFixed : (fractionDigits?: number) => string
->        : ^              ^^^      ^^^^^      
+>        : ^              ^^^      ^^^^^
 
 declare const arrayFunctor: Functor<Array>;
 >arrayFunctor : Functor<Array>
@@ -130,12 +130,12 @@ const mapped = arrayFunctor.map([1, 2, 3], value => value.toString());
 >       : ^^^^^^^^
 >arrayFunctor.map([1, 2, 3], value => value.toString()) : string[]
 >                                                       : ^^^^^^^^
->arrayFunctor.map : <A, B>(fa: A[], fn: (value: A) => B) => B[]
->                 : ^ ^^ ^^  ^^^^^^^  ^^^     ^^^^^^^^^^^^^^^^^
+>arrayFunctor.map : <A: Type0, B: Type0>(fa: A[], fn: (value: A) => B) => B[]
+>                 : ^ ^^^^^^^^^ ^^^^^^^^^  ^^^^^^^  ^^^     ^^^^^^^^^^^^^^^^^
 >arrayFunctor : Functor<Array>
 >             : ^^^^^^^^^^^^^^
->map : <A, B>(fa: A[], fn: (value: A) => B) => B[]
->    : ^ ^^ ^^  ^^^^^^^  ^^^     ^^^^^^^^^^^^^^^^^
+>map : <A: Type0, B: Type0>(fa: A[], fn: (value: A) => B) => B[]
+>    : ^ ^^^^^^^^^ ^^^^^^^^^  ^^^^^^^  ^^^     ^^^^^^^^^^^^^^^^^
 >[1, 2, 3] : number[]
 >          : ^^^^^^^^
 >1 : 1
@@ -151,21 +151,21 @@ const mapped = arrayFunctor.map([1, 2, 3], value => value.toString());
 >value.toString() : string
 >                 : ^^^^^^
 >value.toString : (radix?: number) => string
->               : ^     ^^^      ^^^^^      
+>               : ^     ^^^      ^^^^^
 >value : number
 >      : ^^^^^^
 >toString : (radix?: number) => string
->         : ^     ^^^      ^^^^^      
+>         : ^     ^^^      ^^^^^
 
 mapped.push("ok");
 >mapped.push("ok") : number
 >                  : ^^^^^^
 >mapped.push : (...items: string[]) => number
->            : ^^^^     ^^^^^^^^^^^^^^^      
+>            : ^^^^     ^^^^^^^^^^^^^^^
 >mapped : string[]
 >       : ^^^^^^^^
 >push : (...items: string[]) => number
->     : ^^^^     ^^^^^^^^^^^^^^^      
+>     : ^^^^     ^^^^^^^^^^^^^^^
 >"ok" : "ok"
 >     : ^^^^
 
@@ -173,17 +173,17 @@ mapped.push(1);
 >mapped.push(1) : number
 >               : ^^^^^^
 >mapped.push : (...items: string[]) => number
->            : ^^^^     ^^^^^^^^^^^^^^^      
+>            : ^^^^     ^^^^^^^^^^^^^^^
 >mapped : string[]
 >       : ^^^^^^^^
 >push : (...items: string[]) => number
->     : ^^^^     ^^^^^^^^^^^^^^^      
+>     : ^^^^     ^^^^^^^^^^^^^^^
 >1 : 1
 >  : ^
 
 declare function unwrap<F: Type => Type, A>(value: F<A>): A;
->unwrap : <F: Type => Type, A>(value: F<A>) => A
->       : ^ ^^^^^^^^^^^^^^^^ ^^     ^^    ^^^^^ 
+>unwrap : <F: Type0 => Type0, A: Type0>(value: F<A>) => A
+>       : ^ ^^^^^^^^^^^^^^^^^^ ^^^^^^^^^     ^^    ^^^^^
 >value : F<A>
 >      : ^^^^
 
@@ -192,8 +192,8 @@ const unwrapped = unwrap<Array, string>(["value"]);
 >          : ^^^^^^
 >unwrap<Array, string>(["value"]) : string
 >                                 : ^^^^^^
->unwrap : <F: Type => Type, A>(value: F<A>) => A
->       : ^ ^^^^^^^^^^^^^^^^ ^^     ^^    ^^^^^ 
+>unwrap : <F: Type0 => Type0, A: Type0>(value: F<A>) => A
+>       : ^ ^^^^^^^^^^^^^^^^^^ ^^^^^^^^^     ^^    ^^^^^
 >["value"] : string[]
 >          : ^^^^^^^^
 >"value" : "value"
@@ -203,11 +203,11 @@ unwrapped.toUpperCase();
 >unwrapped.toUpperCase() : string
 >                        : ^^^^^^
 >unwrapped.toUpperCase : () => string
->                      : ^^^^^^      
+>                      : ^^^^^^
 >unwrapped : string
 >          : ^^^^^^
 >toUpperCase : () => string
->            : ^^^^^^      
+>            : ^^^^^^
 
 export type Invalid = Apply<string, string>;
 >Invalid : Invalid

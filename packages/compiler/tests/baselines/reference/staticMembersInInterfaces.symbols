@@ -1,0 +1,254 @@
+//// [tests/cases/compiler/staticMembersInInterfaces.ts] ////
+
+=== staticMembersInInterfaces.ts ===
+interface Serializable {
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    static readonly mediaType: string;
+>mediaType : Symbol(Serializable.mediaType, Decl(staticMembersInInterfaces.ts, 0, 24))
+
+    static deserialize(text: string): this;
+>deserialize : Symbol(Serializable.deserialize, Decl(staticMembersInInterfaces.ts, 1, 38))
+>text : Symbol(text, Decl(staticMembersInInterfaces.ts, 2, 23))
+
+    serialize(): string;
+>serialize : Symbol(Serializable.serialize, Decl(staticMembersInInterfaces.ts, 2, 43))
+}
+
+class Good implements Serializable {
+>Good : Symbol(Good, Decl(staticMembersInInterfaces.ts, 4, 1))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    static readonly mediaType = "application/good";
+>mediaType : Symbol(Good.mediaType, Decl(staticMembersInInterfaces.ts, 6, 36))
+
+    static deserialize(_text: string): Good {
+>deserialize : Symbol(Good.deserialize, Decl(staticMembersInInterfaces.ts, 7, 51))
+>_text : Symbol(_text, Decl(staticMembersInInterfaces.ts, 9, 23))
+>Good : Symbol(Good, Decl(staticMembersInInterfaces.ts, 4, 1))
+
+        return new Good();
+>Good : Symbol(Good, Decl(staticMembersInInterfaces.ts, 4, 1))
+    }
+
+    serialize(): string {
+>serialize : Symbol(Good.serialize, Decl(staticMembersInInterfaces.ts, 11, 5))
+
+        return "good";
+    }
+}
+
+class MissingStatic implements Serializable {
+>MissingStatic : Symbol(MissingStatic, Decl(staticMembersInInterfaces.ts, 16, 1))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    serialize(): string {
+>serialize : Symbol(MissingStatic.serialize, Decl(staticMembersInInterfaces.ts, 18, 45))
+
+        return "missing";
+    }
+}
+
+class WrongStatic implements Serializable {
+>WrongStatic : Symbol(WrongStatic, Decl(staticMembersInInterfaces.ts, 22, 1))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    static readonly mediaType = 1;
+>mediaType : Symbol(WrongStatic.mediaType, Decl(staticMembersInInterfaces.ts, 24, 43))
+
+    static deserialize(_text: number): WrongStatic {
+>deserialize : Symbol(WrongStatic.deserialize, Decl(staticMembersInInterfaces.ts, 25, 34))
+>_text : Symbol(_text, Decl(staticMembersInInterfaces.ts, 27, 23))
+>WrongStatic : Symbol(WrongStatic, Decl(staticMembersInInterfaces.ts, 22, 1))
+
+        return new WrongStatic();
+>WrongStatic : Symbol(WrongStatic, Decl(staticMembersInInterfaces.ts, 22, 1))
+    }
+
+    serialize(): string {
+>serialize : Symbol(WrongStatic.serialize, Decl(staticMembersInInterfaces.ts, 29, 5))
+
+        return "wrong";
+    }
+}
+
+class WrongStaticMethod implements Serializable {
+>WrongStaticMethod : Symbol(WrongStaticMethod, Decl(staticMembersInInterfaces.ts, 34, 1))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    static readonly mediaType = "application/wrong-method";
+>mediaType : Symbol(WrongStaticMethod.mediaType, Decl(staticMembersInInterfaces.ts, 36, 49))
+
+    static deserialize(_text: number): WrongStaticMethod {
+>deserialize : Symbol(WrongStaticMethod.deserialize, Decl(staticMembersInInterfaces.ts, 37, 59))
+>_text : Symbol(_text, Decl(staticMembersInInterfaces.ts, 39, 23))
+>WrongStaticMethod : Symbol(WrongStaticMethod, Decl(staticMembersInInterfaces.ts, 34, 1))
+
+        return new WrongStaticMethod();
+>WrongStaticMethod : Symbol(WrongStaticMethod, Decl(staticMembersInInterfaces.ts, 34, 1))
+    }
+
+    serialize(): string {
+>serialize : Symbol(WrongStaticMethod.serialize, Decl(staticMembersInInterfaces.ts, 41, 5))
+
+        return "wrong method";
+    }
+}
+
+class MissingInstance implements Serializable {
+>MissingInstance : Symbol(MissingInstance, Decl(staticMembersInInterfaces.ts, 46, 1))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    static readonly mediaType = "application/missing-instance";
+>mediaType : Symbol(MissingInstance.mediaType, Decl(staticMembersInInterfaces.ts, 48, 47))
+
+    static deserialize(_text: string): MissingInstance {
+>deserialize : Symbol(MissingInstance.deserialize, Decl(staticMembersInInterfaces.ts, 49, 63))
+>_text : Symbol(_text, Decl(staticMembersInInterfaces.ts, 51, 23))
+>MissingInstance : Symbol(MissingInstance, Decl(staticMembersInInterfaces.ts, 46, 1))
+
+        return new MissingInstance();
+>MissingInstance : Symbol(MissingInstance, Decl(staticMembersInInterfaces.ts, 46, 1))
+    }
+}
+
+interface VersionedSerializable extends Serializable {
+>VersionedSerializable : Symbol(VersionedSerializable, Decl(staticMembersInInterfaces.ts, 54, 1))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+    static fromVersion(version: number): this;
+>fromVersion : Symbol(VersionedSerializable.fromVersion, Decl(staticMembersInInterfaces.ts, 56, 54))
+>version : Symbol(version, Decl(staticMembersInInterfaces.ts, 57, 23))
+}
+
+class GoodVersioned implements VersionedSerializable {
+>GoodVersioned : Symbol(GoodVersioned, Decl(staticMembersInInterfaces.ts, 58, 1))
+>VersionedSerializable : Symbol(VersionedSerializable, Decl(staticMembersInInterfaces.ts, 54, 1))
+
+    static readonly mediaType = "application/versioned";
+>mediaType : Symbol(GoodVersioned.mediaType, Decl(staticMembersInInterfaces.ts, 60, 54))
+
+    static deserialize(_text: string): GoodVersioned {
+>deserialize : Symbol(GoodVersioned.deserialize, Decl(staticMembersInInterfaces.ts, 61, 56))
+>_text : Symbol(_text, Decl(staticMembersInInterfaces.ts, 63, 23))
+>GoodVersioned : Symbol(GoodVersioned, Decl(staticMembersInInterfaces.ts, 58, 1))
+
+        return new GoodVersioned();
+>GoodVersioned : Symbol(GoodVersioned, Decl(staticMembersInInterfaces.ts, 58, 1))
+    }
+
+    static fromVersion(_version: number): GoodVersioned {
+>fromVersion : Symbol(GoodVersioned.fromVersion, Decl(staticMembersInInterfaces.ts, 65, 5))
+>_version : Symbol(_version, Decl(staticMembersInInterfaces.ts, 67, 23))
+>GoodVersioned : Symbol(GoodVersioned, Decl(staticMembersInInterfaces.ts, 58, 1))
+
+        return new GoodVersioned();
+>GoodVersioned : Symbol(GoodVersioned, Decl(staticMembersInInterfaces.ts, 58, 1))
+    }
+
+    serialize(): string {
+>serialize : Symbol(GoodVersioned.serialize, Decl(staticMembersInInterfaces.ts, 69, 5))
+
+        return "versioned";
+    }
+}
+
+class MissingInheritedStatic implements VersionedSerializable {
+>MissingInheritedStatic : Symbol(MissingInheritedStatic, Decl(staticMembersInInterfaces.ts, 74, 1))
+>VersionedSerializable : Symbol(VersionedSerializable, Decl(staticMembersInInterfaces.ts, 54, 1))
+
+    static fromVersion(_version: number): MissingInheritedStatic {
+>fromVersion : Symbol(MissingInheritedStatic.fromVersion, Decl(staticMembersInInterfaces.ts, 76, 63))
+>_version : Symbol(_version, Decl(staticMembersInInterfaces.ts, 77, 23))
+>MissingInheritedStatic : Symbol(MissingInheritedStatic, Decl(staticMembersInInterfaces.ts, 74, 1))
+
+        return new MissingInheritedStatic();
+>MissingInheritedStatic : Symbol(MissingInheritedStatic, Decl(staticMembersInInterfaces.ts, 74, 1))
+    }
+
+    serialize(): string {
+>serialize : Symbol(MissingInheritedStatic.serialize, Decl(staticMembersInInterfaces.ts, 79, 5))
+
+        return "missing inherited";
+    }
+}
+
+interface MergedStaticContract {
+>MergedStaticContract : Symbol(MergedStaticContract, Decl(staticMembersInInterfaces.ts, 84, 1), Decl(staticMembersInInterfaces.ts, 88, 1))
+
+    static first(): void;
+>first : Symbol(MergedStaticContract.first, Decl(staticMembersInInterfaces.ts, 86, 32))
+}
+
+interface MergedStaticContract {
+>MergedStaticContract : Symbol(MergedStaticContract, Decl(staticMembersInInterfaces.ts, 84, 1), Decl(staticMembersInInterfaces.ts, 88, 1))
+
+    static second(): void;
+>second : Symbol(MergedStaticContract.second, Decl(staticMembersInInterfaces.ts, 90, 32))
+}
+
+class GoodMerged implements MergedStaticContract {
+>GoodMerged : Symbol(GoodMerged, Decl(staticMembersInInterfaces.ts, 92, 1))
+>MergedStaticContract : Symbol(MergedStaticContract, Decl(staticMembersInInterfaces.ts, 84, 1), Decl(staticMembersInInterfaces.ts, 88, 1))
+
+    static first(): void {}
+>first : Symbol(GoodMerged.first, Decl(staticMembersInInterfaces.ts, 94, 50))
+
+    static second(): void {}
+>second : Symbol(GoodMerged.second, Decl(staticMembersInInterfaces.ts, 95, 27))
+}
+
+declare const serializable: Serializable;
+>serializable : Symbol(serializable, Decl(staticMembersInInterfaces.ts, 99, 13))
+>Serializable : Symbol(Serializable, Decl(staticMembersInInterfaces.ts, 0, 0))
+
+serializable.deserialize("nope");
+>serializable : Symbol(serializable, Decl(staticMembersInInterfaces.ts, 99, 13))
+
+interface GenericStaticMethod {
+>GenericStaticMethod : Symbol(GenericStaticMethod, Decl(staticMembersInInterfaces.ts, 100, 33))
+
+    static identity<T>(value: T): T;
+>identity : Symbol(GenericStaticMethod.identity, Decl(staticMembersInInterfaces.ts, 102, 31))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 103, 20))
+>value : Symbol(value, Decl(staticMembersInInterfaces.ts, 103, 23))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 103, 20))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 103, 20))
+}
+
+class GoodGenericStaticMethod implements GenericStaticMethod {
+>GoodGenericStaticMethod : Symbol(GoodGenericStaticMethod, Decl(staticMembersInInterfaces.ts, 104, 1))
+>GenericStaticMethod : Symbol(GenericStaticMethod, Decl(staticMembersInInterfaces.ts, 100, 33))
+
+    static identity<T>(value: T): T {
+>identity : Symbol(GoodGenericStaticMethod.identity, Decl(staticMembersInInterfaces.ts, 106, 62))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 107, 20))
+>value : Symbol(value, Decl(staticMembersInInterfaces.ts, 107, 23))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 107, 20))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 107, 20))
+
+        return value;
+>value : Symbol(value, Decl(staticMembersInInterfaces.ts, 107, 23))
+    }
+}
+
+interface InvalidGenericStatic<T> {
+>InvalidGenericStatic : Symbol(InvalidGenericStatic, Decl(staticMembersInInterfaces.ts, 110, 1))
+>T : Symbol(T, Decl(staticMembersInInterfaces.ts, 112, 31))
+
+    static create(value: T): InvalidGenericStatic<T>;
+>create : Symbol(InvalidGenericStatic.create, Decl(staticMembersInInterfaces.ts, 112, 35))
+>value : Symbol(value, Decl(staticMembersInInterfaces.ts, 113, 18))
+>T : Symbol(T)
+>InvalidGenericStatic : Symbol(InvalidGenericStatic, Decl(staticMembersInInterfaces.ts, 110, 1))
+>T : Symbol(T)
+}
+
+type InvalidTypeLiteral = {
+>InvalidTypeLiteral : Symbol(InvalidTypeLiteral, Decl(staticMembersInInterfaces.ts, 114, 1))
+
+    static create(): void;
+>create : Symbol(create, Decl(staticMembersInInterfaces.ts, 116, 27))
+
+};
+

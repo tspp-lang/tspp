@@ -46,3 +46,20 @@ export type MissingApplication = ArrayConstructor;
 export type KindMismatch: Type => Type = string;
 export type WrongArity: (Type, Type) => Type = Array;
 export type HigherOrderConstructor<T>: Type => Type = Array;
+//// [higherKindedTypeAliases.d.ts]
+export interface AcceptsUnary<F> {
+    value: unknown;
+}
+export type Pair<A, B> = [A, B];
+export type ArrayConstructor<T0 = unknown> = unknown;
+export type ArrayConstructorAlias<T0 = unknown> = unknown;
+export type PairConstructor<T0 = unknown, T1 = unknown> = unknown;
+export type StringArray = ArrayConstructor<string>;
+export type NumberArray = ArrayConstructorAlias<number>;
+export type PairValue = PairConstructor<string, number>;
+export type AcceptedAlias = AcceptsUnary<unknown>;
+export type OrdinaryAlias = Array;
+export type MissingApplication = ArrayConstructor;
+export type KindMismatch<T0 = unknown> = unknown;
+export type WrongArity<T0 = unknown, T1 = unknown> = unknown;
+export type HigherOrderConstructor<T> = unknown;

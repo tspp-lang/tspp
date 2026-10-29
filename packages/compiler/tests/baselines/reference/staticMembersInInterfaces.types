@@ -1,0 +1,320 @@
+//// [tests/cases/compiler/staticMembersInInterfaces.ts] ////
+
+=== staticMembersInInterfaces.ts ===
+interface Serializable {
+    static readonly mediaType: string;
+>mediaType : string
+>          : ^^^^^^
+
+    static deserialize(text: string): this;
+>deserialize : (text: string) => this
+>            : ^    ^^      ^^^^^    
+>text : string
+>     : ^^^^^^
+
+    serialize(): string;
+>serialize : () => string
+>          : ^^^^^^      
+}
+
+class Good implements Serializable {
+>Good : Good
+>     : ^^^^
+
+    static readonly mediaType = "application/good";
+>mediaType : "application/good"
+>          : ^^^^^^^^^^^^^^^^^^
+>"application/good" : "application/good"
+>                   : ^^^^^^^^^^^^^^^^^^
+
+    static deserialize(_text: string): Good {
+>deserialize : (_text: string) => Good
+>            : ^     ^^      ^^^^^    
+>_text : string
+>      : ^^^^^^
+
+        return new Good();
+>new Good() : Good
+>           : ^^^^
+>Good : typeof Good
+>     : ^^^^^^^^^^^
+    }
+
+    serialize(): string {
+>serialize : () => string
+>          : ^^^^^^      
+
+        return "good";
+>"good" : "good"
+>       : ^^^^^^
+    }
+}
+
+class MissingStatic implements Serializable {
+>MissingStatic : MissingStatic
+>              : ^^^^^^^^^^^^^
+
+    serialize(): string {
+>serialize : () => string
+>          : ^^^^^^      
+
+        return "missing";
+>"missing" : "missing"
+>          : ^^^^^^^^^
+    }
+}
+
+class WrongStatic implements Serializable {
+>WrongStatic : WrongStatic
+>            : ^^^^^^^^^^^
+
+    static readonly mediaType = 1;
+>mediaType : 1
+>          : ^
+>1 : 1
+>  : ^
+
+    static deserialize(_text: number): WrongStatic {
+>deserialize : (_text: number) => WrongStatic
+>            : ^     ^^      ^^^^^           
+>_text : number
+>      : ^^^^^^
+
+        return new WrongStatic();
+>new WrongStatic() : WrongStatic
+>                  : ^^^^^^^^^^^
+>WrongStatic : typeof WrongStatic
+>            : ^^^^^^^^^^^^^^^^^^
+    }
+
+    serialize(): string {
+>serialize : () => string
+>          : ^^^^^^      
+
+        return "wrong";
+>"wrong" : "wrong"
+>        : ^^^^^^^
+    }
+}
+
+class WrongStaticMethod implements Serializable {
+>WrongStaticMethod : WrongStaticMethod
+>                  : ^^^^^^^^^^^^^^^^^
+
+    static readonly mediaType = "application/wrong-method";
+>mediaType : "application/wrong-method"
+>          : ^^^^^^^^^^^^^^^^^^^^^^^^^^
+>"application/wrong-method" : "application/wrong-method"
+>                           : ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    static deserialize(_text: number): WrongStaticMethod {
+>deserialize : (_text: number) => WrongStaticMethod
+>            : ^     ^^      ^^^^^                 
+>_text : number
+>      : ^^^^^^
+
+        return new WrongStaticMethod();
+>new WrongStaticMethod() : WrongStaticMethod
+>                        : ^^^^^^^^^^^^^^^^^
+>WrongStaticMethod : typeof WrongStaticMethod
+>                  : ^^^^^^^^^^^^^^^^^^^^^^^^
+    }
+
+    serialize(): string {
+>serialize : () => string
+>          : ^^^^^^      
+
+        return "wrong method";
+>"wrong method" : "wrong method"
+>               : ^^^^^^^^^^^^^^
+    }
+}
+
+class MissingInstance implements Serializable {
+>MissingInstance : MissingInstance
+>                : ^^^^^^^^^^^^^^^
+
+    static readonly mediaType = "application/missing-instance";
+>mediaType : "application/missing-instance"
+>          : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+>"application/missing-instance" : "application/missing-instance"
+>                               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+    static deserialize(_text: string): MissingInstance {
+>deserialize : (_text: string) => MissingInstance
+>            : ^     ^^      ^^^^^               
+>_text : string
+>      : ^^^^^^
+
+        return new MissingInstance();
+>new MissingInstance() : MissingInstance
+>                      : ^^^^^^^^^^^^^^^
+>MissingInstance : typeof MissingInstance
+>                : ^^^^^^^^^^^^^^^^^^^^^^
+    }
+}
+
+interface VersionedSerializable extends Serializable {
+    static fromVersion(version: number): this;
+>fromVersion : (version: number) => this
+>            : ^       ^^      ^^^^^    
+>version : number
+>        : ^^^^^^
+}
+
+class GoodVersioned implements VersionedSerializable {
+>GoodVersioned : GoodVersioned
+>              : ^^^^^^^^^^^^^
+
+    static readonly mediaType = "application/versioned";
+>mediaType : "application/versioned"
+>          : ^^^^^^^^^^^^^^^^^^^^^^^
+>"application/versioned" : "application/versioned"
+>                        : ^^^^^^^^^^^^^^^^^^^^^^^
+
+    static deserialize(_text: string): GoodVersioned {
+>deserialize : (_text: string) => GoodVersioned
+>            : ^     ^^      ^^^^^             
+>_text : string
+>      : ^^^^^^
+
+        return new GoodVersioned();
+>new GoodVersioned() : GoodVersioned
+>                    : ^^^^^^^^^^^^^
+>GoodVersioned : typeof GoodVersioned
+>              : ^^^^^^^^^^^^^^^^^^^^
+    }
+
+    static fromVersion(_version: number): GoodVersioned {
+>fromVersion : (_version: number) => GoodVersioned
+>            : ^        ^^      ^^^^^             
+>_version : number
+>         : ^^^^^^
+
+        return new GoodVersioned();
+>new GoodVersioned() : GoodVersioned
+>                    : ^^^^^^^^^^^^^
+>GoodVersioned : typeof GoodVersioned
+>              : ^^^^^^^^^^^^^^^^^^^^
+    }
+
+    serialize(): string {
+>serialize : () => string
+>          : ^^^^^^      
+
+        return "versioned";
+>"versioned" : "versioned"
+>            : ^^^^^^^^^^^
+    }
+}
+
+class MissingInheritedStatic implements VersionedSerializable {
+>MissingInheritedStatic : MissingInheritedStatic
+>                       : ^^^^^^^^^^^^^^^^^^^^^^
+
+    static fromVersion(_version: number): MissingInheritedStatic {
+>fromVersion : (_version: number) => MissingInheritedStatic
+>            : ^        ^^      ^^^^^                      
+>_version : number
+>         : ^^^^^^
+
+        return new MissingInheritedStatic();
+>new MissingInheritedStatic() : MissingInheritedStatic
+>                             : ^^^^^^^^^^^^^^^^^^^^^^
+>MissingInheritedStatic : typeof MissingInheritedStatic
+>                       : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    }
+
+    serialize(): string {
+>serialize : () => string
+>          : ^^^^^^      
+
+        return "missing inherited";
+>"missing inherited" : "missing inherited"
+>                    : ^^^^^^^^^^^^^^^^^^^
+    }
+}
+
+interface MergedStaticContract {
+    static first(): void;
+>first : () => void
+>      : ^^^^^^    
+}
+
+interface MergedStaticContract {
+    static second(): void;
+>second : () => void
+>       : ^^^^^^    
+}
+
+class GoodMerged implements MergedStaticContract {
+>GoodMerged : GoodMerged
+>           : ^^^^^^^^^^
+
+    static first(): void {}
+>first : () => void
+>      : ^^^^^^    
+
+    static second(): void {}
+>second : () => void
+>       : ^^^^^^    
+}
+
+declare const serializable: Serializable;
+>serializable : Serializable
+>             : ^^^^^^^^^^^^
+
+serializable.deserialize("nope");
+>serializable.deserialize("nope") : any
+>                                 : ^^^
+>serializable.deserialize : any
+>                         : ^^^
+>serializable : Serializable
+>             : ^^^^^^^^^^^^
+>deserialize : any
+>            : ^^^
+>"nope" : "nope"
+>       : ^^^^^^
+
+interface GenericStaticMethod {
+    static identity<T>(value: T): T;
+>identity : <T>(value: T) => T
+>         : ^ ^^     ^^ ^^^^^ 
+>value : T
+>      : ^
+}
+
+class GoodGenericStaticMethod implements GenericStaticMethod {
+>GoodGenericStaticMethod : GoodGenericStaticMethod
+>                        : ^^^^^^^^^^^^^^^^^^^^^^^
+
+    static identity<T>(value: T): T {
+>identity : <T>(value: T) => T
+>         : ^ ^^     ^^ ^^^^^ 
+>value : T
+>      : ^
+
+        return value;
+>value : T
+>      : ^
+    }
+}
+
+interface InvalidGenericStatic<T> {
+    static create(value: T): InvalidGenericStatic<T>;
+>create : (value: T) => InvalidGenericStatic<T>
+>       : ^     ^^ ^^^^^                       
+>value : T
+>      : ^
+}
+
+type InvalidTypeLiteral = {
+>InvalidTypeLiteral : InvalidTypeLiteral
+>                   : ^^^^^^^^^^^^^^^^^^
+
+    static create(): void;
+>create : () => void
+>       : ^^^^^^    
+
+};
+

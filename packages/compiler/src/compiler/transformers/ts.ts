@@ -921,8 +921,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
   }
 
   function visitDoFunctionBody(body: Block | undefined): Block | undefined {
-    if (!body) return undefined;
-    if (body.hasDoKeyword) {
+    if (body?.hasDoKeyword) {
       const transformedStmts = transformDoBlockStatements(body.statements);
       const newBlock = factory.updateBlock(body, transformedStmts);
       return visitFunctionBody(newBlock, visitor, context);

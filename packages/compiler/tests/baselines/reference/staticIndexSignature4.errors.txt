@@ -1,12 +1,14 @@
 staticIndexSignature4.ts(12,5): error TS1071: 'static' modifier cannot appear on an index signature.
+staticIndexSignature4.ts(12,5): error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
 staticIndexSignature4.ts(13,5): error TS1071: 'static' modifier cannot appear on an index signature.
+staticIndexSignature4.ts(13,5): error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
 staticIndexSignature4.ts(19,5): error TS2542: Index signature in type 'typeof B' only permits reading.
 staticIndexSignature4.ts(20,5): error TS2542: Index signature in type 'typeof B' only permits reading.
 staticIndexSignature4.ts(25,5): error TS2542: Index signature in type 'typeof B' only permits reading.
 staticIndexSignature4.ts(26,5): error TS2542: Index signature in type 'typeof B' only permits reading.
 
 
-==== staticIndexSignature4.ts (6 errors) ====
+==== staticIndexSignature4.ts (8 errors) ====
     class B {
         static readonly [s: string]: number;
         static readonly [s: number]: 42 | 233
@@ -21,9 +23,13 @@ staticIndexSignature4.ts(26,5): error TS2542: Index signature in type 'typeof B'
         static [s: string]: number;
         ~~~~~~
 !!! error TS1071: 'static' modifier cannot appear on an index signature.
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
         static [s: number]: 42 | 233;
         ~~~~~~
 !!! error TS1071: 'static' modifier cannot appear on an index signature.
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
     }
     
     declare const v: number

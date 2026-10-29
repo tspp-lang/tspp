@@ -60,3 +60,20 @@ export type AliasArrayOfString = AliasApply<Array, string>;
 export type PairOfStringAndNumber = Apply2<Pair, string, number>;
 export type Invalid = Apply<string, string>;
 export type WrongArity = Apply<Pair, string>;
+//// [higherKindedTypesBasic.d.ts]
+export interface Apply<F, A> {
+    value: unknown;
+}
+export interface Apply2<F, A, B> {
+    value: unknown;
+}
+export type Pair<A, B> = [A, B];
+export type AliasApply<F, A> = unknown;
+export interface Functor<F> {
+    map<A, B>(fa: unknown, fn: (value: A) => B): unknown;
+}
+export type ArrayOfString = Apply<unknown, string>;
+export type AliasArrayOfString = AliasApply<unknown, string>;
+export type PairOfStringAndNumber = Apply2<unknown, string, number>;
+export type Invalid = Apply<string, string>;
+export type WrongArity = Apply<unknown, string>;

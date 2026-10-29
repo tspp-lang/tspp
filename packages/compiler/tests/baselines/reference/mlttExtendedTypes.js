@@ -90,3 +90,21 @@ export declare const fractional: Indexed<1.5>;
 export declare const unsafeInteger: Indexed<9007199254740992>;
 export declare const dynamic: Indexed<number>;
 export {};
+//// [mlttExtendedTypes.d.ts]
+export type ZeroEqualsZero = unknown;
+export type SingletonNat = unknown;
+export type PathInduction = (Motive: (left: unknown) => unknown) => unknown;
+export type PathInductionComputed = (Motive: (left: unknown) => unknown) => unknown;
+export type ClosedJComputation = unknown;
+export type ClosedNatElim = unknown;
+type Indexed<N extends number> = {
+    readonly index: N;
+};
+export type BuildIndexed = (index: unknown) => unknown;
+export declare const buildIndexed: BuildIndexed;
+export declare const valid: Indexed<3>;
+export declare const negative: Indexed<-1>;
+export declare const fractional: Indexed<1.5>;
+export declare const unsafeInteger: Indexed<9007199254740992>;
+export declare const dynamic: Indexed<number>;
+export {};

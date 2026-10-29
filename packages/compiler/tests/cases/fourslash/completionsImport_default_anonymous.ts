@@ -8,7 +8,7 @@
 ////export default 0;
 
 // @Filename: /src/b.ts
-////def/*0*/
+////abc/*0*/
 ////fooB/*1*/
 
 goTo.marker("0");
@@ -40,6 +40,6 @@ verify.applyCodeActionFromCompletion("1", {
     description: `Add import from "./foo-bar"`,
     newFileContent: `import fooBar from "./foo-bar"
 
-def
+abc
 fooB`,
 });

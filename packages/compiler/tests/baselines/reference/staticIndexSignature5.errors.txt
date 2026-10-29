@@ -1,8 +1,10 @@
 staticIndexSignature5.ts(7,5): error TS1071: 'static' modifier cannot appear on an index signature.
+staticIndexSignature5.ts(7,5): error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
 staticIndexSignature5.ts(8,5): error TS1071: 'static' modifier cannot appear on an index signature.
+staticIndexSignature5.ts(8,5): error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
 
 
-==== staticIndexSignature5.ts (2 errors) ====
+==== staticIndexSignature5.ts (4 errors) ====
     class B {
         static readonly [s: string]: number;
         static readonly [s: number]: 42 | 233
@@ -12,9 +14,13 @@ staticIndexSignature5.ts(8,5): error TS1071: 'static' modifier cannot appear on 
         static readonly [s: string]: number;
         ~~~~~~
 !!! error TS1071: 'static' modifier cannot appear on an index signature.
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
         static readonly [s: number]: 42 | 233
         ~~~~~~
 !!! error TS1071: 'static' modifier cannot appear on an index signature.
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+!!! error TS18072: TS++ feature 'staticInterfaceMembers' is not enabled in 'tsppconfig.json'.
     }
     
     type TA = (typeof B)["foo"]
