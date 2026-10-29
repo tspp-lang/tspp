@@ -55601,6 +55601,10 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     if (!isArrowFunction(node)) {
       return false;
     }
+    if (node.tsppOperatorSection) {
+      requireTsppFeature(node, "operatorSections");
+      return false;
+    }
 
     if (node.typeParameters && !(length(node.typeParameters) > 1 || node.typeParameters.hasTrailingComma || node.typeParameters[0].constraint)) {
       if (file && fileExtensionIsOneOf(file.fileName, [Extension.Mts, Extension.Cts])) {

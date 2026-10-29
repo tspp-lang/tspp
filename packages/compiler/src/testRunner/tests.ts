@@ -158,6 +158,7 @@ export * from "./unittests/tspp/interop.js";
 export * from "./unittests/tspp/macros.js";
 export * from "./unittests/tspp/modernSyntax.js";
 export * from "./unittests/tspp/newtypeData.js";
+export * from "./unittests/tspp/operatorSections.js";
 export * from "./unittests/tspp/smtLibrary.js";
 export * from "./unittests/tspp/typeComputation.js";
 export * from "./unittests/tspp/verificationIR.js";

@@ -40,6 +40,14 @@ export const tsppFeatureDefinitions: readonly TsppFeatureDefinition[] = [
     ],
   },
   {
+    name: "operatorSections",
+    dependencies: [],
+    initComments: [
+      "获得：括号内或调用实参中含有自由 _ 的占位符表达式自动脱糖为箭头函数（占位符切片）。",
+      "影响：TS超集=是；透明擦除=否（生成运行时箭头函数）。",
+    ],
+  },
+  {
     name: "staticInterfaceMembers",
     dependencies: [],
     initComments: [

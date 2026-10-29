@@ -2973,6 +2973,8 @@ export interface ArrowFunction extends Expression, FunctionLikeDeclarationBase, 
   readonly equalsGreaterThanToken: EqualsGreaterThanToken;
   readonly body: ConciseBody;
   readonly name: never;
+  /** @internal TS++ placeholder section operator expression */
+  readonly tsppOperatorSection?: boolean;
 }
 
 // The text property of a LiteralExpression stores the interpreted value of the literal in text form. For a StringLiteral,
