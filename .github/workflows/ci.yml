@@ -182,7 +182,12 @@ jobs:
   #       run: git diff --staged --exit-code
 
   compiler-tests:
+    name: compiler-tests (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -196,7 +201,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
       - name: Full compiler test suite
-        run: pnpm --filter ts-plus-plus test
+        run: pnpm --filter ts-plus-plus exec hereby runtests-parallel --light=false --shards=4 --shardId=${{ matrix.shard }}
 
   required:
     runs-on: ubuntu-latest
