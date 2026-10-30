@@ -78,4 +78,43 @@ describe("unittests:: tspp:: operatorSections", () => {
     const output = emitOutput(program, "/src/main.ts");
     assert.notMatch(output, /__p0/);
   });
+
+  it("provides accurate hover info for placeholders without reporting any", () => {
+    const content = "const add1: (x: number) => number = (_ + 1);";
+    const files: Record<string, string> = { "/src/main.ts": content };
+    const ls = ts.createLanguageService({
+      getCompilationSettings: () => ({ noLib: true, strict: true, tsppFeatures: ["operatorSections"] }),
+      getScriptFileNames: () => ["/src/main.ts"],
+      getScriptVersion: () => "1",
+      getScriptSnapshot: f => files[f] ? ts.ScriptSnapshot.fromString(files[f]) : undefined,
+      getCurrentDirectory: () => "/",
+      getDefaultLibFileName: o => ts.getDefaultLibFilePath(o),
+      fileExists: f => !!files[f],
+      readFile: f => files[f],
+    });
+    const holePos = content.indexOf("_");
+    const qi = ls.getQuickInfoAtPosition("/src/main.ts", holePos);
+    assert.isDefined(qi);
+    assert.strictEqual(ts.displayPartsToString(qi.displayParts), "(parameter) _: number");
+  });
+
+  it("does not crash codefix / codeAction requests on operator sections", () => {
+    const content = "const getName: (obj: { name: string }) => string = (_.name);";
+    const files: Record<string, string> = { "/src/main.ts": content };
+    const ls = ts.createLanguageService({
+      getCompilationSettings: () => ({ noLib: true, strict: true, tsppFeatures: ["operatorSections"] }),
+      getScriptFileNames: () => ["/src/main.ts"],
+      getScriptVersion: () => "1",
+      getScriptSnapshot: f => files[f] ? ts.ScriptSnapshot.fromString(files[f]) : undefined,
+      getCurrentDirectory: () => "/",
+      getDefaultLibFileName: o => ts.getDefaultLibFilePath(o),
+      fileExists: f => !!files[f],
+      readFile: f => files[f],
+    });
+    for (let pos = 0; pos < content.length; pos += 5) {
+      assert.doesNotThrow(() => {
+        ls.getCodeFixesAtPosition("/src/main.ts", pos, pos, [7043, 7044, 7045, 7046], {}, {});
+      });
+    }
+  });
 });

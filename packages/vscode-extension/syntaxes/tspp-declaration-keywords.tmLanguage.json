@@ -1,7 +1,7 @@
 {
   "name": "TS++ Declaration Keyword Isolation",
   "scopeName": "tspp.declaration-keywords",
-  "injectionSelector": "L:source.tspp -comment -string",
+  "injectionSelector": "L:source.tspp -comment -string, L:source.ts -comment -string",
   "patterns": [
     {
       "comment": "Stable declaration keywords must not inherit a surrounding TS++ expression scope.",
@@ -12,6 +12,46 @@
       "comment": "Const is a declaration keyword and intentionally shares the function keyword color.",
       "name": "storage.type.function.ts keyword.declaration.const.tspp",
       "match": "\\bconst\\b"
+    },
+    {
+      "comment": "Interface declaration keyword",
+      "name": "storage.type.interface.ts",
+      "match": "\\binterface\\b"
+    },
+    {
+      "comment": "Function declaration keyword",
+      "name": "storage.type.function.ts",
+      "match": "\\bfunction\\b"
+    },
+    {
+      "comment": "Type alias declaration keyword",
+      "name": "storage.type.type.ts",
+      "match": "\\btype\\b"
+    },
+    {
+      "comment": "Class declaration keyword",
+      "name": "storage.type.class.ts",
+      "match": "\\bclass\\b"
+    },
+    {
+      "comment": "Enum declaration keyword",
+      "name": "storage.type.enum.ts",
+      "match": "\\benum\\b"
+    },
+    {
+      "comment": "Variable declaration keywords",
+      "name": "storage.type.ts",
+      "match": "\\b(?:let|var)\\b"
+    },
+    {
+      "comment": "Declaration modifier",
+      "name": "storage.modifier.ts",
+      "match": "\\bdeclare\\b"
+    },
+    {
+      "comment": "Import keyword",
+      "name": "keyword.control.import.ts",
+      "match": "\\bimport\\b"
     }
   ]
 }
