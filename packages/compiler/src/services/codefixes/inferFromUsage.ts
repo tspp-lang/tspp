@@ -277,9 +277,13 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
       // falls through
     case Diagnostics.Rest_parameter_0_implicitly_has_an_any_type.code:
       if (markSeen(containingFunction)) {
-        const param = cast(parent, isParameter);
-        annotateParameters(changes, importAdder, sourceFile, param, containingFunction, program, host, cancellationToken);
-        declaration = param;
+        // Use tryCast instead of cast to guard against synthesized operator
+        // section nodes where parent is not a ParameterDeclaration.
+        const param = tryCast(parent, isParameter);
+        if (param) {
+          annotateParameters(changes, importAdder, sourceFile, param, containingFunction, program, host, cancellationToken);
+          declaration = param;
+        }
       }
       break;
 

@@ -7160,11 +7160,18 @@ namespace Parser {
       const hole = holes[i];
       const paramNameText = `__p${i}`;
       const paramIdentifier = factoryCreateIdentifier(paramNameText, /*originalKeywordKind*/ undefined);
-      (paramIdentifier as any).pos = -1;
-      (paramIdentifier as any).end = -1;
+      // Give paramIdentifier and paramDecl a zero-length valid position so the
+      // language service's getChildren() / addSyntheticNodes() does not call
+      // scanner.resetTokenState(-1) and crash.
+      (paramIdentifier as any).pos = pos;
+      (paramIdentifier as any).end = pos;
+      // Mark Synthesized so emitter calls idText() rather than reading zero-length source slice.
+      (paramIdentifier as any).flags |= NodeFlags.Synthesized;
       (hole as any).escapedText = paramIdentifier.escapedText;
-      (hole as any).pos = -1;
-      (hole as any).end = -1;
+      // Keep hole's original source pos/end so the language service can locate
+      // it for hover. Mark it Synthesized so the emitter uses idText() instead
+      // of reading source text (which would emit "_" rather than "__p0").
+      (hole as any).flags |= NodeFlags.Synthesized;
       const paramDecl = factory.createParameterDeclaration(
         /*modifiers*/ undefined,
         /*dotDotDotToken*/ undefined,
@@ -7173,8 +7180,8 @@ namespace Parser {
         /*type*/ undefined,
         /*initializer*/ undefined,
       );
-      (paramDecl as any).pos = -1;
-      (paramDecl as any).end = -1;
+      (paramDecl as any).pos = pos;
+      (paramDecl as any).end = pos;
       parameters.push(paramDecl);
     }
     const paramList = createNodeArray(parameters, pos, pos);

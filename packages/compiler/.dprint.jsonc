@@ -41,7 +41,7 @@
     "**/*.tspp",
     "**/*-lock.json",
     "coverage/**",
-    "lib/**",
+    "**/lib/**",
     "built/**",
     "tests/**",
     "internal/**",

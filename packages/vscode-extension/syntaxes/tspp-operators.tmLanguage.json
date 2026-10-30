@@ -1,17 +1,50 @@
 {
-  "name": "TS++ Operator Isolation",
-  "scopeName": "tspp.operators",
-  "injectionSelector": "L:source.tspp -comment -string, L:source.ts -comment -string",
-  "patterns": [
-    {
-      "comment": "TS++ arrows are isolated from angle-bracket pair colorization.",
-      "name": "meta.embedded.inline.tspp-operator storage.type.function.arrow.ts",
-      "match": "=>>|=>|->|<-"
-    },
-    {
-      "comment": "Only unambiguous multi-character comparisons are isolated; bare angle brackets remain contextual.",
-      "name": "meta.embedded.inline.tspp-operator keyword.operator.comparison.ts",
-      "match": "===|!==|==|!=|<=|>="
-    }
-  ]
+	"name": "TS++ Operator Isolation",
+	"scopeName": "tspp.operators",
+	"injectionSelector": "L:source.tspp -comment -string, L:source.ts -comment -string",
+	"patterns": [
+		{
+			"comment": "Operator section with placeholder _ : capture the entire (_ op expr) / (expr op _) / (_ op _) so that bare < and > inside cannot be mistaken for generic angle brackets by outer grammars.",
+			"name": "meta.operator-section.tspp",
+			"begin": "(?<=\\()(?=[^)]*\\b_\\b[^)]*(?:[+\\-*/%&|^<>=!?]{1,3}|>>>|<<|>>)[^)]*\\))|(?<=\\()(?=[^)]*(?:[+\\-*/%&|^<>=!?]{1,3}|>>>|<<|>>)[^)]*\\b_\\b[^)]*\\))|(?<=\\()(?=[^)]*\\b_\\b[^)]*\\))",
+			"end": "(?=\\))",
+			"patterns": [
+				{
+					"comment": "Placeholder identifier _",
+					"name": "variable.language.placeholder.tspp",
+					"match": "(?<![._$[:alnum:]])_(?![_$[:alnum:]])"
+				},
+				{
+					"comment": "Comparison operators inside sections — isolated so < and > cannot start a generic scope",
+					"name": "keyword.operator.comparison.tspp",
+					"match": "===|!==|==|!=|<=|>=|<(?!<)|>(?!>)"
+				},
+				{
+					"comment": "Arithmetic and bitwise operators inside sections",
+					"name": "keyword.operator.arithmetic.tspp",
+					"match": "\\*\\*|>>>|<<|>>|[+\\-*/%&|^]"
+				},
+				{
+					"comment": "Logical / nullish operators inside sections",
+					"name": "keyword.operator.logical.tspp",
+					"match": "&&|\\|\\||\\?\\?"
+				}
+			]
+		},
+		{
+			"comment": "Standalone placeholder _ outside of parenthesised sections (e.g. direct argument)",
+			"name": "variable.language.placeholder.tspp",
+			"match": "(?<![._$[:alnum:]])_(?![_$[:alnum:]])"
+		},
+		{
+			"comment": "TS++ fat arrows are isolated from angle-bracket pair colorization.",
+			"name": "meta.embedded.inline.tspp-operator storage.type.function.arrow.ts",
+			"match": "=>>|=>|-><-"
+		},
+		{
+			"comment": "Only unambiguous multi-character comparisons are isolated; bare angle brackets remain contextual.",
+			"name": "meta.embedded.inline.tspp-operator keyword.operator.comparison.ts",
+			"match": "===|!==|==|!=|<=|>="
+		}
+	]
 }

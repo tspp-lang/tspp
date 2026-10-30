@@ -5919,7 +5919,9 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
       return getTextOfNode(node.textSourceNode, includeTrivia);
     }
     const sourceFile = currentSourceFile; // const needed for control flow
-    const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node);
+    // Also exclude nodes with NodeFlags.Synthesized (e.g. operator section hole identifiers
+    // that keep their original source pos but must emit via idText, not source text).
+    const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node) && !(node.flags & NodeFlags.Synthesized);
     if (isMemberName(node)) {
       if (!canUseSourceFile || getSourceFileOfNode(node) !== getOriginalNode(sourceFile)) {
         return idText(node);
