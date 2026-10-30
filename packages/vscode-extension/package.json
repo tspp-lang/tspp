@@ -70,8 +70,7 @@
         "scopeName": "tspp.declaration-keywords",
         "path": "./syntaxes/tspp-declaration-keywords.tmLanguage.json",
         "injectTo": [
-          "source.tspp",
-          "source.ts"
+          "source.tspp"
         ]
       },
       {

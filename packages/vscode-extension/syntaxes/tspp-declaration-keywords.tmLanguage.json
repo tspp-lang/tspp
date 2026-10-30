@@ -1,7 +1,7 @@
 {
   "name": "TS++ Declaration Keyword Isolation",
   "scopeName": "tspp.declaration-keywords",
-  "injectionSelector": "L:source.tspp -comment -string, L:source.ts -comment -string",
+  "injectionSelector": "L:source.tspp -comment -string",
   "patterns": [
     {
       "comment": "Stable declaration keywords must not inherit a surrounding TS++ expression scope.",
