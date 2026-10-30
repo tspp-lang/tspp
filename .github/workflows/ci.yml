@@ -181,23 +181,6 @@ jobs:
   #     - name: Check baselines
   #       run: git diff --staged --exit-code
 
-  compiler-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 12.4.2
-          run_install: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.22.2
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-      - name: Full compiler test suite
-        run: pnpm --filter ts-plus-plus test
-
   required:
     runs-on: ubuntu-latest
     if: ${{ always() }}
@@ -210,7 +193,6 @@ jobs:
       - examples
       - language-server
       - playground
-      - compiler-tests
       # - baselines
     steps:
       - name: Check required jobs

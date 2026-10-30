@@ -121,7 +121,7 @@
     "knip": "hereby knip",
     "format": "dprint fmt",
     "format:check": "dprint check",
-    "test:tspp": "hereby runtests --tests \"unittests:: (MLTT|tspp::)\" --lint=false"
+    "test:tspp": "hereby runtests --tests \"unittests:: (MLTT|tspp::)|staticMembersInInterfaces\" --lint=false"
   },
   "browser": {
     "fs": false,
