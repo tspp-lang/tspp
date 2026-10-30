@@ -1,0 +1,8 @@
+packages:
+  - packages/*
+
+allowBuilds:
+  dprint: true
+  esbuild: true
+
+nodeLinker: hoisted

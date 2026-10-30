@@ -1,6 +1,9 @@
 import { resolve } from "path";
 
-import { findUpRoot } from "./findUpDir.mjs";
+import {
+    findUpFile,
+    findUpRoot,
+} from "./findUpDir.mjs";
 import cmdLineOptions from "./options.mjs";
 import {
     Debouncer,
@@ -37,7 +40,7 @@ const tscPath = resolve(
     findUpRoot(),
     cmdLineOptions.lkg ? "./lib/tsc.js" :
         cmdLineOptions.built ? "./built/local/tsc.js" :
-        "./node_modules/typescript/lib/tsc.js",
+        findUpFile("node_modules/typescript/lib/tsc.js"),
 );
 
 const execTsc = (/** @type {string[]} */ ...args) => exec(process.execPath, [tscPath, "-b", ...args], { hidePrompt: true });

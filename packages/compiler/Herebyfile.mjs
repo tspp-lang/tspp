@@ -10,6 +10,7 @@ import { task } from "hereby";
 import path from "path";
 import pc from "picocolors";
 
+import { findUpFile } from "./scripts/build/findUpDir.mjs";
 import { localizationDirectories } from "./scripts/build/localization.mjs";
 import cmdLineOptions from "./scripts/build/options.mjs";
 import {
@@ -562,7 +563,7 @@ export const lint = task({
     run: async () => {
         const folder = ".";
         const args = [
-            "node_modules/eslint/bin/eslint",
+            findUpFile("node_modules/eslint/bin/eslint.js"),
             "--cache",
             "--cache-location",
             `${folder}/.eslintcache`,
@@ -585,20 +586,20 @@ export const lint = task({
 export const format = task({
     name: "format",
     description: "Formats the codebase.",
-    run: () => exec(process.execPath, ["node_modules/dprint/bin.js", "fmt"]),
+    run: () => exec(process.execPath, [findUpFile("node_modules/dprint/bin.js"), "fmt"]),
 });
 
 export const checkFormat = task({
     name: "check-format",
     description: "Checks that the codebase is formatted.",
-    run: () => exec(process.execPath, ["node_modules/dprint/bin.js", "check"], { ignoreStdout: true }),
+    run: () => exec(process.execPath, [findUpFile("node_modules/dprint/bin.js"), "check"], { ignoreStdout: true }),
 });
 
 export const knip = task({
     name: "knip",
     description: "Runs knip.",
     dependencies: [generateDiagnostics],
-    run: () => exec(process.execPath, ["node_modules/knip/bin/knip.js", ...(cmdLineOptions.fix ? ["--fix"] : [])]),
+    run: () => exec(process.execPath, [findUpFile("node_modules/knip/bin/knip.js"), ...(cmdLineOptions.fix ? ["--fix"] : [])]),
 });
 
 const { main: typingsInstaller, watch: watchTypingsInstaller } = entrypointBuildTask({
