@@ -1,0 +1,580 @@
+/*
+ * Copyright (C) 2018 TypeFox and others.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+ */
+
+import * as lsp from 'vscode-languageserver';
+import type { LspDocument } from './document.js';
+import { toTextEdit } from './protocol-translation.js';
+import { Commands } from './commands.js';
+import type { WorkspaceConfigurationCompletionOptions } from './features/fileConfigurationManager.js';
+import { CommandTypes, KindModifiers, ScriptElementKind, type SupportedFeatures, SymbolDisplayPartKind, toSymbolDisplayPartKind } from './ts-protocol.js';
+import type { ts } from './ts-protocol.js';
+import type { ITypeScriptServiceClient } from './typescriptService.js';
+import * as Previewer from './utils/previewer.js';
+import type { IFilePathToResourceConverter } from './utils/previewer.js';
+import SnippetString from './utils/SnippetString.js';
+import { Range, Position } from './utils/typeConverters.js';
+
+interface ParameterListParts {
+    readonly parts: ReadonlyArray<ts.server.protocol.SymbolDisplayPart>;
+    readonly hasOptionalParameters: boolean;
+}
+
+export interface CompletionContext {
+    readonly enableCallCompletions: boolean;
+    readonly isMemberCompletion: boolean;
+    readonly isNewIdentifierLocation: boolean;
+    readonly dotAccessorContext?: {
+        range: lsp.Range;
+        text: string;
+    };
+    readonly line: string;
+    readonly optionalReplacementRange: lsp.Range | undefined;
+}
+
+export class CompletionDataCache {
+    private store = new Map<number, ts.server.protocol.CompletionDetailsRequestArgs>;
+    private lastCacheId = 0;
+
+    public reset(): void {
+        this.lastCacheId = 0;
+        this.store.clear();
+    }
+
+    public add(data: ts.server.protocol.CompletionDetailsRequestArgs): number {
+        const cacheId = ++this.lastCacheId;
+        this.store.set(cacheId, data);
+        return cacheId;
+    }
+
+    public get(cacheId: number): ts.server.protocol.CompletionDetailsRequestArgs | undefined {
+        return this.store.get(cacheId);
+    }
+}
+
+export function asCompletionItems(
+    entries: readonly ts.server.protocol.CompletionEntry[],
+    completionDataCache: CompletionDataCache,
+    file: string,
+    position: lsp.Position,
+    document: LspDocument,
+    filePathConverter: IFilePathToResourceConverter,
+    options: WorkspaceConfigurationCompletionOptions,
+    features: SupportedFeatures,
+    completionContext: CompletionContext,
+    defaultCommitCharacters: readonly string[] | undefined,
+): lsp.CompletionItem[] {
+    const completions: lsp.CompletionItem[] = [];
+    for (const entry of entries) {
+        const completion = asCompletionItem(entry, completionDataCache, file, position, document, filePathConverter, options, features, completionContext, defaultCommitCharacters);
+        if (!completion) {
+            continue;
+        }
+        completions.push(completion);
+    }
+    return completions;
+}
+
+function asCompletionItem(
+    entry: ts.server.protocol.CompletionEntry,
+    completionDataCache: CompletionDataCache,
+    file: string,
+    position: lsp.Position,
+    document: LspDocument,
+    filePathConverter: IFilePathToResourceConverter,
+    options: WorkspaceConfigurationCompletionOptions,
+    features: SupportedFeatures,
+    completionContext: CompletionContext,
+    defaultCommitCharacters: readonly string[] | undefined,
+): lsp.CompletionItem | null {
+    const cacheId = completionDataCache.add({
+        file,
+        line: position.line + 1,
+        offset: position.character + 1,
+        entryNames: [
+            entry.source || entry.data ? {
+                name: entry.name,
+                source: entry.source,
+                data: entry.data,
+            } : entry.name,
+        ],
+    });
+
+    const item: lsp.CompletionItem = {
+        label: entry.name || (entry.insertText ?? ''),
+        kind: asCompletionItemKind(entry.kind),
+        sortText: entry.sortText,
+        preselect: entry.isRecommended,
+        data: {
+            cacheId,
+        },
+    };
+
+    if (entry.source && entry.hasAction) {
+        // De-prioritze auto-imports
+        // https://github.com/Microsoft/vscode/issues/40311
+        item.sortText = `\uffff${entry.sortText}`;
+    }
+
+    if (features.completionCommitCharactersSupport) {
+        item.commitCharacters = asCommitCharacters(completionContext, entry, defaultCommitCharacters);
+    }
+
+    if (features.completionLabelDetails) {
+        item.labelDetails = entry.labelDetails;
+    }
+
+    const { isSnippet, replacementSpan, sourceDisplay } = entry;
+    if (isSnippet && !features.completionSnippets) {
+        return null;
+    }
+    if (features.completionSnippets && (isSnippet || canCreateSnippetOfFunctionCall(item.kind, options))) {
+        // Import statements, Functions and Methods can result in a snippet completion when resolved.
+        item.insertTextFormat = lsp.InsertTextFormat.Snippet;
+    }
+    if (sourceDisplay) {
+        item.detail = Previewer.plainWithLinks(sourceDisplay, filePathConverter);
+    }
+
+    const { line, optionalReplacementRange, isMemberCompletion, dotAccessorContext } = completionContext;
+    let range = getRangeFromReplacementSpan(replacementSpan, optionalReplacementRange, position, document, features);
+    let { insertText } = entry;
+    if (!features.completionDisableFilterText) {
+        item.filterText = getFilterText(entry, optionalReplacementRange, line, insertText);
+    }
+
+    if (isMemberCompletion && dotAccessorContext && !entry.isSnippet) {
+        const newInsertText = dotAccessorContext.text + (insertText || item.label);
+        if (!features.completionDisableFilterText) {
+            item.filterText = newInsertText;
+        }
+        if (!range) {
+            if (features.completionInsertReplaceSupport && optionalReplacementRange) {
+                range = {
+                    insert: dotAccessorContext.range,
+                    replace: Range.union(dotAccessorContext.range, optionalReplacementRange),
+                };
+            } else {
+                range = { replace: dotAccessorContext.range };
+            }
+            insertText = newInsertText;
+        }
+    }
+
+    if (entry.kindModifiers) {
+        const kindModifiers = new Set(entry.kindModifiers.split(/,|\s+/g));
+        if (kindModifiers.has(KindModifiers.optional)) {
+            if (!insertText) {
+                insertText = item.label;
+            }
+            if (!item.filterText) {
+                item.filterText = item.label;
+            }
+            item.label += '?';
+        }
+
+        if (kindModifiers.has(KindModifiers.deprecated)) {
+            item.tags = [lsp.CompletionItemTag.Deprecated];
+        }
+
+        if (kindModifiers.has(KindModifiers.color)) {
+            item.kind = lsp.CompletionItemKind.Color;
+        }
+
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+        if (entry.kind as ScriptElementKind === ScriptElementKind.scriptElement as ScriptElementKind) {
+            for (const extModifier of KindModifiers.fileExtensionKindModifiers) {
+                if (kindModifiers.has(extModifier)) {
+                    if (entry.name.toLowerCase().endsWith(extModifier)) {
+                        item.detail = entry.name;
+                    } else {
+                        item.detail = entry.name + extModifier;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    if (range) {
+        item.textEdit = range.insert
+            ? lsp.InsertReplaceEdit.create(insertText || item.label, range.insert, range.replace)
+            : lsp.TextEdit.replace(range.replace, insertText || item.label);
+    } else {
+        item.insertText = insertText;
+    }
+
+    return item;
+}
+
+function getRangeFromReplacementSpan(
+    replacementSpan: ts.server.protocol.TextSpan | undefined,
+    optionalReplacementRange: lsp.Range | undefined,
+    position: lsp.Position,
+    document: LspDocument,
+    features: SupportedFeatures,
+): { insert?: lsp.Range; replace: lsp.Range; } | undefined {
+    if (replacementSpan) {
+        // If TS provides an explicit replacement span with an entry, we should use it and not provide an insert.
+        return {
+            replace: ensureRangeIsOnSingleLine(Range.fromTextSpan(replacementSpan), document),
+        };
+    }
+    if (features.completionInsertReplaceSupport && optionalReplacementRange) {
+        const range = ensureRangeIsOnSingleLine(optionalReplacementRange, document);
+        return {
+            insert: lsp.Range.create(range.start, position),
+            replace: range,
+        };
+    }
+}
+
+function getFilterText(entry: ts.server.protocol.CompletionEntry, wordRange: lsp.Range | undefined, line: string, insertText: string | undefined): string | undefined {
+    // Handle private field completions
+    if (entry.name.startsWith('#')) {
+        const wordStart = wordRange ? line.charAt(wordRange.start.character) : undefined;
+        if (insertText) {
+            if (insertText.startsWith('this.#')) {
+                return wordStart === '#' ? insertText : insertText.replace(/&this\.#/, '');
+            } else {
+                return wordStart;
+            }
+        } else {
+            return wordStart === '#' ? undefined : entry.name.replace(/^#/, '');
+        }
+    }
+
+    // For `this.` completions, generally don't set the filter text since we don't want them to be overly prioritized. #74164
+    if (insertText?.startsWith('this.')) {
+        return undefined;
+    }
+
+    // Handle the case:
+    // ```
+    // const xyz = { 'ab c': 1 };
+    // xyz.ab|
+    // ```
+    // In which case we want to insert a bracket accessor but should use `.abc` as the filter text instead of
+    // the bracketed insert text.
+    if (insertText?.startsWith('[')) {
+        return insertText.replace(/^\[['"](.+)[['"]\]$/, '.$1');
+    }
+
+    // In all other cases, fallback to using the insertText
+    return insertText;
+}
+
+function ensureRangeIsOnSingleLine(range: lsp.Range, document: LspDocument): lsp.Range {
+    if (range.start.line !== range.end.line) {
+        return lsp.Range.create(range.start, document.getLineEnd(range.start.line));
+    }
+    return range;
+}
+
+function asCompletionItemKind(kind: ScriptElementKind): lsp.CompletionItemKind {
+    switch (kind) {
+        case ScriptElementKind.primitiveType:
+        case ScriptElementKind.keyword:
+            return lsp.CompletionItemKind.Keyword;
+        case ScriptElementKind.constElement:
+        case ScriptElementKind.letElement:
+        case ScriptElementKind.variableElement:
+        case ScriptElementKind.localVariableElement:
+        case ScriptElementKind.alias:
+        case ScriptElementKind.parameterElement:
+            return lsp.CompletionItemKind.Variable;
+        case ScriptElementKind.memberVariableElement:
+        case ScriptElementKind.memberGetAccessorElement:
+        case ScriptElementKind.memberSetAccessorElement:
+            return lsp.CompletionItemKind.Field;
+        case ScriptElementKind.functionElement:
+        case ScriptElementKind.localFunctionElement:
+            return lsp.CompletionItemKind.Function;
+        case ScriptElementKind.memberFunctionElement:
+        case ScriptElementKind.constructSignatureElement:
+        case ScriptElementKind.callSignatureElement:
+        case ScriptElementKind.indexSignatureElement:
+            return lsp.CompletionItemKind.Method;
+        case ScriptElementKind.enumElement:
+            return lsp.CompletionItemKind.Enum;
+        case ScriptElementKind.enumMemberElement:
+            return lsp.CompletionItemKind.EnumMember;
+        case ScriptElementKind.moduleElement:
+        case ScriptElementKind.externalModuleName:
+            return lsp.CompletionItemKind.Module;
+        case ScriptElementKind.classElement:
+        case ScriptElementKind.typeElement:
+            return lsp.CompletionItemKind.Class;
+        case ScriptElementKind.interfaceElement:
+            return lsp.CompletionItemKind.Interface;
+        case ScriptElementKind.warning:
+            return lsp.CompletionItemKind.Text;
+        case ScriptElementKind.scriptElement:
+            return lsp.CompletionItemKind.File;
+        case ScriptElementKind.directory:
+            return lsp.CompletionItemKind.Folder;
+        case ScriptElementKind.string:
+            return lsp.CompletionItemKind.Constant;
+    }
+    return lsp.CompletionItemKind.Property;
+}
+
+function asCommitCharacters(
+    context: CompletionContext,
+    entry: ts.server.protocol.CompletionEntry,
+    defaultCommitCharacters: readonly string[] | undefined,
+): string[] | undefined {
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+    const kind = entry.kind as ScriptElementKind;
+    let commitCharacters = entry.commitCharacters ?? (defaultCommitCharacters ? Array.from(defaultCommitCharacters) : undefined);
+    if (commitCharacters) {
+        if (context.enableCallCompletions
+            && !context.isNewIdentifierLocation
+            && kind !== ScriptElementKind.warning
+            && kind !== ScriptElementKind.string) {
+            commitCharacters.push('(');
+        }
+        return commitCharacters;
+    }
+
+    if (kind === ScriptElementKind.warning || kind === ScriptElementKind.string) { // Ambient JS word based suggestion, strings
+        return undefined;
+    }
+
+    commitCharacters = ['.', ',', ';'];
+    if (context.enableCallCompletions) {
+        commitCharacters.push('(');
+    }
+
+    return commitCharacters;
+}
+
+export async function asResolvedCompletionItem(
+    item: lsp.CompletionItem,
+    details: ts.server.protocol.CompletionEntryDetails,
+    document: LspDocument,
+    client: ITypeScriptServiceClient,
+    options: WorkspaceConfigurationCompletionOptions,
+    features: SupportedFeatures,
+): Promise<lsp.CompletionItem> {
+    item.detail = asDetail(details, client);
+    const { documentation, tags } = details;
+    item.documentation = Previewer.markdownDocumentation(documentation, tags, client);
+
+    if (details.codeActions?.length) {
+        const { additionalTextEdits, command } = getCodeActions(details.codeActions, document.filepath, client);
+        item.additionalTextEdits = additionalTextEdits;
+        item.command = command;
+    }
+
+    if (document && features.completionSnippets && canCreateSnippetOfFunctionCall(item.kind, options)) {
+        const { line, offset } = item.data as ts.server.protocol.Location;
+        const position = Position.fromLocation({ line, offset });
+        const shouldCompleteFunction = await isValidFunctionCompletionContext(position, client, document);
+        if (shouldCompleteFunction) {
+            createSnippetOfFunctionCall(item, details);
+        }
+    }
+
+    return item;
+}
+
+async function isValidFunctionCompletionContext(position: lsp.Position, client: ITypeScriptServiceClient, document: LspDocument): Promise<boolean> {
+    // Workaround for https://github.com/Microsoft/TypeScript/issues/12677
+    // Don't complete function calls inside of destructive assigments or imports
+    try {
+        const args: ts.server.protocol.FileLocationRequestArgs = Position.toFileLocationRequestArgs(document.filepath, position);
+        const response = await client.execute(CommandTypes.Quickinfo, args);
+        if (response.type === 'response' && response.body) {
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion
+            switch (response.body.kind as ScriptElementKind) {
+                case ScriptElementKind.variableElement:
+                case ScriptElementKind.letElement:
+                case ScriptElementKind.constElement:
+                case ScriptElementKind.alias:
+                    return false;
+            }
+        }
+    } catch {
+        // Noop
+    }
+
+    // Don't complete function call if there is already something that looks like a function call
+    // https://github.com/microsoft/vscode/issues/18131
+    const after = document.getLine(position.line).slice(position.character);
+    return after.match(/^[a-z_$0-9]*\s*\(/gi) === null;
+}
+
+function canCreateSnippetOfFunctionCall(kind: lsp.CompletionItemKind | undefined, options: WorkspaceConfigurationCompletionOptions): boolean {
+    return options.completeFunctionCalls === true && (kind === lsp.CompletionItemKind.Function || kind === lsp.CompletionItemKind.Method);
+}
+
+function createSnippetOfFunctionCall(item: lsp.CompletionItem, detail: ts.server.protocol.CompletionEntryDetails): void {
+    const { displayParts } = detail;
+    const parameterListParts = getParameterListParts(displayParts);
+    const snippet = new SnippetString();
+    snippet.appendText(`${item.insertText || item.textEdit?.newText || item.label}(`);
+    appendJoinedPlaceholders(snippet, parameterListParts.parts, ', ');
+    if (parameterListParts.hasOptionalParameters) {
+        snippet.appendTabstop();
+    }
+    snippet.appendText(')');
+    snippet.appendTabstop(0);
+    item.insertText = snippet.value;
+    item.insertTextFormat = lsp.InsertTextFormat.Snippet;
+    if (item.textEdit) {
+        item.textEdit.newText = snippet.value;
+    }
+}
+
+function getParameterListParts(displayParts: ReadonlyArray<ts.server.protocol.SymbolDisplayPart>): ParameterListParts {
+    const parts: ts.server.protocol.SymbolDisplayPart[] = [];
+    let isInMethod = false;
+    let hasOptionalParameters = false;
+    let parenCount = 0;
+    let braceCount = 0;
+
+    outer: for (let i = 0; i < displayParts.length; ++i) {
+        const part = displayParts[i];
+        switch (toSymbolDisplayPartKind(part.kind)) {
+            case SymbolDisplayPartKind.methodName:
+            case SymbolDisplayPartKind.functionName:
+            case SymbolDisplayPartKind.text:
+            case SymbolDisplayPartKind.propertyName:
+                if (parenCount === 0 && braceCount === 0) {
+                    isInMethod = true;
+                }
+                break;
+
+            case SymbolDisplayPartKind.parameterName:
+                if (parenCount === 1 && braceCount === 0 && isInMethod) {
+                    // Only take top level paren names
+                    const next = displayParts[i + 1];
+                    // Skip optional parameters
+                    const nameIsFollowedByOptionalIndicator = next && next.text === '?';
+                    // Skip this parameter
+                    const nameIsThis = part.text === 'this';
+                    if (!nameIsFollowedByOptionalIndicator && !nameIsThis) {
+                        parts.push(part);
+                    }
+                    hasOptionalParameters = hasOptionalParameters || nameIsFollowedByOptionalIndicator;
+                }
+                break;
+
+            case SymbolDisplayPartKind.punctuation:
+                if (part.text === '(') {
+                    ++parenCount;
+                } else if (part.text === ')') {
+                    --parenCount;
+                    if (parenCount <= 0 && isInMethod) {
+                        break outer;
+                    }
+                } else if (part.text === '...' && parenCount === 1) {
+                    // Found rest parmeter. Do not fill in any further arguments
+                    hasOptionalParameters = true;
+                    break outer;
+                } else if (part.text === '{') {
+                    ++braceCount;
+                } else if (part.text === '}') {
+                    --braceCount;
+                }
+                break;
+        }
+    }
+    return { hasOptionalParameters, parts };
+}
+
+function appendJoinedPlaceholders(snippet: SnippetString, parts: ReadonlyArray<ts.server.protocol.SymbolDisplayPart>, joiner: string): void {
+    for (let i = 0; i < parts.length; ++i) {
+        const paramterPart = parts[i];
+        snippet.appendPlaceholder(paramterPart.text);
+        if (i !== parts.length - 1) {
+            snippet.appendText(joiner);
+        }
+    }
+}
+
+function getCodeActions(
+    codeActions: ts.server.protocol.CodeAction[],
+    filepath: string,
+    client: ITypeScriptServiceClient,
+): {
+    additionalTextEdits: lsp.TextEdit[] | undefined;
+    command: lsp.Command | undefined;
+} {
+    // Try to extract out the additionalTextEdits for the current file.
+    const additionalTextEdits: lsp.TextEdit[] = [];
+    let hasRemainingCommandsOrEdits = false;
+    for (const tsAction of codeActions) {
+        if (tsAction.commands) {
+            hasRemainingCommandsOrEdits = true;
+        }
+
+        // Apply all edits in the current file using `additionalTextEdits`
+        if (tsAction.changes) {
+            for (const change of tsAction.changes) {
+                const tsFileName = client.toResource(change.fileName).fsPath;
+                if (tsFileName === filepath) {
+                    additionalTextEdits.push(...change.textChanges.map(toTextEdit));
+                } else {
+                    hasRemainingCommandsOrEdits = true;
+                }
+            }
+        }
+    }
+
+    let command: lsp.Command | undefined = undefined;
+    if (hasRemainingCommandsOrEdits) {
+        // Create command that applies all edits not in the current file.
+        command = {
+            title: '',
+            command: Commands.APPLY_COMPLETION_CODE_ACTION,
+            arguments: [filepath, codeActions.map(codeAction => ({
+                commands: codeAction.commands,
+                description: codeAction.description,
+                changes: codeAction.changes.filter(x => x.fileName !== filepath),
+            }))],
+        };
+    }
+
+    return {
+        command,
+        additionalTextEdits: additionalTextEdits.length ? additionalTextEdits : undefined,
+    };
+}
+
+function asDetail(
+    { displayParts, sourceDisplay, source: deprecatedSource }: ts.server.protocol.CompletionEntryDetails,
+    filePathConverter: IFilePathToResourceConverter,
+): string | undefined {
+    const result: string[] = [];
+    const source = sourceDisplay || deprecatedSource;
+    if (source) {
+        result.push(`Auto import from '${Previewer.plainWithLinks(source, filePathConverter)}'`);
+    }
+    const detail = Previewer.plainWithLinks(displayParts, filePathConverter);
+    if (detail) {
+        result.push(detail);
+    }
+    return result.join('\n');
+}
+
+export function getCompletionTriggerCharacter(character: string | undefined): ts.server.protocol.CompletionsTriggerCharacter | undefined {
+    switch (character) {
+        case '@':
+        case '#':
+        case ' ':
+        case '.':
+        case '"':
+        case '\'':
+        case '`':
+        case '/':
+        case '<':
+            return character;
+        default:
+            return undefined;
+    }
+}

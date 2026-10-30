@@ -1,0 +1,13 @@
+packages:
+  - test-data/jsx
+
+minimumReleaseAgeExclude:
+  - semver@7.8.1
+
+overrides:
+  vscode-jsonrpc: ^9.0.2
+
+blockExoticSubdeps: true
+# Match the 3-day minimum release age enforced by the Renovate preset
+# (security:minimumReleaseAgeNpm). Value is in minutes.
+minimumReleaseAge: 4320

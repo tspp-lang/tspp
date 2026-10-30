@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches:
+    - master
+  pull_request:
+    branches:
+    - master
+
+jobs:
+  tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        node-version: [22.x, 24.x]
+    runs-on: ${{ matrix.os }}
+    env:
+      CI: true
+    name: ${{ matrix.os }} (Node.js ${{ matrix.node-version }})
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - name: Setup node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: pnpm
+      - name: pnpm install
+        run: pnpm install
+      - name: build
+        run: pnpm build
+      - name: Type check
+        run: pnpm typecheck
+      - name: Unittest
+        run: pnpm test
+      - name: Lint
+        if: ${{ matrix.node-version == '24.x' }}
+        run: pnpm lint

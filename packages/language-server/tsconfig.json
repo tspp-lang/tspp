@@ -1,0 +1,27 @@
+{
+    "include": [
+        "src/**/*.*",
+        "*.*",
+    ],
+    "compilerOptions": {
+        "checkJs": true,
+        "declaration": false,
+        "declarationMap": false,
+        "noEmit": true,
+        "esModuleInterop": true,
+        "lib": ["ES2022"],
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "outDir": "lib",
+        "resolveJsonModule": true,
+        "sourceMap": true,
+        "strict": true,
+        "target": "ES2022",
+        "types": [
+            "fs-extra",
+            "node",
+        ]
+    }
+}
