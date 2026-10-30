@@ -1,0 +1,40 @@
+{
+  "name": "@tspp/plugin-sdk",
+  "version": "0.0.1",
+  "description": "Public contracts and host primitives for isolated TSPP compiler plugins.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/plugin-sdk"
+  },
+  "engines": {
+    "node": ">=14.17"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "default": "./dist/host.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "clean": "rimraf dist",
+    "test": "pnpm build && node --test test/*.test.cjs",
+    "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "rimraf": "^6.1.3",
+    "typescript": "5.9.3"
+  }
+}

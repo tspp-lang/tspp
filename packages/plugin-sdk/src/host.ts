@@ -1,0 +1,152 @@
+import {
+    TSPP_PLUGIN_API_VERSION,
+    TSPPPlugin,
+    TSPPPluginContext,
+    TSPPPluginDisposer,
+    TSPPPluginLogger,
+    TSPPPluginManifest,
+} from "./index";
+
+export interface TSPPPluginHostEnvironment {
+    readonly compilerVersion: string;
+    readonly logger: TSPPPluginLogger;
+}
+
+interface PluginRegistration {
+    readonly plugin: TSPPPlugin;
+    readonly disposers: TSPPPluginDisposer[];
+}
+
+type HostState = "collecting" | "active" | "disposed";
+
+export class TSPPPluginHost {
+    private readonly registrations = new Map<string, PluginRegistration>();
+    private readonly activationOrder: PluginRegistration[] = [];
+    private state: HostState = "collecting";
+
+    public constructor(private readonly environment: TSPPPluginHostEnvironment) {}
+
+    public register(plugin: TSPPPlugin): this {
+        if (this.state !== "collecting") {
+            throw new Error("TSPP plugins must be registered before host activation.");
+        }
+
+        const { manifest } = plugin;
+        validateManifest(manifest);
+        if (this.registrations.has(manifest.id)) {
+            throw new Error(`Duplicate TSPP plugin id: ${manifest.id}`);
+        }
+
+        this.registrations.set(manifest.id, { plugin, disposers: [] });
+        return this;
+    }
+
+    public list(): readonly TSPPPluginManifest[] {
+        return Array.from(this.registrations.values(), registration => registration.plugin.manifest);
+    }
+
+    public activateAll(): void {
+        if (this.state !== "collecting") {
+            throw new Error(`Cannot activate a TSPP plugin host in state '${this.state}'.`);
+        }
+        this.state = "active";
+
+        for (const registration of this.registrations.values()) {
+            try {
+                const disposer = registration.plugin.activate(this.createContext(registration));
+                if (disposer) registration.disposers.push(disposer);
+                this.activationOrder.push(registration);
+            }
+            catch (cause) {
+                try {
+                    disposeRegistration(registration);
+                }
+                catch {
+                    // Preserve the activation failure while still rolling back earlier plugins.
+                }
+                try {
+                    this.dispose();
+                }
+                catch {
+                    // Preserve the activation failure; cleanup is best-effort on this path.
+                }
+                throw new TSPPPluginActivationError(registration.plugin.manifest.id, cause);
+            }
+        }
+    }
+
+    public dispose(): void {
+        if (this.state === "disposed") return;
+        this.state = "disposed";
+
+        let firstError: unknown;
+        for (let index = this.activationOrder.length - 1; index >= 0; index--) {
+            try {
+                disposeRegistration(this.activationOrder[index]);
+            }
+            catch (error) {
+                firstError ??= error;
+            }
+        }
+        this.activationOrder.length = 0;
+        if (firstError !== undefined) throw firstError;
+    }
+
+    private createContext(registration: PluginRegistration): TSPPPluginContext {
+        const pluginId = registration.plugin.manifest.id;
+        return {
+            compilerVersion: this.environment.compilerVersion,
+            pluginId,
+            logger: prefixLogger(this.environment.logger, pluginId),
+            onDispose: disposer => registration.disposers.push(disposer),
+        };
+    }
+}
+
+export class TSPPPluginActivationError extends Error {
+    public readonly cause: unknown;
+
+    public constructor(public readonly pluginId: string, cause: unknown) {
+        super(`Failed to activate TSPP plugin '${pluginId}'.`);
+        this.name = "TSPPPluginActivationError";
+        this.cause = cause;
+    }
+}
+
+function validateManifest(manifest: TSPPPluginManifest): void {
+    if (!manifest.id || manifest.id !== manifest.id.trim()) {
+        throw new Error("A TSPP plugin id must be a non-empty trimmed string.");
+    }
+    if (!manifest.version) {
+        throw new Error(`TSPP plugin '${manifest.id}' must declare a version.`);
+    }
+    if (manifest.apiVersion !== TSPP_PLUGIN_API_VERSION) {
+        throw new Error(
+            `TSPP plugin '${manifest.id}' requires API ${manifest.apiVersion}; host API is ${TSPP_PLUGIN_API_VERSION}.`,
+        );
+    }
+}
+
+function disposeRegistration(registration: PluginRegistration): void {
+    let firstError: unknown;
+    for (let index = registration.disposers.length - 1; index >= 0; index--) {
+        try {
+            registration.disposers[index]();
+        }
+        catch (error) {
+            firstError ??= error;
+        }
+    }
+    registration.disposers.length = 0;
+    if (firstError !== undefined) throw firstError;
+}
+
+function prefixLogger(logger: TSPPPluginLogger, pluginId: string): TSPPPluginLogger {
+    const prefix = `[${pluginId}] `;
+    return {
+        debug: message => logger.debug(prefix + message),
+        info: message => logger.info(prefix + message),
+        warn: message => logger.warn(prefix + message),
+        error: message => logger.error(prefix + message),
+    };
+}

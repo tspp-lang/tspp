@@ -21,4 +21,5 @@ if (ts.sys.setBlocking) {
     ts.sys.setBlocking();
 }
 
+ts.initializeTSPPCompilerPlugins(ts.version);
 ts.executeCommandLine(ts.sys, ts.noop, ts.sys.args);

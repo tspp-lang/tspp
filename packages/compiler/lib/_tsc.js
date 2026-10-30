@@ -2540,6 +2540,33 @@ function tryGetNativePerformanceHooks() {
 }
 var timestamp = nativePerformanceTime ? () => nativePerformanceTime.now() : Date.now;
 
+// src/compiler/plugins/registry.ts
+var import_plugin_sdk = require("@tspp/plugin-sdk");
+var import_host = require("@tspp/plugin-sdk/host");
+var compilerPlugins = [];
+var pluginHost;
+var silentLogger = {
+  debug() {
+  },
+  info() {
+  },
+  warn() {
+  },
+  error() {
+  }
+};
+function initializeTSPPCompilerPlugins(compilerVersion) {
+  if (pluginHost) return;
+  pluginHost = new import_host.TSPPPluginHost({ compilerVersion, logger: silentLogger });
+  for (const plugin of compilerPlugins) {
+    if (plugin.manifest.apiVersion !== import_plugin_sdk.TSPP_PLUGIN_API_VERSION) {
+      throw new Error(`TSPP compiler cannot load plugin '${plugin.manifest.id}' with API ${plugin.manifest.apiVersion}.`);
+    }
+    pluginHost.register(plugin);
+  }
+  pluginHost.activateAll();
+}
+
 // src/compiler/performance.ts
 var perfHooks;
 var performanceImpl;
@@ -134467,5 +134494,6 @@ if (sys.tryEnableSourceMapsForHost && /^development$/i.test(sys.getEnvironmentVa
 if (sys.setBlocking) {
   sys.setBlocking();
 }
+initializeTSPPCompilerPlugins(version);
 executeCommandLine(sys, noop, sys.args);
 //# sourceMappingURL=_tsc.js.map

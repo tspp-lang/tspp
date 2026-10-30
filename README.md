@@ -17,6 +17,8 @@ later commits.
 └─ packages/
    ├─ compiler/          # TS++ compiler, tsserver and compiler test suite
    ├─ language-server/   # LSP adapter around the TSPP server protocol
+   ├─ plugin-sdk/        # Public contracts shared by isolated plugin packages
+   ├─ plugins/           # Future one-package-per-plugin workspace
    └─ vscode-extension/  # VSCode client for the TSPP language server
 ```
 
@@ -42,6 +44,10 @@ The compiler package exposes two commands:
 The separate LSP package exposes `tspp-language-server`, which adapts that
 protocol to LSP. The VSCode extension starts the LSP with the workspace
 `ts-plus-plus` SDK and associates `.tspp` files with the `tspp` language mode.
+
+Compiler extensions use `@tspp/plugin-sdk`. The initial framework deliberately
+contains lifecycle and registration contracts only; compiler hook ports are
+added when a real plugin demonstrates the boundary it needs.
 
 During repository development, build the compiler before invoking its generated
 outputs. The root scripts delegate to the `ts-plus-plus` workspace.

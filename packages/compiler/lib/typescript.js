@@ -1143,6 +1143,7 @@ __export(typescript_exports, {
   indexOfNode: () => indexOfNode,
   indicesOf: () => indicesOf,
   inferredTypesContainingFile: () => inferredTypesContainingFile,
+  initializeTSPPCompilerPlugins: () => initializeTSPPCompilerPlugins,
   injectClassNamedEvaluationHelperBlockIfMissing: () => injectClassNamedEvaluationHelperBlockIfMissing,
   injectClassThisAssignmentIfMissing: () => injectClassThisAssignmentIfMissing,
   insertImports: () => insertImports,
@@ -5127,6 +5128,33 @@ function tryGetNativePerformanceHooks() {
   return nativePerformanceHooks;
 }
 var timestamp = nativePerformanceTime ? () => nativePerformanceTime.now() : Date.now;
+
+// src/compiler/plugins/registry.ts
+var import_plugin_sdk = require("@tspp/plugin-sdk");
+var import_host = require("@tspp/plugin-sdk/host");
+var compilerPlugins = [];
+var pluginHost;
+var silentLogger = {
+  debug() {
+  },
+  info() {
+  },
+  warn() {
+  },
+  error() {
+  }
+};
+function initializeTSPPCompilerPlugins(compilerVersion) {
+  if (pluginHost) return;
+  pluginHost = new import_host.TSPPPluginHost({ compilerVersion, logger: silentLogger });
+  for (const plugin of compilerPlugins) {
+    if (plugin.manifest.apiVersion !== import_plugin_sdk.TSPP_PLUGIN_API_VERSION) {
+      throw new Error(`TSPP compiler cannot load plugin '${plugin.manifest.id}' with API ${plugin.manifest.apiVersion}.`);
+    }
+    pluginHost.register(plugin);
+  }
+  pluginHost.activateAll();
+}
 
 // src/compiler/_namespaces/ts.performance.ts
 var ts_performance_exports = {};
@@ -185101,6 +185129,7 @@ __export(ts_exports2, {
   indexOfNode: () => indexOfNode,
   indicesOf: () => indicesOf,
   inferredTypesContainingFile: () => inferredTypesContainingFile,
+  initializeTSPPCompilerPlugins: () => initializeTSPPCompilerPlugins,
   injectClassNamedEvaluationHelperBlockIfMissing: () => injectClassNamedEvaluationHelperBlockIfMissing,
   injectClassThisAssignmentIfMissing: () => injectClassThisAssignmentIfMissing,
   insertImports: () => insertImports,
@@ -198790,6 +198819,7 @@ if (typeof console !== "undefined") {
     }
   };
 }
+initializeTSPPCompilerPlugins(version);
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   ANONYMOUS,
@@ -199899,6 +199929,7 @@ if (typeof console !== "undefined") {
   indexOfNode,
   indicesOf,
   inferredTypesContainingFile,
+  initializeTSPPCompilerPlugins,
   injectClassNamedEvaluationHelperBlockIfMissing,
   injectClassThisAssignmentIfMissing,
   insertImports,

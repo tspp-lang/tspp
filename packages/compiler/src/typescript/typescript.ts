@@ -1,6 +1,8 @@
 import {
     Debug,
+    initializeTSPPCompilerPlugins,
     LogLevel,
+    version,
 } from "./_namespaces/ts.js";
 
 // enable deprecation logging
@@ -21,5 +23,7 @@ if (typeof console !== "undefined") {
         },
     };
 }
+
+initializeTSPPCompilerPlugins(version);
 
 export * from "./_namespaces/ts.js";

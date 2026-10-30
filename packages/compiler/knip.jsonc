@@ -29,6 +29,8 @@
         "scripts/failed-tests.d.cts"
     ],
     "ignoreDependencies": [
+        // Knip does not attribute workspace subpath imports (`@tspp/plugin-sdk/host`) to the package dependency.
+        "@tspp/plugin-sdk",
         "c8",
         "dprint",
         "eslint",
