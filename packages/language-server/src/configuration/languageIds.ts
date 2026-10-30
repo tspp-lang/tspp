@@ -16,18 +16,20 @@ export const typescriptreact = 'typescriptreact';
 export const javascript = 'javascript';
 export const javascriptreact = 'javascriptreact';
 export const jsxTags = 'jsx-tags';
+export const tspp = 'tspp';
 
 export const jsTsLanguageModes = [
     javascript,
     javascriptreact,
     typescript,
     typescriptreact,
+    tspp,
 ];
 
 export function isSupportedLanguageMode(doc: LspDocument): boolean {
-    return [typescript, typescriptreact, javascript, javascriptreact].includes(doc.languageId);
+    return [typescript, typescriptreact, javascript, javascriptreact, tspp].includes(doc.languageId);
 }
 
 export function isTypeScriptDocument(doc: LspDocument): boolean {
-    return [typescript, typescriptreact].includes(doc.languageId);
+    return [typescript, typescriptreact, tspp].includes(doc.languageId);
 }

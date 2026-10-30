@@ -15,7 +15,9 @@ later commits.
 ```text
 .
 └─ packages/
-   └─ compiler/   # TS++ compiler, language services, build and test suite
+   ├─ compiler/          # TS++ compiler, tsserver and compiler test suite
+   ├─ language-server/   # LSP adapter around the TSPP server protocol
+   └─ vscode-extension/  # VSCode client for the TSPP language server
 ```
 
 ## Development
@@ -35,7 +37,11 @@ pnpm test
 The compiler package exposes two commands:
 
 - `tspp` — the TS++ command-line compiler;
-- `tsppserver` — the TS++ language server process.
+- `tsppserver` — the TSPP compiler service using the upstream tsserver protocol.
+
+The separate LSP package exposes `tspp-language-server`, which adapts that
+protocol to LSP. The VSCode extension starts the LSP with the workspace
+`ts-plus-plus` SDK and associates `.tspp` files with the `tspp` language mode.
 
 During repository development, build the compiler before invoking its generated
 outputs. The root scripts delegate to the `ts-plus-plus` workspace.

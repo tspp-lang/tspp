@@ -1,0 +1,76 @@
+{
+  "name": "tspp-vscode",
+  "displayName": "TS++",
+  "description": "TS++ language support powered by the TSPP language server.",
+  "version": "0.0.1",
+  "publisher": "tspp-lang",
+  "private": true,
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:tspp"
+  ],
+  "main": "./extension.js",
+  "scripts": {
+    "build": "node --check extension.js",
+    "test": "node --check extension.js"
+  },
+  "dependencies": {
+    "ts-plus-plus": "workspace:*",
+    "tspp-language-server": "workspace:*",
+    "vscode-languageclient": "9.0.1"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "tspp",
+        "aliases": [
+          "TS++",
+          "TSPP"
+        ],
+        "extensions": [
+          ".tspp"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "tspp",
+        "scopeName": "source.tspp",
+        "path": "./syntaxes/tspp.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "tspp.restartLanguageServer",
+        "title": "TS++: Restart Language Server"
+      },
+      {
+        "command": "tspp.openLanguageServerLog",
+        "title": "TS++: Open Language Server Log"
+      }
+    ],
+    "configuration": {
+      "title": "TS++",
+      "properties": {
+        "tspp.sdkPath": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "description": "Path to a TSPP SDK root containing lib/tsserver.js, its lib directory, or tsserver.js itself. Relative paths are resolved from the first workspace folder."
+        }
+      }
+    }
+  }
+}

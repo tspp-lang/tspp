@@ -20,6 +20,7 @@ import { ResourceMap } from './utils/resourceMap.js';
 
 function mode2ScriptKind(mode: string): ts.server.protocol.ScriptKindName | undefined {
     switch (mode) {
+        case languageModeIds.tspp: return 'TS';
         case languageModeIds.typescript: return 'TS';
         case languageModeIds.typescriptreact: return 'TSX';
         case languageModeIds.javascript: return 'JS';
@@ -34,6 +35,8 @@ function mode2ScriptKind(mode: string): ts.server.protocol.ScriptKindName | unde
 function getModeFromFileUri(uri: string): string | undefined {
     const extension = extname(uri).toUpperCase();
     switch (extension) {
+        case '.TSPP':
+            return languageModeIds.tspp;
         case '.TS':
             return languageModeIds.typescript;
         case '.TSX':

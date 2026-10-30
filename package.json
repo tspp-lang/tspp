@@ -2,18 +2,26 @@
   "name": "ts-plus-plus-monorepo",
   "private": true,
   "devDependencies": {
-    "ts-plus-plus": "workspace:*"
+    "ts-plus-plus": "workspace:*",
+    "tspp-language-server": "workspace:*"
   },
   "scripts": {
-    "build": "pnpm --filter ts-plus-plus build",
+    "build": "pnpm build:compiler && pnpm build:language-server && pnpm build:vscode && pnpm build:tests",
     "build:compiler": "pnpm --filter ts-plus-plus build:compiler",
+    "build:language-server": "pnpm --filter tspp-language-server build",
     "build:tests": "pnpm --filter ts-plus-plus build:tests",
-    "test": "pnpm --filter ts-plus-plus test",
+    "build:vscode": "pnpm --filter tspp-vscode build",
+    "test": "pnpm test:compiler && pnpm test:language-server && pnpm test:vscode",
+    "test:compiler": "pnpm --filter ts-plus-plus test",
     "test:eslint-rules": "pnpm --filter ts-plus-plus test:eslint-rules",
-    "lint": "pnpm --filter ts-plus-plus lint",
+    "test:language-server": "pnpm --filter tspp-language-server test:commit",
+    "test:vscode": "pnpm --filter tspp-vscode test",
+    "lint": "pnpm lint:compiler && pnpm lint:language-server",
+    "lint:compiler": "pnpm --filter ts-plus-plus lint",
+    "lint:language-server": "pnpm --filter tspp-language-server lint",
     "knip": "pnpm --filter ts-plus-plus knip",
     "format": "pnpm --filter ts-plus-plus format",
-    "clean": "pnpm --filter ts-plus-plus clean"
+    "clean": "pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"
   },
   "packageManager": "pnpm@12.4.2",
   "volta": {

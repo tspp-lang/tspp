@@ -346,7 +346,7 @@ export class LspServer {
                                 {
                                     scheme: 'file',
                                     pattern: {
-                                        glob: '**/*.{ts,js,jsx,tsx,mjs,mts,cjs,cts}',
+                                        glob: '**/*.{ts,tspp,js,jsx,tsx,mjs,mts,cjs,cts}',
                                         matches: 'file',
                                     },
                                 },

@@ -27,7 +27,7 @@ const getRootTempDir = (() => {
     let dir: string | undefined;
     return () => {
         if (!dir) {
-            const filename = `typescript-language-server${process.platform !== 'win32' && process.getuid ? process.getuid() : ''}`;
+            const filename = `tspp-language-server${process.platform !== 'win32' && process.getuid ? process.getuid() : ''}`;
             dir = path.join(os.tmpdir(), filename);
         }
         if (!fs.existsSync(dir)) {

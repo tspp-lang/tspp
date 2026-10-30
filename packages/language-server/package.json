@@ -1,14 +1,19 @@
 {
-  "name": "typescript-language-server",
-  "version": "6.0.1",
-  "description": "Language Server Protocol (LSP) implementation for TypeScript using tsserver",
-  "author": "TypeFox and others",
+  "name": "tspp-language-server",
+  "version": "0.0.1",
+  "description": "Language Server Protocol implementation for TS++ using tsppserver",
+  "author": "TS++ contributors, TypeFox and others",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/typescript-language-server/typescript-language-server.git"
+    "url": "git+https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/language-server"
   },
   "type": "module",
+  "exports": {
+    ".": "./lib/cli.mjs",
+    "./package.json": "./package.json"
+  },
   "engines": {
     "node": ">=22.22.2"
   },
@@ -17,7 +22,7 @@
     "lib"
   ],
   "bin": {
-    "typescript-language-server": "lib/cli.mjs"
+    "tspp-language-server": "lib/cli.mjs"
   },
   "scripts": {
     "dev": "rimraf lib && rollup --config rollup.config.ts --configPlugin \"typescript={sourceMap: false}\" --watch",
@@ -29,8 +34,7 @@
     "lint": "eslint --ext \".js,.ts\" src",
     "fix": "eslint --ext \".js,.ts\" --fix src",
     "size": "pnpm build && size-limit",
-    "postversion": "git push --follow-tags",
-    "prepare": "husky"
+    "postversion": "git push --follow-tags"
   },
   "eslintIgnore": [
     "!.eslintrc.cjs"
@@ -56,7 +60,6 @@
     "eslint": "^10.10.0",
     "fs-extra": "^11.4.0",
     "globals": "^17.12.0",
-    "husky": "^9.1.7",
     "p-debounce": "^5.1.1",
     "package-up": "^5.0.0",
     "rimraf": "^6.1.3",
@@ -65,12 +68,12 @@
     "size-limit": "^14.0.0",
     "source-map-support": "^0.5.21",
     "tempy": "^3.2.0",
-    "typescript": "^6.0.3",
+    "typescript": "5.9.2",
     "typescript-eslint": "^8.70.0",
     "vitest": "^4.1.11",
-    "vscode-jsonrpc": "^9.0.2",
-    "vscode-languageserver": "^10.1.1",
-    "vscode-languageserver-protocol": "^3.18.3",
+    "vscode-jsonrpc": "9.0.3",
+    "vscode-languageserver": "10.1.2",
+    "vscode-languageserver-protocol": "3.18.4",
     "vscode-languageserver-textdocument": "1.0.14",
     "vscode-uri": "^3.2.0",
     "which": "^7.0.0",
