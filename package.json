@@ -1,16 +1,19 @@
 {
   "name": "ts-plus-plus-monorepo",
   "private": true,
+  "devDependencies": {
+    "ts-plus-plus": "workspace:*"
+  },
   "scripts": {
-    "build": "pnpm --filter typescript build",
-    "build:compiler": "pnpm --filter typescript build:compiler",
-    "build:tests": "pnpm --filter typescript build:tests",
-    "test": "pnpm --filter typescript test",
-    "test:eslint-rules": "pnpm --filter typescript test:eslint-rules",
-    "lint": "pnpm --filter typescript lint",
-    "knip": "pnpm --filter typescript knip",
-    "format": "pnpm --filter typescript format",
-    "clean": "pnpm --filter typescript clean"
+    "build": "pnpm --filter ts-plus-plus build",
+    "build:compiler": "pnpm --filter ts-plus-plus build:compiler",
+    "build:tests": "pnpm --filter ts-plus-plus build:tests",
+    "test": "pnpm --filter ts-plus-plus test",
+    "test:eslint-rules": "pnpm --filter ts-plus-plus test:eslint-rules",
+    "lint": "pnpm --filter ts-plus-plus lint",
+    "knip": "pnpm --filter ts-plus-plus knip",
+    "format": "pnpm --filter ts-plus-plus format",
+    "clean": "pnpm --filter ts-plus-plus clean"
   },
   "packageManager": "pnpm@12.4.2",
   "volta": {

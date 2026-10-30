@@ -164,7 +164,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:packages/compiler
 
   packages/compiler:
     devDependencies:

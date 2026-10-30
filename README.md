@@ -1,50 +1,54 @@
+# TS++
 
-# TypeScript
+TS++ (`ts-plus-plus`, abbreviated TSPP) is an experimental language and compiler
+derived from TypeScript. This repository starts from the TypeScript 6.0.3 source
+tree and develops TS++ as a separate product while preserving TypeScript as its
+compatibility boundary.
 
-[![CI](https://github.com/microsoft/TypeScript/actions/workflows/ci.yml/badge.svg)](https://github.com/microsoft/TypeScript/actions/workflows/ci.yml)
-[![npm version](https://badge.fury.io/js/typescript.svg)](https://www.npmjs.com/package/typescript)
-[![Downloads](https://img.shields.io/npm/dm/typescript.svg)](https://www.npmjs.com/package/typescript)
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/microsoft/TypeScript/badge)](https://securityscorecards.dev/viewer/?uri=github.com/microsoft/TypeScript)
+The project is intentionally being rebuilt in small, isolated layers. The
+current branch contains the upstream compiler in a pnpm monorepo and establishes
+the TS++ package and command-line identity; language extensions will be added in
+later commits.
 
+## Repository layout
 
-[TypeScript](https://www.typescriptlang.org/) is a language for application-scale JavaScript. TypeScript adds optional types to JavaScript that support tools for large-scale JavaScript applications for any browser, for any host, on any OS. TypeScript compiles to readable, standards-based JavaScript. Try it out at the [playground](https://www.typescriptlang.org/play/), and stay up to date via [our blog](https://blogs.msdn.microsoft.com/typescript) and [Twitter account](https://twitter.com/typescript).
-
-Find others who are using TypeScript at [our community page](https://www.typescriptlang.org/community/).
-
-## Installing
-
-For the latest stable version:
-
-```bash
-npm install -D typescript
+```text
+.
+└─ packages/
+   └─ compiler/   # TS++ compiler, language services, build and test suite
 ```
 
-For our nightly builds:
+## Development
 
-```bash
-npm install -D typescript@next
+Use Node.js 22 and pnpm 12.4.2.
+
+```sh
+corepack enable
+pnpm install
+pnpm build
+pnpm lint
+pnpm test
 ```
 
-## Contribute
+## Commands
 
-There are many ways to [contribute](https://github.com/microsoft/TypeScript/blob/main/CONTRIBUTING.md) to TypeScript.
-* [Submit bugs](https://github.com/microsoft/TypeScript/issues) and help us verify fixes as they are checked in.
-* Review the [source code changes](https://github.com/microsoft/TypeScript/pulls).
-* Engage with other TypeScript users and developers on [StackOverflow](https://stackoverflow.com/questions/tagged/typescript).
-* Help each other in the [TypeScript Community Discord](https://discord.gg/typescript).
-* Join the [#typescript](https://twitter.com/search?q=%23TypeScript) discussion on Twitter.
-* [Contribute bug fixes](https://github.com/microsoft/TypeScript/blob/main/CONTRIBUTING.md).
+The compiler package exposes two commands:
 
-This project has adopted the [Microsoft Open Source Code of Conduct](https://opensource.microsoft.com/codeofconduct/). For more information see
-the [Code of Conduct FAQ](https://opensource.microsoft.com/codeofconduct/faq/) or contact [opencode@microsoft.com](mailto:opencode@microsoft.com)
-with any additional questions or comments.
+- `tspp` — the TS++ command-line compiler;
+- `tsppserver` — the TS++ language server process.
 
-## Documentation
+During repository development, build the compiler before invoking its generated
+outputs. The root scripts delegate to the `ts-plus-plus` workspace.
 
-*  [TypeScript in 5 minutes](https://www.typescriptlang.org/docs/handbook/typescript-in-5-minutes.html)
-*  [Programming handbook](https://www.typescriptlang.org/docs/handbook/intro.html)
-*  [Homepage](https://www.typescriptlang.org/)
+## TypeScript compatibility boundary
 
-## Roadmap
+TS++ deliberately retains upstream internal names such as the `ts` namespace,
+`typescript.js`, `tsconfig.json`, and the tsserver protocol. Those names describe
+the TypeScript API and compatibility surface, not the public TS++ product name.
+Keeping that boundary stable also makes future upstream comparison and merging
+tractable.
 
-For details on our planned features and future direction, please refer to our [roadmap](https://github.com/microsoft/TypeScript/wiki/Roadmap).
+## License and upstream notices
+
+TS++ is distributed under the Apache License 2.0. The compiler package retains
+the upstream TypeScript license, security policy, and third-party notices.

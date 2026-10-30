@@ -477,16 +477,16 @@ function generateSectionOptionsOutput(sys: System, sectionName: string, options:
 
 function printEasyHelp(sys: System, simpleOptions: readonly CommandLineOption[]) {
     const colors = createColors(sys);
-    let output: string[] = [...getHeader(sys, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+    let output: string[] = [...getHeader(sys, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
     output.push(colors.bold(getDiagnosticText(Diagnostics.COMMON_COMMANDS)) + sys.newLine + sys.newLine);
 
-    example("tsc", Diagnostics.Compiles_the_current_project_tsconfig_json_in_the_working_directory);
-    example("tsc app.ts util.ts", Diagnostics.Ignoring_tsconfig_json_compiles_the_specified_files_with_default_compiler_options);
-    example("tsc -b", Diagnostics.Build_a_composite_project_in_the_working_directory);
-    example("tsc --init", Diagnostics.Creates_a_tsconfig_json_with_the_recommended_settings_in_the_working_directory);
-    example("tsc -p ./path/to/tsconfig.json", Diagnostics.Compiles_the_TypeScript_project_located_at_the_specified_path);
-    example("tsc --help --all", Diagnostics.An_expanded_version_of_this_information_showing_all_possible_compiler_options);
-    example(["tsc --noEmit", "tsc --target esnext"], Diagnostics.Compiles_the_current_project_with_additional_settings);
+    example("tspp", Diagnostics.Compiles_the_current_project_tsconfig_json_in_the_working_directory);
+    example("tspp app.ts util.ts", Diagnostics.Ignoring_tsconfig_json_compiles_the_specified_files_with_default_compiler_options);
+    example("tspp -b", Diagnostics.Build_a_composite_project_in_the_working_directory);
+    example("tspp --init", Diagnostics.Creates_a_tsconfig_json_with_the_recommended_settings_in_the_working_directory);
+    example("tspp -p ./path/to/tsconfig.json", Diagnostics.Compiles_the_TypeScript_project_located_at_the_specified_path);
+    example("tspp --help --all", Diagnostics.An_expanded_version_of_this_information_showing_all_possible_compiler_options);
+    example(["tspp --noEmit", "tspp --target esnext"], Diagnostics.Compiles_the_current_project_with_additional_settings);
 
     const cliCommands = simpleOptions.filter(opt => opt.isCommandLineOnly || opt.category === Diagnostics.Command_line_Options);
     const configOpts = simpleOptions.filter(opt => !contains(cliCommands, opt));
@@ -511,18 +511,18 @@ function printEasyHelp(sys: System, simpleOptions: readonly CommandLineOption[])
 }
 
 function printAllHelp(sys: System, compilerOptions: readonly CommandLineOption[], buildOptions: readonly CommandLineOption[], watchOptions: readonly CommandLineOption[]) {
-    let output: string[] = [...getHeader(sys, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+    let output: string[] = [...getHeader(sys, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
     output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.ALL_COMPILER_OPTIONS), compilerOptions, /*subCategory*/ true, /*beforeOptionsDescription*/ undefined, formatMessage(Diagnostics.You_can_learn_about_all_of_the_compiler_options_at_0, "https://aka.ms/tsc"))];
     output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.WATCH_OPTIONS), filter(watchOptions, option => option.showInHelp !== false), /*subCategory*/ false, getDiagnosticText(Diagnostics.Including_watch_w_will_start_watching_the_current_project_for_the_file_changes_Once_set_you_can_config_watch_mode_with_Colon))];
-    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, formatMessage(Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0, "https://aka.ms/tsc-composite-builds"))];
+    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, getBuildHelpDescription())];
     for (const line of output) {
         sys.write(line);
     }
 }
 
 function printBuildHelp(sys: System, buildOptions: readonly CommandLineOption[]) {
-    let output: string[] = [...getHeader(sys, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
-    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, formatMessage(Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0, "https://aka.ms/tsc-composite-builds"))];
+    let output: string[] = [...getHeader(sys, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, getBuildHelpDescription())];
     for (const line of output) {
         sys.write(line);
     }
@@ -532,23 +532,30 @@ function getHeader(sys: System, message: string) {
     const colors = createColors(sys);
     const header: string[] = [];
     const terminalWidth = sys.getWidthOfTerminal?.() ?? 0;
-    const tsIconLength = 5;
+    const tsppIconLength = 5;
 
-    const tsIconFirstLine = colors.blueBackground("".padStart(tsIconLength));
-    const tsIconSecondLine = colors.blueBackground(colors.brightWhite("TS ".padStart(tsIconLength)));
-    // If we have enough space, print TS icon.
-    if (terminalWidth >= message.length + tsIconLength) {
+    const tsppIconFirstLine = colors.blueBackground("".padStart(tsppIconLength));
+    const tsppIconSecondLine = colors.blueBackground(colors.brightWhite("TS++ ".padStart(tsppIconLength)));
+    // If we have enough space, print the TS++ icon.
+    if (terminalWidth >= message.length + tsppIconLength) {
         // right align of the icon is 120 at most.
         const rightAlign = terminalWidth > 120 ? 120 : terminalWidth;
-        const leftAlign = rightAlign - tsIconLength;
-        header.push(message.padEnd(leftAlign) + tsIconFirstLine + sys.newLine);
-        header.push("".padStart(leftAlign) + tsIconSecondLine + sys.newLine);
+        const leftAlign = rightAlign - tsppIconLength;
+        header.push(message.padEnd(leftAlign) + tsppIconFirstLine + sys.newLine);
+        header.push("".padStart(leftAlign) + tsppIconSecondLine + sys.newLine);
     }
     else {
         header.push(message + sys.newLine);
         header.push(sys.newLine);
     }
     return header;
+}
+
+function getBuildHelpDescription() {
+    return formatMessage(
+        Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0,
+        "https://aka.ms/tsc-composite-builds",
+    ).replace(/\btsc\b(?!-)/g, "tspp");
 }
 
 function printHelp(sys: System, commandLine: ParsedCommandLine) {

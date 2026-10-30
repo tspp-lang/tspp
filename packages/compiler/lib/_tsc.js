@@ -132462,15 +132462,15 @@ function generateSectionOptionsOutput(sys2, sectionName, options, subCategory, b
 }
 function printEasyHelp(sys2, simpleOptions) {
   const colors = createColors(sys2);
-  let output = [...getHeader(sys2, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+  let output = [...getHeader(sys2, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
   output.push(colors.bold(getDiagnosticText(Diagnostics.COMMON_COMMANDS)) + sys2.newLine + sys2.newLine);
-  example("tsc", Diagnostics.Compiles_the_current_project_tsconfig_json_in_the_working_directory);
-  example("tsc app.ts util.ts", Diagnostics.Ignoring_tsconfig_json_compiles_the_specified_files_with_default_compiler_options);
-  example("tsc -b", Diagnostics.Build_a_composite_project_in_the_working_directory);
-  example("tsc --init", Diagnostics.Creates_a_tsconfig_json_with_the_recommended_settings_in_the_working_directory);
-  example("tsc -p ./path/to/tsconfig.json", Diagnostics.Compiles_the_TypeScript_project_located_at_the_specified_path);
-  example("tsc --help --all", Diagnostics.An_expanded_version_of_this_information_showing_all_possible_compiler_options);
-  example(["tsc --noEmit", "tsc --target esnext"], Diagnostics.Compiles_the_current_project_with_additional_settings);
+  example("tspp", Diagnostics.Compiles_the_current_project_tsconfig_json_in_the_working_directory);
+  example("tspp app.ts util.ts", Diagnostics.Ignoring_tsconfig_json_compiles_the_specified_files_with_default_compiler_options);
+  example("tspp -b", Diagnostics.Build_a_composite_project_in_the_working_directory);
+  example("tspp --init", Diagnostics.Creates_a_tsconfig_json_with_the_recommended_settings_in_the_working_directory);
+  example("tspp -p ./path/to/tsconfig.json", Diagnostics.Compiles_the_TypeScript_project_located_at_the_specified_path);
+  example("tspp --help --all", Diagnostics.An_expanded_version_of_this_information_showing_all_possible_compiler_options);
+  example(["tspp --noEmit", "tspp --target esnext"], Diagnostics.Compiles_the_current_project_with_additional_settings);
   const cliCommands = simpleOptions.filter((opt) => opt.isCommandLineOnly || opt.category === Diagnostics.Command_line_Options);
   const configOpts = simpleOptions.filter((opt) => !contains(cliCommands, opt));
   output = [
@@ -132509,7 +132509,7 @@ function printEasyHelp(sys2, simpleOptions) {
   }
 }
 function printAllHelp(sys2, compilerOptions, buildOptions, watchOptions) {
-  let output = [...getHeader(sys2, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+  let output = [...getHeader(sys2, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
   output = [...output, ...generateSectionOptionsOutput(
     sys2,
     getDiagnosticText(Diagnostics.ALL_COMPILER_OPTIONS),
@@ -132534,21 +132534,21 @@ function printAllHelp(sys2, compilerOptions, buildOptions, watchOptions) {
     filter(buildOptions, (option) => option !== tscBuildOption && option.showInHelp !== false),
     /*subCategory*/
     false,
-    formatMessage(Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0, "https://aka.ms/tsc-composite-builds")
+    getBuildHelpDescription()
   )];
   for (const line of output) {
     sys2.write(line);
   }
 }
 function printBuildHelp(sys2, buildOptions) {
-  let output = [...getHeader(sys2, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+  let output = [...getHeader(sys2, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
   output = [...output, ...generateSectionOptionsOutput(
     sys2,
     getDiagnosticText(Diagnostics.BUILD_OPTIONS),
     filter(buildOptions, (option) => option !== tscBuildOption && option.showInHelp !== false),
     /*subCategory*/
     false,
-    formatMessage(Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0, "https://aka.ms/tsc-composite-builds")
+    getBuildHelpDescription()
   )];
   for (const line of output) {
     sys2.write(line);
@@ -132559,19 +132559,25 @@ function getHeader(sys2, message) {
   const colors = createColors(sys2);
   const header = [];
   const terminalWidth = ((_a = sys2.getWidthOfTerminal) == null ? void 0 : _a.call(sys2)) ?? 0;
-  const tsIconLength = 5;
-  const tsIconFirstLine = colors.blueBackground("".padStart(tsIconLength));
-  const tsIconSecondLine = colors.blueBackground(colors.brightWhite("TS ".padStart(tsIconLength)));
-  if (terminalWidth >= message.length + tsIconLength) {
+  const tsppIconLength = 5;
+  const tsppIconFirstLine = colors.blueBackground("".padStart(tsppIconLength));
+  const tsppIconSecondLine = colors.blueBackground(colors.brightWhite("TS++ ".padStart(tsppIconLength)));
+  if (terminalWidth >= message.length + tsppIconLength) {
     const rightAlign = terminalWidth > 120 ? 120 : terminalWidth;
-    const leftAlign = rightAlign - tsIconLength;
-    header.push(message.padEnd(leftAlign) + tsIconFirstLine + sys2.newLine);
-    header.push("".padStart(leftAlign) + tsIconSecondLine + sys2.newLine);
+    const leftAlign = rightAlign - tsppIconLength;
+    header.push(message.padEnd(leftAlign) + tsppIconFirstLine + sys2.newLine);
+    header.push("".padStart(leftAlign) + tsppIconSecondLine + sys2.newLine);
   } else {
     header.push(message + sys2.newLine);
     header.push(sys2.newLine);
   }
   return header;
+}
+function getBuildHelpDescription() {
+  return formatMessage(
+    Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0,
+    "https://aka.ms/tsc-composite-builds"
+  ).replace(/\btsc\b(?!-)/g, "tspp");
 }
 function printHelp(sys2, commandLine) {
   if (!commandLine.options.all) {

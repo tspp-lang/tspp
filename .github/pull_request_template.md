@@ -1,21 +1,14 @@
-<!--
-Thank you for submitting a pull request!
+## Summary
 
-Please verify that:
-* [ ] There is an associated issue in the `Backlog` milestone (**required**)
-* [ ] Code is up-to-date with the `main` branch
-* [ ] You've successfully run `hereby runtests` locally
-* [ ] There are new or updated unit tests validating the change
+Describe the change and the boundary it affects.
 
-Refer to CONTRIBUTING.MD for more details.
-  https://github.com/Microsoft/TypeScript/blob/main/CONTRIBUTING.md
+## Validation
 
-** Please don't send typo fixes! **
-Please don't send a PR solely for the purpose of fixing a typo, unless that
-typo truly hurts understanding of the text. Each PR represents work for the
-maintainers, and that work should provide commensurate value.
-
-If you're interested in sending a PR, the issue tracker has many issues marked `help wanted`.
--->
+- [ ] Added or updated focused tests when behavior changed
+- [ ] Ran the relevant build and test commands
+- [ ] Ran `pnpm lint`
+- [ ] Preserved TypeScript compatibility unless the change explicitly documents otherwise
 
 Fixes #
+
+See [CONTRIBUTING.md](../CONTRIBUTING.md) for project guidelines.
