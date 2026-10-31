@@ -5920,6 +5920,7 @@ export interface EmitResolver {
     getReferencedDeclarationWithCollidingName(node: Identifier): Declaration | undefined;
     isDeclarationWithCollidingName(node: Declaration): boolean;
     isValueAliasDeclaration(node: Node): boolean;
+    isErasedExtensionValueAliasDeclaration(node: Node): boolean;
     isReferencedAliasDeclaration(node: Node, checkChildren?: boolean): boolean;
     isTopLevelValueImportEqualsWithEntityName(node: ImportEqualsDeclaration): boolean;
     hasNodeCheckFlag(node: Node, flags: LazyNodeCheckFlags): boolean;
@@ -5941,6 +5942,7 @@ export interface EmitResolver {
     getConstantValue(node: EnumMember | PropertyAccessExpression | ElementAccessExpression): string | number | undefined;
     getEnumMemberValue(node: EnumMember): EvaluatorResult | undefined;
     getReferencedValueDeclaration(reference: Identifier): Declaration | undefined;
+    getReferencedExtensionDeclaration(reference: Identifier): Declaration | undefined;
     getReferencedValueDeclarations(reference: Identifier): Declaration[] | undefined;
     getTypeReferenceSerializationKind(typeName: EntityName, location?: Node): TypeReferenceSerializationKind;
     isOptionalParameter(node: ParameterDeclaration): boolean;

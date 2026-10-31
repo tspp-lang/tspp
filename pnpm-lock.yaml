@@ -342,6 +342,18 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
+  packages/examples/04-newtype-consumer:
+    dependencies:
+      '@tspp/example-newtype':
+        specifier: workspace:*
+        version: link:../03-newtype
+      '@tspp/plugin-newtype':
+        specifier: workspace:*
+        version: link:../../plugins/newtype
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/language-server:
     devDependencies:
       '@eslint/js':

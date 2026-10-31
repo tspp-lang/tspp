@@ -1,0 +1,9 @@
+import { OrderId, UserId } from "@tspp/example-newtype";
+
+const userId: UserId = UserId("consumer-1");
+const orderId: OrderId = OrderId("order-1");
+
+// @ts-expect-error Distinct newtype declarations remain nominal across packages.
+const wrong: UserId = orderId;
+
+console.log(userId, orderId, wrong);

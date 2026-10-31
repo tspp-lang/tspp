@@ -408,6 +408,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     expressionSyntaxKinds,
+    isStartOfExtensionDeclaration,
     projectTSPPSource,
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
@@ -7296,7 +7297,16 @@ namespace Parser {
                     continue;
 
                 default:
-                    return false;
+                    return isStartOfExtensionDeclaration(
+                        token(),
+                        pluginId =>
+                            createExtensionDeclarationParser(
+                                pluginId,
+                                /*modifiers*/ undefined,
+                                getNodePos(),
+                                hasPrecedingJSDocComment(),
+                            ),
+                    );
             }
         }
     }
@@ -7418,7 +7428,16 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
-        const extensionDeclaration = tryParseExtensionDeclaration(token(), createExtensionDeclarationParser);
+        const extensionDeclaration = tryParseExtensionDeclaration(
+            token(),
+            pluginId =>
+                createExtensionDeclarationParser(
+                    pluginId,
+                    /*modifiers*/ undefined,
+                    getNodePos(),
+                    hasPrecedingJSDocComment(),
+                ),
+        );
         if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
             case SyntaxKind.SemicolonToken:
@@ -7502,28 +7521,36 @@ namespace Parser {
         return parseExpressionOrLabeledStatement();
     }
 
-    function createExtensionDeclarationParser(_pluginId: string): TSPPDeclarationParser {
+    function createExtensionDeclarationParser(
+        _pluginId: string,
+        modifiers: NodeArray<ModifierLike> | undefined,
+        declarationPos: number,
+        hasJSDoc: boolean,
+    ): TSPPDeclarationParser {
         return {
             token,
             tokenText: () => scanner.getTokenText(),
             nextToken,
             hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
             lookAhead,
-            getNodePos,
+            getNodePos: () => declarationPos,
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
             parseIdentifier,
             parseTypeParameters,
             parseType,
             parseSemicolon,
             finishTypeAliasDeclaration: (name, typeParameters, type, pos) =>
-                finishNode(
-                    factory.createTypeAliasDeclaration(
-                        /*modifiers*/ undefined,
-                        name as Identifier,
-                        typeParameters as NodeArray<TypeParameterDeclaration> | undefined,
-                        type as TypeNode,
+                withJSDoc(
+                    finishNode(
+                        factory.createTypeAliasDeclaration(
+                            modifiers,
+                            name as Identifier,
+                            typeParameters as NodeArray<TypeParameterDeclaration> | undefined,
+                            type as TypeNode,
+                        ),
+                        pos,
                     ),
-                    pos,
+                    hasJSDoc,
                 ),
         };
     }
@@ -7568,6 +7595,11 @@ namespace Parser {
     }
 
     function parseDeclarationWorker(pos: number, hasJSDoc: boolean, modifiersIn: NodeArray<ModifierLike> | undefined): Statement {
+        const extensionDeclaration = tryParseExtensionDeclaration(
+            token(),
+            pluginId => createExtensionDeclarationParser(pluginId, modifiersIn, pos, hasJSDoc),
+        );
+        if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
             case SyntaxKind.VarKeyword:
             case SyntaxKind.LetKeyword:

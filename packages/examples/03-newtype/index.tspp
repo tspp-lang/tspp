@@ -1,5 +1,5 @@
-newtype UserId = string;
-newtype OrderId = string;
+export newtype UserId = string;
+export newtype OrderId = string;
 newtype Box<T> = T;
 
 const userId: UserId = UserId("user-1");

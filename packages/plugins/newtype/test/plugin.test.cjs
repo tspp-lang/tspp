@@ -21,6 +21,35 @@ test("registers a type-and-value declaration capsule", () => {
   host.activateAll();
   assert.equal(registration.pluginId, "nominal-types/newtype");
   assert.equal(registration.syntax.binding, "type-and-value");
+  assert.equal(registration.syntax.runtime, "erased");
+
+  const declaration = {};
+  const notEmitted = {};
+  assert.equal(registration.syntax.transform(declaration, {
+    createNotEmittedStatement(node) {
+      assert.equal(node, declaration);
+      return notEmitted;
+    },
+  }), notEmitted);
+
+  const argument = {};
+  const visitedArgument = {};
+  assert.equal(registration.syntax.transformCall({}, declaration, {
+    getArguments() { return [argument]; },
+    visitExpression(node) {
+      assert.equal(node, argument);
+      return visitedArgument;
+    },
+  }), visitedArgument);
+
+  let emitted;
+  registration.syntax.emitDeclaration(declaration, {
+    emitTypeAliasDeclaration(node, keyword) {
+      emitted = { node, keyword };
+    },
+  });
+  assert.deepEqual(emitted, { node: declaration, keyword: "newtype" });
+
   host.dispose();
   assert.equal(disposed, true);
 });

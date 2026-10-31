@@ -51361,6 +51361,23 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return undefined;
     }
 
+    function getReferencedExtensionDeclaration(referenceIn: Identifier): Declaration | undefined {
+        if (!isGeneratedIdentifier(referenceIn)) {
+            const reference = getParseTreeNode(referenceIn, isIdentifier);
+            if (reference) {
+                const symbol = getReferencedValueSymbol(reference);
+                if (symbol) {
+                    const target = getExportSymbolOfValueSymbolIfExported(
+                        symbol.flags & SymbolFlags.Alias ? resolveAlias(symbol) : symbol,
+                    );
+                    return target.declarations?.find(declaration => getExtensionDeclarationSyntax(declaration)?.binding === "type-and-value");
+                }
+            }
+        }
+
+        return undefined;
+    }
+
     function getReferencedValueDeclarations(referenceIn: Identifier): Declaration[] | undefined {
         if (!isGeneratedIdentifier(referenceIn)) {
             const reference = getParseTreeNode(referenceIn, isIdentifier);
@@ -51471,6 +51488,13 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 // Synthesized nodes are always treated like values.
                 return node && canCollectSymbolAliasAccessabilityData ? isValueAliasDeclaration(node) : true;
             },
+            isErasedExtensionValueAliasDeclaration: nodeIn => {
+                const node = getParseTreeNode(nodeIn);
+                if (!node || !isAliasSymbolDeclaration(node)) return false;
+                const symbol = getSymbolOfDeclaration(node as Declaration);
+                const target = symbol && resolveAlias(symbol);
+                return !!target?.declarations?.some(declaration => getExtensionDeclarationSyntax(declaration)?.runtime === "erased");
+            },
             hasGlobalName,
             isReferencedAliasDeclaration: (nodeIn, checkChildren?) => {
                 const node = getParseTreeNode(nodeIn);
@@ -51508,6 +51532,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return node && markLinkedReferences(node, ReferenceHint.Unspecified);
             },
             getReferencedValueDeclaration,
+            getReferencedExtensionDeclaration,
             getReferencedValueDeclarations,
             getTypeReferenceSerializationKind,
             isOptionalParameter,

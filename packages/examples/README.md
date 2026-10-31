@@ -6,3 +6,6 @@ an independent pnpm workspace package with its own dependencies and compiler
 configuration.
 
 This keeps every example's capability set isolated from the others.
+
+`04-newtype-consumer` additionally demonstrates consuming the declaration
+output published by `03-newtype` across a package boundary.
