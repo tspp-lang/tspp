@@ -329,6 +329,9 @@ importers:
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:../../plugins/formal-verification
+      '@tspp/plugin-let-in-expression':
+        specifier: workspace:*
+        version: link:../../plugins/let-in-expression
 
   packages/language-server:
     devDependencies:
@@ -490,6 +493,9 @@ importers:
 
   packages/vscode-extension:
     dependencies:
+      '@tspp/plugin-formal-verification':
+        specifier: workspace:*
+        version: link:../plugins/formal-verification
       ts-plus-plus:
         specifier: workspace:*
         version: link:../compiler

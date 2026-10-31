@@ -5,6 +5,10 @@
       {
         "name": "@tspp/plugin-formal-verification",
         "tspp": true
+      },
+      {
+        "name": "@tspp/plugin-let-in-expression",
+        "tspp": true
       }
     ],
     "strict": true,

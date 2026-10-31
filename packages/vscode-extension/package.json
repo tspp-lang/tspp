@@ -22,12 +22,13 @@
   ],
   "main": "./extension.js",
   "scripts": {
-    "build": "node --check extension.js",
+    "build": "node scripts/build-plugin-grammar.mjs && node --check extension.js",
     "test": "node --check extension.js"
   },
   "dependencies": {
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*",
+    "@tspp/plugin-formal-verification": "workspace:*",
     "vscode-languageclient": "9.0.1"
   },
   "contributes": {
@@ -49,6 +50,11 @@
         "language": "tspp",
         "scopeName": "source.tspp",
         "path": "./syntaxes/tspp.tmLanguage.json"
+      },
+      {
+        "scopeName": "source.tspp.plugins",
+        "path": "./syntaxes/tspp-plugins.tmLanguage.json",
+        "injectTo": ["source.tspp"]
       }
     ],
     "commands": [

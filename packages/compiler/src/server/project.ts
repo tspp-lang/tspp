@@ -1,4 +1,5 @@
 import * as ts from "./_namespaces/ts.js";
+import { hasTSPPProgramAnalyzers, runTSPPProgramAnalyzers } from "../compiler/plugins/analysis.js";
 import {
     addRange,
     append,
@@ -27,6 +28,7 @@ import {
     createSymlinkCache,
     Debug,
     Diagnostic,
+    DiagnosticCategory,
     directorySeparator,
     DirectoryStructureHost,
     DirectoryWatcherCallback,
@@ -378,6 +380,7 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
 
     /** @internal */
     protected readonly plugins: PluginModuleWithName[] = [];
+    private tsppAnalysisProxyInstalled = false;
 
     /**
      * This is map from files to unresolved imports in it
@@ -2171,6 +2174,48 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
             if (tsppPlugin) {
                 ts.registerTSPPCompilerPlugin(tsppPlugin);
                 this.projectService.logger.info(`TSPP feature plugin '${tsppPlugin.manifest.id}' activated`);
+                if (!this.tsppAnalysisProxyInstalled) {
+                    this.tsppAnalysisProxyInstalled = true;
+                    const upstreamLanguageService = this.languageService;
+                    let analyzedProgram: Program | undefined;
+                    let pendingProgram: Program | undefined;
+                    let analysisDiagnostics: readonly Diagnostic[] = emptyArray;
+                    const languageService = Object.create(upstreamLanguageService) as LanguageService;
+                    languageService.getSemanticDiagnostics = fileName => {
+                        const diagnostics = upstreamLanguageService.getSemanticDiagnostics(fileName);
+                        const program = upstreamLanguageService.getProgram();
+                        if (!program || !hasTSPPProgramAnalyzers()) return diagnostics;
+                        if (analyzedProgram === program) {
+                            return [...diagnostics, ...analysisDiagnostics.filter(diagnostic => diagnostic.file?.fileName === fileName)];
+                        }
+                        if (pendingProgram !== program) {
+                            pendingProgram = program;
+                            void runTSPPProgramAnalyzers(program).then(
+                                results => {
+                                    if (upstreamLanguageService.getProgram() !== program) return;
+                                    analysisDiagnostics = results.map(diagnostic => ({
+                                        category: diagnostic.category === "error" ? DiagnosticCategory.Error : DiagnosticCategory.Warning,
+                                        code: diagnostic.code,
+                                        file: program.getSourceFile(diagnostic.fileName),
+                                        start: diagnostic.start,
+                                        length: diagnostic.length,
+                                        source: diagnostic.source,
+                                        messageText: diagnostic.message,
+                                    }));
+                                    analyzedProgram = program;
+                                    pendingProgram = undefined;
+                                    this.refreshDiagnostics();
+                                },
+                                error => {
+                                    pendingProgram = undefined;
+                                    this.projectService.logger.info(`TSPP program analysis failed: ${error instanceof Error ? error.message : String(error)}`);
+                                },
+                            );
+                        }
+                        return diagnostics;
+                    };
+                    this.languageService = languageService;
+                }
                 this.plugins.push({
                     name: configEntry.name,
                     module: { create: info => info.languageService },

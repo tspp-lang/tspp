@@ -49,6 +49,12 @@ export interface TSPPProgramAnalyzer {
     analyze(input: TSPPProgramAnalysisInput): Promise<readonly TSPPAnalysisDiagnostic[]>;
 }
 
+export interface TSPPSourcePreprocessor {
+    readonly id: string;
+    /** Must return text with exactly the same UTF-16 length and line breaks. */
+    preprocess(fileName: string, sourceText: string): string;
+}
+
 export interface TSPPExtensionExpression {
     readonly pluginId: string;
     readonly extensionChildren: readonly TSPPSyntaxNode[];
@@ -109,12 +115,14 @@ export interface TSPPCompilerPluginAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
+    registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
+    registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerPluginContext {

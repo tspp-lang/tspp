@@ -23,3 +23,37 @@ test("proves and rejects arithmetic assertions through Z3", async () => {
   assert.equal(diagnostics[0].code, 19002);
   assert.match(diagnostics[0].message, /could not be proved/);
 });
+
+test("verifies symbolic function postconditions", async () => {
+  const source = `function increment(value: bigint) with {
+    requires: value >= 0n;
+    ensures: result > value;
+  }: bigint { return value + 1n; }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(),
+    rootFileNames: ["contract.tspp"],
+    syntaxKinds: { sourceFile: 308, labeledStatement: 256 },
+    sourceFiles: [{ fileName: "contract.tspp", text: source, root: { kind: 308, start: 0, end: source.length, text: source, children: [] } }],
+  });
+  assert.deepEqual(diagnostics, []);
+});
+
+test("verifies loop invariant initialization and preservation", async () => {
+  const source = `function count(limit: bigint) with {
+    requires: limit >= 0n;
+  }: bigint {
+    let current: bigint = 0n;
+    while (current < limit) with {
+      invariant: current >= 0n && current <= limit;
+    } {
+      current += 1n;
+    }
+    return current;
+  }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["loop.tspp"],
+    syntaxKinds: { sourceFile: 308, labeledStatement: 256 },
+    sourceFiles: [{ fileName: "loop.tspp", text: source, root: { kind: 308, start: 0, end: source.length, text: source, children: [] } }],
+  });
+  assert.deepEqual(diagnostics, []);
+});

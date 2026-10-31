@@ -1,7 +1,8 @@
 import { Worker } from "node:worker_threads";
 
 export interface Z3Query {
-    readonly expression: string;
+    readonly script?: string;
+    readonly goal: string;
 }
 
 export interface Z3Answer {
@@ -22,7 +23,7 @@ async function main() {
       const context = Z3.mk_context(config);
       const evaluate = text => Z3.eval_smtlib2_string(context, text);
       try {
-        const loaded = await evaluate("(set-option :timeout 10000)\n(assert (not " + query.expression + "))");
+        const loaded = await evaluate("(set-option :timeout 10000)\n" + (query.script || "") + "\n(assert (not " + query.goal + "))");
         const error = loaded.match(/\(error [^\n]*/);
         if (error) answers.push({ status: "error", message: error[0] });
         else {

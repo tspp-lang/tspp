@@ -1,2 +1,28 @@
 assert: 1n + 1n === 2n;
 assert: (3n * 4n) - 2n === 10n;
+
+const answer = let left = 20, right = 22 in left + right;
+
+function increment(value: bigint) with {
+    requires: value >= 0n;
+    ensures: result > value;
+}: bigint {
+    return value + 1n;
+}
+
+console.log(increment(1n));
+
+function count(limit: bigint) with {
+    requires: limit >= 0n;
+}: bigint {
+    let current: bigint = 0n;
+    while (current < limit) with {
+        invariant: current >= 0n && current <= limit;
+    } {
+        current += 1n;
+    }
+    return current;
+}
+
+console.log(count(4n));
+console.log(answer);

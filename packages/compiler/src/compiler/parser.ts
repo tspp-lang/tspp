@@ -405,6 +405,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     expressionSyntaxKinds,
+    projectTSPPSource,
     tryParseExtensionExpression,
 } from "./plugins/registry.js";
 
@@ -1635,6 +1636,7 @@ namespace Parser {
             return result;
         }
 
+        sourceText = projectTSPPSource(fileName, sourceText);
         initializeState(fileName, sourceText, languageVersion, syntaxCursor, scriptKind, jsDocParsingMode);
 
         const result = parseSourceFileWorker(languageVersion, setParentNodes, scriptKind, setExternalModuleIndicatorOverride || setExternalModuleIndicator, jsDocParsingMode);

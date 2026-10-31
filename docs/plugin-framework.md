@@ -107,6 +107,19 @@ compiler node, host, or filesystem capability.
 discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
 compiler owns only snapshotting, scheduling, and diagnostic transport.
 
+### Length-preserving source projections
+
+Syntax that can be erased before ordinary TypeScript parsing uses a registered
+source preprocessor. A preprocessor may replace characters but must preserve
+the exact UTF-16 length and every line break. The host retains the original text
+for plugin analysis while the upstream parser, checker, language service, and
+emitter see the projection. This lets formal contracts remain entirely inside
+their feature capsule without adding contract-specific AST fields to TypeScript.
+
+Tsserver caches analyzer results per `Program`. Completion of an asynchronous
+analysis requests the existing project diagnostic refresh; the generic LSP
+bridge then publishes the merged semantic diagnostics normally.
+
 ## Current process boundary
 
 Compiler syntax registration is process-wide because the upstream TypeScript

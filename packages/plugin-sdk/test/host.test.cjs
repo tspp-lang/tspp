@@ -14,6 +14,7 @@ const compiler = {
   expressionSyntaxKinds: {},
   registerExpressionSyntax(_pluginId, _syntax) { return () => {}; },
   registerProgramAnalyzer(_pluginId, _analyzer) { return () => {}; },
+  registerSourcePreprocessor(_pluginId, _preprocessor) { return () => {}; },
 };
 
 function plugin(id, activate = () => {}) {

@@ -1,10 +1,10 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import type {
     TSPPAnalysisDiagnostic,
-    TSPPAnalysisNode,
     TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmt } from "./expression";
+import { collectContractProofs, maskContractClauses, type PendingProof } from "./contracts";
 import { solveWithZ3 } from "./solver";
 
 interface ProofPoint {
@@ -14,34 +14,36 @@ interface ProofPoint {
     readonly expression: string;
 }
 
-function visit(node: TSPPAnalysisNode, callback: (node: TSPPAnalysisNode) => void): void {
-    callback(node);
-    for (const child of node.children) visit(child, callback);
-}
-
 export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
     id: "proof-points",
     async analyze(input) {
         const points: ProofPoint[] = [];
         const diagnostics: TSPPAnalysisDiagnostic[] = [];
         for (const sourceFile of input.sourceFiles) {
-            visit(sourceFile.root, node => {
-                if (node.kind !== input.syntaxKinds.labeledStatement) return;
-                const match = /^assert\s*:\s*([\s\S]*?)\s*;?$/.exec(node.text);
-                if (!match) return;
-                const relativeStart = node.text.indexOf(match[1]);
+            const pattern = /\bassert\s*:\s*([^;]+);/g;
+            for (let match; (match = pattern.exec(sourceFile.text));) {
+                const relativeStart = match.index + match[0].indexOf(match[1]);
                 points.push({
                     fileName: sourceFile.fileName,
-                    start: node.start + relativeStart,
+                    start: relativeStart,
                     length: match[1].length,
                     expression: match[1],
                 });
-            });
+            }
         }
-        const queries: { expression: string; point: ProofPoint; }[] = [];
+        const queries: { proof: PendingProof; point?: ProofPoint; }[] = [];
         for (const point of points) {
             try {
-                queries.push({ expression: expressionToSmt(point.expression), point });
+                queries.push({
+                    point,
+                    proof: {
+                        query: { goal: expressionToSmt(point.expression) },
+                        fileName: point.fileName,
+                        start: point.start,
+                        length: point.length,
+                        name: "assertion",
+                    },
+                });
             }
             catch (error) {
                 diagnostics.push({
@@ -55,20 +57,23 @@ export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
                 });
             }
         }
-        const answers = await solveWithZ3(queries.map(query => ({ expression: query.expression })));
+        for (const sourceFile of input.sourceFiles) {
+            for (const proof of collectContractProofs(sourceFile, diagnostics)) queries.push({ proof });
+        }
+        const answers = await solveWithZ3(queries.map(query => query.proof.query));
         answers.forEach((answer, index) => {
             if (answer.status === "unsat") return;
-            const point = queries[index].point;
+            const proof = queries[index].proof;
             diagnostics.push({
-                fileName: point.fileName,
-                start: point.start,
-                length: point.length,
+                fileName: proof.fileName,
+                start: proof.start,
+                length: proof.length,
                 code: 19002,
                 category: "error",
                 source: "TS++ verification",
                 message: answer.status === "sat"
-                    ? `Assertion could not be proved. Counterexample: ${answer.output?.replace(/[()\s]/g, "") ? answer.output.trim() : "the condition is false"}`
-                    : `Assertion verification ${answer.status}: ${answer.message ?? "the solver returned no result"}`,
+                    ? `${proof.name} could not be proved. Counterexample: ${answer.output?.replace(/[()\s]/g, "") ? answer.output.trim() : "the condition is false"}`
+                    : `${proof.name} verification ${answer.status}: ${answer.message ?? "the solver returned no result"}`,
             });
         });
         return diagnostics;
@@ -85,8 +90,19 @@ export const formalVerificationPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
-                return context.compiler.registerProgramAnalyzer(formalVerificationAnalyzer);
+                const disposeProjection = context.compiler.registerSourcePreprocessor({
+                    id: "contract-projection",
+                    preprocess: maskContractClauses,
+                });
+                const disposeAnalysis = context.compiler.registerProgramAnalyzer(formalVerificationAnalyzer);
+                return () => {
+                    disposeAnalysis();
+                    disposeProjection();
+                };
             },
+        },
+        editor: {
+            grammars: ["./editor/verification.tmLanguage.json"],
         },
     },
 });

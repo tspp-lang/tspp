@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TS++ plugin contributions",
+  "scopeName": "source.tspp.plugins",
+  "injectionSelector": "L:source.tspp",
+  "patterns": [
+    {
+      "match": "\\b(assert|assume)(?=\\s*:)",
+      "name": "keyword.control.verification.tspp"
+    },
+    {
+      "match": "\\bwith(?=\\s*\\{)",
+      "name": "keyword.control.contract.tspp"
+    },
+    {
+      "match": "\\b(requires|ensures|invariant)(?=\\s*:)",
+      "name": "support.type.contract-property.tspp"
+    },
+    {
+      "match": "\\bresult\\b",
+      "name": "variable.language.contract-result.tspp"
+    }
+  ]
+}
