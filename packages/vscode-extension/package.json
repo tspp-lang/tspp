@@ -84,6 +84,14 @@
       {
         "command": "tspp.showAnalysisArtifacts",
         "title": "TS++: Show Analysis Artifacts"
+      },
+      {
+        "command": "tspp.showSmtSource",
+        "title": "TS++: Show SMT Source"
+      },
+      {
+        "command": "tspp.showMlttNormalForms",
+        "title": "TS++: Show MLTT Normal Forms"
       }
     ],
     "menus": {

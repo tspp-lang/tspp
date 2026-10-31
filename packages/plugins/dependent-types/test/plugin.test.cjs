@@ -62,6 +62,23 @@ test("analyzer accepts valid aliases and resolves earlier aliases", async () => 
     export type Alias: Type1 = Identity;
   `));
   assert.deepEqual(diagnostics, []);
+  assert.equal(diagnostics.artifacts.length, 3);
+  assert.equal(diagnostics.artifacts[1].kind, "dependent-types/normal-form");
+  assert.equal(diagnostics.artifacts[1].language, "plaintext");
+  assert.match(diagnostics.artifacts[1].content, /Identity : Type1/);
+  assert.match(diagnostics.artifacts[1].content, /Identity = \(Pi/);
+});
+
+test("publishes normalized terms and their normalized MLTT types", async () => {
+  const diagnostics = await dependentTypesAnalyzer.analyze(input(`
+    export type One: Nat = NatAdd<Zero, Succ<Zero>>;
+    export type Proof: Type0 = Eq<Nat, One, Succ<Zero>>;
+  `));
+  assert.deepEqual(diagnostics, []);
+  assert.equal(diagnostics.artifacts.length, 2);
+  assert.match(diagnostics.artifacts[0].content, /One : Nat/);
+  assert.match(diagnostics.artifacts[0].content, /One = Succ<Zero>/);
+  assert.match(diagnostics.artifacts[1].content, /Eq<Nat, Succ<Zero>, Succ<Zero>>/);
 });
 
 test("analyzer reports kind mismatches and ill-typed core terms", async () => {

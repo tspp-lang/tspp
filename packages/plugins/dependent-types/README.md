@@ -16,6 +16,10 @@ TypeScript generic call signatures while the independent analyzer retains the
 stronger MLTT semantics. No MLTT implementation code lives in the compiler or
 language-server packages.
 
+Every successfully checked alias publishes a human-readable analysis artifact
+containing both its normalized MLTT type and beta-normal term. In the development
+host, run **TS++: Show MLTT Normal Forms** for the active file.
+
 Implicit `{A: Type0}` binders become erased generic parameters, explicit
 binders remain runtime parameters, and `auto` type arguments preserve inference
 at the TypeScript call boundary. `reify T` produces a serializable descriptor

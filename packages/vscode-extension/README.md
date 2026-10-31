@@ -25,3 +25,11 @@ node scripts/launch-editor.mjs
 ```
 
 Set `tspp.sdkPath` only when you want the extension to use another TSPP SDK.
+
+The command palette exposes the plugin-owned inspection outputs through generic
+analysis artifacts:
+
+- **TS++: Show SMT Source** opens replayable SMT-LIB proof obligations;
+- **TS++: Show MLTT Normal Forms** opens each alias's normalized MLTT type and
+  beta-normal term;
+- **TS++: Show Analysis Artifacts** opens every artifact for the active file.

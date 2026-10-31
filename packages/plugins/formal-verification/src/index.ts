@@ -33,6 +33,7 @@ export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
             const proof = queries[index].proof;
             const status = answer.status === "unsat" ? "proved" : answer.status === "sat" ? "failed" : answer.status;
             artifacts.push({
+                kind: "formal-verification/smt",
                 fileName: proof.fileName, start: proof.start, length: proof.length,
                 name: proof.name, language: "smt2", status,
                 content: `; ${proof.name}: ${status}\n${renderZ3Query(proof.query)}\n`,
@@ -77,7 +78,7 @@ export const formalVerificationPlugin = definePlugin({
             },
         },
         editor: {
-            commands: [{ id: "tspp.showAnalysisArtifacts", title: "TS++: Show Analysis Artifacts" }],
+            commands: [{ id: "tspp.showSmtSource", title: "TS++: Show SMT Source" }],
             grammars: ["./editor/verification.tmLanguage.json"],
         },
     },

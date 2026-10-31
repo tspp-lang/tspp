@@ -55,6 +55,8 @@ export interface TSPPAnalysisDiagnostic {
 
 /** Replayable or human-readable output produced by an isolated analyzer. */
 export interface TSPPAnalysisArtifact {
+    /** Stable plugin-owned category used by generic editor integrations. */
+    readonly kind?: string;
     readonly fileName: string;
     readonly start: number;
     readonly length: number;

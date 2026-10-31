@@ -125,6 +125,29 @@ async function activate(context) {
     return { ts, program };
   }
 
+  async function showAnalysisArtifacts(filter, emptyMessage) {
+    const document = vscode.window.activeTextEditor?.document;
+    if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
+    try {
+      const analysis = await createAnalysisProgram(document);
+      const artifacts = (analysis?.ts.getTSPPAnalysisArtifacts?.(analysis.program, document.fileName) ?? [])
+        .filter(filter)
+        .sort((left, right) => left.start - right.start);
+      if (!artifacts.length) {
+        await vscode.window.showInformationMessage(emptyMessage);
+        return;
+      }
+      const content = artifacts
+        .map((artifact, index) => `; [${index + 1}] ${artifact.name} — ${artifact.status ?? "generated"}\n${artifact.content}`)
+        .join("\n");
+      const artifactDocument = await vscode.workspace.openTextDocument({ language: artifacts[0].language, content });
+      await vscode.window.showTextDocument(artifactDocument, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+    }
+    catch (error) {
+      await vscode.window.showErrorMessage(`Could not produce TS++ analysis artifacts: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   context.subscriptions.push(
     expandedChanges,
     vscode.workspace.registerTextDocumentContentProvider("tspp-expanded", {
@@ -162,25 +185,13 @@ async function activate(context) {
       await vscode.window.showTextDocument(expanded, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     }),
     vscode.commands.registerCommand("tspp.showAnalysisArtifacts", async () => {
-      const document = vscode.window.activeTextEditor?.document;
-      if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
-      try {
-        const analysis = await createAnalysisProgram(document);
-        const artifacts = analysis?.ts.getTSPPAnalysisArtifacts?.(analysis.program, document.fileName) ?? [];
-        if (!artifacts.length) {
-          await vscode.window.showInformationMessage("This file has no plugin analysis artifacts.");
-          return;
-        }
-        const content = artifacts
-          .slice().sort((left, right) => left.start - right.start)
-          .map((artifact, index) => `; [${index + 1}] ${artifact.name} — ${artifact.status ?? "generated"}\n${artifact.content}`)
-          .join("\n");
-        const artifactDocument = await vscode.workspace.openTextDocument({ language: artifacts[0].language, content });
-        await vscode.window.showTextDocument(artifactDocument, { viewColumn: vscode.ViewColumn.Beside, preview: true });
-      }
-      catch (error) {
-        await vscode.window.showErrorMessage(`Could not produce TS++ analysis artifacts: ${error instanceof Error ? error.message : String(error)}`);
-      }
+      await showAnalysisArtifacts(() => true, "This file has no plugin analysis artifacts.");
+    }),
+    vscode.commands.registerCommand("tspp.showSmtSource", async () => {
+      await showAnalysisArtifacts(artifact => artifact.kind === "formal-verification/smt", "This file has no SMT source.");
+    }),
+    vscode.commands.registerCommand("tspp.showMlttNormalForms", async () => {
+      await showAnalysisArtifacts(artifact => artifact.kind === "dependent-types/normal-form", "This file has no MLTT normal forms.");
     }),
     vscode.workspace.onDidChangeTextDocument(() => expansionCache.clear()),
     vscode.workspace.onDidSaveTextDocument(() => expansionCache.clear()),

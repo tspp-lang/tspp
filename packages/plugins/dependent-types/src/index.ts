@@ -1,7 +1,14 @@
-import { type MlttTerm, MlttTypeError } from "./core";
+import {
+    inferMlttType,
+    normalizeMlttTerm,
+    printMlttTerm,
+    type MlttTerm,
+    MlttTypeError,
+} from "./core";
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import type {
     TSPPAnalysisDiagnostic,
+    TSPPAnalysisArtifact,
     TSPPExpressionSyntax,
     TSPPExtensionExpression,
     TSPPProgramAnalyzer,
@@ -21,6 +28,7 @@ export const dependentTypesAnalyzer: TSPPProgramAnalyzer = {
     id: "mltt-types",
     async analyze(input) {
         const diagnostics: TSPPAnalysisDiagnostic[] = [];
+        const artifacts: TSPPAnalysisArtifact[] = [];
         for (const sourceFile of input.sourceFiles) {
             const aliases = new Map<string, MlttTerm>();
             for (const alias of collectDependentTypeAliases(sourceFile.text)) {
@@ -38,6 +46,18 @@ export const dependentTypesAnalyzer: TSPPProgramAnalyzer = {
                         }
                     }
                     aliases.set(alias.name, term);
+                    const normalForm = normalizeMlttTerm(term);
+                    const normalType = normalizeMlttTerm(inferMlttType(term));
+                    artifacts.push({
+                        kind: "dependent-types/normal-form",
+                        fileName: sourceFile.fileName,
+                        start: alias.expressionStart,
+                        length: Math.max(1, alias.expressionEnd - alias.expressionStart),
+                        name: `${alias.name} normal form`,
+                        language: "plaintext",
+                        status: "proved",
+                        content: `${alias.name} : ${printMlttTerm(normalType)}\n${alias.name} = ${printMlttTerm(normalForm)}\n`,
+                    });
                 }
                 catch (error) {
                     diagnostics.push({
@@ -52,6 +72,7 @@ export const dependentTypesAnalyzer: TSPPProgramAnalyzer = {
                 }
             }
         }
+        Object.defineProperty(diagnostics, "artifacts", { value: artifacts });
         return diagnostics;
     },
 };
@@ -149,6 +170,7 @@ export const dependentTypesPlugin = definePlugin({
             },
         },
         editor: {
+            commands: [{ id: "tspp.showMlttNormalForms", title: "TS++: Show MLTT Normal Forms" }],
             grammars: ["./editor/dependent-types.tmLanguage.json"],
         },
     },

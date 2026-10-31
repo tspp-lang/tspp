@@ -44,7 +44,8 @@ background analyzer hooks; parsing, symbolic execution, SMT lowering, solver
 isolation, diagnostics, and editor grammar remain in this package.
 
 Every obligation also publishes a replayable SMT-LIB analysis artifact. In the
-development host, run **TS++: Show Analysis Artifacts** to open all obligations
-for the active file, ordered by source position and labelled with their proof
-status. The editor consumes the SDK's generic artifact shape and does not know
-about Z3 or formal-verification internals.
+development host, run **TS++: Show SMT Source** to open the obligations for the
+active file, ordered by source position and labelled with their proof status.
+**TS++: Show Analysis Artifacts** remains available for viewing outputs from all
+enabled capsules together. The editor consumes the SDK's generic artifact shape
+and does not know about Z3 or formal-verification internals.
