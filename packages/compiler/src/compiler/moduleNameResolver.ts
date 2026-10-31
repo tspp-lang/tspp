@@ -2165,12 +2165,21 @@ function tryAddingExtensions(candidate: string, extensions: Extensions, original
                 || extensions & Extensions.Declaration && tryExtension(Extension.Dts, originalExtension === Extension.Tsx)
                 || extensions & Extensions.JavaScript && (tryExtension(Extension.Jsx) || tryExtension(Extension.Js))
                 || undefined;
+        case Extension.Tspp:
+            return extensions & Extensions.TypeScript && (tryExtension(Extension.Tspp, /*resolvedUsingTsExtension*/ true) || tryExtension(Extension.Ts))
+                || extensions & Extensions.Declaration && tryExtension(Extension.Dts)
+                || undefined;
         case Extension.Ts:
         case Extension.Dts:
         case Extension.Js:
-        case "":
             return extensions & Extensions.TypeScript && (tryExtension(Extension.Ts, originalExtension === Extension.Ts || originalExtension === Extension.Dts) || tryExtension(Extension.Tsx, originalExtension === Extension.Ts || originalExtension === Extension.Dts))
                 || extensions & Extensions.Declaration && tryExtension(Extension.Dts, originalExtension === Extension.Ts || originalExtension === Extension.Dts)
+                || extensions & Extensions.JavaScript && (tryExtension(Extension.Js) || tryExtension(Extension.Jsx))
+                || state.isConfigLookup && tryExtension(Extension.Json)
+                || undefined;
+        case "":
+            return extensions & Extensions.TypeScript && (tryExtension(Extension.Tspp) || tryExtension(Extension.Ts) || tryExtension(Extension.Tsx))
+                || extensions & Extensions.Declaration && tryExtension(Extension.Dts)
                 || extensions & Extensions.JavaScript && (tryExtension(Extension.Js) || tryExtension(Extension.Jsx))
                 || state.isConfigLookup && tryExtension(Extension.Json)
                 || undefined;
@@ -2554,7 +2563,7 @@ function loadNodeModuleFromDirectoryWorker(extensions: Extensions, candidate: st
 /** True if `extension` is one of the supported `extensions`. */
 function extensionIsOk(extensions: Extensions, extension: string): boolean {
     return extensions & Extensions.JavaScript && (extension === Extension.Js || extension === Extension.Jsx || extension === Extension.Mjs || extension === Extension.Cjs)
-        || extensions & Extensions.TypeScript && (extension === Extension.Ts || extension === Extension.Tsx || extension === Extension.Mts || extension === Extension.Cts)
+        || extensions & Extensions.TypeScript && (extension === Extension.Tspp || extension === Extension.Ts || extension === Extension.Tsx || extension === Extension.Mts || extension === Extension.Cts)
         || extensions & Extensions.Declaration && (extension === Extension.Dts || extension === Extension.Dmts || extension === Extension.Dcts)
         || extensions & Extensions.Json && extension === Extension.Json
         || false;

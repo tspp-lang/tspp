@@ -363,6 +363,7 @@ function kindModifiersFromExtension(extension: Extension | undefined): ScriptEle
         case Extension.Jsx:
             return ScriptElementKindModifier.jsxModifier;
         case Extension.Ts:
+        case Extension.Tspp:
             return ScriptElementKindModifier.tsModifier;
         case Extension.Tsx:
             return ScriptElementKindModifier.tsxModifier;

@@ -50,9 +50,11 @@ import {
     getBuildOrderFromAnyBuildOrder,
     getConfigFileParsingDiagnostics,
     getDiagnosticText,
+    getDirectoryPath,
     getErrorSummaryText,
     getLineStarts,
     getNormalizedAbsolutePath,
+    getTSPPPluginFromModule,
     isIncrementalCompilation,
     isWatchSet,
     JSDocParsingMode,
@@ -67,6 +69,7 @@ import {
     performIncrementalCompilation as ts_performIncrementalCompilation,
     Program,
     reduceLeftIterator,
+    registerTSPPCompilerPlugin,
     ReportEmitErrorSummary,
     SolutionBuilder,
     SolutionBuilderHostBase,
@@ -678,6 +681,9 @@ function executeCommandLineWorker(
             reportDiagnostic,
             configParseResult.options,
         );
+        if (!loadConfiguredTSPPPlugins(configParseResult.options, configFileName, sys)) {
+            return sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
+        }
         if (isWatchSet(configParseResult.options)) {
             if (reportWatchModeWithoutSysSupport(sys, reportDiagnostic)) return;
             return createWatchOfConfigFile(
@@ -746,6 +752,31 @@ function executeCommandLineWorker(
             );
         }
     }
+}
+
+function loadConfiguredTSPPPlugins(options: CompilerOptions, configFileName: string, sys: System): boolean {
+    const plugins = options.plugins?.filter(config => config.tspp);
+    if (!plugins?.length) return true;
+    if (!sys.require) {
+        sys.write(`error TSPP1000: This host cannot load configured TSPP plugins.${sys.newLine}`);
+        return false;
+    }
+
+    const nodeModules = combinePaths(getDirectoryPath(configFileName), "node_modules");
+    for (const config of plugins) {
+        const result = sys.require(nodeModules, config.name);
+        if (result.error) {
+            sys.write(`error TSPP1001: Cannot load plugin '${config.name}': ${result.error.message}${sys.newLine}`);
+            return false;
+        }
+        const plugin = getTSPPPluginFromModule(result.module);
+        if (!plugin) {
+            sys.write(`error TSPP1002: Package '${config.name}' is not a TSPP feature plugin.${sys.newLine}`);
+            return false;
+        }
+        registerTSPPCompilerPlugin(plugin);
+    }
+    return true;
 }
 
 /** Returns true if commandline is --build and needs to be parsed useing parseBuildCommand */

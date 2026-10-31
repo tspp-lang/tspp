@@ -181,9 +181,6 @@ importers:
 
   packages/compiler:
     dependencies:
-      '@tspp/plugin-let-in-expression':
-        specifier: workspace:*
-        version: link:../plugins/let-in-expression
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:../plugin-sdk

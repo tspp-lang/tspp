@@ -1,7 +1,13 @@
 {
   "compilerOptions": {
     "strict": true,
-    "noEmit": true
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "@tspp/plugin-let-in-expression",
+        "tspp": true
+      }
+    ]
   },
   "include": [
     "index.tspp"

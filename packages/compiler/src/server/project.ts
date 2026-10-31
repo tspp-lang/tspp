@@ -240,7 +240,10 @@ export function allFilesAreJsOrDts(project: Project): boolean {
 
 /** @internal */
 export function hasNoTypeScriptSource(fileNames: string[]): boolean {
-    return !fileNames.some(fileName => (fileExtensionIs(fileName, Extension.Ts) && !isDeclarationFileName(fileName)) || fileExtensionIs(fileName, Extension.Tsx));
+    return !fileNames.some(fileName =>
+        ((fileExtensionIs(fileName, Extension.Tspp) || fileExtensionIs(fileName, Extension.Ts)) && !isDeclarationFileName(fileName))
+        || fileExtensionIs(fileName, Extension.Tsx)
+    );
 }
 
 /** @internal */
@@ -2164,6 +2167,16 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
     /** @internal */
     enableProxy(pluginModuleFactory: PluginModuleFactory, configEntry: PluginImport): void {
         try {
+            const tsppPlugin = ts.getTSPPPluginFromModule(pluginModuleFactory);
+            if (tsppPlugin) {
+                ts.registerTSPPCompilerPlugin(tsppPlugin);
+                this.projectService.logger.info(`TSPP feature plugin '${tsppPlugin.manifest.id}' activated`);
+                this.plugins.push({
+                    name: configEntry.name,
+                    module: { create: info => info.languageService },
+                });
+                return;
+            }
             if (typeof pluginModuleFactory !== "function") {
                 this.projectService.logger.info(`Skipped loading plugin ${configEntry.name} because it did not expose a proper factory function`);
                 return;

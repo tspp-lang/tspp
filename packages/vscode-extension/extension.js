@@ -4,11 +4,15 @@ const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 let languageClient;
 
-function resolveSdkPath() {
+function resolveSdkPath(context) {
   const configuredPath = vscode.workspace.getConfiguration("tspp").get("sdkPath", "").trim();
   if (configuredPath) {
     const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return path.resolve(workspaceRoot ?? process.cwd(), configuredPath);
+  }
+
+  if (context.extensionMode === vscode.ExtensionMode.Development) {
+    return path.resolve(context.extensionPath, "../compiler/built/local");
   }
 
   return path.dirname(require.resolve("ts-plus-plus/lib/tsserver.js"));
@@ -29,7 +33,7 @@ async function activate(context) {
       disableAutomaticTypingAcquisition: true,
       hostInfo: "vscode-tspp",
       tsserver: {
-        path: resolveSdkPath(),
+        path: resolveSdkPath(context),
         useSyntaxServer: "never",
       },
     },

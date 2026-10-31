@@ -10,3 +10,7 @@ const total = let left = 20, right = 22 in left + right;
 Its package manifest declares only the compiler and plugin needed by this
 example. Future examples should follow the same one-package-per-capability-set
 boundary.
+
+The `compilerOptions.plugins` entry in `tsconfig.json` is the executable
+capability declaration. Both the TS++ compiler and tsserver load the same
+feature package from it.

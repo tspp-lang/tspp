@@ -1,12 +1,11 @@
 import {
     TSPP_PLUGIN_API_VERSION,
-    TSPPCompilerHostAPI,
     TSPPPlugin,
-    TSPPPluginContext,
     TSPPPluginDisposer,
     TSPPPluginLogger,
     TSPPPluginManifest,
 } from "./index";
+import type { TSPPCompilerHostAPI, TSPPCompilerPluginContext } from "./compiler";
 
 export interface TSPPPluginHostEnvironment {
     readonly compilerVersion: string;
@@ -33,13 +32,7 @@ export class TSPPPluginHost {
             throw new Error("TSPP plugins must be registered before host activation.");
         }
 
-        const { manifest } = plugin;
-        validateManifest(manifest);
-        if (this.registrations.has(manifest.id)) {
-            throw new Error(`Duplicate TSPP plugin id: ${manifest.id}`);
-        }
-
-        this.registrations.set(manifest.id, { plugin, disposers: [] });
+        this.addRegistration(plugin);
         return this;
     }
 
@@ -55,7 +48,7 @@ export class TSPPPluginHost {
 
         for (const registration of this.registrations.values()) {
             try {
-                const disposer = registration.plugin.activate(this.createContext(registration));
+                const disposer = registration.plugin.facets.compiler?.activate(this.createContext(registration));
                 if (disposer) registration.disposers.push(disposer);
                 this.activationOrder.push(registration);
             }
@@ -77,6 +70,31 @@ export class TSPPPluginHost {
         }
     }
 
+    /** Registers a feature discovered after the process-level host started. */
+    public registerAndActivate(plugin: TSPPPlugin): this {
+        if (this.state === "collecting") return this.register(plugin);
+        if (this.state !== "active") {
+            throw new Error(`Cannot register a TSPP plugin host in state '${this.state}'.`);
+        }
+
+        const registration = this.addRegistration(plugin);
+        try {
+            const disposer = plugin.facets.compiler?.activate(this.createContext(registration));
+            if (disposer) registration.disposers.push(disposer);
+            this.activationOrder.push(registration);
+            return this;
+        }
+        catch (cause) {
+            try {
+                disposeRegistration(registration);
+            }
+            finally {
+                this.registrations.delete(plugin.manifest.id);
+            }
+            throw new TSPPPluginActivationError(plugin.manifest.id, cause);
+        }
+    }
+
     public dispose(): void {
         if (this.state === "disposed") return;
         this.state = "disposed";
@@ -94,7 +112,7 @@ export class TSPPPluginHost {
         if (firstError !== undefined) throw firstError;
     }
 
-    private createContext(registration: PluginRegistration): TSPPPluginContext {
+    private createContext(registration: PluginRegistration): TSPPCompilerPluginContext {
         const pluginId = registration.plugin.manifest.id;
         return {
             compilerVersion: this.environment.compilerVersion,
@@ -106,6 +124,17 @@ export class TSPPPluginHost {
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };
+    }
+
+    private addRegistration(plugin: TSPPPlugin): PluginRegistration {
+        const { manifest } = plugin;
+        validateManifest(manifest);
+        if (this.registrations.has(manifest.id)) {
+            throw new Error(`Duplicate TSPP plugin id: ${manifest.id}`);
+        }
+        const registration: PluginRegistration = { plugin, disposers: [] };
+        this.registrations.set(manifest.id, registration);
+        return registration;
     }
 }
 

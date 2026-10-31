@@ -204,6 +204,11 @@ export class TypeScriptServerSpawner {
 
         const pluginPaths: string[] = [];
 
+        // TSPP feature packages are project dependencies declared by the
+        // project's tsconfig, so resolve them from that project before falling
+        // back to global probe locations.
+        args.push('--allowLocalPluginLoads');
+
         if (pluginManager.plugins.length) {
             args.push('--globalPlugins', pluginManager.plugins.map(x => x.name).join(','));
 

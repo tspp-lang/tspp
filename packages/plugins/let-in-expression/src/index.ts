@@ -1,11 +1,13 @@
 import {
     definePlugin,
     TSPP_PLUGIN_API_VERSION,
+} from "@tspp/plugin-sdk";
+import {
     type TSPPExpression,
     type TSPPExpressionSyntax,
     type TSPPExtensionExpression,
     type TSPPVariableDeclarationList,
-} from "@tspp/plugin-sdk";
+} from "@tspp/plugin-sdk/compiler";
 
 const pluginId = "modern-syntax/let-in";
 
@@ -30,9 +32,11 @@ export const letInExpressionPlugin = definePlugin({
         displayName: "Let-in expressions",
     },
 
-    activate(context) {
-        const kinds = context.compiler.expressionSyntaxKinds;
-        const syntax: TSPPExpressionSyntax = {
+    facets: {
+        compiler: {
+            activate(context) {
+                const kinds = context.compiler.expressionSyntaxKinds;
+                const syntax: TSPPExpressionSyntax = {
             startTokens: [kinds.letKeyword],
 
             isStart: parser => parser.lookAhead(() => {
@@ -94,9 +98,11 @@ export const letInExpressionPlugin = definePlugin({
                 const arrow = transformer.createArrowFunction(block);
                 return transformer.createCallExpression(transformer.createParenthesizedExpression(arrow));
             },
-        };
+                };
 
-        return context.compiler.registerExpressionSyntax(syntax);
+                return context.compiler.registerExpressionSyntax(syntax);
+            },
+        },
     },
 });
 
