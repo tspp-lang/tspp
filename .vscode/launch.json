@@ -1,0 +1,13 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "TS++: Launch in Terminal (Keep Alive)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/launch-editor.mjs",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}
