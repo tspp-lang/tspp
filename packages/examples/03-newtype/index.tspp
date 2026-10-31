@@ -1,0 +1,15 @@
+newtype UserId = string;
+newtype OrderId = string;
+newtype Box<T> = T;
+
+const userId: UserId = UserId("user-1");
+const orderId: OrderId = OrderId("order-1");
+const rawUserId: string = userId;
+const boxed: Box<number> = Box(42);
+const unboxed: number = boxed;
+
+console.log(userId, orderId, rawUserId, unboxed);
+
+// Deliberately invalid when uncommented:
+// const wrong: UserId = orderId;
+// const alsoWrong: UserId = "user-2";

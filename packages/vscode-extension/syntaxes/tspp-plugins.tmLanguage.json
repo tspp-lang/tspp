@@ -19,6 +19,10 @@
     {
       "match": "\\bresult\\b",
       "name": "variable.language.contract-result.tspp"
+    },
+    {
+      "match": "\\bnewtype\\b",
+      "name": "keyword.declaration.newtype.tspp"
     }
   ]
 }

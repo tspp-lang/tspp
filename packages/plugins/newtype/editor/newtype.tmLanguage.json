@@ -1,0 +1,8 @@
+{
+  "patterns": [
+    {
+      "match": "\\bnewtype\\b",
+      "name": "keyword.declaration.newtype.tspp"
+    }
+  ]
+}

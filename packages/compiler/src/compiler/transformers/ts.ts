@@ -1,4 +1,7 @@
-import type { TSPPExpressionTransformer } from "@tspp/plugin-sdk/compiler";
+import type {
+    TSPPDeclarationTransformer,
+    TSPPExpressionTransformer,
+} from "@tspp/plugin-sdk/compiler";
 import {
     __String,
     AccessorDeclaration,
@@ -195,6 +198,7 @@ import {
     TransformationContext,
     Transformer,
     TransformFlags,
+    TypeAliasDeclaration,
     VariableDeclaration,
     VariableDeclarationList,
     VariableStatement,
@@ -206,7 +210,10 @@ import {
     visitParameterList,
     VisitResult,
 } from "../_namespaces/ts.js";
-import { getExtensionExpressionSyntax } from "../plugins/registry.js";
+import {
+    getExtensionDeclarationSyntax,
+    getExtensionExpressionSyntax,
+} from "../plugins/registry.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.
@@ -673,6 +680,34 @@ export function transformTypeScript(context: TransformationContext): Transformer
         return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;
     }
 
+    function transformExtensionDeclaration(node: TypeAliasDeclaration): VisitResult<Statement> | undefined {
+        const syntax = getExtensionDeclarationSyntax(node);
+        if (!syntax?.transform) return undefined;
+        const pluginTransformer: TSPPDeclarationTransformer = {
+            createIdentityFunctionDeclaration: declaration => {
+                const source = declaration as TypeAliasDeclaration;
+                const value = factory.createIdentifier("value");
+                const result = factory.createFunctionDeclaration(
+                    /*modifiers*/ undefined,
+                    /*asteriskToken*/ undefined,
+                    source.name,
+                    /*typeParameters*/ undefined,
+                    [factory.createParameterDeclaration(
+                        /*modifiers*/ undefined,
+                        /*dotDotDotToken*/ undefined,
+                        value,
+                    )],
+                    /*type*/ undefined,
+                    factory.createBlock([factory.createReturnStatement(value)], /*multiLine*/ true),
+                );
+                setOriginalNode(result, source);
+                setTextRange(result, source);
+                return result;
+            },
+        };
+        return visitNode(syntax.transform(node, pluginTransformer) as Statement, visitor, isStatement);
+    }
+
     /**
      * Branching visitor, visits a TypeScript syntax node.
      *
@@ -742,7 +777,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
 
             case SyntaxKind.TypeAliasDeclaration:
                 // TypeScript type-only declarations are elided.
-                return factory.createNotEmittedStatement(node);
+                return transformExtensionDeclaration(node as TypeAliasDeclaration) ?? factory.createNotEmittedStatement(node);
 
             case SyntaxKind.NamespaceExportDeclaration:
                 // TypeScript namespace export declarations are elided.

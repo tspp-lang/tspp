@@ -1,0 +1,14 @@
+{
+  "name": "@tspp/example-newtype",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Example project for the TS++ newtype plugin.",
+  "scripts": {
+    "build": "tspp -p tsconfig.json --pretty false",
+    "check": "tspp -p tsconfig.json --noEmit --pretty false"
+  },
+  "dependencies": {
+    "@tspp/plugin-newtype": "workspace:*",
+    "ts-plus-plus": "workspace:*"
+  }
+}
