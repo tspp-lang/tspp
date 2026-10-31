@@ -621,6 +621,13 @@ type VisitEachChildTable = { [TNode in HasChildren as TNode["kind"]]: VisitEachC
 // NOTE: Before you can add a new method to `visitEachChildTable`, you must first ensure the `Node` subtype you
 //       wish to add is defined in the `HasChildren` union in types.ts.
 const visitEachChildTable: VisitEachChildTable = {
+    [SyntaxKind.ExtensionExpression]: function visitEachChildOfExtensionExpression(node, visitor, context, nodesVisitor, _nodeVisitor, _tokenVisitor) {
+        return context.factory.updateExtensionExpression(
+            node,
+            Debug.checkDefined(nodesVisitor(node.extensionChildren, visitor)),
+        );
+    },
+
     [SyntaxKind.QualifiedName]: function visitEachChildOfQualifiedName(node, visitor, context, _nodesVisitor, nodeVisitor, _tokenVisitor) {
         return context.factory.updateQualifiedName(
             node,

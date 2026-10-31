@@ -10,6 +10,11 @@ const logger = {
   error() {},
 };
 
+const compiler = {
+  expressionSyntaxKinds: {},
+  registerExpressionSyntax(_pluginId, _syntax) { return () => {}; },
+};
+
 function plugin(id, activate = () => {}) {
   return definePlugin({
     manifest: { id, version: "0.0.1", apiVersion: TSPP_PLUGIN_API_VERSION },
@@ -24,7 +29,7 @@ test("definePlugin preserves the plugin object", () => {
 
 test("the host activates in registration order and disposes in reverse order", () => {
   const events = [];
-  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger });
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
   host.register(plugin("test/one", context => {
     events.push(`activate:${context.pluginId}`);
     context.onDispose(() => events.push("dispose:one:first"));
@@ -48,7 +53,7 @@ test("the host activates in registration order and disposes in reverse order", (
 });
 
 test("the host rejects duplicate ids and incompatible APIs", () => {
-  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger });
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
   host.register(plugin("test/duplicate"));
   assert.throws(() => host.register(plugin("test/duplicate")), /Duplicate TSPP plugin id/);
   assert.throws(() => host.register({
@@ -59,7 +64,7 @@ test("the host rejects duplicate ids and incompatible APIs", () => {
 
 test("activation failure rolls back activated plugins", () => {
   const events = [];
-  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger });
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
   host.register(plugin("test/ready", () => () => events.push("dispose:ready")));
   host.register(plugin("test/failing", context => {
     context.onDispose(() => events.push("dispose:failing"));

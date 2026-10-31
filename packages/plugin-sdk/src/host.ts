@@ -1,5 +1,6 @@
 import {
     TSPP_PLUGIN_API_VERSION,
+    TSPPCompilerHostAPI,
     TSPPPlugin,
     TSPPPluginContext,
     TSPPPluginDisposer,
@@ -10,6 +11,7 @@ import {
 export interface TSPPPluginHostEnvironment {
     readonly compilerVersion: string;
     readonly logger: TSPPPluginLogger;
+    readonly compiler: TSPPCompilerHostAPI;
 }
 
 interface PluginRegistration {
@@ -98,6 +100,10 @@ export class TSPPPluginHost {
             compilerVersion: this.environment.compilerVersion,
             pluginId,
             logger: prefixLogger(this.environment.logger, pluginId),
+            compiler: {
+                expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
+                registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
+            },
             onDispose: disposer => registration.disposers.push(disposer),
         };
     }

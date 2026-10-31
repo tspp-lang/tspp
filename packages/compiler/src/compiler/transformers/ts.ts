@@ -39,6 +39,7 @@ import {
     ExportSpecifier,
     Expression,
     ExpressionWithTypeArguments,
+    ExtensionExpression,
     filter,
     findSuperStatementIndexPath,
     flattenDestructuringAssignment,
@@ -124,6 +125,7 @@ import {
     isStatement,
     isTemplateLiteral,
     isTryStatement,
+    isVariableDeclarationList,
     JsxOpeningElement,
     JsxSelfClosingElement,
     map,
@@ -193,6 +195,7 @@ import {
     Transformer,
     TransformFlags,
     VariableDeclaration,
+    VariableDeclarationList,
     VariableStatement,
     visitEachChild,
     visitFunctionBody,
@@ -202,6 +205,8 @@ import {
     visitParameterList,
     VisitResult,
 } from "../_namespaces/ts.js";
+import type { TSPPExpressionTransformer } from "@tspp/plugin-sdk";
+import { getExtensionExpressionSyntax } from "../plugins/registry.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.
@@ -634,6 +639,36 @@ export function transformTypeScript(context: TransformationContext): Transformer
         return node;
     }
 
+    function transformExtensionExpression(node: ExtensionExpression): Expression {
+        const pluginTransformer: TSPPExpressionTransformer = {
+            visitExpression: expression => Debug.checkDefined(visitNode(expression as Expression, visitor, isExpression)),
+            visitVariableDeclarationList: declarations => Debug.checkDefined(
+                visitNode(declarations as VariableDeclarationList, visitor, isVariableDeclarationList),
+            ),
+            createVariableStatement: declarations => factory.createVariableStatement(
+                /*modifiers*/ undefined,
+                declarations as VariableDeclarationList,
+            ),
+            createReturnStatement: expression => factory.createReturnStatement(expression as Expression),
+            createBlock: (statements, multiLine) => factory.createBlock(statements as readonly Statement[], multiLine),
+            createArrowFunction: body => factory.createArrowFunction(
+                /*modifiers*/ undefined,
+                /*typeParameters*/ undefined,
+                [],
+                /*type*/ undefined,
+                factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                body as Block,
+            ),
+            createParenthesizedExpression: expression => factory.createParenthesizedExpression(expression as Expression),
+            createCallExpression: expression => factory.createCallExpression(
+                expression as Expression,
+                /*typeArguments*/ undefined,
+                [],
+            ),
+        };
+        return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;
+    }
+
     /**
      * Branching visitor, visits a TypeScript syntax node.
      *
@@ -647,6 +682,9 @@ export function transformTypeScript(context: TransformationContext): Transformer
         }
 
         switch (node.kind) {
+            case SyntaxKind.ExtensionExpression:
+                return transformExtensionExpression(node as ExtensionExpression);
+
             case SyntaxKind.ExportKeyword:
             case SyntaxKind.DefaultKeyword:
                 // ES6 export and default modifiers are elided when inside a namespace.

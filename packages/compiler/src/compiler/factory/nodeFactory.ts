@@ -86,6 +86,7 @@ import {
     ExportDeclaration,
     ExportSpecifier,
     Expression,
+    ExtensionExpression,
     ExpressionStatement,
     ExpressionWithTypeArguments,
     ExternalModuleReference,
@@ -1010,6 +1011,8 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         createSyntaxList,
         createNotEmittedStatement,
         createNotEmittedTypeElement,
+        createExtensionExpression,
+        updateExtensionExpression,
         createPartiallyEmittedExpression,
         updatePartiallyEmittedExpression,
         createCommaListExpression,
@@ -6270,6 +6273,26 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
     function updatePartiallyEmittedExpression(node: PartiallyEmittedExpression, expression: Expression) {
         return node.expression !== expression
             ? update(createPartiallyEmittedExpression(expression, node.original), node)
+            : node;
+    }
+
+    /** Creates the generic AST envelope used by expression syntax plugins. */
+    // @api
+    function createExtensionExpression(pluginId: string, children: readonly Node[]) {
+        const node = createBaseNode<ExtensionExpression>(SyntaxKind.ExtensionExpression);
+        node.pluginId = pluginId;
+        node.extensionChildren = createNodeArray(children);
+        node.locals = undefined;
+        node.nextContainer = undefined;
+        node.transformFlags |= propagateChildrenFlags(node.extensionChildren) |
+            TransformFlags.ContainsTypeScript;
+        return node;
+    }
+
+    // @api
+    function updateExtensionExpression(node: ExtensionExpression, children: readonly Node[]) {
+        return node.extensionChildren !== children
+            ? update(createExtensionExpression(node.pluginId, children), node)
             : node;
     }
 

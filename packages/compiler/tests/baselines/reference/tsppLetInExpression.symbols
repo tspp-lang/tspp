@@ -1,0 +1,28 @@
+//// [tests/cases/compiler/tsppLetInExpression.ts] ////
+
+=== tsppLetInExpression.ts ===
+const total: number = let left = 20, right = 22 in left + right;
+>total : Symbol(total, Decl(tsppLetInExpression.ts, 0, 5))
+>left : Symbol(left, Decl(tsppLetInExpression.ts, 0, 25))
+>right : Symbol(right, Decl(tsppLetInExpression.ts, 0, 36))
+>left : Symbol(left, Decl(tsppLetInExpression.ts, 0, 25))
+>right : Symbol(right, Decl(tsppLetInExpression.ts, 0, 36))
+
+const greeting: string = let name = "TSPP" in `hello ${name}`;
+>greeting : Symbol(greeting, Decl(tsppLetInExpression.ts, 1, 5))
+>name : Symbol(name, Decl(tsppLetInExpression.ts, 1, 28))
+>name : Symbol(name, Decl(tsppLetInExpression.ts, 1, 28))
+
+const destructured: number = let { value } = { value: 7 } in value;
+>destructured : Symbol(destructured, Decl(tsppLetInExpression.ts, 2, 5))
+>value : Symbol(value, Decl(tsppLetInExpression.ts, 2, 34))
+>value : Symbol(value, Decl(tsppLetInExpression.ts, 2, 46))
+>value : Symbol(value, Decl(tsppLetInExpression.ts, 2, 34))
+
+const nested: number = let seed = 1 in let doubled = seed * 2 in doubled + 3;
+>nested : Symbol(nested, Decl(tsppLetInExpression.ts, 3, 5))
+>seed : Symbol(seed, Decl(tsppLetInExpression.ts, 3, 26))
+>doubled : Symbol(doubled, Decl(tsppLetInExpression.ts, 3, 42))
+>seed : Symbol(seed, Decl(tsppLetInExpression.ts, 3, 26))
+>doubled : Symbol(doubled, Decl(tsppLetInExpression.ts, 3, 42))
+

@@ -3872,6 +3872,11 @@ export function getContainerFlags(node: Node): ContainerFlags {
         case SyntaxKind.PropertyDeclaration:
             return (node as PropertyDeclaration).initializer ? ContainerFlags.IsControlFlowContainer : ContainerFlags.None;
 
+        // Extension expressions are isolated lexical capsules. Plugins cannot
+        // leak declarations into their caller.
+        case SyntaxKind.ExtensionExpression:
+            return ContainerFlags.IsBlockScopedContainer | ContainerFlags.HasLocals;
+
         case SyntaxKind.CatchClause:
         case SyntaxKind.ForStatement:
         case SyntaxKind.ForInStatement:

@@ -191,6 +191,7 @@ import {
     ExpressionStatement,
     ExpressionWithTypeArguments,
     Extension,
+    ExtensionExpression,
     ExternalEmitHelpers,
     externalHelpersModuleNameText,
     factory,
@@ -1150,6 +1151,8 @@ import {
 } from "./_namespaces/ts.js";
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import type { TSPPExpressionChecker } from "@tspp/plugin-sdk";
+import { getExtensionExpressionSyntax } from "./plugins/registry.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -41890,6 +41893,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return checkFunctionExpressionOrObjectLiteralMethod(node as FunctionExpression | ArrowFunction, checkMode);
             case SyntaxKind.TypeOfExpression:
                 return checkTypeOfExpression(node as TypeOfExpression);
+            case SyntaxKind.ExtensionExpression:
+                return checkExtensionExpression(node as ExtensionExpression, checkMode);
             case SyntaxKind.TypeAssertionExpression:
             case SyntaxKind.AsExpression:
                 return checkAssertion(node as AssertionExpression, checkMode);
@@ -41937,6 +41942,14 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 Debug.fail("Shouldn't ever directly check a JsxOpeningElement");
         }
         return errorType;
+    }
+
+    function checkExtensionExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
+        const pluginChecker: TSPPExpressionChecker = {
+            checkExpression: (expression, mode) => checkExpression(expression as Expression, mode as CheckMode | undefined),
+            checkVariableDeclarationList: declarations => checkVariableDeclarationList(declarations as VariableDeclarationList),
+        };
+        return getExtensionExpressionSyntax(node).check(node, pluginChecker, checkMode) as Type;
     }
 
     // DECLARATION AND STATEMENT TYPE CHECKING

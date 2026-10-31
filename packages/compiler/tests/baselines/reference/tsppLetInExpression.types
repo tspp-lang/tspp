@@ -1,0 +1,79 @@
+//// [tests/cases/compiler/tsppLetInExpression.ts] ////
+
+=== tsppLetInExpression.ts ===
+const total: number = let left = 20, right = 22 in left + right;
+>total : number
+>      : ^^^^^^
+>let left = 20, right = 22 in left + right : number
+>                                          : ^^^^^^
+>left : number
+>     : ^^^^^^
+>20 : 20
+>   : ^^
+>right : number
+>      : ^^^^^^
+>22 : 22
+>   : ^^
+>left + right : number
+>             : ^^^^^^
+>left : number
+>     : ^^^^^^
+>right : number
+>      : ^^^^^^
+
+const greeting: string = let name = "TSPP" in `hello ${name}`;
+>greeting : string
+>         : ^^^^^^
+>let name = "TSPP" in `hello ${name}` : string
+>                                     : ^^^^^^
+>name : string
+>     : ^^^^^^
+>"TSPP" : "TSPP"
+>       : ^^^^^^
+>`hello ${name}` : string
+>                : ^^^^^^
+>name : string
+>     : ^^^^^^
+
+const destructured: number = let { value } = { value: 7 } in value;
+>destructured : number
+>             : ^^^^^^
+>let { value } = { value: 7 } in value : number
+>                                      : ^^^^^^
+>value : number
+>      : ^^^^^^
+>{ value: 7 } : { value: number; }
+>             : ^^^^^^^^^^^^^^^^^^
+>value : number
+>      : ^^^^^^
+>7 : 7
+>  : ^
+>value : number
+>      : ^^^^^^
+
+const nested: number = let seed = 1 in let doubled = seed * 2 in doubled + 3;
+>nested : number
+>       : ^^^^^^
+>let seed = 1 in let doubled = seed * 2 in doubled + 3 : number
+>                                                      : ^^^^^^
+>seed : number
+>     : ^^^^^^
+>1 : 1
+>  : ^
+>let doubled = seed * 2 in doubled + 3 : number
+>                                      : ^^^^^^
+>doubled : number
+>        : ^^^^^^
+>seed * 2 : number
+>         : ^^^^^^
+>seed : number
+>     : ^^^^^^
+>2 : 2
+>  : ^
+>doubled + 3 : number
+>            : ^^^^^^
+>doubled : number
+>        : ^^^^^^
+>3 : 3
+>  : ^
+

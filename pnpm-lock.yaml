@@ -166,6 +166,9 @@ importers:
 
   .:
     devDependencies:
+      '@tspp/plugin-let-in-expression':
+        specifier: workspace:*
+        version: link:packages/plugins/let-in-expression
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:packages/plugin-sdk
@@ -178,6 +181,9 @@ importers:
 
   packages/compiler:
     dependencies:
+      '@tspp/plugin-let-in-expression':
+        specifier: workspace:*
+        version: link:../plugins/let-in-expression
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:../plugin-sdk
@@ -427,6 +433,19 @@ importers:
         version: 3.2.3
 
   packages/plugin-sdk:
+    devDependencies:
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/plugins/let-in-expression:
+    dependencies:
+      '@tspp/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../plugin-sdk
     devDependencies:
       rimraf:
         specifier: ^6.1.3

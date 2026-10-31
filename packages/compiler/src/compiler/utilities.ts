@@ -2208,6 +2208,7 @@ export function isBlockScope(node: Node, parentNode: Node | undefined): boolean 
         case SyntaxKind.ForStatement:
         case SyntaxKind.ForInStatement:
         case SyntaxKind.ForOfStatement:
+        case SyntaxKind.ExtensionExpression:
         case SyntaxKind.Constructor:
         case SyntaxKind.MethodDeclaration:
         case SyntaxKind.GetAccessor:
@@ -3650,6 +3651,7 @@ export function isExpressionNode(node: Node): boolean {
         case SyntaxKind.FunctionExpression:
         case SyntaxKind.ClassExpression:
         case SyntaxKind.ArrowFunction:
+        case SyntaxKind.ExtensionExpression:
         case SyntaxKind.VoidExpression:
         case SyntaxKind.DeleteExpression:
         case SyntaxKind.TypeOfExpression:
