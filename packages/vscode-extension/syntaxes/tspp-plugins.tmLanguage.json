@@ -33,6 +33,14 @@
       "name": "variable.language.contract-result.tspp"
     },
     {
+      "match": "\\bType(?:0|[1-9][0-9]*)?\\b",
+      "name": "storage.type.kind.tspp"
+    },
+    {
+      "match": "=>",
+      "name": "keyword.operator.kind.tspp"
+    },
+    {
       "match": "\\b(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)",
       "name": "keyword.control.let.tspp"
     },

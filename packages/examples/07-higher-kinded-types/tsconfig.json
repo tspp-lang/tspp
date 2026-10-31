@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "@tspp/plugin-higher-kinded-types",
+        "tspp": true
+      },
+      {
+        "name": "@tspp/plugin-type-computation",
+        "tspp": true
+      }
+    ],
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": ["src/**/*.tspp"]
+}

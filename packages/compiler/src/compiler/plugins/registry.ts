@@ -14,11 +14,16 @@ import type {
     TSPPExpressionSyntaxKinds,
     TSPPFunctionBodyParser,
     TSPPFunctionBodySyntax,
+    TSPPKindAnnotationParser,
+    TSPPKindAnnotationSyntax,
+    TSPPPostfixTypeParser,
+    TSPPPostfixTypeSyntax,
     TSPPStatementParser,
     TSPPTrailingClosureBindingSyntax,
     TSPPTypeParser,
     TSPPTypeSyntax,
     TSPPTypeSyntaxKinds,
+    TSPPTypeKind,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
 } from "@tspp/plugin-sdk/compiler";
@@ -48,7 +53,12 @@ const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
 const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
 const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
 const typeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTypeSyntax; }[]>();
+const postfixTypeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPPostfixTypeSyntax; }[]>();
 const typeConstructors = new WeakSet<object>();
+const typeUniverseLevels = new WeakMap<object, number>();
+const typeApplications = new WeakMap<object, { readonly target: object; readonly typeArguments: readonly object[]; }>();
+const kindSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPKindAnnotationSyntax; }[]>();
+const kindAnnotations = new WeakMap<object, TSPPTypeKind>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
@@ -108,6 +118,8 @@ export const typeSyntaxKinds: TSPPTypeSyntaxKinds = {
     colonToken: SyntaxKind.ColonToken,
     commaToken: SyntaxKind.CommaToken,
     semicolonToken: SyntaxKind.SemicolonToken,
+    openParenToken: SyntaxKind.OpenParenToken,
+    closeParenToken: SyntaxKind.CloseParenToken,
 };
 
 const compilerAPI: TSPPCompilerHostAPI = {
@@ -248,6 +260,46 @@ const compilerAPI: TSPPCompilerHostAPI = {
             }
         };
     },
+    registerPostfixTypeSyntax(pluginId, syntax) {
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP postfix-type plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        for (const token of syntax.startTokens) {
+            const candidates = postfixTypeSyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else postfixTypeSyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            for (const token of syntax.startTokens) {
+                const candidates = postfixTypeSyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) postfixTypeSyntaxByStartToken.delete(token);
+            }
+        };
+    },
+    registerKindAnnotationSyntax(pluginId, syntax) {
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP kind-annotation plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        for (const token of syntax.startTokens) {
+            const candidates = kindSyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else kindSyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            for (const token of syntax.startTokens) {
+                const candidates = kindSyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) kindSyntaxByStartToken.delete(token);
+            }
+        };
+    },
     registerProgramAnalyzer(pluginId, analyzer) {
         const key = `${pluginId}/${analyzer.id}`;
         if (programAnalyzers.has(key)) throw new Error(`Duplicate TSPP program analyzer '${key}'.`);
@@ -329,6 +381,83 @@ export function tryParseExtensionType(
 /** @internal */
 export function registerTypeConstructor(node: object): void {
     typeConstructors.add(node);
+}
+
+/** @internal */
+export function registerTypeUniverse(node: object, level: number): void {
+    typeUniverseLevels.set(node, level);
+}
+
+/** @internal */
+export function registerTypeApplication(node: object, target: object, typeArguments: readonly object[]): void {
+    typeApplications.set(node, { target, typeArguments });
+}
+
+/** @internal */
+export function getTypeApplication(node: object): { readonly target: object; readonly typeArguments: readonly object[]; } | undefined {
+    let current: { readonly original?: object; } | undefined = node;
+    while (current) {
+        const application = typeApplications.get(current);
+        if (application) return application;
+        current = current.original;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function tryParsePostfixType(
+    token: SyntaxKind,
+    target: object,
+    createParser: (pluginId: string) => TSPPPostfixTypeParser,
+): object | undefined {
+    const candidates = postfixTypeSyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { pluginId, syntax } of candidates) {
+        const parser = createParser(pluginId);
+        if (syntax.isStart(parser)) return syntax.parse(target, parser);
+    }
+    return undefined;
+}
+
+/** @internal */
+export function getTypeUniverseLevel(node: object): number | undefined {
+    let current: { readonly original?: object; } | undefined = node;
+    while (current) {
+        const level = typeUniverseLevels.get(current);
+        if (level !== undefined) return level;
+        current = current.original;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function tryParseKindAnnotation(
+    token: SyntaxKind,
+    createParser: (pluginId: string) => TSPPKindAnnotationParser,
+): TSPPTypeKind | undefined {
+    const candidates = kindSyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { pluginId, syntax } of candidates) {
+        const parser = createParser(pluginId);
+        if (syntax.isStart(parser)) return syntax.parse(parser);
+    }
+    return undefined;
+}
+
+/** @internal */
+export function setTypeKindAnnotation(node: object, kind: TSPPTypeKind | undefined): void {
+    if (kind) kindAnnotations.set(node, kind);
+}
+
+/** @internal */
+export function getTypeKindAnnotation(node: object): TSPPTypeKind | undefined {
+    let current: { readonly original?: object; } | undefined = node;
+    while (current) {
+        const kind = kindAnnotations.get(current);
+        if (kind) return kind;
+        current = current.original;
+    }
+    return undefined;
 }
 
 /** @internal */

@@ -130,6 +130,9 @@ export class TSPPPluginHost {
                     this.environment.compiler.registerDeepReadonlyBindingSyntax(pluginId, syntax),
                 registerDeclarationSyntax: syntax => this.environment.compiler.registerDeclarationSyntax(pluginId, syntax),
                 registerTypeSyntax: syntax => this.environment.compiler.registerTypeSyntax(pluginId, syntax),
+                registerPostfixTypeSyntax: syntax => this.environment.compiler.registerPostfixTypeSyntax(pluginId, syntax),
+                registerKindAnnotationSyntax: syntax =>
+                    this.environment.compiler.registerKindAnnotationSyntax(pluginId, syntax),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
             },

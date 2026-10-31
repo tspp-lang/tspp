@@ -8595,5 +8595,13 @@
     "A trailing-closure binding is only allowed directly inside a completion-valued block.": {
         "category": "Error",
         "code": 18071
+    },
+    "Type '{0}' has kind '{1}', but kind '{2}' was expected.": {
+        "category": "Error",
+        "code": 18072
+    },
+    "Type constructor '{0}' must be applied to {1} type argument(s).": {
+        "category": "Error",
+        "code": 18073
     }
 }

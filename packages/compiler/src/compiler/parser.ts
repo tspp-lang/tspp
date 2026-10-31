@@ -3,6 +3,8 @@ import type {
     TSPPDeepReadonlyBindingParser,
     TSPPExpressionParser,
     TSPPFunctionBodyParser,
+    TSPPKindAnnotationParser,
+    TSPPPostfixTypeParser,
     TSPPStatementParser,
     TSPPTaggedUnionVariant,
     TSPPTypeParser,
@@ -420,10 +422,15 @@ import {
     registerDeepReadonlyBinding,
     registerTrailingClosureBinding,
     registerTypeConstructor,
+    registerTypeApplication,
+    registerTypeUniverse,
+    setTypeKindAnnotation,
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
     tryParseExtensionFunctionBody,
     tryParseExtensionType,
+    tryParseKindAnnotation,
+    tryParsePostfixType,
     tryParseDeepReadonlyBinding,
     tryParseTrailingClosureBinding,
     typeSyntaxKinds,
@@ -3995,6 +4002,7 @@ namespace Parser {
         const pos = getNodePos();
         const modifiers = parseModifiers(/*allowDecorators*/ false, /*permitConstAsModifier*/ true);
         const name = parseIdentifier();
+        const kind = tryParseKindAnnotation(token(), createExtensionKindAnnotationParser);
         let constraint: TypeNode | undefined;
         let expression: Expression | undefined;
         if (parseOptional(SyntaxKind.ExtendsKeyword)) {
@@ -4020,7 +4028,9 @@ namespace Parser {
         const defaultType = parseOptional(SyntaxKind.EqualsToken) ? parseType() : undefined;
         const node = factory.createTypeParameterDeclaration(modifiers, name, constraint, defaultType);
         node.expression = expression;
-        return finishNode(node, pos);
+        const result = finishNode(node, pos);
+        setTypeKindAnnotation(result, kind);
+        return result;
     }
 
     function parseTypeParameters(): NodeArray<TypeParameterDeclaration> | undefined {
@@ -4781,8 +4791,14 @@ namespace Parser {
                         type = finishNode(factory.createArrayTypeNode(type), pos);
                     }
                     break;
-                default:
+                default: {
+                    const extensionType = tryParsePostfixType(token(), type, createExtensionPostfixTypeParser);
+                    if (extensionType) {
+                        type = extensionType as TypeNode;
+                        break;
+                    }
                     return type;
+                }
             }
         }
         return type;
@@ -5073,6 +5089,50 @@ namespace Parser {
                 registerTypeConstructor(node);
                 return node;
             },
+            finishTypeUniverse: (level, pos) => {
+                const text = level === 0 ? "Type0" : `Type${level}`;
+                const node = finishNode(factory.createTypeReferenceNode(text, /*typeArguments*/ undefined), pos);
+                registerTypeUniverse(node, level);
+                return node;
+            },
+        };
+    }
+
+    function createExtensionPostfixTypeParser(_pluginId: string): TSPPPostfixTypeParser {
+        return {
+            kinds: typeSyntaxKinds,
+            token,
+            getNodePos,
+            parseTypeArguments: parseTypeArgumentsOfTypeReference,
+            finishTypeApplication: (targetIn, typeArgumentsIn, pos) => {
+                const target = targetIn as TypeNode;
+                const typeArguments = typeArgumentsIn as readonly TypeNode[];
+                const parameters = [target, ...typeArguments].map((type, index) => factory.createParameterDeclaration(
+                    /*modifiers*/ undefined,
+                    /*dotDotDotToken*/ undefined,
+                    index === 0 ? "__tsppTarget" : `__tsppArgument${index - 1}`,
+                    /*questionToken*/ undefined,
+                    type,
+                    /*initializer*/ undefined,
+                ));
+                const node = finishNode(factory.createFunctionTypeNode(
+                    /*typeParameters*/ undefined,
+                    factory.createNodeArray(parameters),
+                    factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+                ), pos);
+                registerTypeApplication(node, target, typeArguments);
+                return node;
+            },
+        };
+    }
+
+    function createExtensionKindAnnotationParser(_pluginId: string): TSPPKindAnnotationParser {
+        return {
+            kinds: typeSyntaxKinds,
+            token,
+            tokenText: () => scanner.getTokenValue(),
+            nextToken,
+            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
         };
     }
 
@@ -8800,11 +8860,14 @@ namespace Parser {
         }
         const name = parseIdentifier();
         const typeParameters = parseTypeParameters();
+        const kind = tryParseKindAnnotation(token(), createExtensionKindAnnotationParser);
         parseExpected(SyntaxKind.EqualsToken);
         const type = token() === SyntaxKind.IntrinsicKeyword && tryParse(parseKeywordAndNoDot) || parseType();
         parseSemicolon();
         const node = factory.createTypeAliasDeclaration(modifiers, name, typeParameters, type);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        const result = withJSDoc(finishNode(node, pos), hasJSDoc);
+        setTypeKindAnnotation(result, kind);
+        return result;
     }
 
     // In an ambient declaration, the grammar only allows integer literals as initializers.

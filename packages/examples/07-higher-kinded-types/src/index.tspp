@@ -1,0 +1,59 @@
+export {};
+
+type Pair<Left, Right> = [Left, Right];
+type Apply2<Constructor: (Type, Type) => Type, Left, Right> = Constructor<Left, Right>;
+type NumberAtType0: Type0 = number;
+export type UniverseZero: Type1 = Type0;
+type IdentityAtOne<Kind: Type1>: Type1 = Kind;
+export type PreservedType0: Type1 = IdentityAtOne<Type0>;
+
+export type NamedPair = Apply2<Pair, string, number>;
+const namedPair: NamedPair = ["answer", 42];
+
+export type Arrays: Type => Type = Array;
+export type StringArray = Arrays<string>;
+const strings: StringArray = ["one", "two"];
+type IdentityConstructor<Constructor: Type => Type>: Type => Type = Constructor;
+export type DirectNumberArray = IdentityConstructor<Array><number>;
+export type ParenthesizedNumberArray = (IdentityConstructor<Array>)<number>;
+const directNumbers: DirectNumberArray = [1, 2, 3];
+const parenthesizedNumbers: ParenthesizedNumberArray = directNumbers;
+
+interface Functor<Container: Type => Type> {
+    map<Input, Output>(value: Container<Input>, transform: (value: Input) => Output): Container<Output>;
+}
+
+export type ArrayFunctor = Functor<Array>;
+const arrayFunctor: Functor<Arrays> = {
+    map: (values, transform) => values.map(transform),
+};
+const labels = arrayFunctor.map<number, string>([1, 2], value => `item-${value}`);
+const checkedLabels: string[] = labels;
+
+type Mapping<Container: Type => Type, Input, Output> = [Container<Input>, Container<Output>];
+type ArrayMapping = Mapping<Array, string, number>;
+const mapping: ArrayMapping = [strings, [1, 2]];
+
+type Apply<Constructor: Type => Type, Value> = Constructor<Value>;
+type Box = <Value> =>> { value: Value };
+export type BooleanBox = Apply<Box, boolean>;
+const box: BooleanBox = { value: true };
+
+// @ts-expect-error Pair has kind (Type, Type) => Type, not Type => Type.
+type WrongArity = Apply<Pair, string>;
+// @ts-expect-error string is a value type, not a type constructor.
+type NotAConstructor = Apply<string, number>;
+// @ts-expect-error Kinds are non-cumulative: an ordinary type has kind Type0, not Type1.
+export type WrongUniverseLevel: Type1 = number;
+declare const wrongUniverseLevel: WrongUniverseLevel;
+// @ts-expect-error Type0 itself lives in Type1.
+type UniverseCannotContainItself: Type0 = Type0;
+declare const universeCannotContainItself: UniverseCannotContainItself;
+
+void namedPair;
+void mapping;
+void checkedLabels;
+void box;
+void wrongUniverseLevel;
+void universeCannotContainItself;
+void parenthesizedNumbers;

@@ -106,6 +106,36 @@ export interface TSPPTypeSyntaxKinds {
     readonly colonToken: TSPPSyntaxKind;
     readonly commaToken: TSPPSyntaxKind;
     readonly semicolonToken: TSPPSyntaxKind;
+    readonly openParenToken: TSPPSyntaxKind;
+    readonly closeParenToken: TSPPSyntaxKind;
+}
+
+export type TSPPTypeKind = TSPPOrdinaryTypeKind | TSPPFunctionTypeKind;
+
+export interface TSPPOrdinaryTypeKind {
+    readonly kind: "type";
+    readonly level: number;
+}
+
+export interface TSPPFunctionTypeKind {
+    readonly kind: "function";
+    readonly parameters: readonly TSPPTypeKind[];
+    readonly result: TSPPTypeKind;
+}
+
+export interface TSPPKindAnnotationParser {
+    readonly kinds: TSPPTypeSyntaxKinds;
+    token(): TSPPSyntaxKind;
+    tokenText(): string;
+    nextToken(): TSPPSyntaxKind;
+    parseExpected(kind: TSPPSyntaxKind): boolean;
+}
+
+/** Plugin-owned kind annotation following a type declaration or type parameter name. */
+export interface TSPPKindAnnotationSyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    isStart(parser: TSPPKindAnnotationParser): boolean;
+    parse(parser: TSPPKindAnnotationParser): TSPPTypeKind;
 }
 
 export interface TSPPTypeMatchArm {
@@ -142,6 +172,7 @@ export interface TSPPTypeParser {
         body: TSPPTypeNode,
         pos: number,
     ): TSPPTypeNode;
+    finishTypeUniverse(level: number, pos: number): TSPPTypeNode;
 }
 
 /** Plugin-owned syntax in a type position, lowered through generic type operations. */
@@ -149,6 +180,21 @@ export interface TSPPTypeSyntax {
     readonly startTokens: readonly TSPPSyntaxKind[];
     isStart(parser: TSPPTypeParser): boolean;
     parse(parser: TSPPTypeParser): TSPPTypeNode;
+}
+
+export interface TSPPPostfixTypeParser {
+    readonly kinds: TSPPTypeSyntaxKinds;
+    token(): TSPPSyntaxKind;
+    getNodePos(): number;
+    parseTypeArguments(): readonly TSPPTypeNode[] | undefined;
+    finishTypeApplication(target: TSPPTypeNode, typeArguments: readonly TSPPTypeNode[], pos: number): TSPPTypeNode;
+}
+
+/** Plugin-owned syntax applied after an already parsed type. */
+export interface TSPPPostfixTypeSyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    isStart(parser: TSPPPostfixTypeParser): boolean;
+    parse(target: TSPPTypeNode, parser: TSPPPostfixTypeParser): TSPPTypeNode;
 }
 
 export interface TSPPExpressionParser {
@@ -360,6 +406,8 @@ export interface TSPPCompilerPluginAPI {
     registerDeepReadonlyBindingSyntax(syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerTypeSyntax(syntax: TSPPTypeSyntax): TSPPPluginDisposer;
+    registerPostfixTypeSyntax(syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
+    registerKindAnnotationSyntax(syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }
@@ -374,6 +422,8 @@ export interface TSPPCompilerHostAPI {
     registerDeepReadonlyBindingSyntax(pluginId: string, syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(pluginId: string, syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerTypeSyntax(pluginId: string, syntax: TSPPTypeSyntax): TSPPPluginDisposer;
+    registerPostfixTypeSyntax(pluginId: string, syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
+    registerKindAnnotationSyntax(pluginId: string, syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }

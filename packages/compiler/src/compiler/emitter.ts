@@ -1,4 +1,4 @@
-import type { TSPPDeclarationEmitter } from "@tspp/plugin-sdk/compiler";
+import type { TSPPDeclarationEmitter, TSPPTypeKind } from "@tspp/plugin-sdk/compiler";
 import * as ts from "./_namespaces/ts.js";
 import {
     AccessorDeclaration,
@@ -425,7 +425,7 @@ import {
     YieldExpression,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionDeclarationSyntax, isExtensionTypeConstructor } from "./plugins/registry.js";
+import { getExtensionDeclarationSyntax, getTypeApplication, getTypeKindAnnotation, isExtensionTypeConstructor } from "./plugins/registry.js";
 import { getTaggedUnionData } from "./plugins/taggedUnion.js";
 
 const brackets = createBracketsMap();
@@ -2209,6 +2209,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitTypeParameter(node: TypeParameterDeclaration) {
         emitModifierList(node, node.modifiers);
         emit(node.name);
+        const kind = getTypeKindAnnotation(node);
+        if (kind) {
+            writePunctuation(":");
+            writeSpace();
+            emitTSPPTypeKind(kind);
+        }
         if (node.constraint) {
             writeSpace();
             writeKeyword("extends");
@@ -2221,6 +2227,28 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             writeSpace();
             emit(node.default);
         }
+    }
+
+    function emitTSPPTypeKind(kind: TSPPTypeKind): void {
+        if (kind.kind === "type") {
+            writeKeyword(kind.level === 0 ? "Type" : `Type${kind.level}`);
+            return;
+        }
+        if (kind.parameters.length !== 1) writePunctuation("(");
+        kind.parameters.forEach((parameter, index) => {
+            if (index > 0) {
+                writePunctuation(",");
+                writeSpace();
+            }
+            if (parameter.kind === "function") writePunctuation("(");
+            emitTSPPTypeKind(parameter);
+            if (parameter.kind === "function") writePunctuation(")");
+        });
+        if (kind.parameters.length !== 1) writePunctuation(")");
+        writeSpace();
+        writePunctuation("=>");
+        writeSpace();
+        emitTSPPTypeKind(kind.result);
     }
 
     function emitParameter(node: ParameterDeclaration) {
@@ -2352,6 +2380,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitFunctionType(node: FunctionTypeNode) {
+        const application = getTypeApplication(node);
+        if (application) {
+            emit(application.target as Node);
+            emitTypeArguments(node, application.typeArguments as NodeArray<TypeNode>);
+            return;
+        }
         if (isExtensionTypeConstructor(node)) {
             emitTypeParameters(node, node.typeParameters);
             writeSpace();
@@ -3677,6 +3711,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         writeSpace();
         emit(node.name);
         emitTypeParameters(node, node.typeParameters);
+        const kind = getTypeKindAnnotation(node);
+        if (kind) {
+            writePunctuation(":");
+            writeSpace();
+            emitTSPPTypeKind(kind);
+        }
         writeSpace();
         writePunctuation("=");
         writeSpace();

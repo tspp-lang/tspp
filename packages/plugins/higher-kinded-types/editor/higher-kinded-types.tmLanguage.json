@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TS++ higher-kinded types",
+  "scopeName": "source.tspp.higher-kinded-types",
+  "injectionSelector": "L:source.tspp",
+  "patterns": [
+    { "match": "\\bType(?:0|[1-9][0-9]*)?\\b", "name": "storage.type.kind.tspp" },
+    { "match": "=>", "name": "keyword.operator.kind.tspp" }
+  ]
+}
