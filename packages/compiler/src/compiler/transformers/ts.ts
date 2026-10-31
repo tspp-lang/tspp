@@ -93,6 +93,7 @@ import {
     isElementAccessExpression,
     isEntityName,
     isEnumConst,
+    isExpressionStatement,
     isExportAssignment,
     isExportDeclaration,
     isExportOrDefaultModifier,
@@ -103,6 +104,7 @@ import {
     isGeneratedIdentifier,
     isHeritageClause,
     isIdentifier,
+    isIfStatement,
     isImportClause,
     isImportDeclaration,
     isImportEqualsDeclaration,
@@ -216,6 +218,8 @@ import {
 import {
     getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
+    getExtensionFunctionBodySyntax,
+    getTrailingClosureBinding,
     hasExtensionDeclarationCallTransforms,
 } from "../plugins/registry.js";
 import {
@@ -693,8 +697,95 @@ export function transformTypeScript(context: TransformationContext): Transformer
                     /*typeArguments*/ undefined,
                     [],
                 ),
+            createCompletionBlockIIFE: block => {
+                const body = Debug.checkDefined(
+                    visitNode(createCompletionBlock(block as Block), visitor, isBlock),
+                );
+                const arrow = factory.createArrowFunction(
+                    /*modifiers*/ undefined,
+                    /*typeParameters*/ undefined,
+                    [],
+                    /*type*/ undefined,
+                    factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                    body,
+                );
+                return factory.createCallExpression(
+                    factory.createParenthesizedExpression(arrow),
+                    /*typeArguments*/ undefined,
+                    [],
+                );
+            },
         };
         return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;
+    }
+
+    function createCompletionBlock(block: Block): Block {
+        if (block.statements.length === 0) return block;
+        const statements = [...block.statements];
+        const bindingIndex = statements.findIndex(statement => !!getTrailingClosureBinding(statement));
+        if (bindingIndex >= 0) {
+            const binding = Debug.checkDefined(getTrailingClosureBinding(statements[bindingIndex]));
+            const continuation = createCompletionBlock(
+                factory.createBlock(statements.slice(bindingIndex + 1), /*multiLine*/ true),
+            );
+            const parameter = factory.createParameterDeclaration(
+                /*modifiers*/ undefined,
+                /*dotDotDotToken*/ undefined,
+                binding.declaration.name,
+                /*questionToken*/ undefined,
+                /*type*/ undefined,
+                /*initializer*/ undefined,
+            );
+            const arrow = factory.createArrowFunction(
+                /*modifiers*/ undefined,
+                /*typeParameters*/ undefined,
+                [parameter],
+                /*type*/ undefined,
+                factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                continuation,
+            );
+            const call = isCallExpression(binding.target)
+                ? factory.updateCallExpression(
+                    binding.target,
+                    binding.target.expression,
+                    binding.target.typeArguments,
+                    [...binding.target.arguments, arrow],
+                )
+                : factory.createCallExpression(binding.target, /*typeArguments*/ undefined, [arrow]);
+            return factory.updateBlock(block, [
+                ...statements.slice(0, bindingIndex),
+                factory.createReturnStatement(call),
+            ]);
+        }
+        const lastIndex = statements.length - 1;
+        const last = statements[lastIndex];
+        const transformBranch = (statement: Statement): Statement => {
+            if (isBlock(statement)) return createCompletionBlock(statement);
+            if (isExpressionStatement(statement)) return factory.createReturnStatement(statement.expression);
+            return statement;
+        };
+        if (isExpressionStatement(last)) {
+            statements[lastIndex] = factory.createReturnStatement(last.expression);
+        }
+        else if (isIfStatement(last)) {
+            statements[lastIndex] = factory.updateIfStatement(
+                last,
+                last.expression,
+                transformBranch(last.thenStatement),
+                last.elseStatement && transformBranch(last.elseStatement),
+            );
+        }
+        return factory.updateBlock(block, statements);
+    }
+
+    function visitCompletionFunctionBody(block: Block): Block {
+        return Debug.checkDefined(visitFunctionBody(createCompletionBlock(block), visitor, context));
+    }
+
+    function visitExtensionFunctionBody(body: Block | undefined): Block | undefined {
+        return body && getExtensionFunctionBodySyntax(body)
+            ? visitCompletionFunctionBody(body)
+            : visitFunctionBody(body, visitor, context);
     }
 
     function createTaggedUnionStatements(node: TypeAliasDeclaration): readonly Statement[] {
@@ -1618,7 +1709,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
             /*typeParameters*/ undefined,
             visitParameterList(node.parameters, visitor, context),
             /*type*/ undefined,
-            visitFunctionBody(node.body, visitor, context),
+            visitExtensionFunctionBody(node.body),
         );
     }
 
@@ -1653,7 +1744,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
             visitPropertyNameOfClassElement(node),
             visitParameterList(node.parameters, visitor, context),
             /*type*/ undefined,
-            visitFunctionBody(node.body, visitor, context) || factory.createBlock([]),
+            visitExtensionFunctionBody(node.body) || factory.createBlock([]),
         );
     }
 
@@ -1677,7 +1768,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
             modifiers,
             visitPropertyNameOfClassElement(node),
             visitParameterList(node.parameters, visitor, context),
-            visitFunctionBody(node.body, visitor, context) || factory.createBlock([]),
+            visitExtensionFunctionBody(node.body) || factory.createBlock([]),
         );
     }
 
@@ -1693,7 +1784,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
             /*typeParameters*/ undefined,
             visitParameterList(node.parameters, visitor, context),
             /*type*/ undefined,
-            visitFunctionBody(node.body, visitor, context) || factory.createBlock([]),
+            visitExtensionFunctionBody(node.body) || factory.createBlock([]),
         );
         if (isExportOfNamespace(node)) {
             const statements: Statement[] = [updated];
@@ -1715,7 +1806,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
             /*typeParameters*/ undefined,
             visitParameterList(node.parameters, visitor, context),
             /*type*/ undefined,
-            visitFunctionBody(node.body, visitor, context) || factory.createBlock([]),
+            visitExtensionFunctionBody(node.body) || factory.createBlock([]),
         );
         return updated;
     }
@@ -1728,7 +1819,9 @@ export function transformTypeScript(context: TransformationContext): Transformer
             visitParameterList(node.parameters, visitor, context),
             /*type*/ undefined,
             node.equalsGreaterThanToken,
-            visitFunctionBody(node.body, visitor, context),
+            isBlock(node.body) && getExtensionFunctionBodySyntax(node.body)
+                ? Debug.checkDefined(visitExtensionFunctionBody(node.body))
+                : Debug.checkDefined(visitFunctionBody(node.body, visitor, context)),
         );
         return updated;
     }

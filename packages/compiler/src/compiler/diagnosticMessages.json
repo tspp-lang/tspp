@@ -8591,5 +8591,9 @@
     "Duplicate match branch for pattern '{0}'.": {
         "category": "Error",
         "code": 18070
+    },
+    "A trailing-closure binding is only allowed directly inside a completion-valued block.": {
+        "category": "Error",
+        "code": 18071
     }
 }

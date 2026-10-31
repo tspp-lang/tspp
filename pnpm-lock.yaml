@@ -172,9 +172,9 @@ importers:
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:packages/plugins/formal-verification
-      '@tspp/plugin-let-in-expression':
+      '@tspp/plugin-modern-syntax':
         specifier: workspace:*
-        version: link:packages/plugins/let-in-expression
+        version: link:packages/plugins/modern-syntax
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:packages/plugin-sdk
@@ -318,11 +318,11 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1
 
-  packages/examples/01-let-in-expression:
+  packages/examples/01-modern-syntax:
     dependencies:
-      '@tspp/plugin-let-in-expression':
+      '@tspp/plugin-modern-syntax':
         specifier: workspace:*
-        version: link:../../plugins/let-in-expression
+        version: link:../../plugins/modern-syntax
       ts-plus-plus:
         specifier: workspace:*
         version: link:../../compiler
@@ -336,9 +336,9 @@ importers:
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:../../plugins/formal-verification
-      '@tspp/plugin-let-in-expression':
+      '@tspp/plugin-modern-syntax':
         specifier: workspace:*
-        version: link:../../plugins/let-in-expression
+        version: link:../../plugins/modern-syntax
     devDependencies:
       eslint:
         specifier: ^10.10.0
@@ -570,7 +570,7 @@ importers:
         specifier: ^8.70.0
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
 
-  packages/plugins/let-in-expression:
+  packages/plugins/modern-syntax:
     dependencies:
       '@tspp/plugin-sdk':
         specifier: workspace:*

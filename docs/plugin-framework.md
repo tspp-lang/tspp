@@ -51,7 +51,7 @@ the single executable capability declaration:
   "compilerOptions": {
     "plugins": [
       {
-        "name": "@tspp/plugin-let-in-expression",
+        "name": "@tspp/plugin-modern-syntax",
         "tspp": true
       }
     ]
@@ -67,12 +67,22 @@ project, then ordinary TypeScript language-service features operate on the
 resulting AST, symbols, and types.
 
 `typescript-language-server` remains a generic LSP-to-tsserver bridge and the
-VS Code extension remains a generic client. Neither contains a `let-in` branch.
+VS Code extension remains a generic client. Neither contains a modern-syntax branch.
 
 ## First feature capsule
 
-`@tspp/plugin-let-in-expression` proves the compiler boundary. It owns the
-lookahead, parse shape, type result, and lowering of `let x = value in body`.
+`@tspp/plugin-modern-syntax` proves the compiler boundary. It owns the
+lookahead, parse shape, type result, and lowering of `let x = value in body`
+and completion-valued `do` blocks. It also owns `use pattern <- target` while
+the SDK supplies the reusable trailing-closure binding mechanism: a standard
+block-scoped binding plus out-of-band target metadata. The ordinary binder
+still owns scope and destructuring; completion checking and lowering consume
+the metadata without adding a feature-specific syntax kind.
+
+The same capsule implements `def` through the SDK's deep-readonly binding
+boundary. The parser produces an ordinary `const` declaration, while
+out-of-band ownership makes its initializer a recursive const-inference
+context. Emission therefore has zero runtime machinery.
 The compiler sees only a generic `ExtensionExpression` carrying the plugin ID
 and ordered child nodes.
 
@@ -83,6 +93,15 @@ flowchart LR
     Envelope --> Check[plugin checker capability]
     Envelope --> Lower[plugin lowering capability]
     Lower --> JS[ordinary JavaScript AST]
+```
+
+A trailing-closure binding turns the remainder of the enclosing completion
+block into a callback:
+
+```text
+use value <- acquire(arg); rest(value)
+        ↓
+return acquire(arg, value => { return rest(value); })
 ```
 
 ## Rules

@@ -122,6 +122,11 @@ export class TSPPPluginHost {
                 expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
                 declarationSyntaxKinds: this.environment.compiler.declarationSyntaxKinds,
                 registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
+                registerFunctionBodySyntax: syntax => this.environment.compiler.registerFunctionBodySyntax(pluginId, syntax),
+                registerTrailingClosureBindingSyntax: syntax =>
+                    this.environment.compiler.registerTrailingClosureBindingSyntax(pluginId, syntax),
+                registerDeepReadonlyBindingSyntax: syntax =>
+                    this.environment.compiler.registerDeepReadonlyBindingSyntax(pluginId, syntax),
                 registerDeclarationSyntax: syntax => this.environment.compiler.registerDeclarationSyntax(pluginId, syntax),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),

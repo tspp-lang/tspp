@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@tspp/plugin-formal-verification": "workspace:*",
-    "@tspp/plugin-let-in-expression": "workspace:*"
+    "@tspp/plugin-modern-syntax": "workspace:*"
   },
   "devDependencies": {
     "eslint": "^10.10.0"

@@ -1,0 +1,98 @@
+const total: number = let left = 20, right = 22 in left + right;
+const greeting: string = let name = "TS++" in `Hello from ${name}`;
+const formatted: string = do {
+  const feature = "modern syntax";
+  `Hello from ${feature}`;
+};
+const branchResult: string = do {
+  if (total === 42) {
+    "correct";
+  } else {
+    "unexpected";
+  }
+};
+
+function add(left: number, right: number): number do {
+  const result = left + right;
+  result;
+}
+function inferredAnswer() do {
+  42;
+}
+const inferred: number = inferredAnswer();
+const multiply = function (left: number, right: number): number do {
+  left * right;
+};
+const arrowAnswer = (): number => do { 42; };
+
+function withValue<T>(value: number, continuation: (value: number) => T): T {
+  return continuation(value);
+}
+function withPair<T>(continuation: (value: { left: number; right: number }) => T): T {
+  return continuation({ left: 20, right: 22 });
+}
+
+const continued: number = do {
+  use value: number <- withValue(40);
+  value + 2;
+};
+const destructured: number = do {
+  use { left, right } <- withPair();
+  left + right;
+};
+const nestedContinuation: number = do {
+  use left <- withValue(20);
+  use right <- withValue(22);
+  left + right;
+};
+function continuedFunction(): number do {
+  use value <- withValue(40);
+  value + 2;
+}
+
+def appConfig = {
+  network: { host: "127.0.0.1", port: 8080 },
+  tags: ["compiler", "plugin"],
+};
+def primary = { value: 20 }, secondary = { value: 22 };
+
+class Calculator {
+  total(left: number, right: number): number do {
+    left + right;
+  }
+}
+
+if (false) {
+  // @ts-expect-error A do function completion must match its annotated return type.
+  function invalidCompletion(): number do { "not a number"; }
+  // @ts-expect-error A trailing-closure binding belongs directly in a completion block.
+  use invalidPlacement <- withValue(42);
+  // @ts-expect-error def recursively freezes nested properties.
+  appConfig.network.port = 9090;
+  // @ts-expect-error def infers a readonly tuple without mutating methods.
+  appConfig.tags.push("mutable");
+  console.log(invalidCompletion);
+}
+let loopCount = 0;
+do {
+  loopCount++;
+} while (loopCount < 1);
+
+console.log(
+  greeting,
+  total,
+  formatted,
+  branchResult,
+  inferred,
+  add(20, 22),
+  multiply(6, 7),
+  arrowAnswer(),
+  continued,
+  destructured,
+  nestedContinuation,
+  continuedFunction(),
+  appConfig.network.port,
+  primary.value + secondary.value,
+  new Calculator().total(19, 23),
+  loopCount,
+);

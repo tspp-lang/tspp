@@ -5,8 +5,9 @@ packages and the TSPP compiler host.
 
 The SDK provides plugin identity, API compatibility, deterministic activation,
 logging, cleanup, and separate compiler, language-service, LSP, and editor
-facets. The expression-syntax compiler port is justified by the first real
-plugin; the other facets currently define ownership and lifecycle boundaries
+facets. Expression syntax, completion-valued function bodies, declarations,
+trailing-closure bindings, and deep-readonly bindings each have a concrete
+feature consumer; the other facets define ownership and lifecycle boundaries
 without speculative feature APIs.
 
 Compiler AST values remain opaque to plugin packages. Plugins parse, check, and

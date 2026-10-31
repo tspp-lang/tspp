@@ -3,7 +3,7 @@
   "private": true,
   "devDependencies": {
     "@tspp/plugin-dependent-types": "workspace:*",
-    "@tspp/plugin-let-in-expression": "workspace:*",
+    "@tspp/plugin-modern-syntax": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-sdk": "workspace:*",
     "ts-plus-plus": "workspace:*",

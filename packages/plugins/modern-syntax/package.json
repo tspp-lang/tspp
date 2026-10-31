@@ -1,7 +1,7 @@
 {
-  "name": "@tspp/plugin-let-in-expression",
+  "name": "@tspp/plugin-modern-syntax",
   "version": "0.0.1",
-  "description": "TSPP let-in expression syntax plugin.",
+  "description": "TSPP modern value-level syntax plugin.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -13,7 +13,8 @@
     "./package.json": "./package.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "editor"
   ],
   "scripts": {
     "build": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json",

@@ -7,7 +7,7 @@
         "tspp": true
       },
       {
-        "name": "@tspp/plugin-let-in-expression",
+        "name": "@tspp/plugin-modern-syntax",
         "tspp": true
       }
     ],

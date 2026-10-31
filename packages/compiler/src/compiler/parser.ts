@@ -1,6 +1,9 @@
 import type {
     TSPPDeclarationParser,
+    TSPPDeepReadonlyBindingParser,
     TSPPExpressionParser,
+    TSPPFunctionBodyParser,
+    TSPPStatementParser,
     TSPPTaggedUnionVariant,
 } from "@tspp/plugin-sdk/compiler";
 import {
@@ -413,8 +416,13 @@ import {
     expressionSyntaxKinds,
     isStartOfExtensionDeclaration,
     projectTSPPSource,
+    registerDeepReadonlyBinding,
+    registerTrailingClosureBinding,
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
+    tryParseExtensionFunctionBody,
+    tryParseDeepReadonlyBinding,
+    tryParseTrailingClosureBinding,
 } from "./plugins/registry.js";
 import {
     setTaggedUnionData,
@@ -5562,6 +5570,9 @@ namespace Parser {
             return parseFunctionBlock(isAsync ? SignatureFlags.Await : SignatureFlags.None);
         }
 
+        const extensionExpression = tryParseExtensionExpression(token(), createExtensionParser);
+        if (extensionExpression) return extensionExpression;
+
         if (
             token() !== SyntaxKind.SemicolonToken &&
             token() !== SyntaxKind.FunctionKeyword &&
@@ -5982,12 +5993,93 @@ namespace Parser {
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
             parseVariableDeclarationList,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
+            parseBlock: () => parseBlock(/*ignoreMissingOpenBrace*/ false),
             parseTaggedUnionMatchExpression,
             finishExpression: (children, pos) =>
                 finishNode(
                     factory.createExtensionExpression(pluginId, children as readonly Node[]),
                     pos,
                 ),
+        };
+    }
+
+    function createExtensionFunctionBodyParser(flags: SignatureFlags): TSPPFunctionBodyParser {
+        return {
+            kinds: expressionSyntaxKinds,
+            token,
+            nextToken,
+            lookAhead,
+            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
+            parseBlock: () => parseFunctionBlock(flags),
+        };
+    }
+
+    function createExtensionStatementParser(_pluginId: string): TSPPStatementParser {
+        return {
+            kinds: expressionSyntaxKinds,
+            token,
+            tokenText: () => scanner.getTokenText(),
+            nextToken,
+            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
+            lookAhead,
+            getNodePos,
+            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
+            parseBindingName: () => parseIdentifierOrPattern(Diagnostics.Private_identifiers_are_not_allowed_in_variable_declarations),
+            parseTypeAnnotation,
+            parseExpression: () => allowInAnd(parseExpression),
+            parseSemicolon,
+            finishTrailingClosureBinding: (name, type, target, pos) => {
+                const declaration = finishNode(
+                    factoryCreateVariableDeclaration(
+                        name as BindingName,
+                        /*exclamationToken*/ undefined,
+                        type as TypeNode | undefined,
+                        factory.createNull(),
+                    ),
+                    pos,
+                );
+                const declarationList = finishNode(
+                    factoryCreateVariableDeclarationList([declaration], NodeFlags.Let),
+                    pos,
+                );
+                const statement = finishNode(
+                    factoryCreateVariableStatement(/*modifiers*/ undefined, declarationList),
+                    pos,
+                );
+                setParent(target as Node, statement);
+                setParentRecursive(target as Node, /*incremental*/ false);
+                registerTrailingClosureBinding(statement, declaration, target as Expression);
+                return statement;
+            },
+        };
+    }
+
+    function createDeepReadonlyBindingParser(_pluginId: string): TSPPDeepReadonlyBindingParser {
+        return {
+            kinds: expressionSyntaxKinds,
+            token,
+            tokenText: () => scanner.getTokenText(),
+            nextToken,
+            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
+            lookAhead,
+            getNodePos,
+            finishDeepReadonlyBinding: pos => {
+                const declarations = parseDelimitedList(
+                    ParsingContext.VariableDeclarations,
+                    parseVariableDeclarationAllowExclamation,
+                );
+                const declarationList = finishNode(
+                    factoryCreateVariableDeclarationList(declarations, NodeFlags.Const),
+                    pos,
+                );
+                parseSemicolon();
+                const statement = finishNode(
+                    factoryCreateVariableStatement(/*modifiers*/ undefined, declarationList),
+                    pos,
+                );
+                registerDeepReadonlyBinding(statement);
+                return statement;
+            },
         };
     }
 
@@ -6998,7 +7090,8 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(isGenerator | isAsync);
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
-        const body = parseFunctionBlock(isGenerator | isAsync);
+        const body = tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(isGenerator | isAsync))
+            ?? parseFunctionBlock(isGenerator | isAsync);
 
         setDecoratorContext(savedDecoratorContext);
 
@@ -7599,6 +7692,10 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
+        const extensionStatement = tryParseTrailingClosureBinding(token(), createExtensionStatementParser);
+        if (extensionStatement) return extensionStatement;
+        const deepReadonlyBinding = tryParseDeepReadonlyBinding(token(), createDeepReadonlyBindingParser);
+        if (deepReadonlyBinding) return deepReadonlyBinding;
         const extensionDeclaration = tryParseExtensionDeclaration(
             token(),
             pluginId =>
@@ -7930,6 +8027,8 @@ namespace Parser {
     }
 
     function parseFunctionBlockOrSemicolon(flags: SignatureFlags, diagnosticMessage?: DiagnosticMessage): Block | undefined {
+        const extensionBody = tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(flags));
+        if (extensionBody) return extensionBody;
         if (token() !== SyntaxKind.OpenBraceToken) {
             if (flags & SignatureFlags.Type) {
                 parseTypeMemberSemicolon();

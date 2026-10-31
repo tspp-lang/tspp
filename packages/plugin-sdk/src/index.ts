@@ -7,7 +7,7 @@ import type { TSPPLSPPlugin } from "./lsp";
 export const TSPP_PLUGIN_API_VERSION = 1 as const;
 
 export interface TSPPPluginManifest {
-    /** Stable, repository-wide identity such as `modern-syntax/let-in`. */
+    /** Stable, repository-wide identity such as `modern-syntax`. */
     readonly id: string;
     /** Version of the feature package, not the compiler. */
     readonly version: string;

@@ -7,9 +7,15 @@ import type {
     TSPPDeclarationParser,
     TSPPDeclarationSyntax,
     TSPPDeclarationSyntaxKinds,
+    TSPPDeepReadonlyBindingParser,
+    TSPPDeepReadonlyBindingSyntax,
     TSPPExpressionParser,
     TSPPExpressionSyntax,
     TSPPExpressionSyntaxKinds,
+    TSPPFunctionBodyParser,
+    TSPPFunctionBodySyntax,
+    TSPPStatementParser,
+    TSPPTrailingClosureBindingSyntax,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
 } from "@tspp/plugin-sdk/compiler";
@@ -17,15 +23,24 @@ import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 
 import { version } from "../corePublic.js";
 import type {
+    Block,
     Expression,
     ExtensionExpression,
     Statement,
+    VariableDeclaration,
+    VariableStatement,
 } from "../types.js";
-import { SyntaxKind } from "../types.js";
+import { SyntaxKind, TransformFlags } from "../types.js";
 import { getTaggedUnionSyntheticDeclarations } from "./taggedUnion.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
+const functionBodySyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPFunctionBodySyntax; }[]>();
+const functionBodySyntaxByBlock = new WeakMap<object, TSPPFunctionBodySyntax>();
+const trailingClosureSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTrailingClosureBindingSyntax; }[]>();
+const trailingClosureBindingByStatement = new WeakMap<object, TrailingClosureBindingData>();
+const deepReadonlySyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeepReadonlyBindingSyntax; }[]>();
+const deepReadonlyStatements = new WeakSet<object>();
 const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
 const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
 const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
@@ -52,9 +67,15 @@ export const expressionSyntaxKinds: TSPPExpressionSyntaxKinds = {
     closeParenToken: SyntaxKind.CloseParenToken,
     semicolonToken: SyntaxKind.SemicolonToken,
     commaToken: SyntaxKind.CommaToken,
+    equalsToken: SyntaxKind.EqualsToken,
+    colonToken: SyntaxKind.ColonToken,
+    lessThanToken: SyntaxKind.LessThanToken,
+    minusToken: SyntaxKind.MinusToken,
     equalsGreaterThanToken: SyntaxKind.EqualsGreaterThanToken,
     inKeyword: SyntaxKind.InKeyword,
     letKeyword: SyntaxKind.LetKeyword,
+    doKeyword: SyntaxKind.DoKeyword,
+    whileKeyword: SyntaxKind.WhileKeyword,
 };
 
 export const declarationSyntaxKinds: TSPPDeclarationSyntaxKinds = {
@@ -94,6 +115,66 @@ const compilerAPI: TSPPCompilerHostAPI = {
                 const index = candidates.indexOf(registration);
                 if (index >= 0) candidates.splice(index, 1);
                 if (candidates.length === 0) expressionSyntaxByStartToken.delete(token);
+            }
+        };
+    },
+    registerFunctionBodySyntax(pluginId, syntax) {
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP function-body plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        for (const token of syntax.startTokens) {
+            const candidates = functionBodySyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else functionBodySyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            for (const token of syntax.startTokens) {
+                const candidates = functionBodySyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) functionBodySyntaxByStartToken.delete(token);
+            }
+        };
+    },
+    registerTrailingClosureBindingSyntax(pluginId, syntax) {
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP trailing-closure plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        for (const token of syntax.startTokens) {
+            const candidates = trailingClosureSyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else trailingClosureSyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            for (const token of syntax.startTokens) {
+                const candidates = trailingClosureSyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) trailingClosureSyntaxByStartToken.delete(token);
+            }
+        };
+    },
+    registerDeepReadonlyBindingSyntax(pluginId, syntax) {
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP deep-readonly plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        for (const token of syntax.startTokens) {
+            const candidates = deepReadonlySyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else deepReadonlySyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            for (const token of syntax.startTokens) {
+                const candidates = deepReadonlySyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) deepReadonlySyntaxByStartToken.delete(token);
             }
         };
     },
@@ -193,6 +274,104 @@ export function getExtensionExpressionSyntax(node: ExtensionExpression): TSPPExp
     const syntax = expressionSyntaxByPluginId.get(node.pluginId);
     if (!syntax) throw new Error(`Unknown TSPP extension expression plugin: ${node.pluginId}`);
     return syntax;
+}
+
+/** @internal */
+export function tryParseExtensionFunctionBody(
+    token: SyntaxKind,
+    createParser: () => TSPPFunctionBodyParser,
+): Block | undefined {
+    const candidates = functionBodySyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { syntax } of candidates) {
+        const parser = createParser();
+        if (!syntax.isStart(parser)) continue;
+        const block = syntax.parse(parser) as Block;
+        (block as { transformFlags: TransformFlags; }).transformFlags |= TransformFlags.ContainsTypeScript;
+        functionBodySyntaxByBlock.set(block, syntax);
+        return block;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function getExtensionFunctionBodySyntax(block: object): TSPPFunctionBodySyntax | undefined {
+    let current: { readonly original?: object; } | undefined = block;
+    while (current) {
+        const syntax = functionBodySyntaxByBlock.get(current);
+        if (syntax) return syntax;
+        current = current.original;
+    }
+    return undefined;
+}
+
+export interface TrailingClosureBindingData {
+    readonly statement: VariableStatement;
+    readonly declaration: VariableDeclaration;
+    readonly target: Expression;
+}
+
+/** @internal */
+export function tryParseTrailingClosureBinding(
+    token: SyntaxKind,
+    createParser: (pluginId: string) => TSPPStatementParser,
+): Statement | undefined {
+    const candidates = trailingClosureSyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { pluginId, syntax } of candidates) {
+        const parser = createParser(pluginId);
+        if (syntax.isStart(parser)) return syntax.parse(parser) as Statement;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function registerTrailingClosureBinding(
+    statement: VariableStatement,
+    declaration: VariableDeclaration,
+    target: Expression,
+): void {
+    trailingClosureBindingByStatement.set(statement, { statement, declaration, target });
+}
+
+/** @internal */
+export function getTrailingClosureBinding(node: object): TrailingClosureBindingData | undefined {
+    let current: { readonly parent?: object; readonly original?: object; } | undefined = node;
+    while (current) {
+        const data = trailingClosureBindingByStatement.get(current);
+        if (data) return data;
+        current = current.parent ?? current.original;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function tryParseDeepReadonlyBinding(
+    token: SyntaxKind,
+    createParser: (pluginId: string) => TSPPDeepReadonlyBindingParser,
+): Statement | undefined {
+    const candidates = deepReadonlySyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { pluginId, syntax } of candidates) {
+        const parser = createParser(pluginId);
+        if (syntax.isStart(parser)) return syntax.parse(parser) as Statement;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function registerDeepReadonlyBinding(statement: VariableStatement): void {
+    deepReadonlyStatements.add(statement);
+}
+
+/** @internal */
+export function isDeepReadonlyBinding(node: object): boolean {
+    let current: { readonly parent?: object; readonly original?: object; } | undefined = node;
+    while (current) {
+        if (deepReadonlyStatements.has(current)) return true;
+        current = current.parent ?? current.original;
+    }
+    return false;
 }
 
 /** @internal */

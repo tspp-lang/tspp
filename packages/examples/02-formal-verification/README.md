@@ -7,7 +7,7 @@ loop-invariant initialization/preservation. Change an assertion, postcondition,
 or invariant to see a verification diagnostic in both the CLI and the VS Code
 development host.
 
-The independent `@tspp/plugin-let-in-expression` capsule is enabled alongside
+The independent `@tspp/plugin-modern-syntax` capsule is enabled alongside
 it. This keeps a real multi-plugin project in the test path without coupling
 either feature package to the other.
 

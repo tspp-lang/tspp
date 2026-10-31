@@ -3,7 +3,10 @@ import type { TSPPPluginDisposer, TSPPPluginLogger } from "./index";
 /** Opaque compiler values prevent plugins from depending on compiler internals. */
 export type TSPPSyntaxNode = object;
 export type TSPPExpression = TSPPSyntaxNode;
+export type TSPPBlock = TSPPSyntaxNode;
 export type TSPPVariableDeclarationList = TSPPSyntaxNode;
+export type TSPPBindingName = TSPPSyntaxNode;
+export type TSPPStatement = TSPPSyntaxNode;
 export type TSPPDeclaration = TSPPSyntaxNode;
 export type TSPPCallExpression = TSPPExpression;
 export type TSPPIdentifier = TSPPSyntaxNode;
@@ -77,9 +80,15 @@ export interface TSPPExpressionSyntaxKinds {
     readonly closeParenToken: TSPPSyntaxKind;
     readonly semicolonToken: TSPPSyntaxKind;
     readonly commaToken: TSPPSyntaxKind;
+    readonly equalsToken: TSPPSyntaxKind;
+    readonly colonToken: TSPPSyntaxKind;
+    readonly lessThanToken: TSPPSyntaxKind;
+    readonly minusToken: TSPPSyntaxKind;
     readonly equalsGreaterThanToken: TSPPSyntaxKind;
     readonly inKeyword: TSPPSyntaxKind;
     readonly letKeyword: TSPPSyntaxKind;
+    readonly doKeyword: TSPPSyntaxKind;
+    readonly whileKeyword: TSPPSyntaxKind;
 }
 
 export interface TSPPExpressionParser {
@@ -93,6 +102,7 @@ export interface TSPPExpressionParser {
     parseExpected(kind: TSPPSyntaxKind): boolean;
     parseVariableDeclarationList(inForStatementInitializer: boolean): TSPPVariableDeclarationList;
     parseAssignmentExpression(): TSPPExpression;
+    parseBlock(): TSPPBlock;
     parseTaggedUnionMatchExpression(): TSPPExpression;
     finishExpression(children: readonly TSPPSyntaxNode[], pos: number): TSPPExtensionExpression;
 }
@@ -101,6 +111,7 @@ export interface TSPPExpressionChecker {
     checkExpression(node: TSPPExpression, checkMode: number | undefined): TSPPType;
     checkVariableDeclarationList(node: TSPPVariableDeclarationList): void;
     checkTaggedUnionMatch(node: TSPPExtensionExpression, checkMode: number | undefined): TSPPType;
+    checkCompletionBlock(block: TSPPBlock, checkMode: number | undefined): TSPPType;
 }
 
 export interface TSPPExpressionTransformer {
@@ -112,6 +123,70 @@ export interface TSPPExpressionTransformer {
     createArrowFunction(body: TSPPSyntaxNode): TSPPExpression;
     createParenthesizedExpression(expression: TSPPExpression): TSPPExpression;
     createCallExpression(expression: TSPPExpression): TSPPExpression;
+    createCompletionBlockIIFE(block: TSPPBlock): TSPPExpression;
+}
+
+export interface TSPPFunctionBodyParser {
+    readonly kinds: TSPPExpressionSyntaxKinds;
+    token(): TSPPSyntaxKind;
+    nextToken(): TSPPSyntaxKind;
+    lookAhead<T>(callback: () => T): T;
+    parseExpected(kind: TSPPSyntaxKind): boolean;
+    parseBlock(): TSPPBlock;
+}
+
+/** A plugin-owned prefix that turns a normal function block into a completion-valued body. */
+export interface TSPPFunctionBodySyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    isStart(parser: TSPPFunctionBodyParser): boolean;
+    parse(parser: TSPPFunctionBodyParser): TSPPBlock;
+    readonly completion: "implicit-return";
+}
+
+export interface TSPPStatementParser {
+    readonly kinds: TSPPExpressionSyntaxKinds;
+    token(): TSPPSyntaxKind;
+    tokenText(): string;
+    nextToken(): TSPPSyntaxKind;
+    hasPrecedingLineBreak(): boolean;
+    lookAhead<T>(callback: () => T): T;
+    getNodePos(): number;
+    parseExpected(kind: TSPPSyntaxKind): boolean;
+    parseBindingName(): TSPPBindingName;
+    parseTypeAnnotation(): TSPPTypeNode | undefined;
+    parseExpression(): TSPPExpression;
+    parseSemicolon(): boolean;
+    finishTrailingClosureBinding(
+        name: TSPPBindingName,
+        type: TSPPTypeNode | undefined,
+        target: TSPPExpression,
+        pos: number,
+    ): TSPPStatement;
+}
+
+/** A statement lowered by passing the remainder of its completion block as a trailing closure. */
+export interface TSPPTrailingClosureBindingSyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    isStart(parser: TSPPStatementParser): boolean;
+    parse(parser: TSPPStatementParser): TSPPStatement;
+}
+
+export interface TSPPDeepReadonlyBindingParser {
+    readonly kinds: TSPPExpressionSyntaxKinds;
+    token(): TSPPSyntaxKind;
+    tokenText(): string;
+    nextToken(): TSPPSyntaxKind;
+    hasPrecedingLineBreak(): boolean;
+    lookAhead<T>(callback: () => T): T;
+    getNodePos(): number;
+    finishDeepReadonlyBinding(pos: number): TSPPStatement;
+}
+
+/** A plugin-owned declaration with const binding and recursive const-context inference. */
+export interface TSPPDeepReadonlyBindingSyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    isStart(parser: TSPPDeepReadonlyBindingParser): boolean;
+    parse(parser: TSPPDeepReadonlyBindingParser): TSPPStatement;
 }
 
 export interface TSPPExpressionSyntax {
@@ -219,6 +294,9 @@ export interface TSPPCompilerPluginAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
+    registerFunctionBodySyntax(syntax: TSPPFunctionBodySyntax): TSPPPluginDisposer;
+    registerTrailingClosureBindingSyntax(syntax: TSPPTrailingClosureBindingSyntax): TSPPPluginDisposer;
+    registerDeepReadonlyBindingSyntax(syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
@@ -228,6 +306,9 @@ export interface TSPPCompilerHostAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
+    registerFunctionBodySyntax(pluginId: string, syntax: TSPPFunctionBodySyntax): TSPPPluginDisposer;
+    registerTrailingClosureBindingSyntax(pluginId: string, syntax: TSPPTrailingClosureBindingSyntax): TSPPPluginDisposer;
+    registerDeepReadonlyBindingSyntax(pluginId: string, syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(pluginId: string, syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;

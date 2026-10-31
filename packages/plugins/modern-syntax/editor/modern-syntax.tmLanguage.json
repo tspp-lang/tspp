@@ -1,0 +1,22 @@
+{
+  "scopeName": "tspp.modern-syntax.injection",
+  "injectionSelector": "L:source.tspp",
+  "patterns": [
+    {
+      "match": "\\b(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)",
+      "name": "keyword.control.let.tspp"
+    },
+    {
+      "match": "\\b(do)(?=\\s*\\{)",
+      "name": "keyword.control.do.tspp"
+    },
+    {
+      "match": "\\b(use)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*<-)" ,
+      "name": "keyword.control.use.tspp"
+    },
+    {
+      "match": "\\b(def)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{))",
+      "name": "storage.type.def.tspp"
+    }
+  ]
+}
