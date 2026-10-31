@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "@tspp/plugin-formal-verification",
+        "tspp": true
+      }
+    ],
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": ["index.tspp"]
+}

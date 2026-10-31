@@ -1,0 +1,30 @@
+{
+  "name": "@tspp/plugin-formal-verification",
+  "version": "0.0.1",
+  "description": "Isolated SMT/Z3-backed verification feature for TSPP.",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "clean": "rimraf dist",
+    "test": "pnpm build && node --test test/*.test.cjs",
+    "typecheck": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@tspp/plugin-sdk": "workspace:*",
+    "z3-solver": "5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "rimraf": "^6.1.3",
+    "typescript": "5.9.3"
+  }
+}

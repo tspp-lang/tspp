@@ -96,6 +96,17 @@ flowchart LR
 - standard language-service behavior is reused instead of reimplemented;
 - new SDK ports require a concrete feature consumer.
 
+## Asynchronous program analysis
+
+Complex features register a `TSPPProgramAnalyzer`. The compiler snapshots root
+source files into an immutable, compiler-neutral tree and awaits analyzers before
+choosing the CLI exit status. An analyzer never receives a `Program`, checker,
+compiler node, host, or filesystem capability.
+
+`@tspp/plugin-formal-verification` is the first consumer. It owns proof-point
+discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
+compiler owns only snapshotting, scheduling, and diagnostic transport.
+
 ## Current process boundary
 
 Compiler syntax registration is process-wide because the upstream TypeScript

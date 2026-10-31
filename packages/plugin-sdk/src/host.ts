@@ -121,6 +121,7 @@ export class TSPPPluginHost {
             compiler: {
                 expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
                 registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
+                registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

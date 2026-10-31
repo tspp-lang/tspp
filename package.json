@@ -3,6 +3,7 @@
   "private": true,
   "devDependencies": {
     "@tspp/plugin-let-in-expression": "workspace:*",
+    "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-sdk": "workspace:*",
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*"
