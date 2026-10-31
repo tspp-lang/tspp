@@ -224,7 +224,15 @@ async function activate(context) {
       if (!analysis) return;
       const plugins = analysis.ts.getRegisteredTSPPPlugins();
       const content = plugins.length
-        ? plugins.map(plugin => `${plugin.displayName ?? plugin.id}\n  id: ${plugin.id}\n  version: ${plugin.version}\n  API: ${plugin.apiVersion}`).join("\n\n")
+        ? plugins.map(plugin => [
+          plugin.displayName ?? plugin.id,
+          `  id: ${plugin.id}`,
+          `  version: ${plugin.version}`,
+          `  API: ${plugin.apiVersion}`,
+          `  capabilities: ${plugin.capabilities?.join(", ") || "none declared"}`,
+          `  requires: ${plugin.requires?.join(", ") || "none"}`,
+          `  optional: ${plugin.optionalDependencies?.join(", ") || "none"}`,
+        ].join("\n")).join("\n\n")
         : "No TS++ feature capsules are active.\n";
       const report = await vscode.workspace.openTextDocument({ language: "plaintext", content });
       await vscode.window.showTextDocument(report, { viewColumn: vscode.ViewColumn.Beside, preview: true });

@@ -44,9 +44,10 @@ export class TSPPPluginHost {
         if (this.state !== "collecting") {
             throw new Error(`Cannot activate a TSPP plugin host in state '${this.state}'.`);
         }
+        const activationOrder = resolveActivationOrder(this.registrations);
         this.state = "active";
 
-        for (const registration of this.registrations.values()) {
+        for (const registration of activationOrder) {
             try {
                 const disposer = registration.plugin.facets.compiler?.activate(this.createContext(registration));
                 if (disposer) registration.disposers.push(disposer);
@@ -79,6 +80,7 @@ export class TSPPPluginHost {
 
         const registration = this.addRegistration(plugin);
         try {
+            validateActiveDependencies(registration, this.registrations, this.activationOrder);
             const disposer = plugin.facets.compiler?.activate(this.createContext(registration));
             if (disposer) registration.disposers.push(disposer);
             this.activationOrder.push(registration);
@@ -159,7 +161,7 @@ export class TSPPPluginActivationError extends Error {
     public readonly cause: unknown;
 
     public constructor(public readonly pluginId: string, cause: unknown) {
-        super(`Failed to activate TSPP plugin '${pluginId}'.`);
+        super(`Failed to activate TSPP plugin '${pluginId}': ${cause instanceof Error ? cause.message : String(cause)}`);
         this.name = "TSPPPluginActivationError";
         this.cause = cause;
     }
@@ -176,6 +178,72 @@ function validateManifest(manifest: TSPPPluginManifest): void {
         throw new Error(
             `TSPP plugin '${manifest.id}' requires API ${manifest.apiVersion}; host API is ${TSPP_PLUGIN_API_VERSION}.`,
         );
+    }
+    const relationships = [
+        ["requires", manifest.requires],
+        ["optionalDependencies", manifest.optionalDependencies],
+        ["conflicts", manifest.conflicts],
+    ] as const;
+    for (const [name, values] of relationships) {
+        if (!values) continue;
+        if (new Set(values).size !== values.length) throw new Error(`TSPP plugin '${manifest.id}' has duplicate ${name}.`);
+        if (values.includes(manifest.id)) throw new Error(`TSPP plugin '${manifest.id}' cannot list itself in ${name}.`);
+        if (values.some(value => !value || value !== value.trim())) throw new Error(`TSPP plugin '${manifest.id}' has an invalid ${name} id.`);
+    }
+}
+
+function resolveActivationOrder(registrations: ReadonlyMap<string, PluginRegistration>): readonly PluginRegistration[] {
+    for (const registration of registrations.values()) validateRelationships(registration, registrations);
+    const result: PluginRegistration[] = [];
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (registration: PluginRegistration): void => {
+        const id = registration.plugin.manifest.id;
+        if (visited.has(id)) return;
+        if (visiting.has(id)) throw new Error(`Cyclic TSPP plugin dependency involving '${id}'.`);
+        visiting.add(id);
+        for (const dependency of [
+            ...(registration.plugin.manifest.requires ?? []),
+            ...(registration.plugin.manifest.optionalDependencies ?? []),
+        ]) {
+            const target = registrations.get(dependency);
+            if (target) visit(target);
+        }
+        visiting.delete(id);
+        visited.add(id);
+        result.push(registration);
+    };
+    registrations.forEach(visit);
+    return result;
+}
+
+function validateRelationships(
+    registration: PluginRegistration,
+    registrations: ReadonlyMap<string, PluginRegistration>,
+): void {
+    const manifest = registration.plugin.manifest;
+    for (const dependency of manifest.requires ?? []) {
+        if (!registrations.has(dependency)) throw new Error(`TSPP plugin '${manifest.id}' requires missing plugin '${dependency}'.`);
+    }
+    for (const conflict of manifest.conflicts ?? []) {
+        if (registrations.has(conflict)) throw new Error(`TSPP plugin '${manifest.id}' conflicts with '${conflict}'.`);
+    }
+    for (const other of registrations.values()) {
+        if (other.plugin.manifest.conflicts?.includes(manifest.id)) {
+            throw new Error(`TSPP plugin '${other.plugin.manifest.id}' conflicts with '${manifest.id}'.`);
+        }
+    }
+}
+
+function validateActiveDependencies(
+    registration: PluginRegistration,
+    registrations: ReadonlyMap<string, PluginRegistration>,
+    active: readonly PluginRegistration[],
+): void {
+    validateRelationships(registration, registrations);
+    const activeIds = new Set(active.map(item => item.plugin.manifest.id));
+    for (const dependency of registration.plugin.manifest.requires ?? []) {
+        if (!activeIds.has(dependency)) throw new Error(`TSPP plugin '${registration.plugin.manifest.id}' requires inactive plugin '${dependency}'.`);
     }
 }
 

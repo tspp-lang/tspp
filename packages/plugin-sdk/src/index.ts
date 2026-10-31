@@ -14,6 +14,14 @@ export interface TSPPPluginManifest {
     /** Exact SDK contract expected by the feature package. */
     readonly apiVersion: typeof TSPP_PLUGIN_API_VERSION;
     readonly displayName?: string;
+    /** Plugin ids that must be installed and activated first. */
+    readonly requires?: readonly string[];
+    /** Plugin ids that are ordered first when present, but are not required. */
+    readonly optionalDependencies?: readonly string[];
+    /** Plugin ids that cannot coexist with this capsule. */
+    readonly conflicts?: readonly string[];
+    /** Stable, human-readable capabilities exposed for tooling and diagnostics. */
+    readonly capabilities?: readonly string[];
 }
 
 export interface TSPPPluginLogger {

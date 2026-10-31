@@ -62,6 +62,8 @@ export const formalVerificationPlugin = definePlugin({
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Z3 formal verification",
+        optionalDependencies: ["nominal-types"],
+        capabilities: ["analysis-artifacts", "formal-contracts", "smt-libraries"],
     },
     facets: {
         compiler: {

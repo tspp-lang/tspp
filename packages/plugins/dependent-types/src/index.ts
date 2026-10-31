@@ -83,6 +83,7 @@ export const dependentTypesPlugin = definePlugin({
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Martin-Löf dependent types",
+        capabilities: ["analysis-artifacts", "dependent-types", "runtime-type-reification"],
     },
     facets: {
         compiler: {
