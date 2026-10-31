@@ -13,10 +13,45 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "typesVersions": {
+    "*": {
+      "compiler": [
+        "dist/compiler.d.ts"
+      ],
+      "language-service": [
+        "dist/language-service.d.ts"
+      ],
+      "lsp": [
+        "dist/lsp.d.ts"
+      ],
+      "editor": [
+        "dist/editor.d.ts"
+      ],
+      "host": [
+        "dist/host.d.ts"
+      ]
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./compiler": {
+      "types": "./dist/compiler.d.ts",
+      "default": "./dist/compiler.js"
+    },
+    "./language-service": {
+      "types": "./dist/language-service.d.ts",
+      "default": "./dist/language-service.js"
+    },
+    "./lsp": {
+      "types": "./dist/lsp.d.ts",
+      "default": "./dist/lsp.js"
+    },
+    "./editor": {
+      "types": "./dist/editor.d.ts",
+      "default": "./dist/editor.js"
     },
     "./host": {
       "types": "./dist/host.d.ts",

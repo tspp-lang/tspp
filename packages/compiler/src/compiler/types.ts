@@ -7381,6 +7381,8 @@ export enum ModuleDetectionKind {
 
 export interface PluginImport {
     name: string;
+    /** Marks this package as a TSPP feature capsule loaded by both tsc and tsserver. */
+    tspp?: boolean;
 }
 
 export interface ProjectReference {
@@ -8086,6 +8088,7 @@ export interface PackageId {
 
 export const enum Extension {
     Ts = ".ts",
+    Tspp = ".tspp",
     Tsx = ".tsx",
     Dts = ".d.ts",
     Js = ".js",

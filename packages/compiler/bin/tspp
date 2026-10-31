@@ -1,2 +1,5 @@
 #!/usr/bin/env node
-require('../lib/tsc.js')
+const fs = require('node:fs')
+const path = require('node:path')
+const developmentCompiler = path.resolve(__dirname, '../built/local/tsc.js')
+require(fs.existsSync(developmentCompiler) ? developmentCompiler : '../lib/tsc.js')

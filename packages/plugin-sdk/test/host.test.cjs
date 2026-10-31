@@ -18,7 +18,7 @@ const compiler = {
 function plugin(id, activate = () => {}) {
   return definePlugin({
     manifest: { id, version: "0.0.1", apiVersion: TSPP_PLUGIN_API_VERSION },
-    activate,
+    facets: { compiler: { activate } },
   });
 }
 
@@ -58,8 +58,17 @@ test("the host rejects duplicate ids and incompatible APIs", () => {
   assert.throws(() => host.register(plugin("test/duplicate")), /Duplicate TSPP plugin id/);
   assert.throws(() => host.register({
     manifest: { id: "test/future", version: "0.0.1", apiVersion: 2 },
-    activate() {},
+    facets: {},
   }), /requires API 2/);
+});
+
+test("features discovered after activation can register their compiler facet", () => {
+  const events = [];
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  host.activateAll();
+  host.registerAndActivate(plugin("test/dynamic", () => events.push("dynamic")));
+  assert.deepEqual(events, ["dynamic"]);
+  assert.deepEqual(host.list().map(manifest => manifest.id), ["test/dynamic"]);
 });
 
 test("activation failure rolls back activated plugins", () => {

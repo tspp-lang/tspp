@@ -1,74 +1,106 @@
-# TSPP plugin framework
+# TSPP feature plugin framework
 
-The plugin framework grows from concrete capsules. The first compiler port is
-an expression-syntax port proven by the independently packaged `let-in` plugin.
+TSPP features are complete capsules. Feature-specific compiler, language
+service, LSP, and editor code belongs to the feature package; core packages own
+only loading, composition, transport, and stable SDK contracts.
 
 ```mermaid
 flowchart LR
-    PluginA[plugin package A] --> SDK[@tspp/plugin-sdk]
-    PluginB[plugin package B] --> SDK
-    SDK --> Registry[compiler static registry]
-    Registry --> Compiler[TSPP compiler]
-    LetIn[let-in package] --> SDK
-    Registry --> LetIn
+    Config[tsconfig.json plugins] --> Resolver[package resolution]
+    Resolver --> CompilerHost[compiler facet host]
+    Resolver --> LSHost[language-service facet host]
+    Resolver --> LSPHost[optional LSP facet host]
+    Resolver --> EditorBuild[optional editor contribution builder]
 
-    PluginA -. no direct import .- PluginB
+    Feature[feature package] --> SDK[@tspp/plugin-sdk]
+    Feature --> CompilerHost
+    Feature --> LSHost
+    Feature --> LSPHost
+    Feature --> EditorBuild
+
+    CompilerHost --> Compiler[TSPP compiler]
+    LSHost --> Server[TSPP tsserver]
+    LSPHost --> LSP[typescript-language-server]
+    EditorBuild --> Editor[VS Code extension]
 ```
 
-## Package boundary
+## Ownership rule
 
-- `@tspp/plugin-sdk` owns public plugin contracts and reusable host validation.
-- `ts-plus-plus` owns the static composition root in
-  `src/compiler/plugins/registry.ts`.
-- each plugin lives in its own package under `packages/plugins/`.
-- plugin packages depend on the SDK, never compiler internals or another plugin
-  implementation.
-- the compiler injects narrow capability ports into the activating plugin, so
-  static composition does not create a compiler/plugin package cycle.
+> Feature code belongs to the feature package, shared mechanisms belong to the
+> core, integration shapes belong to the SDK, and loading and composition belong
+> to the host.
 
-## What exists now
+A feature package may expose four facets:
 
-- stable plugin IDs and package versions;
-- an explicit plugin API version;
-- registration before activation;
-- deterministic activation order and reverse cleanup;
-- duplicate-ID and API-version checks;
-- rollback when activation fails;
-- one static compiler registry initialized at the compiler composition root;
-- a generic `ExtensionExpression` AST envelope owned by the compiler;
-- token-indexed expression parsing, checking, and lowering ports;
-- lexical isolation and normal traversal for extension expressions;
-- `@tspp/plugin-let-in-expression` as the first real plugin package.
+- `compiler`: parsing, checking, diagnostics, and lowering;
+- `languageService`: feature-specific completions, hovers, refactors, and other
+  capabilities not already derived by the standard TypeScript language service;
+- `lsp`: optional capabilities that cannot be represented by tsserver;
+- `editor`: optional static editor metadata such as commands and snippets.
 
-## Expression capsule boundary
+Plugins depend on `@tspp/plugin-sdk`, never compiler internals or another
+feature implementation. Hosts load only the facet they own.
+
+## Project declaration
+
+The first vertical slice uses the existing `compilerOptions.plugins` array as
+the single executable capability declaration:
+
+```json
+{
+  "compilerOptions": {
+    "plugins": [
+      {
+        "name": "@tspp/plugin-let-in-expression",
+        "tspp": true
+      }
+    ]
+  }
+}
+```
+
+The `tspp` marker distinguishes a feature capsule from an ordinary TypeScript
+language-service plugin. Both the TSPP compiler CLI and TSPP tsserver resolve that package from the
+project. The compiler activates its compiler facet before parsing project source
+files. Tsserver activates the same facet before constructing the configured
+project, then ordinary TypeScript language-service features operate on the
+resulting AST, symbols, and types.
+
+`typescript-language-server` remains a generic LSP-to-tsserver bridge and the
+VS Code extension remains a generic client. Neither contains a `let-in` branch.
+
+## First feature capsule
+
+`@tspp/plugin-let-in-expression` proves the compiler boundary. It owns the
+lookahead, parse shape, type result, and lowering of `let x = value in body`.
+The compiler sees only a generic `ExtensionExpression` carrying the plugin ID
+and ordered child nodes.
 
 ```mermaid
 flowchart LR
-    Source[Source text] --> Parse[parser capability]
+    Source[.tspp source] --> Parse[plugin parser capability]
     Parse --> Envelope[ExtensionExpression]
-    Envelope --> Scope[isolated lexical scope]
-    Envelope --> Check[checker capability]
-    Envelope --> Lower[lowering capability]
+    Envelope --> Check[plugin checker capability]
+    Envelope --> Lower[plugin lowering capability]
     Lower --> JS[ordinary JavaScript AST]
-
-    Plugin[let-in plugin] --> Parse
-    Plugin --> Check
-    Plugin --> Lower
 ```
 
-The compiler knows only the plugin ID and ordered child nodes. The plugin owns
-the syntax lookahead, child meaning, result type, and lowering strategy. For
-`let x = value in body`, the two children are the declaration list and body;
-lowering produces a zero-argument arrow IIFE.
+## Rules
 
-## What deliberately does not exist yet
+- no feature ID conditionals in compiler, tsserver, LSP, or editor code;
+- no plugin-to-plugin implementation imports;
+- no compiler-internal imports from feature packages;
+- registrations return disposers and are owned by a host lifecycle;
+- duplicate IDs and incompatible API versions fail at activation;
+- plugin packages are resolved from the declaring project;
+- standard language-service behavior is reused instead of reimplemented;
+- new SDK ports require a concrete feature consumer.
 
-- runtime package discovery;
-- configuration-file loading;
-- statement, declaration, type-syntax, emitter, or language-service ports;
-- plugin-to-plugin service lookup;
-- ordering and dependency declarations.
+## Current process boundary
 
-Each next plugin should add only the smallest new compiler port it needs.
-Adding a port without a real consumer would turn speculation into permanent API
-surface.
+Compiler syntax registration is process-wide because the upstream TypeScript
+parser is process-global. The first slice therefore supports one accumulated
+feature set per tsserver process. True project isolation requires the LSP host
+to group projects by plugin set and run separate tsserver processes, or a later
+compiler change that threads a plugin context through parsing. This limitation
+is explicit; feature packages themselves must not work around it with globals.

@@ -29,7 +29,6 @@
         "tsppserver": "./bin/tsppserver"
     },
     "dependencies": {
-        "@tspp/plugin-let-in-expression": "workspace:*",
         "@tspp/plugin-sdk": "workspace:*"
     },
     "engines": {

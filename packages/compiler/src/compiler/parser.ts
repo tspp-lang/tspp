@@ -1,3 +1,4 @@
+import type { TSPPExpressionParser } from "@tspp/plugin-sdk/compiler";
 import {
     AccessorDeclaration,
     addRange,
@@ -81,10 +82,10 @@ import {
     ExportDeclaration,
     ExportSpecifier,
     Expression,
-    ExtensionExpression,
     ExpressionStatement,
     ExpressionWithTypeArguments,
     Extension,
+    ExtensionExpression,
     ExternalModuleReference,
     fileExtensionIs,
     findIndex,
@@ -402,8 +403,10 @@ import {
     YieldExpression,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import type { TSPPExpressionParser } from "@tspp/plugin-sdk";
-import { expressionSyntaxKinds, tryParseExtensionExpression } from "./plugins/registry.js";
+import {
+    expressionSyntaxKinds,
+    tryParseExtensionExpression,
+} from "./plugins/registry.js";
 
 const enum SignatureFlags {
     None = 0,
@@ -506,8 +509,11 @@ function isImportMeta(node: Node): boolean {
 type ForEachChildFunction<TNode> = <T>(node: TNode, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined) => T | undefined;
 type ForEachChildTable = { [TNode in ForEachChildNodes as TNode["kind"]]: ForEachChildFunction<TNode>; };
 const forEachChildTable: ForEachChildTable = {
-    [SyntaxKind.ExtensionExpression]: function forEachChildInExtensionExpression<T>(node: ExtensionExpression, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
-        return visitNodes(cbNode, cbNodes, node.extensionChildren);
+    [SyntaxKind.ExtensionExpression]: function forEachChildInExtensionExpression<T>(node: ExtensionExpression, cbNode: (node: Node) => T | undefined, _cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
+        // These children are ordered plugin slots, not one source-level syntax
+        // list. Visiting them individually lets navigation synthesize the
+        // feature's separator tokens from the gaps between child ranges.
+        return visitNodes(cbNode, /*cbNodes*/ undefined, node.extensionChildren);
     },
     [SyntaxKind.QualifiedName]: function forEachChildInQualifiedName<T>(node: QualifiedName, cbNode: (node: Node) => T | undefined, _cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
         return visitNode(cbNode, node.left) ||
@@ -5799,10 +5805,11 @@ namespace Parser {
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
             parseVariableDeclarationList,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
-            finishExpression: (children, pos) => finishNode(
-                factory.createExtensionExpression(pluginId, children as readonly Node[]),
-                pos,
-            ),
+            finishExpression: (children, pos) =>
+                finishNode(
+                    factory.createExtensionExpression(pluginId, children as readonly Node[]),
+                    pos,
+                ),
         };
     }
 

@@ -1,2 +1,5 @@
 #!/usr/bin/env node
-require('../lib/tsserver.js')
+const fs = require('node:fs')
+const path = require('node:path')
+const developmentServer = path.resolve(__dirname, '../built/local/tsserver.js')
+require(fs.existsSync(developmentServer) ? developmentServer : '../lib/tsserver.js')

@@ -1,23 +1,18 @@
 import {
-    TSPP_PLUGIN_API_VERSION,
-    type TSPPCompilerHostAPI,
-    type TSPPExpressionParser,
-    type TSPPExpressionSyntax,
-    type TSPPExpressionSyntaxKinds,
     type TSPPPlugin,
     type TSPPPluginLogger,
 } from "@tspp/plugin-sdk";
+import type {
+    TSPPCompilerHostAPI,
+    TSPPExpressionParser,
+    TSPPExpressionSyntax,
+    TSPPExpressionSyntaxKinds,
+} from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
-import { letInExpressionPlugin } from "@tspp/plugin-let-in-expression";
 
 import { version } from "../corePublic.js";
 import type { ExtensionExpression } from "../types.js";
 import { SyntaxKind } from "../types.js";
-
-/** The single static compiler/plugin composition point. */
-const compilerPlugins: readonly TSPPPlugin[] = [
-    letInExpressionPlugin,
-];
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
@@ -79,13 +74,35 @@ const compilerAPI: TSPPCompilerHostAPI = {
 export function initializeTSPPCompilerPlugins(compilerVersion: string): void {
     if (pluginHost) return;
     pluginHost = new TSPPPluginHost({ compilerVersion, logger: silentLogger, compiler: compilerAPI });
-    for (const plugin of compilerPlugins) {
-        if (plugin.manifest.apiVersion !== TSPP_PLUGIN_API_VERSION) {
-            throw new Error(`TSPP compiler cannot load plugin '${plugin.manifest.id}' with API ${plugin.manifest.apiVersion}.`);
-        }
-        pluginHost.register(plugin);
-    }
     pluginHost.activateAll();
+}
+
+/** Registers the compiler facet of a feature package for this process. */
+export function registerTSPPCompilerPlugin(plugin: TSPPPlugin): boolean {
+    initializeTSPPCompilerPlugins(version);
+    const existing = pluginHost!.list().find(manifest => manifest.id === plugin.manifest.id);
+    if (existing) {
+        if (existing.version !== plugin.manifest.version || existing.apiVersion !== plugin.manifest.apiVersion) {
+            throw new Error(
+                `TSPP plugin '${plugin.manifest.id}' is already active at version ${existing.version}; cannot activate ${plugin.manifest.version}.`,
+            );
+        }
+        return false;
+    }
+    pluginHost!.registerAndActivate(plugin);
+    return true;
+}
+
+/** Extracts a feature capsule from either CommonJS or ESM-shaped package exports. */
+export function getTSPPPluginFromModule(moduleValue: unknown): TSPPPlugin | undefined {
+    if (!moduleValue || typeof moduleValue !== "object") return undefined;
+    const exports = moduleValue as { default?: unknown; };
+    const candidate = exports.default ?? moduleValue;
+    if (!candidate || typeof candidate !== "object") return undefined;
+    const plugin = candidate as Partial<TSPPPlugin>;
+    return plugin.manifest && plugin.facets && typeof plugin.facets === "object"
+        ? plugin as TSPPPlugin
+        : undefined;
 }
 
 /** @internal */
@@ -115,7 +132,6 @@ export function getRegisteredExpressionPluginIds(): readonly string[] {
     return [...expressionSyntaxByPluginId.keys()];
 }
 
-// The compiler namespace is also consumed directly by internal tools and the
-// test runner, so static composition belongs here rather than only in CLI/API
-// entry points. The public initializer remains idempotent.
+// Initialize an empty process-level host. Project configuration supplies the
+// feature capsules before source files are parsed.
 initializeTSPPCompilerPlugins(version);
