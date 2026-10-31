@@ -15,6 +15,7 @@
     "build:language-server": "pnpm --filter tspp-language-server build",
     "build:tests": "pnpm --filter ts-plus-plus build:tests",
     "build:vscode": "pnpm --filter tspp-vscode build",
+    "build:vscode:dev": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode",
     "test": "pnpm test:plugin-sdk && pnpm test:plugins && pnpm test:compiler && pnpm test:language-server && pnpm test:vscode",
     "test:compiler": "pnpm --filter ts-plus-plus test",
     "test:eslint-rules": "pnpm --filter ts-plus-plus test:eslint-rules",
