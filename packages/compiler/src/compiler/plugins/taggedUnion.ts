@@ -34,17 +34,31 @@ const taggedUnionVariants = new WeakMap<object, {
 }>();
 
 /** @internal */
-export interface TaggedUnionMatchArm {
+export interface TaggedUnionMatchBinding {
+    readonly kind: "binding";
+    readonly name: string;
+    readonly node: Identifier;
+}
+
+/** @internal */
+export interface TaggedUnionMatchPattern {
+    readonly kind: "constructor";
     readonly variant: string;
-    readonly bindings: readonly string[];
     readonly variantNode: Identifier;
-    readonly bindingNodes: readonly Identifier[];
+    readonly elements: readonly (TaggedUnionMatchBinding | TaggedUnionMatchPattern)[];
+}
+
+/** @internal */
+export interface TaggedUnionMatchArm {
+    readonly patterns: readonly TaggedUnionMatchPattern[];
+    readonly guard?: Expression;
     readonly result: Expression;
 }
 
 /** @internal */
 export interface TaggedUnionMatchData {
     readonly scrutinee: Expression;
+    readonly temporaryName: string;
     readonly arms: readonly TaggedUnionMatchArm[];
 }
 

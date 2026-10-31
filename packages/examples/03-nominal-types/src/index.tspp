@@ -3,6 +3,8 @@ export newtype OrderId = string;
 newtype Box<T> = T;
 export data Option<T> = None | Some(value: T);
 data List<T> = Nil | Cons(head: T, tail: List<T>);
+export data Status = Idle | Loading | Ready;
+export data OptionBox = OptionBox(value: Option<number>);
 
 const userId: UserId = UserId("user-1");
 const orderId: OrderId = OrderId("order-1");
@@ -18,6 +20,24 @@ const selected: number = match something {
 const fallback: number = match nothing {
   Some(value) => value,
   _ => 0,
+};
+const guardedOption: Option<string> = Some("TS++");
+const guarded: string = match guardedOption {
+  Some(value) if value.length > 3 => value,
+  Some(_) => "short",
+  None => "missing",
+};
+function currentStatus(): Status {
+  return Loading;
+}
+const sharedStatus: string = match currentStatus() {
+  Idle | Loading => "waiting",
+  Ready => "ready",
+};
+const nestedOption = OptionBox(Some(9));
+const nestedValue: number = match nestedOption {
+  OptionBox(None()) => 0,
+  OptionBox(Some(value)) => value,
 };
 let evaluationCount = 0;
 function nextOption(): Option<number> {
@@ -48,6 +68,15 @@ if (false) {
     None => 0,
     Some(value, extra) => value,
   };
+  // @ts-expect-error A guarded constructor does not exhaust that constructor.
+  const guardedOnly = match unknownOption {
+    Some(value) if Number(value) > 0 => value,
+    None => 0,
+  };
+  // @ts-expect-error Or-patterns currently share only nullary constructors.
+  const invalidOrPattern = match unknownOption {
+    None | Some(_) => 0,
+  };
 
   const wrongSome = Some("wrong");
   // @ts-expect-error Variant fields retain their declared types.
@@ -58,7 +87,21 @@ if (false) {
   const forgedOption: Option<number> = { _tag: "None", _values: [] };
 }
 
-console.log(userId, orderId, rawUserId, unboxed, nothing, something, selected, fallback, evaluatedOnce, listLength);
+console.log(
+  userId,
+  orderId,
+  rawUserId,
+  unboxed,
+  nothing,
+  something,
+  selected,
+  fallback,
+  guarded,
+  sharedStatus,
+  nestedValue,
+  evaluatedOnce,
+  listLength,
+);
 
 // Deliberately invalid when uncommented:
 // const wrong: UserId = orderId;

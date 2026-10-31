@@ -8571,5 +8571,25 @@
     "Non-exhaustive match. Missing patterns: {0}.": {
         "category": "Error",
         "code": 18065
+    },
+    "A branch after the wildcard pattern is unreachable.": {
+        "category": "Error",
+        "code": 18066
+    },
+    "The wildcard pattern cannot be combined with other patterns.": {
+        "category": "Error",
+        "code": 18067
+    },
+    "The wildcard pattern cannot contain nested patterns.": {
+        "category": "Error",
+        "code": 18068
+    },
+    "Or-patterns support only variants without fields.": {
+        "category": "Error",
+        "code": 18069
+    },
+    "Duplicate match branch for pattern '{0}'.": {
+        "category": "Error",
+        "code": 18070
     }
 }

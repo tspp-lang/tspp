@@ -49,6 +49,7 @@ import {
     findSuperStatementIndexPath,
     flattenDestructuringAssignment,
     FlattenLevel,
+    forEachChild,
     FunctionDeclaration,
     FunctionExpression,
     FunctionLikeDeclaration,
@@ -217,7 +218,11 @@ import {
     getExtensionExpressionSyntax,
     hasExtensionDeclarationCallTransforms,
 } from "../plugins/registry.js";
-import { getTaggedUnionData, getTaggedUnionMatchData, type TaggedUnionMatchData } from "../plugins/taggedUnion.js";
+import {
+    getTaggedUnionData,
+    getTaggedUnionMatchData,
+    type TaggedUnionMatchData,
+} from "../plugins/taggedUnion.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.
@@ -1862,59 +1867,79 @@ export function transformTypeScript(context: TransformationContext): Transformer
     }
 
     function transformTaggedUnionMatch(data: TaggedUnionMatchData): Expression {
-        const matched = factory.createUniqueName("_match");
+        const matched = factory.createIdentifier(data.temporaryName);
+        const fieldAccess = (value: Expression, fieldIndex: number): Expression => {
+            const access = factory.createElementAccessExpression(
+                factory.createPropertyAccessExpression(value, "_values"),
+                factory.createNumericLiteral(fieldIndex),
+            );
+            setEmitFlags(access, getEmitFlags(access) | EmitFlags.NoSubstitution);
+            return access;
+        };
+        const lowerPattern = (
+            pattern: TaggedUnionMatchData["arms"][number]["patterns"][number],
+            value: Expression,
+        ): { readonly condition: Expression; readonly replacements: ReadonlyMap<string, Expression>; } => {
+            const tag = factory.createPropertyAccessExpression(value, "_tag");
+            setEmitFlags(tag, getEmitFlags(tag) | EmitFlags.NoSubstitution);
+            let condition = factory.createBinaryExpression(
+                tag,
+                factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
+                factory.createStringLiteral(pattern.variant),
+            );
+            const replacements = new Map<string, Expression>();
+            pattern.elements.forEach((element, fieldIndex) => {
+                const access = fieldAccess(factory.cloneNode(value), fieldIndex);
+                if (element.kind === "constructor") {
+                    const nested = lowerPattern(element, access);
+                    condition = factory.createLogicalAnd(condition, nested.condition);
+                    for (const [name, replacement] of nested.replacements) replacements.set(name, replacement);
+                }
+                else if (element.name !== "_") {
+                    replacements.set(element.name, access);
+                }
+            });
+            return { condition, replacements };
+        };
+        const substituteBindings = (expression: Expression, replacements: ReadonlyMap<string, Expression>): Expression => {
+            const visited = Debug.checkDefined(visitNode(expression, visitor, isExpression));
+            const substitute = (node: Node): Node => {
+                if (isIdentifier(node)) {
+                    const replacement = replacements.get(idText(node));
+                    if (replacement) return factory.cloneNode(replacement);
+                }
+                return visitEachChild(node, substitute, context);
+            };
+            return substitute(visited) as Expression;
+        };
         let body: Expression = factory.createVoidZero();
         for (let index = data.arms.length - 1; index >= 0; index--) {
             const arm = data.arms[index];
-            const activeBindings = arm.bindings
-                .map((binding, fieldIndex) => ({ binding, fieldIndex }))
-                .filter(entry => entry.binding !== "_");
-            const visitedResult = Debug.checkDefined(visitNode(arm.result, visitor, isExpression));
-            const result = activeBindings.length === 0
-                ? visitedResult
-                : factory.createCallExpression(
-                    factory.createParenthesizedExpression(factory.createArrowFunction(
-                        /*modifiers*/ undefined,
-                        /*typeParameters*/ undefined,
-                        activeBindings.map(entry =>
-                            factory.createParameterDeclaration(
-                                /*modifiers*/ undefined,
-                                /*dotDotDotToken*/ undefined,
-                                entry.binding,
-                                /*questionToken*/ undefined,
-                                /*type*/ undefined,
-                                /*initializer*/ undefined,
-                            )
-                        ),
-                        /*type*/ undefined,
-                        factory.createToken(SyntaxKind.EqualsGreaterThanToken),
-                        visitedResult,
-                    )),
-                    /*typeArguments*/ undefined,
-                    activeBindings.map(entry =>
-                        factory.createElementAccessExpression(
-                            factory.createPropertyAccessExpression(factory.cloneNode(matched), "_values"),
-                            entry.fieldIndex,
-                        )
-                    ),
-                );
-            if (arm.variant === "_") {
+            const wildcard = arm.patterns.some(pattern => pattern.variant === "_");
+            const lowered = arm.patterns
+                .filter(pattern => pattern.variant !== "_")
+                .map(pattern => lowerPattern(pattern, factory.createIdentifier(data.temporaryName)));
+            const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
+            const result = substituteBindings(arm.result, replacements);
+            const guard = arm.guard && substituteBindings(arm.guard, replacements);
+            if (wildcard && !guard) {
                 body = result;
                 continue;
             }
+            let condition = lowered[0]?.condition ?? factory.createTrue();
+            for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
+                condition = factory.createLogicalOr(condition, lowered[patternIndex].condition);
+            }
+            if (guard) condition = factory.createLogicalAnd(condition, guard);
             body = factory.createConditionalExpression(
-                factory.createBinaryExpression(
-                    factory.createPropertyAccessExpression(factory.cloneNode(matched), "_tag"),
-                    factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
-                    factory.createStringLiteral(arm.variant),
-                ),
+                condition,
                 factory.createToken(SyntaxKind.QuestionToken),
                 result,
                 factory.createToken(SyntaxKind.ColonToken),
                 body,
             );
         }
-        return factory.createCallExpression(
+        const expression = factory.createCallExpression(
             factory.createParenthesizedExpression(factory.createArrowFunction(
                 /*modifiers*/ undefined,
                 /*typeParameters*/ undefined,
@@ -1933,6 +1958,17 @@ export function transformTypeScript(context: TransformationContext): Transformer
             /*typeArguments*/ undefined,
             [Debug.checkDefined(visitNode(data.scrutinee, visitor, isExpression))],
         );
+        const suppressGeneratedSubstitution = (node: Node): void => {
+            if ((isIdentifier(node) && idText(node) === data.temporaryName) || isAccessExpression(node)) {
+                setEmitFlags(node, getEmitFlags(node) | EmitFlags.NoSubstitution);
+            }
+            forEachChild(node, child => {
+                suppressGeneratedSubstitution(child);
+                return undefined;
+            });
+        };
+        suppressGeneratedSubstitution(expression);
+        return expression;
     }
 
     function visitCallExpression(node: CallExpression) {

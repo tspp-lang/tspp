@@ -416,7 +416,11 @@ import {
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
 } from "./plugins/registry.js";
-import { setTaggedUnionData, setTaggedUnionMatchData } from "./plugins/taggedUnion.js";
+import {
+    setTaggedUnionData,
+    setTaggedUnionMatchData,
+    type TaggedUnionMatchPattern,
+} from "./plugins/taggedUnion.js";
 
 const enum SignatureFlags {
     None = 0,
@@ -5811,65 +5815,132 @@ namespace Parser {
             nextToken();
             const scrutinee = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
             parseExpected(SyntaxKind.OpenBraceToken);
-            const arms: {
+            interface ParsedPattern {
+                readonly kind: "pattern";
                 readonly variant: Identifier;
-                readonly bindings: readonly Identifier[];
-                readonly result: Expression;
-            }[] = [];
-            while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
+                readonly elements: readonly (Identifier | ParsedPattern)[];
+            }
+            const isParsedPattern = (element: Identifier | ParsedPattern): element is ParsedPattern =>
+                element.kind === "pattern";
+            const parsePattern = (): ParsedPattern => {
                 const variant = parseIdentifier();
-                const bindings: Identifier[] = [];
+                const elements: (Identifier | ParsedPattern)[] = [];
                 if (parseOptional(SyntaxKind.OpenParenToken)) {
                     while (token() !== SyntaxKind.CloseParenToken && token() !== SyntaxKind.EndOfFileToken) {
-                        bindings.push(parseIdentifier());
+                        const nested = lookAhead(() => {
+                            parseIdentifier();
+                            return token() === SyntaxKind.OpenParenToken;
+                        });
+                        elements.push(nested ? parsePattern() : parseIdentifier());
                         if (!parseOptional(SyntaxKind.CommaToken)) break;
                     }
                     parseExpected(SyntaxKind.CloseParenToken);
                 }
+                return { kind: "pattern", variant, elements };
+            };
+            const arms: {
+                readonly patterns: readonly ParsedPattern[];
+                readonly guard?: Expression;
+                readonly result: Expression;
+            }[] = [];
+            while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
+                const patterns = [parsePattern()];
+                while (parseOptional(SyntaxKind.BarToken)) patterns.push(parsePattern());
+                const guard = parseOptional(SyntaxKind.IfKeyword)
+                    ? parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true)
+                    : undefined;
                 parseExpected(SyntaxKind.EqualsGreaterThanToken);
                 const result = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
-                arms.push({ variant, bindings, result });
+                arms.push({ patterns, guard, result });
                 if (!parseOptional(SyntaxKind.CommaToken)) parseOptional(SyntaxKind.SemicolonToken);
             }
             parseExpected(SyntaxKind.CloseBraceToken);
 
+            const temporaryName = `__tspp_match_${pos}`;
             const cloneScrutinee = () => getSynthesizedDeepClone(scrutinee);
-            const substituteBindings = (expression: Expression, bindings: readonly Identifier[]) => {
-                const replacements = new Map(bindings.map((binding, fieldIndex) => [
-                    idText(binding),
-                    setTextRange(
-                        factory.createElementAccessExpression(
-                            factory.createPropertyAccessExpression(cloneScrutinee(), "_values"),
-                            setTextRange(factory.createNumericLiteral(fieldIndex), binding),
-                        ),
-                        binding,
-                    ),
-                ]));
+            const fieldAccess = (
+                value: Expression,
+                fieldIndex: number,
+                location: Node,
+                preserveRanges: boolean,
+            ) => {
+                const index = factory.createNumericLiteral(fieldIndex);
+                const access = factory.createElementAccessExpression(
+                    factory.createPropertyAccessExpression(value, "_values"),
+                    preserveRanges ? setTextRange(index, location) : index,
+                );
+                return preserveRanges
+                    ? setTextRange(factory.createNonNullExpression(setTextRange(access, location)), location)
+                    : access;
+            };
+            const substituteBindings = (expression: Expression, replacements: ReadonlyMap<string, Expression>) => {
                 const visit = (node: Node): Node => {
                     if (isIdentifierNode(node)) {
                         const replacement = replacements.get(idText(node));
-                        if (replacement) return replacement;
+                        if (replacement) return factory.cloneNode(replacement);
                     }
                     return visitEachChild(node, visit, /*context*/ undefined);
                 };
                 return visit(expression) as Expression;
             };
+            const lowerPattern = (pattern: ParsedPattern, value: Expression, preserveRanges: boolean): {
+                readonly condition: Expression;
+                readonly replacements: ReadonlyMap<string, Expression>;
+            } => {
+                let condition = factory.createBinaryExpression(
+                    factory.createPropertyAccessExpression(factory.cloneNode(value), "_tag"),
+                    factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
+                    factory.createStringLiteral(idText(pattern.variant)),
+                );
+                const replacements = new Map<string, Expression>();
+                pattern.elements.forEach((element, fieldIndex) => {
+                    const access = fieldAccess(factory.cloneNode(value), fieldIndex, pattern.variant, preserveRanges);
+                    if (isParsedPattern(element)) {
+                        const nested = lowerPattern(element, access, preserveRanges);
+                        condition = factory.createBinaryExpression(
+                            condition,
+                            factory.createToken(SyntaxKind.AmpersandAmpersandToken),
+                            nested.condition,
+                        );
+                        for (const [name, replacement] of nested.replacements) replacements.set(name, replacement);
+                    }
+                    else if (idText(element) !== "_") {
+                        replacements.set(idText(element), access);
+                    }
+                });
+                return { condition, replacements };
+            };
+            const lowerArms = (createMatched: () => Expression, preserveRanges: boolean) => arms.map(arm => {
+                const wildcard = arm.patterns.some(pattern => idText(pattern.variant) === "_");
+                const lowered = arm.patterns
+                    .filter(pattern => idText(pattern.variant) !== "_")
+                    .map(pattern => lowerPattern(pattern, createMatched(), preserveRanges));
+                const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
+                const result = substituteBindings(arm.result, replacements);
+                const guard = arm.guard && substituteBindings(arm.guard, replacements);
+                let condition = lowered[0]?.condition;
+                for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
+                    condition = factory.createBinaryExpression(
+                        Debug.checkDefined(condition),
+                        factory.createToken(SyntaxKind.BarBarToken),
+                        lowered[patternIndex].condition,
+                    );
+                }
+                return { arm, wildcard, condition, guard, result };
+            });
+            const checkerArms = lowerArms(cloneScrutinee, /*preserveRanges*/ true);
             let body: Expression = factory.createAsExpression(
                 factory.createVoidZero(),
                 factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
             );
-            for (let index = arms.length - 1; index >= 0; index--) {
-                const arm = arms[index];
-                const result = substituteBindings(arm.result, arm.bindings);
-                if (idText(arm.variant) === "_") {
+            for (let index = checkerArms.length - 1; index >= 0; index--) {
+                const { wildcard, guard, result } = checkerArms[index];
+                if (wildcard && !guard) {
                     body = result;
                     continue;
                 }
-                const condition = factory.createBinaryExpression(
-                    factory.createPropertyAccessExpression(cloneScrutinee(), "_tag"),
-                    factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
-                    factory.createStringLiteral(idText(arm.variant)),
-                );
+                let condition = checkerArms[index].condition ?? factory.createTrue();
+                if (guard) condition = factory.createLogicalAnd(condition, guard);
                 body = factory.createConditionalExpression(
                     condition,
                     factory.createToken(SyntaxKind.QuestionToken),
@@ -5881,11 +5952,19 @@ namespace Parser {
             const matchExpression = finishNode(factory.createExtensionExpression(pluginId, [scrutinee, body]), pos);
             setTaggedUnionMatchData(matchExpression, {
                 scrutinee,
+                temporaryName,
                 arms: arms.map(arm => ({
-                    variant: idText(arm.variant),
-                    bindings: arm.bindings.map(idText),
-                    variantNode: arm.variant,
-                    bindingNodes: arm.bindings,
+                    patterns: arm.patterns.map(function convert(pattern): TaggedUnionMatchPattern {
+                        return {
+                            kind: "constructor",
+                            variant: idText(pattern.variant),
+                            variantNode: pattern.variant,
+                            elements: pattern.elements.map(element => isParsedPattern(element)
+                                ? convert(element)
+                                : { kind: "binding", name: idText(element), node: element }),
+                        };
+                    }),
+                    guard: arm.guard,
                     result: arm.result,
                 })),
             });

@@ -1160,7 +1160,13 @@ import {
     getExtensionExpressionSyntax,
     hasExtensionDeclarationValueUseRestrictions,
 } from "./plugins/registry.js";
-import { getTaggedUnionData, getTaggedUnionMatchData, getTaggedUnionVariantData } from "./plugins/taggedUnion.js";
+import {
+    getTaggedUnionData,
+    getTaggedUnionMatchData,
+    getTaggedUnionVariantData,
+    type TaggedUnionMatchPattern,
+    type TaggedUnionVariant,
+} from "./plugins/taggedUnion.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -41978,47 +41984,171 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return errorType;
     }
 
+    interface TaggedUnionMatchVariantInfo {
+        readonly type: Type;
+        readonly variant?: TaggedUnionVariant;
+    }
+
+    function getTaggedUnionMatchVariants(type: Type): Map<string, TaggedUnionMatchVariantInfo> {
+        const constituents = type.flags & TypeFlags.Union ? (type as UnionType).types : [type];
+        const variants = new Map<string, TaggedUnionMatchVariantInfo>();
+        const declaration = type.aliasSymbol?.declarations?.find(isTypeAliasDeclaration);
+        const data = declaration && getTaggedUnionData(declaration);
+        for (const constituent of constituents) {
+            const tag = getPropertyOfType(constituent, "_tag" as __String);
+            const tagType = tag && getTypeOfSymbol(tag);
+            if (!tagType || !(tagType.flags & TypeFlags.StringLiteral)) continue;
+            const name = (tagType as StringLiteralType).value;
+            variants.set(name, {
+                type: constituent,
+                variant: data?.variants.find(variant => idText(variant.name) === name),
+            });
+        }
+        for (const variant of data?.variants ?? emptyArray) {
+            const name = idText(variant.name);
+            if (!variants.has(name)) variants.set(name, { type, variant });
+        }
+        return variants;
+    }
+
+    function checkTaggedUnionMatchPattern(
+        node: ExtensionExpression,
+        pattern: TaggedUnionMatchPattern,
+        info: TaggedUnionMatchVariantInfo,
+    ): boolean {
+        const fields = info.variant?.fields ?? emptyArray;
+        if (pattern.elements.length !== fields.length) {
+            error(
+                node,
+                Diagnostics.Pattern_0_expects_1_fields_but_received_2,
+                pattern.variant,
+                fields.length,
+                pattern.elements.length,
+            );
+        }
+        let irrefutable = true;
+        const count = Math.min(pattern.elements.length, fields.length);
+        for (let index = 0; index < count; index++) {
+            const element = pattern.elements[index];
+            if (element.kind !== "constructor") continue;
+            irrefutable = false;
+            const field = fields[index];
+            const fieldType = getTypeOfPropertyOfType(info.type, field.name.escapedText);
+            const nested = fieldType && getTaggedUnionMatchVariants(fieldType).get(element.variant);
+            if (!nested) {
+                error(
+                    node,
+                    Diagnostics.Pattern_0_does_not_belong_to_data_type_1,
+                    element.variant,
+                    idText(field.name),
+                );
+                continue;
+            }
+            checkTaggedUnionMatchPattern(node, element, nested);
+        }
+        return irrefutable;
+    }
+
+    function isTaggedUnionVariantCovered(
+        patterns: readonly TaggedUnionMatchPattern[],
+        info: TaggedUnionMatchVariantInfo,
+    ): boolean {
+        if (patterns.length === 0) return false;
+        if (patterns.some(pattern => !pattern.elements.some(element => element.kind === "constructor"))) return true;
+        const fields = info.variant?.fields ?? emptyArray;
+        for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
+            const nestedPatterns: TaggedUnionMatchPattern[] = [];
+            let onlyThisFieldIsRefutable = true;
+            for (const pattern of patterns) {
+                pattern.elements.forEach((element, index) => {
+                    if (element.kind !== "constructor") return;
+                    if (index === fieldIndex) nestedPatterns.push(element);
+                    else onlyThisFieldIsRefutable = false;
+                });
+            }
+            if (!onlyThisFieldIsRefutable || nestedPatterns.length === 0) continue;
+            const field = fields[fieldIndex];
+            const fieldType = getTypeOfPropertyOfType(info.type, field.name.escapedText);
+            if (!fieldType) continue;
+            const nestedVariants = getTaggedUnionMatchVariants(fieldType);
+            if (
+                nestedVariants.size > 0 &&
+                [...nestedVariants].every(([name, nested]) =>
+                    isTaggedUnionVariantCovered(
+                        nestedPatterns.filter(pattern => pattern.variant === name),
+                        nested,
+                    )
+                )
+            ) return true;
+        }
+        return false;
+    }
+
     function checkTaggedUnionMatchExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
         const taggedUnionMatch = getTaggedUnionMatchData(node);
         if (taggedUnionMatch) {
             const matchedType = checkExpression(taggedUnionMatch.scrutinee);
-            const declaration = matchedType.aliasSymbol?.declarations?.find(isTypeAliasDeclaration);
-            const taggedUnion = declaration && getTaggedUnionData(declaration);
-            if (taggedUnion) {
-                const variants = new Map(taggedUnion.variants.map(variant => [idText(variant.name), variant]));
-                const covered = new Set<string>();
-                let hasWildcard = false;
-                for (const arm of taggedUnionMatch.arms) {
-                    if (arm.variant === "_") {
-                        hasWildcard = true;
-                        continue;
+            const variants = getTaggedUnionMatchVariants(matchedType);
+            const covered = new Set<string>();
+            const unguardedPatterns = new Map<string, TaggedUnionMatchPattern[]>();
+            let hasWildcard = false;
+            for (const arm of taggedUnionMatch.arms) {
+                const wildcard = arm.patterns.find(pattern => pattern.variant === "_");
+                if (hasWildcard) {
+                    error(node, Diagnostics.A_branch_after_the_wildcard_pattern_is_unreachable);
+                    continue;
+                }
+                if (wildcard) {
+                    if (arm.patterns.length > 1) {
+                        error(node, Diagnostics.The_wildcard_pattern_cannot_be_combined_with_other_patterns);
                     }
-                    const variant = variants.get(arm.variant);
-                    if (!variant) {
+                    if (wildcard.elements.length > 0) {
+                        error(node, Diagnostics.The_wildcard_pattern_cannot_contain_nested_patterns);
+                    }
+                    if (!arm.guard) hasWildcard = true;
+                    continue;
+                }
+                if (
+                    arm.patterns.length > 1 &&
+                    arm.patterns.some(pattern => pattern.elements.length > 0)
+                ) {
+                    error(node, Diagnostics.Or_patterns_support_only_variants_without_fields);
+                }
+                const seenInArm = new Set<string>();
+                for (const pattern of arm.patterns) {
+                    const info = variants.get(pattern.variant);
+                    if (!info) {
                         error(
                             node,
                             Diagnostics.Pattern_0_does_not_belong_to_data_type_1,
-                            arm.variant,
-                            declarationNameToString(declaration.name),
+                            pattern.variant,
+                            typeToString(matchedType),
                         );
                         continue;
                     }
-                    covered.add(arm.variant);
-                    if (variant.fields.length !== arm.bindings.length) {
-                        error(
-                            node,
-                            Diagnostics.Pattern_0_expects_1_fields_but_received_2,
-                            arm.variant,
-                            variant.fields.length,
-                            arm.bindings.length,
-                        );
+                    if (covered.has(pattern.variant) || seenInArm.has(pattern.variant)) {
+                        error(node, Diagnostics.Duplicate_match_branch_for_pattern_0, pattern.variant);
+                        continue;
+                    }
+                    seenInArm.add(pattern.variant);
+                    const irrefutable = checkTaggedUnionMatchPattern(node, pattern, info);
+                    if (!arm.guard) {
+                        if (irrefutable) covered.add(pattern.variant);
+                        else {
+                            const patterns = unguardedPatterns.get(pattern.variant);
+                            if (patterns) patterns.push(pattern);
+                            else unguardedPatterns.set(pattern.variant, [pattern]);
+                        }
                     }
                 }
-                if (!hasWildcard) {
-                    const missing = [...variants.keys()].filter(name => !covered.has(name));
-                    if (missing.length) {
-                        error(node, Diagnostics.Non_exhaustive_match_Missing_patterns_Colon_0, missing.join(", "));
-                    }
+            }
+            if (!hasWildcard && variants.size > 0) {
+                const missing = [...variants].filter(([name, info]) =>
+                    !covered.has(name) &&
+                    !isTaggedUnionVariantCovered(unguardedPatterns.get(name) ?? emptyArray, info)
+                ).map(([name]) => name);
+                if (missing.length) {
+                    error(node, Diagnostics.Non_exhaustive_match_Missing_patterns_Colon_0, missing.join(", "));
                 }
             }
         }

@@ -10,7 +10,9 @@ Data declarations create nominal tagged unions, nullary values, typed variant
 constructors, and value-level `match` expressions. Match scrutinees are
 evaluated once and field bindings are inferred from positional variant data.
 Matches must cover every constructor unless they include a `_` fallback, and
-constructor patterns must bind exactly the declared number of fields.
+constructor patterns must bind exactly the declared number of fields. Branches
+may use `if` guards, nullary constructors can be combined with `|`, and nested
+constructors use forms such as `Wrapped(Some(value))` or `Wrapped(None())`.
 
 Ordinary, generic, and exported declarations are supported. Declaration emit
 keeps the `newtype` and `data` syntax so downstream TS++ projects retain the

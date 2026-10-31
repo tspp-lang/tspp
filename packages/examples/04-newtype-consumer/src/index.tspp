@@ -1,4 +1,13 @@
-import { None, Option, OrderId, Some, UserId } from "@tspp/example-nominal-types";
+import {
+    Loading,
+    None,
+    OptionBox,
+    Option,
+    OrderId,
+    Some,
+    Status,
+    UserId,
+} from "@tspp/example-nominal-types";
 
 type UserIdConstructor = typeof UserId;
 const userId: UserId = UserId("consumer-1");
@@ -7,6 +16,16 @@ const importedOption: Option<number> = Some(3);
 const importedValue: number = match importedOption {
     None => 0,
     Some(value) => value,
+};
+const importedStatus: Status = Loading;
+const importedStatusText = match importedStatus {
+    Loading => "loading",
+    _ => "other",
+};
+const importedNested = match OptionBox(importedOption) {
+    OptionBox(None()) => 0,
+    OptionBox(Some(value)) if value > 0 => value,
+    OptionBox(Some(_)) => 0,
 };
 
 // @ts-expect-error Distinct newtype declarations remain nominal across packages.
@@ -22,4 +41,4 @@ if (false) {
     console.log(escapedConstructor);
 }
 
-console.log(userId, orderId, importedValue, wrong);
+console.log(userId, orderId, importedValue, importedStatusText, importedNested, wrong);
