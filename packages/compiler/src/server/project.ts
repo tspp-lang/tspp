@@ -1,5 +1,4 @@
 import * as ts from "./_namespaces/ts.js";
-import { hasTSPPProgramAnalyzers, runTSPPProgramAnalyzers } from "../compiler/plugins/analysis.js";
 import {
     addRange,
     append,
@@ -2184,13 +2183,13 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
                     languageService.getSemanticDiagnostics = fileName => {
                         const diagnostics = upstreamLanguageService.getSemanticDiagnostics(fileName);
                         const program = upstreamLanguageService.getProgram();
-                        if (!program || !hasTSPPProgramAnalyzers()) return diagnostics;
+                        if (!program || !ts.hasTSPPProgramAnalyzers()) return diagnostics;
                         if (analyzedProgram === program) {
                             return [...diagnostics, ...analysisDiagnostics.filter(diagnostic => diagnostic.file?.fileName === fileName)];
                         }
                         if (pendingProgram !== program) {
                             pendingProgram = program;
-                            void runTSPPProgramAnalyzers(program).then(
+                            void ts.runTSPPProgramAnalyzers(program).then(
                                 results => {
                                     if (upstreamLanguageService.getProgram() !== program) return;
                                     analysisDiagnostics = results.map(diagnostic => ({

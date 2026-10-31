@@ -78,3 +78,4 @@ import * as moduleSpecifiers from "./ts.moduleSpecifiers.js";
 export { moduleSpecifiers };
 import * as performance from "./ts.performance.js";
 export { performance };
+export * from "../plugins/analysis.js";
