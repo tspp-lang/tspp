@@ -1,0 +1,30 @@
+import * as smt from "@tspp/plugin-formal-verification/smt";
+
+const shiftedNonnegative = smt.definePredicate(
+    [["offset", smt.Int]],
+    offset => smt.forall(
+        [["value", smt.Int]],
+        value => smt.implies(smt.ge(value, 0n), smt.ge(smt.add(value, offset), offset)),
+    ),
+);
+
+const triangular = smt.defineRecursiveFunction(
+    [["value", smt.Int]],
+    smt.Int,
+    value => smt.ite(
+        smt.le(value, 0n),
+        0n,
+        smt.add(value, triangular(smt.sub(value, 1n))),
+    ),
+);
+
+const successor = smt.declareFunction([smt.Int], smt.Int);
+
+smt.axiom(
+    [["value", smt.Int]],
+    value => smt.eq(successor(value), smt.add(value, 1n)),
+);
+
+assert: shiftedNonnegative(5n);
+assert: triangular(4n) === 10n;
+assert: successor(2n) === 3n;

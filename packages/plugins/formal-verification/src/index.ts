@@ -7,14 +7,25 @@ import type {
 import { maskContractClauses, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
 import { renderZ3Query, solveWithZ3 } from "./solver";
+import { collectLogicLibrary } from "./logic";
 
 export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
     id: "proof-points",
     async analyze(input) {
         const diagnostics: TSPPAnalysisDiagnostic[] = [];
         const queries: { proof: PendingProof; }[] = [];
+        let logic;
+        try { logic = collectLogicLibrary(input.sourceFiles.map(sourceFile => sourceFile.text)); }
+        catch (error) {
+            diagnostics.push({
+                fileName: input.sourceFiles[0]?.fileName ?? "<program>", start: 0, length: 0,
+                code: 19004, category: "error", source: "TS++ verification",
+                message: error instanceof Error ? error.message : String(error),
+            });
+            return diagnostics;
+        }
         for (const sourceFile of input.sourceFiles) {
-            for (const proof of collectProgramProofs(sourceFile, diagnostics)) queries.push({ proof });
+            for (const proof of collectProgramProofs(sourceFile, diagnostics, logic)) queries.push({ proof });
         }
         const answers = await solveWithZ3(queries.map(query => query.proof.query));
         const artifacts: TSPPAnalysisArtifact[] = [];

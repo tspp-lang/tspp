@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./smt": {
+      "types": "./dist/smt.d.ts",
+      "default": "./dist/smt.js"
     }
   },
   "files": ["dist", "editor"],

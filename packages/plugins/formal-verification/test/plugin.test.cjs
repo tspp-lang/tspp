@@ -228,3 +228,68 @@ test("publishes replayable SMT-LIB as generic analysis artifacts", async () => {
   assert.match(diagnostics.artifacts[0].content, /\(check-sat\)/);
   assert.match(diagnostics.artifacts[0].content, /tspp\.js\.trunc\.div/);
 });
+
+test("encodes recursive data constructors and switch paths", async () => {
+  const source = `data BigIntList = End | Link(head: bigint, tail: BigIntList);
+  function singleton(value: bigint) with {
+    ensures: result._tag === "Link";
+  }: BigIntList { return Link(value, End); }
+  function headOrZero(input: BigIntList) with {
+    requires: input._tag !== "Link" || input.head >= 0n;
+    ensures: result >= 0n;
+  }: bigint {
+    switch (input._tag) {
+      case "Link": return input.head;
+      case "End": return 0n;
+    }
+  }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["data.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "data.tspp", text: source, root: {} }],
+  });
+  assert.deepEqual(diagnostics, []);
+});
+
+test("loads reusable predicates, quantifiers, axioms, and recursive definitions", async () => {
+  const source = `import * as smt from "@tspp/plugin-formal-verification/smt";
+  const shiftedNonnegative = smt.definePredicate(
+    [["offset", smt.Int]],
+    offset => smt.forall([["value", smt.Int]], value =>
+      smt.implies(smt.ge(value, 0n), smt.ge(smt.add(value, offset), offset))),
+  );
+  const triangular = smt.defineRecursiveFunction(
+    [["value", smt.Int]], smt.Int,
+    value => smt.ite(smt.le(value, 0n), 0n, smt.add(value, triangular(smt.sub(value, 1n)))),
+  );
+  const absolute = smt.defineFunction(
+    [["value", smt.Int]], smt.Int,
+    value => smt.ite(smt.ge(value, 0n), value, smt.sub(0n, value)),
+  );
+  const hasIdentityWitness = smt.definePredicate(
+    [["target", smt.Int]],
+    target => smt.exists([["witness", smt.Int]], witness => smt.eq(witness, target)),
+  );
+  const successor = smt.declareFunction([smt.Int], smt.Int);
+  smt.axiom([["value", smt.Int]], value => smt.eq(successor(value), smt.add(value, 1n)));
+  assert: shiftedNonnegative(5n);
+  assert: triangular(4n) === 10n;
+  assert: absolute(-4n) === 4n;
+  assert: hasIdentityWitness(7n);
+  assert: successor(2n) === 3n;`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["logic.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "logic.tspp", text: source, root: {} }],
+  });
+  assert.deepEqual(diagnostics, []);
+  assert.match(diagnostics.artifacts[0].content, /define-fun \|shiftedNonnegative\|/);
+  assert.match(diagnostics.artifacts[0].content, /forall/);
+  assert.match(diagnostics.artifacts[0].content, /define-fun-rec \|triangular\|/);
+  assert.match(diagnostics.artifacts[0].content, /exists/);
+  assert.match(diagnostics.artifacts[0].content, /trusted axiom/);
+});
+
+test("keeps logic declarations static-only at runtime", () => {
+  const smt = require("../dist/smt");
+  const predicate = smt.definePredicate([["value", smt.Int]], value => smt.ge(value, 0n));
+  assert.throws(() => predicate(1n), /exists only during static verification/);
+});

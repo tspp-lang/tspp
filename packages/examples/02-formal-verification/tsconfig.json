@@ -9,6 +9,10 @@
       {
         "name": "@tspp/plugin-modern-syntax",
         "tspp": true
+      },
+      {
+        "name": "@tspp/plugin-nominal-types",
+        "tspp": true
       }
     ],
     "strict": true,

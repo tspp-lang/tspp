@@ -11,6 +11,9 @@ This package exercises the verification path owned by
 - JavaScript-compatible bigint division/remainder and divisor obligations.
 - explicit mathematical-real and overflow-checked safe-integer number models.
 - strings, record fields, and branch-sensitive discriminated unions.
+- recursive algebraic data constructors and tag-based switch paths;
+- reusable SMT predicates/functions, quantifiers, trusted axioms, and recursive
+  definitions through `@tspp/plugin-formal-verification/smt`.
 
 Run `pnpm check` in this directory. An invalid assertion, precondition call,
 invariant, or refinement introduction produces a Z3 counterexample diagnostic

@@ -15,6 +15,14 @@
     {
       "match": "\\bresult\\b",
       "name": "variable.language.contract-result.tspp"
+    },
+    {
+      "match": "\\b(definePredicate|defineFunction|defineRecursiveFunction|declareFunction|axiom|forall|exists|implies|apply)\\b",
+      "name": "support.function.smt.tspp"
+    },
+    {
+      "match": "\\b(Bool|Int|Real|String)\\b",
+      "name": "support.type.smt-sort.tspp"
     }
   ]
 }

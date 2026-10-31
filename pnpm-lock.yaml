@@ -351,6 +351,9 @@ importers:
       '@tspp/plugin-modern-syntax':
         specifier: workspace:*
         version: link:../../plugins/modern-syntax
+      '@tspp/plugin-nominal-types':
+        specifier: workspace:*
+        version: link:../../plugins/nominal-types
     devDependencies:
       eslint:
         specifier: ^10.10.0

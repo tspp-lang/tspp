@@ -5,9 +5,10 @@ export interface ExpressionEnvironment {
     readonly variables?: Readonly<Record<string, Sort>>;
     readonly substitutions?: Readonly<Record<string, { readonly smt: string; readonly sort: Sort; }>>;
     readonly defaultNumberSort?: "Int" | "Real";
+    readonly functions?: Readonly<Record<string, { readonly parameters: readonly Sort[]; readonly result: Sort; }>>;
 }
 
-const tokenPattern = /\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|\d+(?:\.\d+)?n?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|true|false|===|!==|<=|>=|&&|\|\||[()+\-*\/%<>!])\s*/gy;
+const tokenPattern = /\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|\d+(?:\.\d+)?n?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|true|false|===|!==|<=|>=|&&|\|\||[(),+\-*\/%<>!])\s*/gy;
 
 export function expressionToSmt(text: string, environment: ExpressionEnvironment = {}): string {
     const result = expressionToSmtTerm(text, environment);
@@ -59,6 +60,22 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
             if (substitution) return substitution;
             const sort = environment.variables?.[token];
             if (sort) return { smt: `|${token}|`, sort };
+            const signature = environment.functions?.[token];
+            if (signature && peek() === "(") {
+                take();
+                const arguments_: Term[] = [];
+                while (peek() !== ")") {
+                    arguments_.push(or());
+                    if (peek() !== ",") break;
+                    take();
+                }
+                if (take() !== ")") throw new Error(`Expected ')' after '${token}' arguments.`);
+                if (arguments_.length !== signature.parameters.length) throw new Error(`'${token}' expects ${signature.parameters.length} arguments.`);
+                signature.parameters.forEach((expected, position) => {
+                    if (arguments_[position].sort !== expected) throw new Error(`Argument ${position + 1} of '${token}' must be ${expected}.`);
+                });
+                return { smt: `(|${token}|${arguments_.length ? ` ${arguments_.map(argument => argument.smt).join(" ")}` : ""})`, sort: signature.result };
+            }
             throw new Error(`Unknown proof variable '${token}'.`);
         }
         throw new Error(`Unsupported token '${token ?? "<end>"}' in proof expression.`);

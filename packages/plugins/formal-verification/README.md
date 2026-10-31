@@ -26,6 +26,18 @@ lowered into the same symbolic state. Branch conditions over `_tag` fields feed
 the path solver, so field arithmetic and postconditions can use the narrowed
 branch facts without a second TypeScript type checker inside the plugin.
 
+The `@tspp/plugin-formal-verification/smt` entry point defines reusable logic
+without adding feature-specific hooks to compiler core. It supports declared and
+defined functions, predicates, `forall`/`exists`, trusted axioms, recursive
+`define-fun-rec` definitions, conditionals, arithmetic, and JavaScript-compatible
+integer division/remainder. Logic declarations are collected program-wide, so a
+contract may call a definition owned by another source file in the same package.
+
+Recursive algebraic data declarations are projected as tagged structures for
+proofs. Constructor returns establish tag/scalar-field postconditions and switch
+cases add the corresponding path fact; recursive payloads remain opaque until a
+scalar field is selected, keeping the SMT model finite.
+
 All feature syntax is projected to equal-length whitespace before the upstream
 TypeScript parser runs. Core only schedules the SDK's generic preprocessor and
 background analyzer hooks; parsing, symbolic execution, SMT lowering, solver
