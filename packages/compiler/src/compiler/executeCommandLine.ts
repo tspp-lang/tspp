@@ -31,6 +31,7 @@ import {
     createWatchStatusReporter as ts_createWatchStatusReporter,
     Debug,
     Diagnostic,
+    DiagnosticCategory,
     DiagnosticMessage,
     DiagnosticReporter,
     Diagnostics,
@@ -91,6 +92,7 @@ import {
     WatchOptions,
 } from "./_namespaces/ts.js";
 import * as performance from "./performance.js";
+import { hasTSPPProgramAnalyzers, runTSPPProgramAnalyzers } from "./plugins/analysis.js";
 
 interface Statistic {
     name: string;
@@ -965,15 +967,37 @@ function performCompilation(
         configFileParsingDiagnostics: getConfigFileParsingDiagnostics(config),
     };
     const program = createProgram(programOptions);
-    const exitStatus = emitFilesAndReportErrorsAndGetExitStatus(
-        program,
-        reportDiagnostic,
-        s => sys.write(s + sys.newLine),
-        createReportErrorSummary(sys, options),
+    const finish = (analysisDiagnostics: readonly Diagnostic[] = []) => {
+        for (const diagnostic of analysisDiagnostics) reportDiagnostic(diagnostic);
+        let exitStatus = emitFilesAndReportErrorsAndGetExitStatus(
+            program,
+            reportDiagnostic,
+            s => sys.write(s + sys.newLine),
+            createReportErrorSummary(sys, options),
+        );
+        if (analysisDiagnostics.some(diagnostic => diagnostic.category === DiagnosticCategory.Error)) {
+            exitStatus = options.noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
+        }
+        reportStatistics(sys, program, /*solutionPerformance*/ undefined);
+        cb(program);
+        return sys.exit(exitStatus);
+    };
+    if (!hasTSPPProgramAnalyzers()) return finish();
+    return runTSPPProgramAnalyzers(program).then(
+        diagnostics => finish(diagnostics.map(diagnostic => ({
+            category: diagnostic.category === "error" ? DiagnosticCategory.Error : DiagnosticCategory.Warning,
+            code: diagnostic.code,
+            file: program.getSourceFile(diagnostic.fileName),
+            start: diagnostic.start,
+            length: diagnostic.length,
+            source: diagnostic.source,
+            messageText: diagnostic.message,
+        }))),
+        error => {
+            sys.write(`error TSPP1003: Program analysis failed: ${error instanceof Error ? error.message : String(error)}${sys.newLine}`);
+            return sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
+        },
     );
-    reportStatistics(sys, program, /*solutionPerformance*/ undefined);
-    cb(program);
-    return sys.exit(exitStatus);
 }
 
 function performIncrementalCompilation(

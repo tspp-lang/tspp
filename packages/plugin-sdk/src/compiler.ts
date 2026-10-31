@@ -7,6 +7,48 @@ export type TSPPVariableDeclarationList = TSPPSyntaxNode;
 export type TSPPType = object;
 export type TSPPSyntaxKind = number;
 
+/** Immutable, compiler-neutral syntax snapshot supplied to background analyzers. */
+export interface TSPPAnalysisNode {
+    readonly kind: number;
+    readonly start: number;
+    readonly end: number;
+    readonly text: string;
+    readonly children: readonly TSPPAnalysisNode[];
+}
+
+export interface TSPPAnalysisSyntaxKinds {
+    readonly sourceFile: number;
+    readonly labeledStatement: number;
+}
+
+export interface TSPPAnalysisSourceFile {
+    readonly fileName: string;
+    readonly text: string;
+    readonly root: TSPPAnalysisNode;
+}
+
+export interface TSPPProgramAnalysisInput {
+    readonly currentDirectory: string;
+    readonly rootFileNames: readonly string[];
+    readonly sourceFiles: readonly TSPPAnalysisSourceFile[];
+    readonly syntaxKinds: TSPPAnalysisSyntaxKinds;
+}
+
+export interface TSPPAnalysisDiagnostic {
+    readonly fileName: string;
+    readonly start: number;
+    readonly length: number;
+    readonly message: string;
+    readonly code: number;
+    readonly category: "warning" | "error";
+    readonly source?: string;
+}
+
+export interface TSPPProgramAnalyzer {
+    readonly id: string;
+    analyze(input: TSPPProgramAnalysisInput): Promise<readonly TSPPAnalysisDiagnostic[]>;
+}
+
 export interface TSPPExtensionExpression {
     readonly pluginId: string;
     readonly extensionChildren: readonly TSPPSyntaxNode[];
@@ -66,11 +108,13 @@ export interface TSPPExpressionSyntax {
 export interface TSPPCompilerPluginAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
+    registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
+    registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerPluginContext {

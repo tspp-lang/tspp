@@ -1,0 +1,2 @@
+assert: 1n + 1n === 2n;
+assert: (3n * 4n) - 2n === 10n;

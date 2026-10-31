@@ -1,0 +1,11 @@
+{
+  "name": "@tspp/example-formal-verification",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tspp -p tsconfig.json"
+  },
+  "dependencies": {
+    "@tspp/plugin-formal-verification": "workspace:*"
+  }
+}

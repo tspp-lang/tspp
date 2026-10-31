@@ -7,6 +7,7 @@ import type {
     TSPPExpressionParser,
     TSPPExpressionSyntax,
     TSPPExpressionSyntaxKinds,
+    TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 
@@ -16,6 +17,7 @@ import { SyntaxKind } from "../types.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
+const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 let pluginHost: TSPPPluginHost | undefined;
 
 const silentLogger: TSPPPluginLogger = {
@@ -67,6 +69,12 @@ const compilerAPI: TSPPCompilerHostAPI = {
                 if (candidates.length === 0) expressionSyntaxByStartToken.delete(token);
             }
         };
+    },
+    registerProgramAnalyzer(pluginId, analyzer) {
+        const key = `${pluginId}/${analyzer.id}`;
+        if (programAnalyzers.has(key)) throw new Error(`Duplicate TSPP program analyzer '${key}'.`);
+        programAnalyzers.set(key, { pluginId, analyzer });
+        return () => programAnalyzers.delete(key);
     },
 };
 
@@ -130,6 +138,11 @@ export function getExtensionExpressionSyntax(node: ExtensionExpression): TSPPExp
 /** Exposed for architecture tests and diagnostics. */
 export function getRegisteredExpressionPluginIds(): readonly string[] {
     return [...expressionSyntaxByPluginId.keys()];
+}
+
+/** @internal */
+export function getRegisteredTSPPProgramAnalyzers(): readonly TSPPProgramAnalyzer[] {
+    return [...programAnalyzers.values()].map(registration => registration.analyzer);
 }
 
 // Initialize an empty process-level host. Project configuration supplies the
