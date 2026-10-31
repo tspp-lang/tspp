@@ -91,6 +91,66 @@ export interface TSPPExpressionSyntaxKinds {
     readonly whileKeyword: TSPPSyntaxKind;
 }
 
+export interface TSPPTypeSyntaxKinds {
+    readonly endOfFileToken: TSPPSyntaxKind;
+    readonly identifier: TSPPSyntaxKind;
+    readonly letKeyword: TSPPSyntaxKind;
+    readonly inKeyword: TSPPSyntaxKind;
+    readonly inferKeyword: TSPPSyntaxKind;
+    readonly lessThanToken: TSPPSyntaxKind;
+    readonly greaterThanToken: TSPPSyntaxKind;
+    readonly equalsToken: TSPPSyntaxKind;
+    readonly equalsGreaterThanToken: TSPPSyntaxKind;
+    readonly openBraceToken: TSPPSyntaxKind;
+    readonly closeBraceToken: TSPPSyntaxKind;
+    readonly colonToken: TSPPSyntaxKind;
+    readonly commaToken: TSPPSyntaxKind;
+    readonly semicolonToken: TSPPSyntaxKind;
+}
+
+export interface TSPPTypeMatchArm {
+    readonly pattern: TSPPTypeNode;
+    readonly result: TSPPTypeNode;
+}
+
+export interface TSPPTypeParser {
+    readonly kinds: TSPPTypeSyntaxKinds;
+    token(): TSPPSyntaxKind;
+    tokenText(): string;
+    nextToken(): TSPPSyntaxKind;
+    hasPrecedingLineBreak(): boolean;
+    lookAhead<T>(callback: () => T): T;
+    getNodePos(): number;
+    parseExpected(kind: TSPPSyntaxKind): boolean;
+    parseIdentifier(): TSPPIdentifier;
+    parseTypeParameters(): TSPPTypeParameterList | undefined;
+    parseType(): TSPPTypeNode;
+    parseTypeMatchPattern(): TSPPTypeNode;
+    finishScopedTypeBinding(
+        name: TSPPIdentifier,
+        value: TSPPTypeNode,
+        body: TSPPTypeNode,
+        pos: number,
+    ): TSPPTypeNode;
+    finishOrderedTypeMatch(
+        scrutinee: TSPPTypeNode,
+        arms: readonly TSPPTypeMatchArm[],
+        pos: number,
+    ): TSPPTypeNode;
+    finishTypeConstructor(
+        typeParameters: TSPPTypeParameterList,
+        body: TSPPTypeNode,
+        pos: number,
+    ): TSPPTypeNode;
+}
+
+/** Plugin-owned syntax in a type position, lowered through generic type operations. */
+export interface TSPPTypeSyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    isStart(parser: TSPPTypeParser): boolean;
+    parse(parser: TSPPTypeParser): TSPPTypeNode;
+}
+
 export interface TSPPExpressionParser {
     readonly kinds: TSPPExpressionSyntaxKinds;
     token(): TSPPSyntaxKind;
@@ -293,11 +353,13 @@ export interface TSPPDeclarationSyntax {
 export interface TSPPCompilerPluginAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
+    readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
     registerFunctionBodySyntax(syntax: TSPPFunctionBodySyntax): TSPPPluginDisposer;
     registerTrailingClosureBindingSyntax(syntax: TSPPTrailingClosureBindingSyntax): TSPPPluginDisposer;
     registerDeepReadonlyBindingSyntax(syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
+    registerTypeSyntax(syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }
@@ -305,11 +367,13 @@ export interface TSPPCompilerPluginAPI {
 export interface TSPPCompilerHostAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
+    readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
     registerFunctionBodySyntax(pluginId: string, syntax: TSPPFunctionBodySyntax): TSPPPluginDisposer;
     registerTrailingClosureBindingSyntax(pluginId: string, syntax: TSPPTrailingClosureBindingSyntax): TSPPPluginDisposer;
     registerDeepReadonlyBindingSyntax(pluginId: string, syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(pluginId: string, syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
+    registerTypeSyntax(pluginId: string, syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }

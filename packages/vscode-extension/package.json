@@ -32,6 +32,7 @@
     "tspp-language-server": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-nominal-types": "workspace:*",
+    "@tspp/plugin-type-computation": "workspace:*",
     "vscode-languageclient": "9.0.1"
   },
   "devDependencies": {

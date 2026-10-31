@@ -16,6 +16,9 @@ import type {
     TSPPFunctionBodySyntax,
     TSPPStatementParser,
     TSPPTrailingClosureBindingSyntax,
+    TSPPTypeParser,
+    TSPPTypeSyntax,
+    TSPPTypeSyntaxKinds,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
 } from "@tspp/plugin-sdk/compiler";
@@ -44,6 +47,8 @@ const deepReadonlyStatements = new WeakSet<object>();
 const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
 const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
 const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
+const typeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTypeSyntax; }[]>();
+const typeConstructors = new WeakSet<object>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
@@ -88,9 +93,27 @@ export const declarationSyntaxKinds: TSPPDeclarationSyntaxKinds = {
     colonToken: SyntaxKind.ColonToken,
 };
 
+export const typeSyntaxKinds: TSPPTypeSyntaxKinds = {
+    endOfFileToken: SyntaxKind.EndOfFileToken,
+    identifier: SyntaxKind.Identifier,
+    letKeyword: SyntaxKind.LetKeyword,
+    inKeyword: SyntaxKind.InKeyword,
+    inferKeyword: SyntaxKind.InferKeyword,
+    lessThanToken: SyntaxKind.LessThanToken,
+    greaterThanToken: SyntaxKind.GreaterThanToken,
+    equalsToken: SyntaxKind.EqualsToken,
+    equalsGreaterThanToken: SyntaxKind.EqualsGreaterThanToken,
+    openBraceToken: SyntaxKind.OpenBraceToken,
+    closeBraceToken: SyntaxKind.CloseBraceToken,
+    colonToken: SyntaxKind.ColonToken,
+    commaToken: SyntaxKind.CommaToken,
+    semicolonToken: SyntaxKind.SemicolonToken,
+};
+
 const compilerAPI: TSPPCompilerHostAPI = {
     expressionSyntaxKinds,
     declarationSyntaxKinds,
+    typeSyntaxKinds,
     registerExpressionSyntax(pluginId, syntax) {
         if (expressionSyntaxByPluginId.has(pluginId)) {
             throw new Error(`TSPP plugin '${pluginId}' registered expression syntax more than once.`);
@@ -205,6 +228,26 @@ const compilerAPI: TSPPCompilerHostAPI = {
             }
         };
     },
+    registerTypeSyntax(pluginId, syntax) {
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP type-syntax plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        for (const token of syntax.startTokens) {
+            const candidates = typeSyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else typeSyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            for (const token of syntax.startTokens) {
+                const candidates = typeSyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) typeSyntaxByStartToken.delete(token);
+            }
+        };
+    },
     registerProgramAnalyzer(pluginId, analyzer) {
         const key = `${pluginId}/${analyzer.id}`;
         if (programAnalyzers.has(key)) throw new Error(`Duplicate TSPP program analyzer '${key}'.`);
@@ -267,6 +310,35 @@ export function tryParseExtensionExpression(
         if (syntax.isStart(parser)) return syntax.parse(parser) as Expression;
     }
     return undefined;
+}
+
+/** @internal */
+export function tryParseExtensionType(
+    token: SyntaxKind,
+    createParser: (pluginId: string) => TSPPTypeParser,
+): object | undefined {
+    const candidates = typeSyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { pluginId, syntax } of candidates) {
+        const parser = createParser(pluginId);
+        if (syntax.isStart(parser)) return syntax.parse(parser);
+    }
+    return undefined;
+}
+
+/** @internal */
+export function registerTypeConstructor(node: object): void {
+    typeConstructors.add(node);
+}
+
+/** @internal */
+export function isExtensionTypeConstructor(node: object): boolean {
+    let current: { readonly original?: object; } | undefined = node;
+    while (current) {
+        if (typeConstructors.has(current)) return true;
+        current = current.original;
+    }
+    return false;
 }
 
 /** @internal */

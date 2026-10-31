@@ -1163,6 +1163,7 @@ import {
     getTrailingClosureBinding,
     hasExtensionDeclarationValueUseRestrictions,
     isDeepReadonlyBinding,
+    isExtensionTypeConstructor,
 } from "./plugins/registry.js";
 import {
     getTaggedUnionData,
@@ -1511,6 +1512,13 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
     var hasTSPPValueUseRestrictions = hasExtensionDeclarationValueUseRestrictions();
     var activeCompletionBlocks = new Set<Block>();
+    interface ExtensionTypeConstructorData {
+        readonly node: FunctionTypeNode;
+        readonly typeParameters: readonly TypeParameter[];
+        readonly body: TypeNode;
+        readonly outerMapper?: TypeMapper;
+    }
+    var extensionTypeConstructors = new WeakMap<Type, ExtensionTypeConstructorData>();
 
     var addLazyDiagnostic = (arg: () => void) => {
         deferredDiagnosticsCallbacks.push(arg);
@@ -17100,7 +17108,49 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return errorType;
         }
         const type = getDeclaredTypeOfSymbol(symbol);
-        const typeParameters = getSymbolLinks(symbol).typeParameters;
+        const symbolTypeParameters = getSymbolLinks(symbol).typeParameters;
+        const extensionConstructor = extensionTypeConstructors.get(type);
+        if (extensionConstructor && !symbolTypeParameters) {
+            if (!node.typeArguments) return type;
+            const typeParameters = extensionConstructor.typeParameters;
+            const numTypeArguments = node.typeArguments.length;
+            const minTypeArgumentCount = getMinTypeArgumentCount(typeParameters);
+            if (numTypeArguments < minTypeArgumentCount || numTypeArguments > typeParameters.length) {
+                error(
+                    node,
+                    minTypeArgumentCount === typeParameters.length
+                        ? Diagnostics.Generic_type_0_requires_1_type_argument_s
+                        : Diagnostics.Generic_type_0_requires_between_1_and_2_type_arguments,
+                    symbolToString(symbol),
+                    minTypeArgumentCount,
+                    typeParameters.length,
+                );
+                return errorType;
+            }
+            const typeArguments = fillMissingTypeArguments(
+                typeArgumentsFromTypeReferenceNode(node),
+                typeParameters,
+                minTypeArgumentCount,
+                isInJSFile(node),
+            )!;
+            const mapper = combineTypeMappers(
+                extensionConstructor.outerMapper,
+                createTypeMapper(typeParameters, typeArguments),
+            );
+            for (let index = 0; index < typeParameters.length; index++) {
+                const constraint = getConstraintOfTypeParameter(typeParameters[index]);
+                if (constraint) {
+                    checkTypeAssignableTo(
+                        typeArguments[index],
+                        instantiateType(constraint, mapper),
+                        node.typeArguments[index] ?? node,
+                        Diagnostics.Type_0_does_not_satisfy_the_constraint_1,
+                    );
+                }
+            }
+            return instantiateType(getTypeFromTypeNode(extensionConstructor.body), mapper);
+        }
+        const typeParameters = symbolTypeParameters;
         if (typeParameters) {
             const numTypeArguments = length(node.typeArguments);
             const minTypeArgumentCount = getMinTypeArgumentCount(typeParameters);
@@ -20473,6 +20523,25 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function getTypeFromTypeNodeWorker(node: TypeNode): Type {
+        if (isExtensionTypeConstructor(node)) {
+            const links = getNodeLinks(node);
+            if (!links.resolvedType) {
+                const constructorNode = node as FunctionTypeNode;
+                checkTypeParameters(constructorNode.typeParameters);
+                const typeParameters = map(
+                    constructorNode.typeParameters,
+                    parameter => getDeclaredTypeOfTypeParameter(getSymbolOfDeclaration(parameter)),
+                ) ?? emptyArray;
+                const type = createType(TypeFlags.TypeParameter);
+                extensionTypeConstructors.set(type, {
+                    node: constructorNode,
+                    typeParameters,
+                    body: constructorNode.type,
+                });
+                links.resolvedType = type;
+            }
+            return links.resolvedType;
+        }
         switch (node.kind) {
             case SyntaxKind.AnyKeyword:
             case SyntaxKind.JSDocAllType:
@@ -21094,6 +21163,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
     function instantiateTypeWorker(type: Type, mapper: TypeMapper, aliasSymbol: Symbol | undefined, aliasTypeArguments: readonly Type[] | undefined): Type {
         const flags = type.flags;
+        const extensionConstructor = extensionTypeConstructors.get(type);
+        if (extensionConstructor) {
+            const result = createType(flags);
+            extensionTypeConstructors.set(result, {
+                ...extensionConstructor,
+                outerMapper: combineTypeMappers(extensionConstructor.outerMapper, mapper),
+            });
+            return result;
+        }
         if (flags & TypeFlags.TypeParameter) {
             return getMappedType(type, mapper);
         }

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TS++ type computation",
+  "scopeName": "source.tspp.type-computation",
+  "injectionSelector": "L:source.tspp",
+  "patterns": [
+    {
+      "match": "\\b(let|in|match|infer)\\b",
+      "name": "keyword.control.type-computation.tspp"
+    },
+    {
+      "match": "=>>",
+      "name": "keyword.operator.type-constructor.tspp"
+    }
+  ]
+}

@@ -425,7 +425,7 @@ import {
     YieldExpression,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionDeclarationSyntax } from "./plugins/registry.js";
+import { getExtensionDeclarationSyntax, isExtensionTypeConstructor } from "./plugins/registry.js";
 import { getTaggedUnionData } from "./plugins/taggedUnion.js";
 
 const brackets = createBracketsMap();
@@ -2352,6 +2352,14 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitFunctionType(node: FunctionTypeNode) {
+        if (isExtensionTypeConstructor(node)) {
+            emitTypeParameters(node, node.typeParameters);
+            writeSpace();
+            writePunctuation("=>>");
+            writeSpace();
+            emit(node.type);
+            return;
+        }
         emitSignatureAndBody(node, emitFunctionTypeHead, emitFunctionTypeBody);
     }
 

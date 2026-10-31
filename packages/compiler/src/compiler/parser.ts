@@ -5,6 +5,7 @@ import type {
     TSPPFunctionBodyParser,
     TSPPStatementParser,
     TSPPTaggedUnionVariant,
+    TSPPTypeParser,
 } from "@tspp/plugin-sdk/compiler";
 import {
     AccessorDeclaration,
@@ -418,11 +419,14 @@ import {
     projectTSPPSource,
     registerDeepReadonlyBinding,
     registerTrailingClosureBinding,
+    registerTypeConstructor,
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
     tryParseExtensionFunctionBody,
+    tryParseExtensionType,
     tryParseDeepReadonlyBinding,
     tryParseTrailingClosureBinding,
+    typeSyntaxKinds,
 } from "./plugins/registry.js";
 import {
     setTaggedUnionData,
@@ -4976,6 +4980,8 @@ namespace Parser {
         if (contextFlags & NodeFlags.TypeExcludesFlags) {
             return doOutsideOfContext(NodeFlags.TypeExcludesFlags, parseType);
         }
+        const extensionType = tryParseExtensionType(token(), createExtensionTypeParser);
+        if (extensionType) return extensionType as TypeNode;
         if (isStartOfFunctionTypeOrConstructorType()) {
             return parseFunctionOrConstructorType();
         }
@@ -4991,6 +4997,83 @@ namespace Parser {
             return finishNode(factory.createConditionalTypeNode(type, extendsType, trueType, falseType), pos);
         }
         return type;
+    }
+
+    function createExtensionTypeParser(_pluginId: string): TSPPTypeParser {
+        const createNonDistributiveConditional = (
+            checkType: TypeNode,
+            pattern: TypeNode,
+            trueType: TypeNode,
+            falseType: TypeNode,
+        ) => factory.createConditionalTypeNode(
+            factory.createTupleTypeNode(factory.createNodeArray([checkType])),
+            factory.createTupleTypeNode(factory.createNodeArray([pattern])),
+            trueType,
+            falseType,
+        );
+
+        return {
+            kinds: typeSyntaxKinds,
+            token,
+            tokenText: () => scanner.getTokenValue(),
+            nextToken,
+            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
+            lookAhead,
+            getNodePos,
+            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
+            parseIdentifier,
+            parseTypeParameters,
+            parseType,
+            parseTypeMatchPattern: () => {
+                if (token() === SyntaxKind.Identifier && scanner.getTokenValue() === "_") {
+                    nextToken();
+                    return factory.createKeywordTypeNode(SyntaxKind.UnknownKeyword);
+                }
+                return parseType();
+            },
+            finishScopedTypeBinding: (nameIn, valueIn, bodyIn, pos) => {
+                const name = nameIn as Identifier;
+                const value = valueIn as TypeNode;
+                const body = bodyIn as TypeNode;
+                const parameter = factory.createTypeParameterDeclaration(
+                    /*modifiers*/ undefined,
+                    name,
+                    /*constraint*/ undefined,
+                    /*defaultType*/ undefined,
+                );
+                const infer = factory.createInferTypeNode(parameter);
+                return finishNode(createNonDistributiveConditional(
+                    value,
+                    infer,
+                    body,
+                    factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+                ), pos);
+            },
+            finishOrderedTypeMatch: (scrutineeIn, armsIn, pos) => {
+                const scrutinee = scrutineeIn as TypeNode;
+                const arms = armsIn;
+                let result: TypeNode = factory.createKeywordTypeNode(SyntaxKind.NeverKeyword);
+                for (let index = arms.length - 1; index >= 0; index--) {
+                    const arm = arms[index];
+                    result = createNonDistributiveConditional(
+                        index === 0 ? scrutinee : getSynthesizedDeepClone(scrutinee),
+                        arm.pattern as TypeNode,
+                        arm.result as TypeNode,
+                        result,
+                    );
+                }
+                return finishNode(result, pos);
+            },
+            finishTypeConstructor: (typeParametersIn, bodyIn, pos) => {
+                const node = finishNode(factory.createFunctionTypeNode(
+                    typeParametersIn as NodeArray<TypeParameterDeclaration>,
+                    factory.createNodeArray([]),
+                    bodyIn as TypeNode,
+                ), pos);
+                registerTypeConstructor(node);
+                return node;
+            },
+        };
     }
 
     function parseTypeAnnotation(): TypeNode | undefined {
