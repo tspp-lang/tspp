@@ -8,7 +8,7 @@ import { forEachChild } from "../parser.js";
 import { skipTrivia } from "../scanner.js";
 import type { Node, Program, SourceFile } from "../types.js";
 import { SyntaxKind } from "../types.js";
-import { getRegisteredTSPPProgramAnalyzers } from "./registry.js";
+import { getOriginalTSPPSource, getRegisteredTSPPProgramAnalyzers } from "./registry.js";
 
 function snapshotNode(sourceFile: SourceFile, node: Node): TSPPAnalysisNode {
     const children: TSPPAnalysisNode[] = [];
@@ -37,11 +37,15 @@ function snapshotProgram(program: Program): TSPPProgramAnalysisInput {
         },
         sourceFiles: program.getSourceFiles()
             .filter(sourceFile => rootNames.has(sourceFile.fileName) && !sourceFile.isDeclarationFile)
-            .map(sourceFile => ({
-                fileName: sourceFile.fileName,
-                text: sourceFile.text,
-                root: snapshotNode(sourceFile, sourceFile),
-            })),
+            .map(sourceFile => {
+                const original = getOriginalTSPPSource(sourceFile.fileName, sourceFile.text);
+                const snapshotSource = original === sourceFile.text ? sourceFile : { ...sourceFile, text: original } as SourceFile;
+                return {
+                    fileName: sourceFile.fileName,
+                    text: original,
+                    root: snapshotNode(snapshotSource, sourceFile),
+                };
+            }),
     };
 }
 

@@ -1,9 +1,20 @@
-type Sort = "Bool" | "Int";
-interface Term { readonly smt: string; readonly sort: Sort; }
+export type Sort = "Bool" | "Int";
+export interface Term { readonly smt: string; readonly sort: Sort; }
 
-const tokenPattern = /\s*(\d+n?|true|false|===|!==|<=|>=|&&|\|\||[()+\-*<>!])\s*/gy;
+export interface ExpressionEnvironment {
+    readonly variables?: Readonly<Record<string, Sort>>;
+    readonly substitutions?: Readonly<Record<string, { readonly smt: string; readonly sort: Sort; }>>;
+}
 
-export function expressionToSmt(text: string): string {
+const tokenPattern = /\s*([A-Za-z_$][\w$]*|\d+n?|true|false|===|!==|<=|>=|&&|\|\||[()+\-*<>!])\s*/gy;
+
+export function expressionToSmt(text: string, environment: ExpressionEnvironment = {}): string {
+    const result = expressionToSmtTerm(text, environment);
+    if (result.sort !== "Bool") throw new Error(`Expected Bool, received ${result.sort}.`);
+    return result.smt;
+}
+
+export function expressionToSmtTerm(text: string, environment: ExpressionEnvironment = {}): Term {
     const tokens: string[] = [];
     let offset = 0;
     while (offset < text.length) {
@@ -34,6 +45,13 @@ export function expressionToSmt(text: string): string {
         }
         if (token === "true" || token === "false") return { smt: token, sort: "Bool" };
         if (/^\d+n?$/.test(token ?? "")) return { smt: token.replace(/n$/, ""), sort: "Int" };
+        if (/^[A-Za-z_$][\w$]*$/.test(token ?? "")) {
+            const substitution = environment.substitutions?.[token];
+            if (substitution) return substitution;
+            const sort = environment.variables?.[token];
+            if (sort) return { smt: `|${token}|`, sort };
+            throw new Error(`Unknown proof variable '${token}'.`);
+        }
         throw new Error(`Unsupported token '${token ?? "<end>"}' in proof expression.`);
     };
     const unary = (): Term => {
@@ -51,7 +69,7 @@ export function expressionToSmt(text: string): string {
     });
     const and = (): Term => binary(equality, ["&&"], (_op, left, right) => ({ smt: `(and ${requireSort(left, "Bool").smt} ${requireSort(right, "Bool").smt})`, sort: "Bool" }));
     const or = (): Term => binary(and, ["||"], (_op, left, right) => ({ smt: `(or ${requireSort(left, "Bool").smt} ${requireSort(right, "Bool").smt})`, sort: "Bool" }));
-    const result = requireSort(or(), "Bool");
+    const result = or();
     if (index !== tokens.length) throw new Error(`Unexpected token '${peek()}' in proof expression.`);
-    return result.smt;
+    return result;
 }

@@ -8,6 +8,7 @@ import type {
     TSPPExpressionSyntax,
     TSPPExpressionSyntaxKinds,
     TSPPProgramAnalyzer,
+    TSPPSourcePreprocessor,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 
@@ -18,6 +19,8 @@ import { SyntaxKind } from "../types.js";
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
+const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
+const projectedSources = new Map<string, { original: string; projected: string; }>();
 let pluginHost: TSPPPluginHost | undefined;
 
 const silentLogger: TSPPPluginLogger = {
@@ -75,6 +78,12 @@ const compilerAPI: TSPPCompilerHostAPI = {
         if (programAnalyzers.has(key)) throw new Error(`Duplicate TSPP program analyzer '${key}'.`);
         programAnalyzers.set(key, { pluginId, analyzer });
         return () => programAnalyzers.delete(key);
+    },
+    registerSourcePreprocessor(pluginId, preprocessor) {
+        const key = `${pluginId}/${preprocessor.id}`;
+        if (sourcePreprocessors.has(key)) throw new Error(`Duplicate TSPP source preprocessor '${key}'.`);
+        sourcePreprocessors.set(key, preprocessor);
+        return () => sourcePreprocessors.delete(key);
     },
 };
 
@@ -143,6 +152,34 @@ export function getRegisteredExpressionPluginIds(): readonly string[] {
 /** @internal */
 export function getRegisteredTSPPProgramAnalyzers(): readonly TSPPProgramAnalyzer[] {
     return [...programAnalyzers.values()].map(registration => registration.analyzer);
+}
+
+/** Applies length-preserving feature projections before the upstream parser sees a file. @internal */
+export function projectTSPPSource(fileName: string, sourceText: string): string {
+    const existing = projectedSources.get(fileName);
+    if (existing?.projected === sourceText) return sourceText;
+    let projected = sourceText;
+    for (const preprocessor of sourcePreprocessors.values()) {
+        const next = preprocessor.preprocess(fileName, projected);
+        if (next.length !== projected.length) {
+            throw new Error(`TSPP source preprocessor '${preprocessor.id}' changed the source length.`);
+        }
+        for (let index = 0; index < next.length; index++) {
+            if ((next.charCodeAt(index) === 10 || next.charCodeAt(index) === 13) !== (projected.charCodeAt(index) === 10 || projected.charCodeAt(index) === 13)) {
+                throw new Error(`TSPP source preprocessor '${preprocessor.id}' changed line breaks.`);
+            }
+        }
+        projected = next;
+    }
+    if (projected !== sourceText) projectedSources.set(fileName, { original: sourceText, projected });
+    else projectedSources.delete(fileName);
+    return projected;
+}
+
+/** Recovers the user-authored text corresponding to a projected parse tree. @internal */
+export function getOriginalTSPPSource(fileName: string, projected: string): string {
+    const entry = projectedSources.get(fileName);
+    return entry?.projected === projected ? entry.original : projected;
 }
 
 // Initialize an empty process-level host. Project configuration supplies the

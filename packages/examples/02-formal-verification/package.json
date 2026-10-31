@@ -6,6 +6,7 @@
     "check": "tspp -p tsconfig.json"
   },
   "dependencies": {
-    "@tspp/plugin-formal-verification": "workspace:*"
+    "@tspp/plugin-formal-verification": "workspace:*",
+    "@tspp/plugin-let-in-expression": "workspace:*"
   }
 }

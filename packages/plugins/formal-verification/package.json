@@ -11,7 +11,7 @@
       "default": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": ["dist", "editor"],
   "scripts": {
     "build": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "clean": "rimraf dist",
