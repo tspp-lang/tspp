@@ -6,8 +6,9 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import { maskContractClauses, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
-import { renderZ3Query, solveWithZ3Cached } from "./solver";
+import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
+import { clearPreparedVerificationSources } from "./source-cache";
 
 export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
     id: "proof-points",
@@ -76,6 +77,8 @@ export const formalVerificationPlugin = definePlugin({
                 return () => {
                     disposeAnalysis();
                     disposeProjection();
+                    clearPreparedVerificationSources();
+                    clearZ3AnswerCache();
                 };
             },
         },

@@ -1,15 +1,15 @@
 import ts from "typescript";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
-import { maskContractClauses, matchingBrace, parseProperties } from "./contracts";
+import { matchingBrace, parseProperties } from "./contracts";
 import type { PendingProof } from "./contracts";
 import { collectRefinements, type RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import { collectTopLevelProofVariables, isMacroFunction } from "./proof-scope";
 import {
-    collectDataTypes, collectRecordTypes, fieldsFromType, parseFunctionModels,
-    refinementFromType, sortFromType, type Clause, type FunctionModel,
+    fieldsFromType, refinementFromType, sortFromType, type Clause, type FunctionModel,
 } from "./models";
+import { prepareVerificationSource } from "./source-cache";
 interface State {
     readonly variables: Record<string, Sort>;
     readonly values: Record<string, Term>;
@@ -35,6 +35,20 @@ const cloneState = (state: State): State => ({
     variables: { ...state.variables }, values: { ...state.values },
     declarations: new Set(state.declarations), facts: [...state.facts],
 });
+
+const arithmeticOperators = new Map<number, string>([
+    [ts.SyntaxKind.PlusToken, "+"], [ts.SyntaxKind.MinusToken, "-"], [ts.SyntaxKind.AsteriskToken, "*"],
+    [ts.SyntaxKind.SlashToken, "tspp.js.trunc.div"], [ts.SyntaxKind.PercentToken, "tspp.js.trunc.rem"],
+]);
+const comparisonOperators = new Map<number, string>([
+    [ts.SyntaxKind.LessThanToken, "<"], [ts.SyntaxKind.LessThanEqualsToken, "<="],
+    [ts.SyntaxKind.GreaterThanToken, ">"], [ts.SyntaxKind.GreaterThanEqualsToken, ">="],
+]);
+const assignmentOperators = new Map<number, string>([
+    [ts.SyntaxKind.EqualsToken, ""], [ts.SyntaxKind.PlusEqualsToken, "+"], [ts.SyntaxKind.MinusEqualsToken, "-"],
+    [ts.SyntaxKind.AsteriskEqualsToken, "*"], [ts.SyntaxKind.SlashEqualsToken, "tspp.js.trunc.div"],
+    [ts.SyntaxKind.PercentEqualsToken, "tspp.js.trunc.rem"],
+]);
 
 function diagnostic(context: Context, node: ts.Node, message: unknown): void {
     context.diagnostics.push({
@@ -163,28 +177,20 @@ function lowerExpression(node: ts.Expression, state: State, context: Context): T
         const left = lowerExpression(node.left, state, context);
         const right = lowerExpression(node.right, state, context);
         const operator = node.operatorToken.kind;
-        const arithmetic = new Map<number, string>([
-            [ts.SyntaxKind.PlusToken, "+"], [ts.SyntaxKind.MinusToken, "-"], [ts.SyntaxKind.AsteriskToken, "*"],
-            [ts.SyntaxKind.SlashToken, "tspp.js.trunc.div"], [ts.SyntaxKind.PercentToken, "tspp.js.trunc.rem"],
-        ]);
-        const comparison = new Map<number, string>([
-            [ts.SyntaxKind.LessThanToken, "<"], [ts.SyntaxKind.LessThanEqualsToken, "<="],
-            [ts.SyntaxKind.GreaterThanToken, ">"], [ts.SyntaxKind.GreaterThanEqualsToken, ">="],
-        ]);
-        if (arithmetic.has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) {
+        if (arithmeticOperators.has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) {
             if (operator === ts.SyntaxKind.PercentToken && left.sort !== "Int") throw new Error("Remainder requires the safe-integer model.");
             if (operator === ts.SyntaxKind.SlashToken && left.sort === "Real") return { smt: `(/ ${left.smt} ${right.smt})`, sort: "Real" };
             if (operator === ts.SyntaxKind.SlashToken || operator === ts.SyntaxKind.PercentToken) {
                 addProof(context, state, `(not (= ${right.smt} 0))`, node.right, "division definedness");
             }
-            const result = { smt: `(${arithmetic.get(operator)} ${left.smt} ${right.smt})`, sort: left.sort } as Term;
+            const result = { smt: `(${arithmeticOperators.get(operator)} ${left.smt} ${right.smt})`, sort: left.sort } as Term;
             if (context.currentFunction?.numberModel === "safe-integer"
                 && (operator === ts.SyntaxKind.PlusToken || operator === ts.SyntaxKind.MinusToken || operator === ts.SyntaxKind.AsteriskToken)) {
                 addProof(context, state, `(and (>= ${result.smt} (- 9007199254740991)) (<= ${result.smt} 9007199254740991))`, node, "safe-integer range");
             }
             return result;
         }
-        if (comparison.has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) return { smt: `(${comparison.get(operator)} ${left.smt} ${right.smt})`, sort: "Bool" };
+        if (comparisonOperators.has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) return { smt: `(${comparisonOperators.get(operator)} ${left.smt} ${right.smt})`, sort: "Bool" };
         if (operator === ts.SyntaxKind.EqualsEqualsEqualsToken || operator === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
             if (left.sort !== right.sort) throw new Error("Both sides of equality must have the same proof sort.");
             const equal = `(= ${left.smt} ${right.smt})`;
@@ -199,12 +205,7 @@ function lowerExpression(node: ts.Expression, state: State, context: Context): T
 
 function updateAssignment(node: ts.BinaryExpression, state: State, context: Context): boolean {
     if (!ts.isIdentifier(node.left)) return false;
-    const operators = new Map<number, string>([
-        [ts.SyntaxKind.EqualsToken, ""], [ts.SyntaxKind.PlusEqualsToken, "+"], [ts.SyntaxKind.MinusEqualsToken, "-"],
-        [ts.SyntaxKind.AsteriskEqualsToken, "*"], [ts.SyntaxKind.SlashEqualsToken, "tspp.js.trunc.div"],
-        [ts.SyntaxKind.PercentEqualsToken, "tspp.js.trunc.rem"],
-    ]);
-    const operator = operators.get(node.operatorToken.kind);
+    const operator = assignmentOperators.get(node.operatorToken.kind);
     if (operator === undefined) return false;
     const right = lowerExpression(node.right, state, context);
     if (!operator) state.values[node.left.text] = right;
@@ -232,7 +233,9 @@ function executeStatement(node: ts.Statement, state: State, context: Context): S
                         .includes(declaration.initializer.expression.name.text)) continue;
                 const value = declaration.initializer ? lowerExpression(declaration.initializer, state, context) : undefined;
                 const refinement = refinementFromType(declaration.type, context.refinements);
-                const sort = sortFromType(declaration.type, context.refinements, context.currentFunction?.numberModel) ?? value?.sort;
+                const sort = refinement?.sort
+                    ?? sortFromType(declaration.type, context.refinements, context.currentFunction?.numberModel)
+                    ?? value?.sort;
                 if (sort) state.variables[declaration.name.text] = sort;
                 if (value) state.values[declaration.name.text] = value;
                 if (value && refinement) {
@@ -399,12 +402,9 @@ function initialState(model: FunctionModel, logic: LogicLibrary): State {
 export function collectProgramProofs(
     source: TSPPAnalysisSourceFile, diagnostics: TSPPAnalysisDiagnostic[], logic: LogicLibrary,
 ): PendingProof[] {
-    const masked = maskContractClauses(source.fileName, source.text, false);
-    const sourceFile = ts.createSourceFile(source.fileName, masked, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-    const functions = parseFunctionModels(source.text);
-    const refinements = collectRefinements(source.text);
-    const records = collectRecordTypes(sourceFile);
-    const constructors = collectDataTypes(source.text, records);
+    const prepared = prepareVerificationSource(source);
+    const { sourceFile, refinements, records, constructors } = prepared;
+    const functions = new Map(prepared.functions);
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
         if (isMacroFunction(statement, source.text, sourceFile)) {
@@ -417,11 +417,11 @@ export function collectProgramProofs(
         const parameterRefinements: Record<string, RefinementModel> = {};
         for (const parameter of statement.parameters) {
             if (!ts.isIdentifier(parameter.name)) continue;
-            const sort = sortFromType(parameter.type, refinements, existing?.numberModel);
+            const refinement = refinementFromType(parameter.type, refinements);
+            const sort = refinement?.sort ?? sortFromType(parameter.type, refinements, existing?.numberModel);
             if (sort) {
                 parameters.push(parameter.name.text);
                 variables[parameter.name.text] = sort;
-                const refinement = refinementFromType(parameter.type, refinements);
                 if (refinement) parameterRefinements[parameter.name.text] = refinement;
             }
             else {
@@ -430,14 +430,15 @@ export function collectProgramProofs(
                 }
             }
         }
+        const returnRefinement = refinementFromType(statement.type, refinements);
         functions.set(statement.name.text, {
             name: statement.name.text, parameters, variables,
             requires: existing?.requires ?? [], ensures: existing?.ensures ?? [],
             bodyStart: statement.body?.getStart(sourceFile) ?? statement.end,
             parameterRefinements,
-            returnRefinement: refinementFromType(statement.type, refinements),
+            returnRefinement,
             numberModel: existing?.numberModel,
-            returnSort: sortFromType(statement.type, refinements, existing?.numberModel),
+            returnSort: returnRefinement?.sort ?? sortFromType(statement.type, refinements, existing?.numberModel),
         });
     }
     const proofs: PendingProof[] = [];

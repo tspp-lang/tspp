@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { formalVerificationAnalyzer } = require("../dist");
+const { clearPreparedVerificationSources, prepareVerificationSource } = require("../dist/source-cache");
 
 const labeled = (text, start = 0) => ({ kind: 256, start, end: start + text.length, text, children: [] });
 const input = nodes => ({
@@ -12,6 +13,14 @@ const input = nodes => ({
     text: nodes.map(node => node.text).join("\n"),
     root: { kind: 308, start: 0, end: 100, text: "", children: nodes },
   }],
+});
+
+test("reuses prepared source models until the source text changes", () => {
+  clearPreparedVerificationSources();
+  const source = input([labeled("assert: true;")]).sourceFiles[0];
+  const first = prepareVerificationSource(source);
+  assert.strictEqual(prepareVerificationSource(source), first);
+  assert.notStrictEqual(prepareVerificationSource({ ...source, text: "assert: false;" }), first);
 });
 
 test("proves and rejects arithmetic assertions through Z3", async () => {

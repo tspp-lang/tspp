@@ -45,6 +45,10 @@ export function solveWithZ3(queries: readonly Z3Query[]): Promise<readonly Z3Ans
 const answerCache = new Map<string, Z3Answer>();
 const maximumCachedAnswers = 512;
 
+export function clearZ3AnswerCache(): void {
+    answerCache.clear();
+}
+
 /** Reuses deterministic solver answers by complete SMT obligation content. */
 export async function solveWithZ3Cached(queries: readonly Z3Query[]): Promise<readonly Z3Answer[]> {
     const answers: (Z3Answer | undefined)[] = new Array(queries.length);
