@@ -1,0 +1,31 @@
+{
+  "name": "@tspp/example-typescript-interop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Dual declaration and one-way source interop example for TS++ and TypeScript.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "tsppTypes": "./dist/index.d.tspp",
+  "exports": {
+    ".": {
+      "tspp-types": "./dist/index.d.tspp",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tspp -p tsconfig.json --pretty false",
+    "check": "pnpm build && node ../../../node_modules/typescript/bin/tsc -p consumer/tsconfig.json --pretty false",
+    "lint": "eslint src consumer/src"
+  },
+  "dependencies": {
+    "@tspp/plugin-nominal-types": "workspace:*",
+    "ts-plus-plus": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0",
+    "typescript": "^6.0.2",
+    "typescript-eslint": "^8.56.1"
+  }
+}

@@ -326,6 +326,8 @@ export interface ModuleResolutionState {
     features: NodeResolutionFeatures;
     conditions: readonly string[];
     requestContainingDirectory: string | undefined;
+    /** Whether the importing source is a .tspp or .d.tspp file. */
+    isTsppSource?: boolean;
     reportDiagnostic: DiagnosticReporter;
     isConfigLookup: boolean;
     candidateIsFromPackageJsonField: boolean;
@@ -339,6 +341,8 @@ export interface ModuleResolutionState {
 export interface PackageJsonPathFields {
     typings?: string;
     types?: string;
+    /** TS++ declaration entry point. TS++ source consumers prefer this over `types`. */
+    tsppTypes?: string;
     typesVersions?: MapLike<MapLike<string[]>>;
     main?: string;
     tsconfig?: string;
@@ -376,7 +380,7 @@ function readPackageJsonField<K extends keyof PackageJson>(jsonContent: PackageJ
     return value;
 }
 
-function readPackageJsonPathField<K extends "typings" | "types" | "main" | "tsconfig">(jsonContent: PackageJson, fieldName: K, baseDirectory: string, state: ModuleResolutionState): PackageJson[K] | undefined {
+function readPackageJsonPathField<K extends "typings" | "types" | "tsppTypes" | "main" | "tsconfig">(jsonContent: PackageJson, fieldName: K, baseDirectory: string, state: ModuleResolutionState): PackageJson[K] | undefined {
     const fileName = readPackageJsonField(jsonContent, fieldName, "string", state);
     if (fileName === undefined) {
         return;
@@ -395,7 +399,8 @@ function readPackageJsonPathField<K extends "typings" | "types" | "main" | "tsco
 }
 
 function readPackageJsonTypesFields(jsonContent: PackageJson, baseDirectory: string, state: ModuleResolutionState) {
-    return readPackageJsonPathField(jsonContent, "typings", baseDirectory, state)
+    return state.isTsppSource && readPackageJsonPathField(jsonContent, "tsppTypes", baseDirectory, state)
+        || readPackageJsonPathField(jsonContent, "typings", baseDirectory, state)
         || readPackageJsonPathField(jsonContent, "types", baseDirectory, state);
 }
 
@@ -778,6 +783,10 @@ export function getConditions(options: CompilerOptions, resolutionMode?: Resolut
         conditions.push("node");
     }
     return concatenate(conditions, options.customConditions);
+}
+
+function isTsppSourceFile(fileName: string): boolean {
+    return fileExtensionIs(fileName, Extension.Tspp);
 }
 
 /**
@@ -1415,7 +1424,10 @@ export function resolveModuleName(moduleName: string, containingFile: string, co
         }
     }
     const containingDirectory = getDirectoryPath(containingFile);
-    let result = cache?.getFromDirectoryCache(moduleName, resolutionMode, containingDirectory, redirectedReference);
+    const tsppSource = isTsppSourceFile(containingFile);
+    // TS and TS++ files in the same directory intentionally resolve different declaration surfaces.
+    const resolutionCache = tsppSource ? undefined : cache;
+    let result = resolutionCache?.getFromDirectoryCache(moduleName, resolutionMode, containingDirectory, redirectedReference);
 
     if (result) {
         if (traceEnabled) {
@@ -1438,29 +1450,29 @@ export function resolveModuleName(moduleName: string, containingFile: string, co
 
         switch (moduleResolution) {
             case ModuleResolutionKind.Node16:
-                result = node16ModuleNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference, resolutionMode);
+                result = node16ModuleNameResolver(moduleName, containingFile, compilerOptions, host, resolutionCache, redirectedReference, resolutionMode);
                 break;
             case ModuleResolutionKind.NodeNext:
-                result = nodeNextModuleNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference, resolutionMode);
+                result = nodeNextModuleNameResolver(moduleName, containingFile, compilerOptions, host, resolutionCache, redirectedReference, resolutionMode);
                 break;
             case ModuleResolutionKind.Node10:
-                result = nodeModuleNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference, resolutionMode ? getConditions(compilerOptions, resolutionMode) : undefined);
+                result = nodeModuleNameResolver(moduleName, containingFile, compilerOptions, host, resolutionCache, redirectedReference, resolutionMode ? getConditions(compilerOptions, resolutionMode) : undefined);
                 break;
             case ModuleResolutionKind.Classic:
-                result = classicNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference);
+                result = classicNameResolver(moduleName, containingFile, compilerOptions, host, resolutionCache, redirectedReference);
                 break;
             case ModuleResolutionKind.Bundler:
-                result = bundlerModuleNameResolver(moduleName, containingFile, compilerOptions, host, cache, redirectedReference, resolutionMode ? getConditions(compilerOptions, resolutionMode) : undefined);
+                result = bundlerModuleNameResolver(moduleName, containingFile, compilerOptions, host, resolutionCache, redirectedReference, resolutionMode ? getConditions(compilerOptions, resolutionMode) : undefined);
                 break;
             default:
                 return Debug.fail(`Unexpected moduleResolution: ${moduleResolution}`);
         }
 
-        if (cache && !cache.isReadonly) {
-            cache.getOrCreateCacheForDirectory(containingDirectory, redirectedReference).set(moduleName, resolutionMode, result);
+        if (resolutionCache && !resolutionCache.isReadonly) {
+            resolutionCache.getOrCreateCacheForDirectory(containingDirectory, redirectedReference).set(moduleName, resolutionMode, result);
             if (!isExternalModuleNameRelative(moduleName)) {
                 // put result in per-module name cache
-                cache.getOrCreateCacheForNonRelativeName(moduleName, resolutionMode, redirectedReference).set(containingDirectory, result);
+                resolutionCache.getOrCreateCacheForNonRelativeName(moduleName, resolutionMode, redirectedReference).set(containingDirectory, result);
             }
         }
     }
@@ -1744,7 +1756,7 @@ function nodeNextModuleNameResolverWorker(features: NodeResolutionFeatures, modu
     if (getResolveJsonModule(compilerOptions)) {
         extensions |= Extensions.Json;
     }
-    return nodeModuleNameResolverWorker(features | esmMode, moduleName, containingDirectory, compilerOptions, host, cache, extensions, /*isConfigLookup*/ false, redirectedReference, conditions);
+    return nodeModuleNameResolverWorker(features | esmMode, moduleName, containingDirectory, compilerOptions, host, cache, extensions, /*isConfigLookup*/ false, redirectedReference, conditions, isTsppSourceFile(containingFile));
 }
 
 function tryResolveJSModuleWorker(moduleName: string, initialDir: string, host: ModuleResolutionHost): ResolvedModuleWithFailedLookupLocations {
@@ -1772,7 +1784,7 @@ export function bundlerModuleNameResolver(moduleName: string, containingFile: st
     if (getResolveJsonModule(compilerOptions)) {
         extensions |= Extensions.Json;
     }
-    return nodeModuleNameResolverWorker(getNodeResolutionFeatures(compilerOptions), moduleName, containingDirectory, compilerOptions, host, cache, extensions, /*isConfigLookup*/ false, redirectedReference, conditions);
+    return nodeModuleNameResolverWorker(getNodeResolutionFeatures(compilerOptions), moduleName, containingDirectory, compilerOptions, host, cache, extensions, /*isConfigLookup*/ false, redirectedReference, conditions, isTsppSourceFile(containingFile));
 }
 
 export function nodeModuleNameResolver(moduleName: string, containingFile: string, compilerOptions: CompilerOptions, host: ModuleResolutionHost, cache?: ModuleResolutionCache, redirectedReference?: ResolvedProjectReference): ResolvedModuleWithFailedLookupLocations;
@@ -1792,7 +1804,7 @@ export function nodeModuleNameResolver(moduleName: string, containingFile: strin
             : Extensions.TypeScript | Extensions.JavaScript | Extensions.Declaration;
     }
 
-    return nodeModuleNameResolverWorker(conditions ? NodeResolutionFeatures.AllFeatures : NodeResolutionFeatures.None, moduleName, getDirectoryPath(containingFile), compilerOptions, host, cache, extensions, !!isConfigLookup, redirectedReference, conditions);
+    return nodeModuleNameResolverWorker(conditions ? NodeResolutionFeatures.AllFeatures : NodeResolutionFeatures.None, moduleName, getDirectoryPath(containingFile), compilerOptions, host, cache, extensions, !!isConfigLookup, redirectedReference, conditions, isTsppSourceFile(containingFile));
 }
 
 /** @internal */
@@ -1811,8 +1823,10 @@ function nodeModuleNameResolverWorker(
     isConfigLookup: boolean,
     redirectedReference: ResolvedProjectReference | undefined,
     conditions: readonly string[] | undefined,
+    isTsppSource = false,
 ): ResolvedModuleWithFailedLookupLocations {
     const traceEnabled = isTraceEnabled(compilerOptions, host);
+    if (isTsppSource && !conditions?.includes("tspp-types")) conditions = ["tspp-types", ...(conditions ?? emptyArray)];
 
     const failedLookupLocations: string[] = [];
     const affectingLocations: string[] = [];
@@ -1835,6 +1849,7 @@ function nodeModuleNameResolverWorker(
         features,
         conditions: conditions ?? emptyArray,
         requestContainingDirectory: containingDirectory,
+        isTsppSource,
         reportDiagnostic: diag => void diagnostics.push(diag),
         isConfigLookup,
         candidateIsFromPackageJsonField: false,
@@ -2166,9 +2181,14 @@ function tryAddingExtensions(candidate: string, extensions: Extensions, original
                 || extensions & Extensions.JavaScript && (tryExtension(Extension.Jsx) || tryExtension(Extension.Js))
                 || undefined;
         case Extension.Tspp:
-            return extensions & Extensions.TypeScript && (tryExtension(Extension.Tspp, /*resolvedUsingTsExtension*/ true) || tryExtension(Extension.Ts))
+            if (!state.isTsppSource) return undefined;
+            return extensions & Extensions.TypeScript && tryExtension(Extension.Tspp, /*resolvedUsingTsExtension*/ true)
+                || extensions & Extensions.Declaration && tryExtension(".d.tspp")
                 || extensions & Extensions.Declaration && tryExtension(Extension.Dts)
                 || undefined;
+        case ".d.tspp":
+            if (!state.isTsppSource) return undefined;
+            return extensions & Extensions.Declaration && tryExtension(".d.tspp") || undefined;
         case Extension.Ts:
         case Extension.Dts:
         case Extension.Js:
@@ -2178,7 +2198,7 @@ function tryAddingExtensions(candidate: string, extensions: Extensions, original
                 || state.isConfigLookup && tryExtension(Extension.Json)
                 || undefined;
         case "":
-            return extensions & Extensions.TypeScript && (tryExtension(Extension.Tspp) || tryExtension(Extension.Ts) || tryExtension(Extension.Tsx))
+            return extensions & Extensions.TypeScript && (tryExtension(Extension.Ts) || tryExtension(Extension.Tsx) || state.isTsppSource && tryExtension(Extension.Tspp))
                 || extensions & Extensions.Declaration && tryExtension(Extension.Dts)
                 || extensions & Extensions.JavaScript && (tryExtension(Extension.Js) || tryExtension(Extension.Jsx))
                 || state.isConfigLookup && tryExtension(Extension.Json)
@@ -2772,7 +2792,7 @@ function getLoadModuleFromTargetExportOrImport(extensions: Extensions, state: Mo
                     const combinedLookup = pattern ? target.replace(/\*/g, subpath) : target + subpath;
                     traceIfEnabled(state, Diagnostics.Using_0_subpath_1_with_target_2, "imports", key, combinedLookup);
                     traceIfEnabled(state, Diagnostics.Resolving_module_0_from_1, combinedLookup, scope.packageDirectory + "/");
-                    const result = nodeModuleNameResolverWorker(state.features, combinedLookup, scope.packageDirectory + "/", state.compilerOptions, state.host, cache, extensions, /*isConfigLookup*/ false, redirectedReference, state.conditions);
+                    const result = nodeModuleNameResolverWorker(state.features, combinedLookup, scope.packageDirectory + "/", state.compilerOptions, state.host, cache, extensions, /*isConfigLookup*/ false, redirectedReference, state.conditions, state.isTsppSource);
                     // Note: we cannot safely reassign `state.failedLookupLocations` during a request;
                     // `nodeModuleNameResolverWorker` relies on the `state` property remaining reference-equal
                     // to the one it initializes.
@@ -3283,6 +3303,7 @@ export function classicNameResolver(moduleName: string, containingFile: string, 
         features: NodeResolutionFeatures.None,
         conditions: [],
         requestContainingDirectory: containingDirectory,
+        isTsppSource: isTsppSourceFile(containingFile),
         reportDiagnostic: diag => void diagnostics.push(diag),
         isConfigLookup: false,
         candidateIsFromPackageJsonField: false,

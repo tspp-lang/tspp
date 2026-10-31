@@ -6570,9 +6570,10 @@ export function getDeclarationEmitOutputFilePathWorker(fileName: string, options
 }
 
 /** @internal */
-export function getDeclarationEmitExtensionForPath(path: string): Extension.Dts | Extension.Dmts | Extension.Dcts | ".d.json.ts" {
+export function getDeclarationEmitExtensionForPath(path: string): Extension.Dts | Extension.Dmts | Extension.Dcts | ".d.tspp" | ".d.json.ts" {
     return fileExtensionIsOneOf(path, [Extension.Mjs, Extension.Mts]) ? Extension.Dmts :
         fileExtensionIsOneOf(path, [Extension.Cjs, Extension.Cts]) ? Extension.Dcts :
+        fileExtensionIs(path, Extension.Tspp) ? ".d.tspp" :
         fileExtensionIsOneOf(path, [Extension.Json]) ? `.d.json.ts` : // Drive-by redefinition of json declaration file output name so if it's ever enabled, it behaves well
         Extension.Dts;
 }
@@ -6585,6 +6586,7 @@ export function getDeclarationEmitExtensionForPath(path: string): Extension.Dts 
 export function getPossibleOriginalInputExtensionForExtension(path: string): Extension[] {
     return fileExtensionIsOneOf(path, [Extension.Dmts, Extension.Mjs, Extension.Mts]) ? [Extension.Mts, Extension.Mjs] :
         fileExtensionIsOneOf(path, [Extension.Dcts, Extension.Cjs, Extension.Cts]) ? [Extension.Cts, Extension.Cjs] :
+        fileExtensionIs(path, ".d.tspp") ? [Extension.Tspp] :
         fileExtensionIsOneOf(path, [`.d.json.ts`]) ? [Extension.Json] :
         [Extension.Tsx, Extension.Ts, Extension.Jsx, Extension.Js];
 }
@@ -6619,6 +6621,8 @@ export interface EmitFileNames {
     jsFilePath?: string | undefined;
     sourceMapFilePath?: string | undefined;
     declarationFilePath?: string | undefined;
+    /** TypeScript-compatible declaration emitted alongside a TS++ declaration. */
+    compatibilityDeclarationFilePath?: string | undefined;
     declarationMapPath?: string | undefined;
     buildInfoPath?: string | undefined;
 }

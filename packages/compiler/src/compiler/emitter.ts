@@ -56,6 +56,7 @@ import {
     createSourceMapGenerator,
     createTextWriter,
     Debug,
+    Declaration,
     DebuggerStatement,
     DeclarationName,
     Decorator,
@@ -197,6 +198,7 @@ import {
     isBinaryExpression,
     isBindingPattern,
     isBlock,
+    isClassDeclaration,
     isDeclarationFileName,
     isDecorator,
     isEmptyStatement,
@@ -211,6 +213,7 @@ import {
     isImportAttributes,
     isImportEqualsDeclaration,
     isIncrementalCompilation,
+    isInterfaceDeclaration,
     isInJsonFile,
     isJSDocLikeText,
     isJsonSourceFile,
@@ -219,6 +222,7 @@ import {
     isJsxOpeningElement,
     isKeyword,
     isLet,
+    isLiteralTypeNode,
     isLiteralExpression,
     isMemberName,
     isModifier,
@@ -237,6 +241,8 @@ import {
     isTemplateLiteralKind,
     isTokenKind,
     isTypeParameterDeclaration,
+    isTypeAliasDeclaration,
+    isTypeReferenceNode,
     isVarAwaitUsing,
     isVarConst,
     isVarUsing,
@@ -425,7 +431,7 @@ import {
     YieldExpression,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionDeclarationSyntax, getTypeApplication, getTypeKindAnnotation, isExtensionTypeConstructor } from "./plugins/registry.js";
+import { getExtensionDeclarationSyntax, getTypeApplication, getTypeKindAnnotation, getTypeUniverseLevel, isExtensionTypeConstructor } from "./plugins/registry.js";
 import { getTaggedUnionData } from "./plugins/taggedUnion.js";
 
 const brackets = createBracketsMap();
@@ -530,8 +536,11 @@ export function getOutputPathsFor(sourceFile: SourceFile | Bundle, host: EmitHos
         const jsFilePath = options.emitDeclarationOnly || isJsonEmittedToSameLocation ? undefined : ownOutputFilePath;
         const sourceMapFilePath = !jsFilePath || isJsonSourceFile(sourceFile) ? undefined : getSourceMapFilePath(jsFilePath, options);
         const declarationFilePath = (forceDtsPaths || (getEmitDeclarations(options) && !isJsonFile)) ? getDeclarationEmitOutputFilePath(sourceFile.fileName, host) : undefined;
+        const compatibilityDeclarationFilePath = declarationFilePath && fileExtensionIs(sourceFile.fileName, Extension.Tspp)
+            ? declarationFilePath.slice(0, -".d.tspp".length) + Extension.Dts
+            : undefined;
         const declarationMapPath = declarationFilePath && getAreDeclarationMapsEnabled(options) ? declarationFilePath + ".map" : undefined;
-        return { jsFilePath, sourceMapFilePath, declarationFilePath, declarationMapPath };
+        return { jsFilePath, sourceMapFilePath, declarationFilePath, compatibilityDeclarationFilePath, declarationMapPath };
     }
 }
 
@@ -629,6 +638,9 @@ function getOwnOutputFileNames(configFile: ParsedCommandLine, inputFileName: str
     if (getEmitDeclarations(configFile.options)) {
         const dts = getOutputDeclarationFileName(inputFileName, configFile, ignoreCase, getCommonSourceDirectory);
         addOutput(dts);
+        if (fileExtensionIs(inputFileName, Extension.Tspp)) {
+            addOutput(dts.slice(0, -".d.tspp".length) + Extension.Dts);
+        }
         if (configFile.options.declarationMap) {
             addOutput(`${dts}.map`);
         }
@@ -794,13 +806,13 @@ export function emitFiles(
         sourceMaps: sourceMapDataList,
     };
 
-    function emitSourceFileOrBundle({ jsFilePath, sourceMapFilePath, declarationFilePath, declarationMapPath, buildInfoPath }: EmitFileNames, sourceFileOrBundle: SourceFile | Bundle | undefined) {
+    function emitSourceFileOrBundle({ jsFilePath, sourceMapFilePath, declarationFilePath, compatibilityDeclarationFilePath, declarationMapPath, buildInfoPath }: EmitFileNames, sourceFileOrBundle: SourceFile | Bundle | undefined) {
         tracing?.push(tracing.Phase.Emit, "emitJsFileOrBundle", { jsFilePath });
         emitJsFileOrBundle(sourceFileOrBundle, jsFilePath, sourceMapFilePath);
         tracing?.pop();
 
         tracing?.push(tracing.Phase.Emit, "emitDeclarationFileOrBundle", { declarationFilePath });
-        emitDeclarationFileOrBundle(sourceFileOrBundle, declarationFilePath, declarationMapPath);
+        emitDeclarationFileOrBundle(sourceFileOrBundle, declarationFilePath, compatibilityDeclarationFilePath, declarationMapPath);
         tracing?.pop();
 
         tracing?.push(tracing.Phase.Emit, "emitBuildInfo", { buildInfoPath });
@@ -889,6 +901,7 @@ export function emitFiles(
     function emitDeclarationFileOrBundle(
         sourceFileOrBundle: SourceFile | Bundle | undefined,
         declarationFilePath: string | undefined,
+        compatibilityDeclarationFilePath: string | undefined,
         declarationMapPath: string | undefined,
     ) {
         if (!sourceFileOrBundle || emitOnly === EmitOnly.Js) return;
@@ -920,7 +933,10 @@ export function emitFiles(
             }
         }
 
-        const declBlocked = (!!declarationTransform.diagnostics && !!declarationTransform.diagnostics.length) || !!host.isEmitBlocked(declarationFilePath) || !!compilerOptions.noEmit;
+        const declBlocked = (!!declarationTransform.diagnostics && !!declarationTransform.diagnostics.length)
+            || !!host.isEmitBlocked(declarationFilePath)
+            || !!compatibilityDeclarationFilePath && !!host.isEmitBlocked(compatibilityDeclarationFilePath)
+            || !!compilerOptions.noEmit;
         emitSkipped = emitSkipped || declBlocked;
         if (!declBlocked || forceDtsEmit) {
             Debug.assert(declarationTransform.transformed.length === 1, "Should only see one output from the decl transform");
@@ -960,8 +976,28 @@ export function emitFiles(
                     // Explicitly do not passthru either `inline` option
                 },
             );
+            let compatibilityDtsWritten = false;
+            if (compatibilityDeclarationFilePath) {
+                const compatibilityPrinter = createPrinter(
+                    { ...printerOptions, sourceMap: false, tsppCompatibilityDeclaration: true },
+                    {
+                        hasGlobalName: resolver.hasGlobalName,
+                        onEmitNode: declarationTransform.emitNodeWithNotification,
+                        isEmitNotificationEnabled: declarationTransform.isEmitNotificationEnabled,
+                        substituteNode: declarationTransform.substituteNode,
+                    },
+                );
+                compatibilityDtsWritten = printSourceFileOrBundle(
+                    compatibilityDeclarationFilePath,
+                    /*sourceMapFilePath*/ undefined,
+                    declarationTransform,
+                    compatibilityPrinter,
+                    { extendedDiagnostics: compilerOptions.extendedDiagnostics },
+                );
+            }
             if (emittedFilesList) {
                 if (dtsWritten) emittedFilesList.push(declarationFilePath);
+                if (compatibilityDtsWritten) emittedFilesList.push(compatibilityDeclarationFilePath!);
                 if (declarationMapPath) {
                     emittedFilesList.push(declarationMapPath);
                 }
@@ -1231,6 +1267,10 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     } = handlers;
 
     var extendedDiagnostics = !!printerOptions.extendedDiagnostics;
+    var tsppCompatibilityDeclaration = !!printerOptions.tsppCompatibilityDeclaration;
+    var compatibilityKindedTypeParameterNames = new Set<string>();
+    var compatibilityTypeParameterNames = new Set<string>();
+    var compatibilityGenericTypeNames = new Set(["Array", "ReadonlyArray", "Promise", "Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]);
     var omitBraceSourcePositions = !!printerOptions.omitBraceSourceMapPositions;
     var newLine = getNewLineCharacter(printerOptions);
     var moduleKind = getEmitModuleKind(printerOptions);
@@ -2210,7 +2250,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         emitModifierList(node, node.modifiers);
         emit(node.name);
         const kind = getTypeKindAnnotation(node);
-        if (kind) {
+        if (kind && !tsppCompatibilityDeclaration) {
             writePunctuation(":");
             writeSpace();
             emitTSPPTypeKind(kind);
@@ -2276,7 +2316,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     //
 
     function emitPropertySignature(node: PropertySignature) {
-        emitModifierList(node, node.modifiers);
+        if (tsppCompatibilityDeclaration && node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword)) return;
+        emitModifierList(node, getCompatibilityInterfaceModifiers(node));
         emitNodeWithWriter(node.name, writeProperty);
         emit(node.questionToken);
         emitTypeAnnotation(node.type);
@@ -2294,10 +2335,18 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitMethodSignature(node: MethodSignature) {
-        emitModifierList(node, node.modifiers);
+        if (tsppCompatibilityDeclaration && node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword)) return;
+        emitModifierList(node, getCompatibilityInterfaceModifiers(node));
         emit(node.name);
         emit(node.questionToken);
         emitSignatureAndBody(node, emitSignatureHead, emitEmptyFunctionBody);
+    }
+
+    function getCompatibilityInterfaceModifiers(node: PropertySignature | MethodSignature) {
+        if (!tsppCompatibilityDeclaration || !node.modifiers) {
+            return node.modifiers;
+        }
+        return factory.createNodeArray(node.modifiers.filter(modifier => modifier.kind !== SyntaxKind.StaticKeyword));
     }
 
     function emitMethodDeclaration(node: MethodDeclaration) {
@@ -2375,18 +2424,60 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitTypeReference(node: TypeReferenceNode) {
+        const universeLevel = getTypeUniverseLevel(node);
+        if (universeLevel !== undefined) {
+            if (tsppCompatibilityDeclaration) writeKeyword("unknown");
+            else writeKeyword(universeLevel === 0 ? "Type" : `Type${universeLevel}`);
+            return;
+        }
+        if (tsppCompatibilityDeclaration && isUnsupportedCompatibilityTypeReference(node)) {
+            writeKeyword("unknown");
+            return;
+        }
         emit(node.typeName);
         emitTypeArguments(node, node.typeArguments);
+    }
+
+    function isUnsupportedCompatibilityTypeReference(node: TypeReferenceNode) {
+        if (getTypeUniverseLevel(node) !== undefined) return true;
+        if (!isIdentifier(node.typeName)) return false;
+        const name = idText(node.typeName);
+        if (/^Type\d*$/u.test(name)) return true;
+        if (compatibilityKindedTypeParameterNames.has(name)) return true;
+        if (compatibilityTypeParameterNames.has(name)) return false;
+        if (node.typeArguments?.length) return false;
+        if (compatibilityGenericTypeNames.has(name)) return true;
+        let current: TypeReferenceNode | undefined = node;
+        let declarations: readonly Declaration[] | undefined;
+        while (current && !declarations?.length) {
+            declarations = isIdentifier(current.typeName) ? current.typeName.symbol?.declarations : undefined;
+            current = current.original && isTypeReferenceNode(current.original) ? current.original : undefined;
+        }
+        if (!declarations?.length) return false;
+        return declarations.some(declaration => {
+            if (!isTypeAliasDeclaration(declaration) && !isInterfaceDeclaration(declaration) && !isClassDeclaration(declaration)) return false;
+            if (declaration.typeParameters?.length) return true;
+            const kind = getTypeKindAnnotation(declaration);
+            return kind?.kind === "function" || isTypeAliasDeclaration(declaration) && isExtensionTypeConstructor(declaration.type);
+        });
     }
 
     function emitFunctionType(node: FunctionTypeNode) {
         const application = getTypeApplication(node);
         if (application) {
+            if (tsppCompatibilityDeclaration) {
+                writeKeyword("unknown");
+                return;
+            }
             emit(application.target as Node);
             emitTypeArguments(node, application.typeArguments as NodeArray<TypeNode>);
             return;
         }
         if (isExtensionTypeConstructor(node)) {
+            if (tsppCompatibilityDeclaration) {
+                writeKeyword("unknown");
+                return;
+            }
             emitTypeParameters(node, node.typeParameters);
             writeSpace();
             writePunctuation("=>>");
@@ -2611,7 +2702,16 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
         writeKeyword("import");
         writePunctuation("(");
-        emit(node.argument);
+        if (tsppCompatibilityDeclaration && isLiteralTypeNode(node.argument) && isStringLiteral(node.argument.literal)) {
+            const literal = node.argument.literal;
+            const text = literal.text.endsWith(Extension.Tspp)
+                ? literal.text.slice(0, -Extension.Tspp.length) + Extension.Js
+                : literal.text;
+            emit(factory.createLiteralTypeNode(factory.createStringLiteral(text)));
+        }
+        else {
+            emit(node.argument);
+        }
         if (node.attributes) {
             writePunctuation(",");
             writeSpace();
@@ -3484,6 +3584,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitSignatureAndBody<T extends SignatureDeclaration>(node: T, emitSignatureHead: (node: T) => void, emitBody: (node: T) => void) {
+        const previousKindedNames = compatibilityKindedTypeParameterNames;
+        const previousTypeNames = compatibilityTypeParameterNames;
+        if (tsppCompatibilityDeclaration && node.typeParameters?.length) {
+            compatibilityKindedTypeParameterNames = new Set([...previousKindedNames, ...getCompatibilityKindedTypeParameterNames(node.typeParameters)]);
+            compatibilityTypeParameterNames = new Set([...previousTypeNames, ...node.typeParameters.map(parameter => idText(parameter.name))]);
+        }
         const indentedFlag = getEmitFlags(node) & EmitFlags.Indented;
         if (indentedFlag) {
             increaseIndent();
@@ -3498,6 +3604,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         if (indentedFlag) {
             decreaseIndent();
         }
+        compatibilityKindedTypeParameterNames = previousKindedNames;
+        compatibilityTypeParameterNames = previousTypeNames;
     }
 
     function emitFunctionBody<T extends Exclude<FunctionLikeDeclaration, ArrowFunction>>(node: T) {
@@ -3602,6 +3710,9 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitClassDeclarationOrExpression(node: ClassDeclaration | ClassExpression) {
+        if (tsppCompatibilityDeclaration && node.name && node.typeParameters?.length) {
+            compatibilityGenericTypeNames.add(idText(node.name));
+        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ true);
         emitTokenWithComment(SyntaxKind.ClassKeyword, moveRangePastModifiers(node).pos, writeKeyword, node);
         if (node.name) {
@@ -3632,6 +3743,15 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitInterfaceDeclaration(node: InterfaceDeclaration) {
+        if (tsppCompatibilityDeclaration && node.typeParameters?.length) {
+            compatibilityGenericTypeNames.add(idText(node.name));
+        }
+        const previousKindedNames = compatibilityKindedTypeParameterNames;
+        const previousTypeNames = compatibilityTypeParameterNames;
+        if (tsppCompatibilityDeclaration) {
+            compatibilityKindedTypeParameterNames = getCompatibilityKindedTypeParameterNames(node.typeParameters);
+            compatibilityTypeParameterNames = new Set(node.typeParameters?.map(parameter => idText(parameter.name)) ?? emptyArray);
+        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
         writeKeyword("interface");
         writeSpace();
@@ -3647,11 +3767,23 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         popNameGenerationScope(node);
 
         writePunctuation("}");
+        compatibilityKindedTypeParameterNames = previousKindedNames;
+        compatibilityTypeParameterNames = previousTypeNames;
     }
 
     function emitTypeAliasDeclaration(node: TypeAliasDeclaration) {
+        if (tsppCompatibilityDeclaration && node.typeParameters?.length) {
+            compatibilityGenericTypeNames.add(idText(node.name));
+        }
+        const previousKindedNames = compatibilityKindedTypeParameterNames;
+        const previousTypeNames = compatibilityTypeParameterNames;
+        if (tsppCompatibilityDeclaration) {
+            compatibilityKindedTypeParameterNames = getCompatibilityKindedTypeParameterNames(node.typeParameters);
+            compatibilityTypeParameterNames = new Set(node.typeParameters?.map(parameter => idText(parameter.name)) ?? emptyArray);
+        }
         const syntax = getExtensionDeclarationSyntax(node);
-        if (syntax?.emitDeclaration) {
+        const extensionEmitter = syntax && (tsppCompatibilityDeclaration ? syntax.emitCompatibilityDeclaration : syntax.emitDeclaration);
+        if (extensionEmitter) {
             const pluginEmitter: TSPPDeclarationEmitter = {
                 emitTypeAliasDeclaration: (declaration, keyword) => {
                     const alias = declaration as TypeAliasDeclaration;
@@ -3702,8 +3834,97 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
                     });
                     writeTrailingSemicolon();
                 },
+                emitCompatibilityNominalDeclaration: declaration => {
+                    const alias = declaration as TypeAliasDeclaration;
+                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
+                    writeKeyword("type");
+                    writeSpace();
+                    emit(alias.name);
+                    emitTypeParameters(alias, alias.typeParameters);
+                    writeSpace();
+                    writePunctuation("=");
+                    writeSpace();
+                    emit(alias.type);
+                    writeTrailingSemicolon();
+                    writeLine();
+                    emitExportModifier(alias);
+                    writeKeyword("declare");
+                    writeSpace();
+                    writeKeyword("function");
+                    writeSpace();
+                    emit(alias.name);
+                    emitTypeParameters(alias, alias.typeParameters);
+                    writePunctuation("(");
+                    write("value");
+                    writePunctuation(":");
+                    writeSpace();
+                    emit(alias.type);
+                    writePunctuation(")");
+                    writePunctuation(":");
+                    writeSpace();
+                    emit(alias.name);
+                    emitTypeParameterReferences(alias.typeParameters);
+                    writeTrailingSemicolon();
+                },
+                emitCompatibilityTaggedUnionDeclaration: declaration => {
+                    const alias = declaration as TypeAliasDeclaration;
+                    const data = getTaggedUnionData(alias);
+                    if (!data) return;
+                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
+                    writeKeyword("type");
+                    writeSpace();
+                    emit(alias.name);
+                    emitTypeParameters(alias, alias.typeParameters);
+                    writeSpace();
+                    writePunctuation("=");
+                    data.variants.forEach((variant, variantIndex) => {
+                        if (variantIndex > 0) write(" |");
+                        writeSpace();
+                        emitCompatibilityVariantObject(variant);
+                    });
+                    writeTrailingSemicolon();
+                    for (const variant of data.variants) {
+                        writeLine();
+                        emitExportModifier(alias);
+                        writeKeyword("declare");
+                        writeSpace();
+                        if (variant.fields.length === 0) {
+                            writeKeyword("const");
+                            writeSpace();
+                            emit(variant.name);
+                            writePunctuation(":");
+                            writeSpace();
+                            emitCompatibilityVariantObject(variant);
+                        }
+                        else {
+                            writeKeyword("function");
+                            writeSpace();
+                            emit(variant.name);
+                            emitTypeParameters(alias, alias.typeParameters);
+                            writePunctuation("(");
+                            variant.fields.forEach((field, fieldIndex) => {
+                                if (fieldIndex > 0) {
+                                    writePunctuation(",");
+                                    writeSpace();
+                                }
+                                emit(field.name);
+                                writePunctuation(":");
+                                writeSpace();
+                                emit(field.type);
+                            });
+                            writePunctuation(")");
+                            writePunctuation(":");
+                            writeSpace();
+                            emit(alias.name);
+                            emitTypeParameterReferences(alias.typeParameters);
+                        }
+                        writeTrailingSemicolon();
+                    }
+                },
             };
-            syntax.emitDeclaration(node, pluginEmitter);
+            extensionEmitter(node, pluginEmitter);
+            compatibilityKindedTypeParameterNames = previousKindedNames;
+            compatibilityTypeParameterNames = previousTypeNames;
             return;
         }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
@@ -3712,7 +3933,13 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         emit(node.name);
         emitTypeParameters(node, node.typeParameters);
         const kind = getTypeKindAnnotation(node);
-        if (kind) {
+        const syntheticTypeParameterCount = tsppCompatibilityDeclaration && !node.typeParameters?.length
+            ? kind?.kind === "function" ? kind.parameters.length
+            : isExtensionTypeConstructor(node.type) ? (node.type as FunctionTypeNode).typeParameters?.length ?? 0
+            : 0
+            : 0;
+        if (syntheticTypeParameterCount) emitCompatibilitySyntheticTypeParameters(syntheticTypeParameterCount);
+        if (kind && !tsppCompatibilityDeclaration) {
             writePunctuation(":");
             writeSpace();
             emitTSPPTypeKind(kind);
@@ -3720,8 +3947,78 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         writeSpace();
         writePunctuation("=");
         writeSpace();
-        emit(node.type);
+        if (syntheticTypeParameterCount) writeKeyword("unknown");
+        else emit(node.type);
         writeTrailingSemicolon();
+        compatibilityKindedTypeParameterNames = previousKindedNames;
+        compatibilityTypeParameterNames = previousTypeNames;
+    }
+
+    function emitExportModifier(node: TypeAliasDeclaration) {
+        if (node.modifiers?.some(modifier => modifier.kind === SyntaxKind.ExportKeyword)) {
+            writeKeyword("export");
+            writeSpace();
+        }
+    }
+
+    function getCompatibilityKindedTypeParameterNames(parameters: NodeArray<TypeParameterDeclaration> | undefined) {
+        const names = new Set<string>();
+        for (const parameter of parameters ?? emptyArray) {
+            if (getTypeKindAnnotation(parameter)?.kind === "function") names.add(idText(parameter.name));
+        }
+        return names;
+    }
+
+    function emitCompatibilitySyntheticTypeParameters(count: number) {
+        writePunctuation("<");
+        for (let index = 0; index < count; index++) {
+            if (index > 0) {
+                writePunctuation(",");
+                writeSpace();
+            }
+            write(`T${index}`);
+            writeSpace();
+            writePunctuation("=");
+            writeSpace();
+            writeKeyword("unknown");
+        }
+        writePunctuation(">");
+    }
+
+    function emitTypeParameterReferences(typeParameters: NodeArray<TypeParameterDeclaration> | undefined) {
+        if (!typeParameters?.length) return;
+        writePunctuation("<");
+        typeParameters.forEach((parameter, index) => {
+            if (index > 0) {
+                writePunctuation(",");
+                writeSpace();
+            }
+            emit(parameter.name);
+        });
+        writePunctuation(">");
+    }
+
+    function emitCompatibilityVariantObject(variant: NonNullable<ReturnType<typeof getTaggedUnionData>>["variants"][number]) {
+        writePunctuation("{");
+        writeSpace();
+        writeKeyword("readonly");
+        writeSpace();
+        write("_tag");
+        writePunctuation(":");
+        writeSpace();
+        emit(factory.createStringLiteral(idText(variant.name)));
+        for (const field of variant.fields) {
+            writePunctuation(";");
+            writeSpace();
+            writeKeyword("readonly");
+            writeSpace();
+            emit(field.name);
+            writePunctuation(":");
+            writeSpace();
+            emit(field.type);
+        }
+        writeSpace();
+        writePunctuation("}");
     }
 
     function emitEnumDeclaration(node: EnumDeclaration) {
@@ -3804,7 +4101,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             emitTokenWithComment(SyntaxKind.FromKeyword, node.importClause.end, writeKeyword, node);
             writeSpace();
         }
-        emitExpression(node.moduleSpecifier);
+        emitCompatibilityModuleSpecifier(node.moduleSpecifier);
         if (node.attributes) {
             emitWithLeadingSpace(node.attributes);
         }
@@ -3878,12 +4175,20 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             const fromPos = node.exportClause ? node.exportClause.end : nextPos;
             emitTokenWithComment(SyntaxKind.FromKeyword, fromPos, writeKeyword, node);
             writeSpace();
-            emitExpression(node.moduleSpecifier);
+            emitCompatibilityModuleSpecifier(node.moduleSpecifier);
         }
         if (node.attributes) {
             emitWithLeadingSpace(node.attributes);
         }
         writeTrailingSemicolon();
+    }
+
+    function emitCompatibilityModuleSpecifier(moduleSpecifier: Expression) {
+        if (tsppCompatibilityDeclaration && isStringLiteral(moduleSpecifier) && moduleSpecifier.text.endsWith(Extension.Tspp)) {
+            emitExpression(factory.createStringLiteral(moduleSpecifier.text.slice(0, -Extension.Tspp.length) + Extension.Js));
+            return;
+        }
+        emitExpression(moduleSpecifier);
     }
 
     function emitImportTypeNodeAttributes(node: ImportAttributes) {

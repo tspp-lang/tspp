@@ -47,6 +47,7 @@ export const nominalTypesPlugin = definePlugin({
                         return args.length === 1 ? transformer.visitExpression(args[0]) : node;
                     },
                     emitDeclaration: (node, emitter) => emitter.emitTypeAliasDeclaration(node, "newtype"),
+                    emitCompatibilityDeclaration: (node, emitter) => emitter.emitCompatibilityNominalDeclaration(node),
                 };
                 const disposeNewtype = context.compiler.registerDeclarationSyntax(syntax);
                 const disposeData = context.compiler.registerDeclarationSyntax(createDataDeclarationSyntax(kinds));

@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "description": "Example project for TS++ nominal newtypes and algebraic data types.",
+  "tsppTypes": "./dist/index.d.tspp",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
+      "tspp-types": "./dist/index.d.tspp",
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }

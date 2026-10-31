@@ -382,6 +382,10 @@ export interface TSPPDeclarationCallTransformer {
 export interface TSPPDeclarationEmitter {
     emitTypeAliasDeclaration(node: TSPPDeclaration, keyword: string): void;
     emitTaggedUnionDeclaration(node: TSPPDeclaration, keyword: string): void;
+    /** Emits an erased nominal alias plus its value constructor for upstream TypeScript. */
+    emitCompatibilityNominalDeclaration(node: TSPPDeclaration): void;
+    /** Emits a tagged union and its constructors using ordinary TypeScript declarations. */
+    emitCompatibilityTaggedUnionDeclaration(node: TSPPDeclaration): void;
 }
 
 export interface TSPPDeclarationSyntax {
@@ -405,6 +409,8 @@ export interface TSPPDeclarationSyntax {
         transformer: TSPPDeclarationCallTransformer,
     ): TSPPExpression;
     emitDeclaration?(node: TSPPDeclaration, emitter: TSPPDeclarationEmitter): void;
+    /** Projects this declaration onto syntax accepted by upstream TypeScript. */
+    emitCompatibilityDeclaration?(node: TSPPDeclaration, emitter: TSPPDeclarationEmitter): void;
 }
 
 export interface TSPPCompilerPluginAPI {

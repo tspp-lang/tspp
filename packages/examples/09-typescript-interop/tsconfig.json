@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "plugins": [
+      {
+        "name": "@tspp/plugin-nominal-types",
+        "tspp": true
+      }
+    ]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tspp"]
+}

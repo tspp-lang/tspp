@@ -1,0 +1,9 @@
+import { normalizeName, type LegacyUser } from "./legacy.js";
+
+export newtype UserId = string;
+export data Lookup<T> = Missing | Found(value: T);
+
+export function loadUser(user: LegacyUser): Lookup<LegacyUser> {
+    const displayName = normalizeName(user.displayName);
+    return displayName ? Found({ ...user, displayName }) : Missing;
+}

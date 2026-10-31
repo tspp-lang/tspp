@@ -9904,6 +9904,7 @@ export interface PrinterOptions {
     /** @internal */ stripInternal?: boolean;
     /** @internal */ preserveSourceNewlines?: boolean;
     /** @internal */ terminateUnterminatedLiterals?: boolean;
+    /** @internal */ tsppCompatibilityDeclaration?: boolean;
 }
 
 /** @internal */

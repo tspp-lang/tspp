@@ -50,5 +50,6 @@ export function createDataDeclarationSyntax(
         getValueType: (node, checker) => checker.createTaggedUnionConstructorType(node),
         transform: (node, transformer) => transformer.createTaggedUnionStatements(node),
         emitDeclaration: (node, emitter) => emitter.emitTaggedUnionDeclaration(node, "data"),
+        emitCompatibilityDeclaration: (node, emitter) => emitter.emitCompatibilityTaggedUnionDeclaration(node),
     };
 }
