@@ -33,8 +33,12 @@
       "name": "variable.language.contract-result.tspp"
     },
     {
-      "match": "\\bnewtype\\b",
-      "name": "keyword.declaration.newtype.tspp"
+      "match": "\\b(?:newtype|data)\\b",
+      "name": "keyword.declaration.nominal-types.tspp"
+    },
+    {
+      "match": "\\bmatch\\b",
+      "name": "keyword.control.match.tspp"
     }
   ]
 }

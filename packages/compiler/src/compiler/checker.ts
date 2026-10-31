@@ -1160,6 +1160,7 @@ import {
     getExtensionExpressionSyntax,
     hasExtensionDeclarationValueUseRestrictions,
 } from "./plugins/registry.js";
+import { getTaggedUnionData, getTaggedUnionMatchData, getTaggedUnionVariantData } from "./plugins/taggedUnion.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -12817,7 +12818,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     function getTypeOfFuncClassEnumModuleWorker(symbol: Symbol): Type {
         const declaration = symbol.valueDeclaration;
         const extension = declaration && getExtensionDeclarationSyntax(declaration);
-        if (extension?.getValueType && declaration && isTypeAliasDeclaration(declaration)) {
+        if (extension?.getValueType && declaration) {
             return extension.getValueType(declaration, createExtensionDeclarationChecker(declaration)) as Type;
         }
         if (symbol.flags & SymbolFlags.Module && isShorthandAmbientModuleSymbol(symbol)) {
@@ -41977,16 +41978,65 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return errorType;
     }
 
+    function checkTaggedUnionMatchExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
+        const taggedUnionMatch = getTaggedUnionMatchData(node);
+        if (taggedUnionMatch) {
+            const matchedType = checkExpression(taggedUnionMatch.scrutinee);
+            const declaration = matchedType.aliasSymbol?.declarations?.find(isTypeAliasDeclaration);
+            const taggedUnion = declaration && getTaggedUnionData(declaration);
+            if (taggedUnion) {
+                const variants = new Map(taggedUnion.variants.map(variant => [idText(variant.name), variant]));
+                const covered = new Set<string>();
+                let hasWildcard = false;
+                for (const arm of taggedUnionMatch.arms) {
+                    if (arm.variant === "_") {
+                        hasWildcard = true;
+                        continue;
+                    }
+                    const variant = variants.get(arm.variant);
+                    if (!variant) {
+                        error(
+                            node,
+                            Diagnostics.Pattern_0_does_not_belong_to_data_type_1,
+                            arm.variant,
+                            declarationNameToString(declaration.name),
+                        );
+                        continue;
+                    }
+                    covered.add(arm.variant);
+                    if (variant.fields.length !== arm.bindings.length) {
+                        error(
+                            node,
+                            Diagnostics.Pattern_0_expects_1_fields_but_received_2,
+                            arm.variant,
+                            variant.fields.length,
+                            arm.bindings.length,
+                        );
+                    }
+                }
+                if (!hasWildcard) {
+                    const missing = [...variants.keys()].filter(name => !covered.has(name));
+                    if (missing.length) {
+                        error(node, Diagnostics.Non_exhaustive_match_Missing_patterns_Colon_0, missing.join(", "));
+                    }
+                }
+            }
+        }
+        return checkExpression(node.extensionChildren[1] as Expression, checkMode);
+    }
+
     function checkExtensionExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
         const pluginChecker: TSPPExpressionChecker = {
             checkExpression: (expression, mode) => checkExpression(expression as Expression, mode as CheckMode | undefined),
             checkVariableDeclarationList: declarations => checkVariableDeclarationList(declarations as VariableDeclarationList),
+            checkTaggedUnionMatch: (expression, mode) =>
+                checkTaggedUnionMatchExpression(expression as ExtensionExpression, mode as CheckMode | undefined),
         };
         return getExtensionExpressionSyntax(node).check(node, pluginChecker, checkMode) as Type;
     }
 
     function createExtensionDeclarationChecker(
-        declaration: TypeAliasDeclaration,
+        declaration: Declaration,
         typeParameters?: readonly TypeParameter[],
     ): TSPPDeclarationChecker {
         const symbol = getSymbolOfDeclaration(declaration);
@@ -42025,6 +42075,45 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     returnType as Type,
                     /*resolvedTypePredicate*/ undefined,
                     /*minArgumentCount*/ 1,
+                    SignatureFlags.None,
+                );
+                return createAnonymousType(/*symbol*/ undefined, emptySymbols, [signature], emptyArray, emptyArray);
+            },
+            createTaggedUnionConstructorType: node => {
+                const data = getTaggedUnionVariantData(node as Declaration);
+                if (!data) return errorType;
+                const aliasSymbol = getSymbolOfDeclaration(data.declaration);
+                const parameters = getSymbolLinks(aliasSymbol).typeParameters ?? emptyArray;
+                const declaredType = getDeclaredTypeOfSymbol(aliasSymbol);
+                const variantType = getTypeFromTypeNode(data.variant.type);
+                let returnType = getIntersectionType(
+                    [declaredType, variantType],
+                    IntersectionFlags.None,
+                    aliasSymbol,
+                    parameters,
+                );
+                if (data.variant.fields.length === 0) {
+                    if (parameters.length > 0) {
+                        returnType = instantiateType(
+                            returnType,
+                            createTypeMapper(parameters, parameters.map(() => anyType)),
+                        );
+                    }
+                    return returnType;
+                }
+                const fields = data.variant.fields.map(field => {
+                    const parameter = createSymbol(SymbolFlags.FunctionScopedVariable, field.name.escapedText);
+                    parameter.links.type = getTypeFromTypeNode(field.type);
+                    return parameter;
+                });
+                const signature = createSignature(
+                    /*declaration*/ undefined,
+                    parameters,
+                    /*thisParameter*/ undefined,
+                    fields,
+                    returnType,
+                    /*resolvedTypePredicate*/ undefined,
+                    data.variant.fields.length,
                     SignatureFlags.None,
                 );
                 return createAnonymousType(/*symbol*/ undefined, emptySymbols, [signature], emptyArray, emptyArray);

@@ -1,9 +1,9 @@
 {
-  "name": "@tspp/example-newtype",
+  "name": "@tspp/example-nominal-types",
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Example project for the TS++ newtype plugin.",
+  "description": "Example project for TS++ nominal newtypes and algebraic data types.",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -16,7 +16,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@tspp/plugin-newtype": "workspace:*",
+    "@tspp/plugin-nominal-types": "workspace:*",
     "ts-plus-plus": "workspace:*"
   },
   "devDependencies": {

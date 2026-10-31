@@ -8,7 +8,7 @@
     "moduleResolution": "NodeNext",
     "plugins": [
       {
-        "name": "@tspp/plugin-newtype",
+        "name": "@tspp/plugin-nominal-types",
         "tspp": true
       }
     ]

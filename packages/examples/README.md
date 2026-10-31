@@ -12,4 +12,4 @@ or declarations write generated files to `dist/`; package roots contain only
 configuration, metadata, and documentation.
 
 `04-newtype-consumer` additionally demonstrates consuming the declaration
-output published by `03-newtype` across a package boundary.
+output published by `03-nominal-types` across a package boundary.

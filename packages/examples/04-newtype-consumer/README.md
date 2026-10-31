@@ -1,8 +1,8 @@
-# Cross-package newtype consumer
+# Cross-package nominal types consumer
 
-This package consumes the `newtype` declaration emitted by
-`@tspp/example-newtype`. The plugin erases both its identity constructor call
-and the now type-only package import from JavaScript output.
+This package consumes `newtype` and `data` declarations emitted by
+`@tspp/example-nominal-types`. It verifies that nominal aliases, constructors,
+and value matching retain their semantics through generated declarations.
 
 The example also contains compile-time assertions proving that erased
 constructors cannot escape as first-class runtime values and accept exactly one

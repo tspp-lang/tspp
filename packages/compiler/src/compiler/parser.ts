@@ -1,6 +1,7 @@
 import type {
     TSPPDeclarationParser,
     TSPPExpressionParser,
+    TSPPTaggedUnionVariant,
 } from "@tspp/plugin-sdk/compiler";
 import {
     AccessorDeclaration,
@@ -113,6 +114,7 @@ import {
     getLastChild,
     getLeadingCommentRanges,
     getSpellingSuggestion,
+    getSynthesizedDeepClone,
     getTextOfNodeFromSourceText,
     HasJSDoc,
     hasJSDocNodes,
@@ -400,6 +402,7 @@ import {
     VariableDeclaration,
     VariableDeclarationList,
     VariableStatement,
+    visitEachChild,
     VoidExpression,
     WhileStatement,
     WithStatement,
@@ -413,6 +416,7 @@ import {
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
 } from "./plugins/registry.js";
+import { setTaggedUnionData, setTaggedUnionMatchData } from "./plugins/taggedUnion.js";
 
 const enum SignatureFlags {
     None = 0,
@@ -5756,7 +5760,7 @@ namespace Parser {
      */
     function parseUnaryExpressionOrHigher(): UnaryExpression | BinaryExpression {
         const extensionExpression = tryParseExtensionExpression(token(), createExtensionParser);
-        if (extensionExpression) return extensionExpression;
+        if (extensionExpression) return extensionExpression as UnaryExpression;
 
         /**
          * ES7 UpdateExpression:
@@ -5802,9 +5806,96 @@ namespace Parser {
     }
 
     function createExtensionParser(pluginId: string): TSPPExpressionParser {
+        function parseTaggedUnionMatchExpression(): Expression {
+            const pos = getNodePos();
+            nextToken();
+            const scrutinee = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
+            parseExpected(SyntaxKind.OpenBraceToken);
+            const arms: {
+                readonly variant: Identifier;
+                readonly bindings: readonly Identifier[];
+                readonly result: Expression;
+            }[] = [];
+            while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
+                const variant = parseIdentifier();
+                const bindings: Identifier[] = [];
+                if (parseOptional(SyntaxKind.OpenParenToken)) {
+                    while (token() !== SyntaxKind.CloseParenToken && token() !== SyntaxKind.EndOfFileToken) {
+                        bindings.push(parseIdentifier());
+                        if (!parseOptional(SyntaxKind.CommaToken)) break;
+                    }
+                    parseExpected(SyntaxKind.CloseParenToken);
+                }
+                parseExpected(SyntaxKind.EqualsGreaterThanToken);
+                const result = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
+                arms.push({ variant, bindings, result });
+                if (!parseOptional(SyntaxKind.CommaToken)) parseOptional(SyntaxKind.SemicolonToken);
+            }
+            parseExpected(SyntaxKind.CloseBraceToken);
+
+            const cloneScrutinee = () => getSynthesizedDeepClone(scrutinee);
+            const substituteBindings = (expression: Expression, bindings: readonly Identifier[]) => {
+                const replacements = new Map(bindings.map((binding, fieldIndex) => [
+                    idText(binding),
+                    setTextRange(
+                        factory.createElementAccessExpression(
+                            factory.createPropertyAccessExpression(cloneScrutinee(), "_values"),
+                            setTextRange(factory.createNumericLiteral(fieldIndex), binding),
+                        ),
+                        binding,
+                    ),
+                ]));
+                const visit = (node: Node): Node => {
+                    if (isIdentifierNode(node)) {
+                        const replacement = replacements.get(idText(node));
+                        if (replacement) return replacement;
+                    }
+                    return visitEachChild(node, visit, /*context*/ undefined);
+                };
+                return visit(expression) as Expression;
+            };
+            let body: Expression = factory.createAsExpression(
+                factory.createVoidZero(),
+                factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+            );
+            for (let index = arms.length - 1; index >= 0; index--) {
+                const arm = arms[index];
+                const result = substituteBindings(arm.result, arm.bindings);
+                if (idText(arm.variant) === "_") {
+                    body = result;
+                    continue;
+                }
+                const condition = factory.createBinaryExpression(
+                    factory.createPropertyAccessExpression(cloneScrutinee(), "_tag"),
+                    factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
+                    factory.createStringLiteral(idText(arm.variant)),
+                );
+                body = factory.createConditionalExpression(
+                    condition,
+                    factory.createToken(SyntaxKind.QuestionToken),
+                    result,
+                    factory.createToken(SyntaxKind.ColonToken),
+                    body,
+                );
+            }
+            const matchExpression = finishNode(factory.createExtensionExpression(pluginId, [scrutinee, body]), pos);
+            setTaggedUnionMatchData(matchExpression, {
+                scrutinee,
+                arms: arms.map(arm => ({
+                    variant: idText(arm.variant),
+                    bindings: arm.bindings.map(idText),
+                    variantNode: arm.variant,
+                    bindingNodes: arm.bindings,
+                    result: arm.result,
+                })),
+            });
+            return matchExpression;
+        }
+
         return {
             kinds: expressionSyntaxKinds,
             token,
+            tokenText: () => scanner.getTokenText(),
             nextToken,
             hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
             lookAhead,
@@ -5812,6 +5903,7 @@ namespace Parser {
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
             parseVariableDeclarationList,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
+            parseTaggedUnionMatchExpression,
             finishExpression: (children, pos) =>
                 finishNode(
                     factory.createExtensionExpression(pluginId, children as readonly Node[]),
@@ -7527,6 +7619,99 @@ namespace Parser {
         declarationPos: number,
         hasJSDoc: boolean,
     ): TSPPDeclarationParser {
+        function finishTaggedUnionDeclaration(
+            nameIn: object,
+            typeParametersIn: object | undefined,
+            variantsIn: readonly TSPPTaggedUnionVariant[],
+            pos: number,
+        ): TypeAliasDeclaration {
+            const name = nameIn as Identifier;
+            const typeParameters = typeParametersIn as NodeArray<TypeParameterDeclaration> | undefined;
+            const variants = variantsIn.map(variant => {
+                const fields = variant.fields.map(field => ({
+                    name: field.name as Identifier,
+                    type: field.type as TypeNode,
+                }));
+                const variantType = factory.createTypeLiteralNode([
+                    factory.createPropertySignature(
+                        [factory.createModifier(SyntaxKind.ReadonlyKeyword)],
+                        "_tag",
+                        /*questionToken*/ undefined,
+                        factory.createLiteralTypeNode(factory.createStringLiteral(idText(variant.name as Identifier))),
+                    ),
+                    factory.createPropertySignature(
+                        [factory.createModifier(SyntaxKind.ReadonlyKeyword)],
+                        "_values",
+                        /*questionToken*/ undefined,
+                        factory.createTupleTypeNode(factory.createNodeArray(
+                            fields.map(field => getSynthesizedDeepClone(field.type)),
+                        )),
+                    ),
+                    ...fields.map(field =>
+                        factory.createPropertySignature(
+                            [factory.createModifier(SyntaxKind.ReadonlyKeyword)],
+                            idText(field.name),
+                            /*questionToken*/ undefined,
+                            field.type,
+                        )
+                    ),
+                ]);
+                return { name: variant.name as Identifier, fields, type: variantType };
+            });
+            const unionType = variants.length === 1
+                ? variants[0].type
+                : factory.createUnionTypeNode(factory.createNodeArray(variants.map(variant => variant.type)));
+            const declaration = withJSDoc(
+                finishNode(factory.createTypeAliasDeclaration(modifiers, name, typeParameters, unionType), pos),
+                hasJSDoc,
+            );
+            const aliasTypeArguments = typeParameters?.map(parameter =>
+                factory.createTypeReferenceNode(idText(parameter.name), /*typeArguments*/ undefined)
+            );
+            const anyTypeArguments = typeParameters?.map(() => factory.createKeywordTypeNode(SyntaxKind.AnyKeyword));
+            const registeredVariants = variants.map(variant => {
+                const generic = variant.fields.length > 0;
+                const aliasReference = factory.createTypeReferenceNode(
+                    idText(name),
+                    generic ? aliasTypeArguments : anyTypeArguments,
+                );
+                const returnType = factory.createIntersectionTypeNode(factory.createNodeArray([
+                    aliasReference,
+                    getSynthesizedDeepClone(variant.type),
+                ]));
+                const declaration = factory.createFunctionDeclaration(
+                    modifiers,
+                    /*asteriskToken*/ undefined,
+                    idText(variant.name),
+                    generic
+                        ? typeParameters?.map(parameter =>
+                            factory.createTypeParameterDeclaration(
+                                /*modifiers*/ undefined,
+                                idText(parameter.name),
+                                getSynthesizedDeepClone(parameter.constraint),
+                                getSynthesizedDeepClone(parameter.default),
+                            )
+                        )
+                        : undefined,
+                    variant.fields.map(field =>
+                        factory.createParameterDeclaration(
+                            /*modifiers*/ undefined,
+                            /*dotDotDotToken*/ undefined,
+                            idText(field.name),
+                            /*questionToken*/ undefined,
+                            getSynthesizedDeepClone(field.type),
+                            /*initializer*/ undefined,
+                        )
+                    ),
+                    returnType,
+                    /*body*/ undefined,
+                );
+                return { ...variant, declaration };
+            });
+            setTaggedUnionData(declaration, { variants: registeredVariants });
+            return declaration;
+        }
+
         return {
             token,
             tokenText: () => scanner.getTokenText(),
@@ -7539,6 +7724,7 @@ namespace Parser {
             parseTypeParameters,
             parseType,
             parseSemicolon,
+            finishTaggedUnionDeclaration,
             finishTypeAliasDeclaration: (name, typeParameters, type, pos) =>
                 withJSDoc(
                     finishNode(

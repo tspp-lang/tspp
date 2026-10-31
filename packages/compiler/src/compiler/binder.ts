@@ -311,6 +311,7 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import { getExtensionDeclarationSyntax } from "./plugins/registry.js";
+import { getTaggedUnionSyntheticDeclarations } from "./plugins/taggedUnion.js";
 
 /** @internal */
 export const enum ModuleInstanceState {
@@ -3035,6 +3036,7 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
                 return bindBlockScopedDeclaration(node as Declaration, SymbolFlags.Interface, SymbolFlags.InterfaceExcludes);
             case SyntaxKind.TypeAliasDeclaration: {
                 const extension = getExtensionDeclarationSyntax(node);
+                const taggedUnionDeclarations = getTaggedUnionSyntheticDeclarations(node);
                 if (extension?.binding === "type-and-value") {
                     return bindBlockScopedDeclaration(
                         node as Declaration,
@@ -3042,7 +3044,13 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
                         SymbolFlags.TypeAliasExcludes | SymbolFlags.FunctionExcludes,
                     );
                 }
-                return bindBlockScopedDeclaration(node as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
+                bindBlockScopedDeclaration(node as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
+                for (const declaration of taggedUnionDeclarations) {
+                    (declaration as Mutable<Node>).parent = node.parent;
+                    setParentRecursive(declaration, /*incremental*/ false);
+                    bind(declaration);
+                }
+                return;
             }
             case SyntaxKind.EnumDeclaration:
                 return bindEnumDeclaration(node as EnumDeclaration);

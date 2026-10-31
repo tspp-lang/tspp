@@ -217,6 +217,7 @@ import {
     getExtensionExpressionSyntax,
     hasExtensionDeclarationCallTransforms,
 } from "../plugins/registry.js";
+import { getTaggedUnionData, getTaggedUnionMatchData, type TaggedUnionMatchData } from "../plugins/taggedUnion.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.
@@ -655,6 +656,9 @@ export function transformTypeScript(context: TransformationContext): Transformer
     }
 
     function transformExtensionExpression(node: ExtensionExpression): Expression {
+        const taggedUnionMatch = getTaggedUnionMatchData(node);
+        if (taggedUnionMatch) return transformTaggedUnionMatch(taggedUnionMatch);
+
         const pluginTransformer: TSPPExpressionTransformer = {
             visitExpression: expression => Debug.checkDefined(visitNode(expression as Expression, visitor, isExpression)),
             visitVariableDeclarationList: declarations =>
@@ -688,13 +692,67 @@ export function transformTypeScript(context: TransformationContext): Transformer
         return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;
     }
 
+    function createTaggedUnionStatements(node: TypeAliasDeclaration): readonly Statement[] {
+        const data = getTaggedUnionData(node);
+        if (!data) return [];
+        return data.variants.map(variant => {
+            const properties = [
+                factory.createPropertyAssignment("_tag", factory.createStringLiteral(idText(variant.name))),
+                factory.createPropertyAssignment(
+                    "_values",
+                    factory.createArrayLiteralExpression(
+                        variant.fields.map(field => factory.createIdentifier(idText(field.name))),
+                    ),
+                ),
+                ...variant.fields.map(field => factory.createShorthandPropertyAssignment(idText(field.name))),
+            ];
+            const object = factory.createObjectLiteralExpression(properties, /*multiLine*/ false);
+            if (variant.fields.length === 0) {
+                return factory.createVariableStatement(
+                    node.modifiers,
+                    factory.createVariableDeclarationList(
+                        [factory.createVariableDeclaration(
+                            idText(variant.name),
+                            /*exclamationToken*/ undefined,
+                            /*type*/ undefined,
+                            object,
+                        )],
+                        NodeFlags.Const,
+                    ),
+                );
+            }
+            return factory.createFunctionDeclaration(
+                node.modifiers,
+                /*asteriskToken*/ undefined,
+                idText(variant.name),
+                /*typeParameters*/ undefined,
+                variant.fields.map(field =>
+                    factory.createParameterDeclaration(
+                        /*modifiers*/ undefined,
+                        /*dotDotDotToken*/ undefined,
+                        idText(field.name),
+                        /*questionToken*/ undefined,
+                        /*type*/ undefined,
+                        /*initializer*/ undefined,
+                    )
+                ),
+                /*type*/ undefined,
+                factory.createBlock([factory.createReturnStatement(object)], /*multiLine*/ true),
+            );
+        });
+    }
+
     function transformExtensionDeclaration(node: TypeAliasDeclaration): VisitResult<Statement> | undefined {
         const syntax = getExtensionDeclarationSyntax(node);
         if (!syntax?.transform) return undefined;
         const pluginTransformer: TSPPDeclarationTransformer = {
             createNotEmittedStatement: declaration => factory.createNotEmittedStatement(declaration as Node),
+            createTaggedUnionStatements: declaration => createTaggedUnionStatements(declaration as TypeAliasDeclaration),
         };
-        return visitNode(syntax.transform(node, pluginTransformer) as Statement, visitor, isStatement);
+        const transformed = syntax.transform(node, pluginTransformer);
+        return Array.isArray(transformed)
+            ? transformed as readonly Statement[]
+            : visitNode(transformed as Statement, visitor, isStatement);
     }
 
     /**
@@ -1803,7 +1861,83 @@ export function transformTypeScript(context: TransformationContext): Transformer
         return factory.createPartiallyEmittedExpression(expression, node);
     }
 
+    function transformTaggedUnionMatch(data: TaggedUnionMatchData): Expression {
+        const matched = factory.createUniqueName("_match");
+        let body: Expression = factory.createVoidZero();
+        for (let index = data.arms.length - 1; index >= 0; index--) {
+            const arm = data.arms[index];
+            const activeBindings = arm.bindings
+                .map((binding, fieldIndex) => ({ binding, fieldIndex }))
+                .filter(entry => entry.binding !== "_");
+            const visitedResult = Debug.checkDefined(visitNode(arm.result, visitor, isExpression));
+            const result = activeBindings.length === 0
+                ? visitedResult
+                : factory.createCallExpression(
+                    factory.createParenthesizedExpression(factory.createArrowFunction(
+                        /*modifiers*/ undefined,
+                        /*typeParameters*/ undefined,
+                        activeBindings.map(entry =>
+                            factory.createParameterDeclaration(
+                                /*modifiers*/ undefined,
+                                /*dotDotDotToken*/ undefined,
+                                entry.binding,
+                                /*questionToken*/ undefined,
+                                /*type*/ undefined,
+                                /*initializer*/ undefined,
+                            )
+                        ),
+                        /*type*/ undefined,
+                        factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                        visitedResult,
+                    )),
+                    /*typeArguments*/ undefined,
+                    activeBindings.map(entry =>
+                        factory.createElementAccessExpression(
+                            factory.createPropertyAccessExpression(factory.cloneNode(matched), "_values"),
+                            entry.fieldIndex,
+                        )
+                    ),
+                );
+            if (arm.variant === "_") {
+                body = result;
+                continue;
+            }
+            body = factory.createConditionalExpression(
+                factory.createBinaryExpression(
+                    factory.createPropertyAccessExpression(factory.cloneNode(matched), "_tag"),
+                    factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
+                    factory.createStringLiteral(arm.variant),
+                ),
+                factory.createToken(SyntaxKind.QuestionToken),
+                result,
+                factory.createToken(SyntaxKind.ColonToken),
+                body,
+            );
+        }
+        return factory.createCallExpression(
+            factory.createParenthesizedExpression(factory.createArrowFunction(
+                /*modifiers*/ undefined,
+                /*typeParameters*/ undefined,
+                [factory.createParameterDeclaration(
+                    /*modifiers*/ undefined,
+                    /*dotDotDotToken*/ undefined,
+                    matched,
+                    /*questionToken*/ undefined,
+                    /*type*/ undefined,
+                    /*initializer*/ undefined,
+                )],
+                /*type*/ undefined,
+                factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                body,
+            )),
+            /*typeArguments*/ undefined,
+            [Debug.checkDefined(visitNode(data.scrutinee, visitor, isExpression))],
+        );
+    }
+
     function visitCallExpression(node: CallExpression) {
+        const taggedUnionMatch = getTaggedUnionMatchData(node);
+        if (taggedUnionMatch) return transformTaggedUnionMatch(taggedUnionMatch);
         if (isIdentifier(node.expression)) {
             const declaration = resolver.getReferencedExtensionDeclaration(node.expression);
             const syntax = declaration && getExtensionDeclarationSyntax(declaration);

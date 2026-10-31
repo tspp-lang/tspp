@@ -9,6 +9,7 @@ export type TSPPCallExpression = TSPPExpression;
 export type TSPPIdentifier = TSPPSyntaxNode;
 export type TSPPTypeNode = TSPPSyntaxNode;
 export type TSPPTypeParameterList = TSPPSyntaxNode;
+export type TSPPTaggedUnionStatement = TSPPSyntaxNode;
 export type TSPPType = object;
 export type TSPPSyntaxKind = number;
 
@@ -75,6 +76,8 @@ export interface TSPPExpressionSyntaxKinds {
     readonly openParenToken: TSPPSyntaxKind;
     readonly closeParenToken: TSPPSyntaxKind;
     readonly semicolonToken: TSPPSyntaxKind;
+    readonly commaToken: TSPPSyntaxKind;
+    readonly equalsGreaterThanToken: TSPPSyntaxKind;
     readonly inKeyword: TSPPSyntaxKind;
     readonly letKeyword: TSPPSyntaxKind;
 }
@@ -82,6 +85,7 @@ export interface TSPPExpressionSyntaxKinds {
 export interface TSPPExpressionParser {
     readonly kinds: TSPPExpressionSyntaxKinds;
     token(): TSPPSyntaxKind;
+    tokenText(): string;
     nextToken(): TSPPSyntaxKind;
     hasPrecedingLineBreak(): boolean;
     lookAhead<T>(callback: () => T): T;
@@ -89,12 +93,14 @@ export interface TSPPExpressionParser {
     parseExpected(kind: TSPPSyntaxKind): boolean;
     parseVariableDeclarationList(inForStatementInitializer: boolean): TSPPVariableDeclarationList;
     parseAssignmentExpression(): TSPPExpression;
+    parseTaggedUnionMatchExpression(): TSPPExpression;
     finishExpression(children: readonly TSPPSyntaxNode[], pos: number): TSPPExtensionExpression;
 }
 
 export interface TSPPExpressionChecker {
     checkExpression(node: TSPPExpression, checkMode: number | undefined): TSPPType;
     checkVariableDeclarationList(node: TSPPVariableDeclarationList): void;
+    checkTaggedUnionMatch(node: TSPPExtensionExpression, checkMode: number | undefined): TSPPType;
 }
 
 export interface TSPPExpressionTransformer {
@@ -111,7 +117,7 @@ export interface TSPPExpressionTransformer {
 export interface TSPPExpressionSyntax {
     readonly startTokens: readonly TSPPSyntaxKind[];
     isStart(parser: TSPPExpressionParser): boolean;
-    parse(parser: TSPPExpressionParser): TSPPExtensionExpression;
+    parse(parser: TSPPExpressionParser): TSPPExpression;
     check(node: TSPPExtensionExpression, checker: TSPPExpressionChecker, checkMode: number | undefined): TSPPType;
     transform(node: TSPPExtensionExpression, transformer: TSPPExpressionTransformer): TSPPExpression;
 }
@@ -128,6 +134,12 @@ export interface TSPPDeclarationParser {
     parseTypeParameters(): TSPPTypeParameterList | undefined;
     parseType(): TSPPTypeNode;
     parseSemicolon(): boolean;
+    finishTaggedUnionDeclaration(
+        name: TSPPIdentifier,
+        typeParameters: TSPPTypeParameterList | undefined,
+        variants: readonly TSPPTaggedUnionVariant[],
+        pos: number,
+    ): TSPPDeclaration;
     finishTypeAliasDeclaration(
         name: TSPPIdentifier,
         typeParameters: TSPPTypeParameterList | undefined,
@@ -139,6 +151,21 @@ export interface TSPPDeclarationParser {
 export interface TSPPDeclarationSyntaxKinds {
     readonly identifier: TSPPSyntaxKind;
     readonly equalsToken: TSPPSyntaxKind;
+    readonly barToken: TSPPSyntaxKind;
+    readonly openParenToken: TSPPSyntaxKind;
+    readonly closeParenToken: TSPPSyntaxKind;
+    readonly commaToken: TSPPSyntaxKind;
+    readonly colonToken: TSPPSyntaxKind;
+}
+
+export interface TSPPTaggedUnionField {
+    readonly name: TSPPIdentifier;
+    readonly type: TSPPTypeNode;
+}
+
+export interface TSPPTaggedUnionVariant {
+    readonly name: TSPPIdentifier;
+    readonly fields: readonly TSPPTaggedUnionField[];
 }
 
 export interface TSPPDeclarationChecker {
@@ -147,10 +174,12 @@ export interface TSPPDeclarationChecker {
     getDeclaredType(node: TSPPDeclaration): TSPPType;
     createNominalType(node: TSPPDeclaration, underlyingType: TSPPType): TSPPType;
     createIdentityConstructorType(node: TSPPDeclaration, parameterType: TSPPType, returnType: TSPPType): TSPPType;
+    createTaggedUnionConstructorType(node: TSPPDeclaration): TSPPType;
 }
 
 export interface TSPPDeclarationTransformer {
     createNotEmittedStatement(node: TSPPDeclaration): TSPPSyntaxNode;
+    createTaggedUnionStatements(node: TSPPDeclaration): readonly TSPPTaggedUnionStatement[];
 }
 
 export interface TSPPDeclarationCallTransformer {
@@ -160,6 +189,7 @@ export interface TSPPDeclarationCallTransformer {
 
 export interface TSPPDeclarationEmitter {
     emitTypeAliasDeclaration(node: TSPPDeclaration, keyword: string): void;
+    emitTaggedUnionDeclaration(node: TSPPDeclaration, keyword: string): void;
 }
 
 export interface TSPPDeclarationSyntax {
@@ -173,7 +203,10 @@ export interface TSPPDeclarationSyntax {
     parse(parser: TSPPDeclarationParser): TSPPDeclaration;
     getDeclaredType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker, underlyingType: TSPPType): TSPPType;
     getValueType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker): TSPPType;
-    transform?(node: TSPPDeclaration, transformer: TSPPDeclarationTransformer): TSPPSyntaxNode;
+    transform?(
+        node: TSPPDeclaration,
+        transformer: TSPPDeclarationTransformer,
+    ): TSPPSyntaxNode | readonly TSPPSyntaxNode[];
     transformCall?(
         node: TSPPCallExpression,
         declaration: TSPPDeclaration,

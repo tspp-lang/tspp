@@ -17,14 +17,16 @@ import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 
 import { version } from "../corePublic.js";
 import type {
+    Expression,
     ExtensionExpression,
     Statement,
 } from "../types.js";
 import { SyntaxKind } from "../types.js";
+import { getTaggedUnionSyntheticDeclarations } from "./taggedUnion.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
-const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax>();
+const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
 const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
 const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
@@ -49,6 +51,8 @@ export const expressionSyntaxKinds: TSPPExpressionSyntaxKinds = {
     openParenToken: SyntaxKind.OpenParenToken,
     closeParenToken: SyntaxKind.CloseParenToken,
     semicolonToken: SyntaxKind.SemicolonToken,
+    commaToken: SyntaxKind.CommaToken,
+    equalsGreaterThanToken: SyntaxKind.EqualsGreaterThanToken,
     inKeyword: SyntaxKind.InKeyword,
     letKeyword: SyntaxKind.LetKeyword,
 };
@@ -56,6 +60,11 @@ export const expressionSyntaxKinds: TSPPExpressionSyntaxKinds = {
 export const declarationSyntaxKinds: TSPPDeclarationSyntaxKinds = {
     identifier: SyntaxKind.Identifier,
     equalsToken: SyntaxKind.EqualsToken,
+    barToken: SyntaxKind.BarToken,
+    openParenToken: SyntaxKind.OpenParenToken,
+    closeParenToken: SyntaxKind.CloseParenToken,
+    commaToken: SyntaxKind.CommaToken,
+    colonToken: SyntaxKind.ColonToken,
 };
 
 const compilerAPI: TSPPCompilerHostAPI = {
@@ -89,21 +98,23 @@ const compilerAPI: TSPPCompilerHostAPI = {
         };
     },
     registerDeclarationSyntax(pluginId, syntax) {
-        if (declarationSyntaxByPluginId.has(pluginId)) {
-            throw new Error(`TSPP plugin '${pluginId}' registered declaration syntax more than once.`);
-        }
         if (syntax.startTokens.length === 0) {
             throw new Error(`TSPP declaration plugin '${pluginId}' must claim at least one start token.`);
         }
         const registration = { pluginId, syntax };
-        declarationSyntaxByPluginId.set(pluginId, syntax);
+        const syntaxes = declarationSyntaxByPluginId.get(pluginId);
+        if (syntaxes) syntaxes.push(syntax);
+        else declarationSyntaxByPluginId.set(pluginId, [syntax]);
         for (const token of syntax.startTokens) {
             const candidates = declarationSyntaxByStartToken.get(token);
             if (candidates) candidates.push(registration);
             else declarationSyntaxByStartToken.set(token, [registration]);
         }
         return () => {
-            declarationSyntaxByPluginId.delete(pluginId);
+            const syntaxes = declarationSyntaxByPluginId.get(pluginId);
+            const syntaxIndex = syntaxes?.indexOf(syntax) ?? -1;
+            if (syntaxes && syntaxIndex >= 0) syntaxes.splice(syntaxIndex, 1);
+            if (syntaxes?.length === 0) declarationSyntaxByPluginId.delete(pluginId);
             for (const token of syntax.startTokens) {
                 const candidates = declarationSyntaxByStartToken.get(token);
                 if (!candidates) continue;
@@ -166,13 +177,13 @@ export function getTSPPPluginFromModule(moduleValue: unknown): TSPPPlugin | unde
 export function tryParseExtensionExpression(
     token: SyntaxKind,
     createParser: (pluginId: string) => TSPPExpressionParser,
-): ExtensionExpression | undefined {
+): Expression | undefined {
     const candidates = expressionSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
 
     for (const { pluginId, syntax } of candidates) {
         const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) return syntax.parse(parser) as ExtensionExpression;
+        if (syntax.isStart(parser)) return syntax.parse(parser) as Expression;
     }
     return undefined;
 }
@@ -206,6 +217,9 @@ export function tryParseExtensionDeclaration(
         if (!syntax.isStart(parser)) continue;
         const declaration = syntax.parse(parser) as Statement;
         declarationSyntaxByNode.set(declaration, syntax);
+        for (const synthetic of getTaggedUnionSyntheticDeclarations(declaration)) {
+            declarationSyntaxByNode.set(synthetic, syntax);
+        }
         return declaration;
     }
     return undefined;
@@ -224,16 +238,16 @@ export function getExtensionDeclarationSyntax(node: object): TSPPDeclarationSynt
 
 /** @internal */
 export function hasExtensionDeclarationCallTransforms(): boolean {
-    for (const syntax of declarationSyntaxByPluginId.values()) {
-        if (syntax.transformCall) return true;
+    for (const syntaxes of declarationSyntaxByPluginId.values()) {
+        if (syntaxes.some(syntax => syntax.transformCall)) return true;
     }
     return false;
 }
 
 /** @internal */
 export function hasExtensionDeclarationValueUseRestrictions(): boolean {
-    for (const syntax of declarationSyntaxByPluginId.values()) {
-        if (syntax.valueUse === "call-only") return true;
+    for (const syntaxes of declarationSyntaxByPluginId.values()) {
+        if (syntaxes.some(syntax => syntax.valueUse === "call-only")) return true;
     }
     return false;
 }

@@ -10,8 +10,8 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@tspp/example-newtype": "workspace:*",
-    "@tspp/plugin-newtype": "workspace:*",
+    "@tspp/example-nominal-types": "workspace:*",
+    "@tspp/plugin-nominal-types": "workspace:*",
     "ts-plus-plus": "workspace:*"
   },
   "devDependencies": {

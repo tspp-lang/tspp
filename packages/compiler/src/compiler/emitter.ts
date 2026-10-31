@@ -426,6 +426,7 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import { getExtensionDeclarationSyntax } from "./plugins/registry.js";
+import { getTaggedUnionData } from "./plugins/taggedUnion.js";
 
 const brackets = createBracketsMap();
 
@@ -3621,6 +3622,42 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
                     writePunctuation("=");
                     writeSpace();
                     emit(alias.type);
+                    writeTrailingSemicolon();
+                },
+                emitTaggedUnionDeclaration: (declaration, keyword) => {
+                    const alias = declaration as TypeAliasDeclaration;
+                    const data = getTaggedUnionData(alias);
+                    if (!data) return;
+                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
+                    writeKeyword(keyword);
+                    writeSpace();
+                    emit(alias.name);
+                    emitTypeParameters(alias, alias.typeParameters);
+                    writeSpace();
+                    writePunctuation("=");
+                    writeSpace();
+                    data.variants.forEach((variant, variantIndex) => {
+                        if (variantIndex > 0) {
+                            writeSpace();
+                            writePunctuation("|");
+                            writeSpace();
+                        }
+                        emit(variant.name);
+                        if (variant.fields.length > 0) {
+                            writePunctuation("(");
+                            variant.fields.forEach((field, fieldIndex) => {
+                                if (fieldIndex > 0) {
+                                    writePunctuation(",");
+                                    writeSpace();
+                                }
+                                emit(field.name);
+                                writePunctuation(":");
+                                writeSpace();
+                                emit(field.type);
+                            });
+                            writePunctuation(")");
+                        }
+                    });
                     writeTrailingSemicolon();
                 },
             };

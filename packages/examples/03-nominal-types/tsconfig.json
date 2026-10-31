@@ -7,7 +7,7 @@
     "target": "ES2022",
     "plugins": [
       {
-        "name": "@tspp/plugin-newtype",
+        "name": "@tspp/plugin-nominal-types",
         "tspp": true
       }
     ]

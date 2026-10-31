@@ -1,0 +1,65 @@
+export newtype UserId = string;
+export newtype OrderId = string;
+newtype Box<T> = T;
+export data Option<T> = None | Some(value: T);
+data List<T> = Nil | Cons(head: T, tail: List<T>);
+
+const userId: UserId = UserId("user-1");
+const orderId: OrderId = OrderId("order-1");
+const rawUserId: string = userId;
+const boxed: Box<number> = Box(42);
+const unboxed: number = boxed;
+const nothing: Option<number> = None;
+const something: Option<number> = Some(42);
+const selected: number = match something {
+  None => 0,
+  Some(value) => value,
+};
+const fallback: number = match nothing {
+  Some(value) => value,
+  _ => 0,
+};
+let evaluationCount = 0;
+function nextOption(): Option<number> {
+  evaluationCount++;
+  return Some(7);
+}
+const evaluatedOnce = match nextOption() {
+  None => 0,
+  Some(value) => value,
+};
+if (evaluationCount !== 1) throw new Error("match scrutinee was evaluated more than once");
+const list: List<number> = Cons(1, Cons(2, Nil));
+function length(values: List<number>): number {
+  return match values {
+    Nil => 0,
+    Cons(head, tail) => head * 0 + 1 + length(tail),
+  };
+}
+const listLength = length(list);
+if (false) {
+  const unknownOption = null as unknown as Option<number>;
+  // @ts-expect-error A non-exhaustive match omits None.
+  const incomplete: number = match unknownOption {
+    Some(value) => value,
+  };
+  // @ts-expect-error Some has only one positional field.
+  const invalidPattern = match unknownOption {
+    None => 0,
+    Some(value, extra) => value,
+  };
+
+  const wrongSome = Some("wrong");
+  // @ts-expect-error Variant fields retain their declared types.
+  const wrongValue: number = wrongSome.value;
+  // @ts-expect-error A string variant is not an Option<number>.
+  const badOption: Option<number> = wrongSome;
+  // @ts-expect-error Data values are nominal, not structural lookalikes.
+  const forgedOption: Option<number> = { _tag: "None", _values: [] };
+}
+
+console.log(userId, orderId, rawUserId, unboxed, nothing, something, selected, fallback, evaluatedOnce, listLength);
+
+// Deliberately invalid when uncommented:
+// const wrong: UserId = orderId;
+// const alsoWrong: UserId = "user-2";

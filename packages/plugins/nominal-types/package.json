@@ -1,7 +1,7 @@
 {
-  "name": "@tspp/plugin-newtype",
+  "name": "@tspp/plugin-nominal-types",
   "version": "0.0.1",
-  "description": "Nominal newtype declarations for TS++.",
+  "description": "Nominal newtype and algebraic data declarations for TS++.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

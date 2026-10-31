@@ -1,14 +1,16 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import type { TSPPDeclarationSyntax } from "@tspp/plugin-sdk/compiler";
+import { createDataDeclarationSyntax } from "./data";
+import { createValueMatchSyntax } from "./match";
 
-const pluginId = "nominal-types/newtype";
+const pluginId = "nominal-types";
 
-export const newtypePlugin = definePlugin({
+export const nominalTypesPlugin = definePlugin({
     manifest: {
         id: pluginId,
         version: "0.0.1",
         apiVersion: TSPP_PLUGIN_API_VERSION,
-        displayName: "Newtype declarations",
+        displayName: "Nominal types",
     },
     facets: {
         compiler: {
@@ -46,13 +48,22 @@ export const newtypePlugin = definePlugin({
                     },
                     emitDeclaration: (node, emitter) => emitter.emitTypeAliasDeclaration(node, "newtype"),
                 };
-                return context.compiler.registerDeclarationSyntax(syntax);
+                const disposeNewtype = context.compiler.registerDeclarationSyntax(syntax);
+                const disposeData = context.compiler.registerDeclarationSyntax(createDataDeclarationSyntax(kinds));
+                const disposeMatch = context.compiler.registerExpressionSyntax(
+                    createValueMatchSyntax(context.compiler.expressionSyntaxKinds),
+                );
+                return () => {
+                    disposeMatch();
+                    disposeData();
+                    disposeNewtype();
+                };
             },
         },
         editor: {
-            grammars: ["./editor/newtype.tmLanguage.json"],
+            grammars: ["./editor/nominal-types.tmLanguage.json"],
         },
     },
 });
 
-export default newtypePlugin;
+export default nominalTypesPlugin;

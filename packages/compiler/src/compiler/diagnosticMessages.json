@@ -8559,5 +8559,17 @@
     "The extension value '{0}' can only be used as the target of a direct call.": {
         "category": "Error",
         "code": 18062
+    },
+    "Pattern '{0}' does not belong to data type '{1}'.": {
+        "category": "Error",
+        "code": 18063
+    },
+    "Pattern '{0}' expects {1} fields, but received {2}.": {
+        "category": "Error",
+        "code": 18064
+    },
+    "Non-exhaustive match. Missing patterns: {0}.": {
+        "category": "Error",
+        "code": 18065
     }
 }
