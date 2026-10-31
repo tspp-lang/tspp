@@ -68,6 +68,7 @@ import {
     emptyArray,
     emptyOptions,
     EndOfFileToken,
+    endsWith,
     EntityName,
     equateValues,
     ExportDeclaration,
@@ -350,6 +351,7 @@ import {
     UserPreferences,
     VariableDeclaration,
 } from "./_namespaces/ts.js";
+
 import * as NavigateTo from "./_namespaces/ts.NavigateTo.js";
 import * as NavigationBar from "./_namespaces/ts.NavigationBar.js";
 import {
@@ -509,13 +511,25 @@ function createChildren(node: Node, sourceFile: SourceFileLike | undefined): rea
 
     scanner.setText((sourceFile || node.getSourceFile()).text);
     let pos = node.pos;
+    let hasSyntheticChildren = false;
     const processNode = (child: Node) => {
-        addSyntheticNodes(children, pos, child.pos, node);
+        // Plugin transforms may attach factory-created nodes to an otherwise parsed
+        // source tree. They participate in binding and checking, but have no lexical
+        // range to expose through getChildren/getTokenAtPosition.
+        if (child.pos < 0 || child.end < 0) {
+            hasSyntheticChildren = true;
+            return;
+        }
+        addSyntheticNodes(children, pos, child.pos, node, hasSyntheticChildren);
         children.push(child);
         pos = child.end;
     };
     const processNodes = (nodes: NodeArray<Node>) => {
-        addSyntheticNodes(children, pos, nodes.pos, node);
+        if (nodes.pos < 0 || nodes.end < 0) {
+            hasSyntheticChildren = true;
+            return;
+        }
+        addSyntheticNodes(children, pos, nodes.pos, node, hasSyntheticChildren);
         children.push(createSyntaxList(nodes, node));
         pos = nodes.end;
     };
@@ -526,22 +540,25 @@ function createChildren(node: Node, sourceFile: SourceFileLike | undefined): rea
     // Restoring the scanner position ensures that.
     pos = node.pos;
     node.forEachChild(processNode, processNodes);
-    addSyntheticNodes(children, pos, node.end, node);
+    addSyntheticNodes(children, pos, node.end, node, hasSyntheticChildren);
     scanner.setText(undefined);
     return children;
 }
 
-function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node): void {
+function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node, allowIdentifiers = false): void {
     scanner.resetTokenState(pos);
     while (pos < end) {
         const token = scanner.scan();
         const textPos = scanner.getTokenEnd();
+        if (textPos <= pos) {
+            if (token === SyntaxKind.EndOfFileToken) break;
+            Debug.fail(`Scanner did not advance while synthesizing ${Debug.formatSyntaxKind(parent.kind)} children`);
+        }
         if (textPos <= end) {
             if (token === SyntaxKind.Identifier) {
-                if (hasTabstop(parent)) {
-                    continue;
+                if (!hasTabstop(parent) && !allowIdentifiers && !endsWith(getSourceFileOfNode(parent).fileName, Extension.Tspp)) {
+                    Debug.fail(`Did not expect ${Debug.formatSyntaxKind(parent.kind)} to have an Identifier in its trivia`);
                 }
-                Debug.fail(`Did not expect ${Debug.formatSyntaxKind(parent.kind)} to have an Identifier in its trivia`);
             }
             nodes.push(createNode(token, pos, textPos, parent));
         }
@@ -556,12 +573,17 @@ function createSyntaxList(nodes: NodeArray<Node>, parent: Node): Node {
     const list = createNode(SyntaxKind.SyntaxList, nodes.pos, nodes.end, parent) as any as SyntaxList;
     const children: Node[] = [];
     let pos = nodes.pos;
+    let hasSyntheticChildren = false;
     for (const node of nodes) {
-        addSyntheticNodes(children, pos, node.pos, parent);
+        if (node.pos < 0 || node.end < 0) {
+            hasSyntheticChildren = true;
+            continue;
+        }
+        addSyntheticNodes(children, pos, node.pos, parent, hasSyntheticChildren);
         children.push(node);
         pos = node.end;
     }
-    addSyntheticNodes(children, pos, nodes.end, parent);
+    addSyntheticNodes(children, pos, nodes.end, parent, hasSyntheticChildren);
     list._children = children;
     return list;
 }
@@ -1647,6 +1669,7 @@ export function createLanguageService(
     let program: Program;
     let lastProjectVersion: string;
     let lastTypesRootVersion = 0;
+    let hasResolvedAsyncMacroEvaluation = false;
     const asyncMacroEvaluations = new Map<string, { readonly kind: "pending"; } | { readonly kind: "resolved"; readonly evaluation: AsyncMacroEvaluation; }>();
 
     const cancellationToken = host.getCancellationToken
@@ -1735,6 +1758,15 @@ export function createLanguageService(
         const projectReferences = host.getProjectReferences?.();
         let parsedCommandLines: Map<Path, ParsedCommandLine | false> | undefined;
 
+        // Async macro evaluation completes outside a language-service request. Keep the
+        // current Program usable until the next request enters this synchronous rebuild;
+        // otherwise semantic tokens and code actions can observe an undefined Program.
+        // Clearing it here also prevents stale source files from being reused before the
+        // resolved macro result has been incorporated.
+        if (hasResolvedAsyncMacroEvaluation) {
+            program = undefined!;
+        }
+
         // Now create a new compiler
         let compilerHost: CompilerHost | undefined = {
             getSourceFile: getOrCreateSourceFile,
@@ -1793,9 +1825,10 @@ export function createLanguageService(
                 evaluation.then(result => {
                     if (asyncMacroEvaluations.get(key) !== pending) return;
                     asyncMacroEvaluations.set(key, { kind: "resolved", evaluation: result });
-                    // The language-service API remains synchronous. Invalidate its current
-                    // Program now, then consume this completed result during the next request.
-                    program = undefined!;
+                    // Rebuild on the next synchronous language-service request. Do not clear
+                    // the current Program here: editor requests may arrive before the project
+                    // host has entered its update cycle.
+                    hasResolvedAsyncMacroEvaluation = true;
                     lastProjectVersion = undefined!;
                     host.onAsyncMacroExpansionComplete?.();
                 });
@@ -1854,6 +1887,7 @@ export function createLanguageService(
             projectReferences,
         };
         program = createProgram(options);
+        hasResolvedAsyncMacroEvaluation = false;
 
         // 'getOrCreateSourceFile' depends on caching but should be used past this point.
         // After this point, the cache needs to be cleared to allow all collected snapshots to be released
@@ -2064,6 +2098,10 @@ export function createLanguageService(
             const key = documentRegistry.getKeyForCompilationSettings(program.getCompilerOptions());
             forEach(program.getSourceFiles(), f => documentRegistry.releaseDocumentWithKey(f.resolvedPath, key, f.scriptKind, f.impliedNodeFormat));
             program = undefined!; // TODO: GH#18217
+            // A cache cleanup does not necessarily change the host's project version. Force
+            // the next semantic request to rebuild instead of taking the version fast path
+            // with no Program.
+            lastProjectVersion = undefined!;
         }
     }
 

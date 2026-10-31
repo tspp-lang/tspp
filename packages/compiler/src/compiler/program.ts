@@ -1930,8 +1930,9 @@ function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsyn
             if (allowAsync) {
                 return expandNestedMacroInvocations(statements, resolutionLocation, expansionDepth).finally(endInvocation);
             }
+            const expandedStatements = expandNestedMacroInvocationsSync(statements, resolutionLocation, expansionDepth);
             endInvocation();
-            return statements;
+            return expandedStatements;
         }
         catch (e) {
             const statements = failInvocation(resolutionLocation, macroName, e);
@@ -1949,6 +1950,23 @@ function expandCompileTimeMacros(program: Program, host: CompilerHost, allowAsyn
         for (const statement of statements) {
             if (statement.kind === SyntaxKind.MacroInvocationStatement) {
                 addRange(expanded, await executeInvocation(statement as MacroInvocationStatement, resolutionLocation, expansionDepth + 1));
+            }
+            else {
+                expanded.push(statement);
+            }
+        }
+        return expanded;
+    }
+
+    function expandNestedMacroInvocationsSync(
+        statements: readonly Statement[],
+        resolutionLocation: Node,
+        expansionDepth: number,
+    ): readonly Statement[] {
+        const expanded: Statement[] = [];
+        for (const statement of statements) {
+            if (statement.kind === SyntaxKind.MacroInvocationStatement) {
+                addRange(expanded, executeInvocation(statement as MacroInvocationStatement, resolutionLocation, expansionDepth + 1) as readonly Statement[]);
             }
             else {
                 expanded.push(statement);

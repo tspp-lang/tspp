@@ -10,6 +10,25 @@ import {
 } from "../helpers/virtualFileSystemWithWatch.js";
 
 describe("unittests:: tsserver:: getApplicableRefactors::", () => {
+    it("rebuilds the project after semantic cache cleanup", () => {
+        const aTs: File = { path: "/home/src/projects/project/a.ts", content: "const value = 1;" };
+        const host = TestServerHost.createServerHost([aTs]);
+        const session = new TestSession(host);
+        openFilesForSession([aTs], session);
+
+        session.executeCommandSeq<ts.server.protocol.Request>({
+            command: ts.server.protocol.CommandTypes.Cleanup,
+            arguments: undefined,
+        });
+        const response = session.executeCommandSeq<ts.server.protocol.GetApplicableRefactorsRequest>({
+            command: ts.server.protocol.CommandTypes.GetApplicableRefactors,
+            arguments: { file: aTs.path, line: 1, offset: 7 },
+        });
+
+        assert.isTrue(response.responseRequired);
+        assert.isArray(response.response);
+    });
+
     it("works when taking position", () => {
         const aTs: File = { path: "/home/src/projects/project/a.ts", content: "" };
         const host = TestServerHost.createServerHost([aTs]);

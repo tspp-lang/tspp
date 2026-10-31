@@ -383,6 +383,43 @@ describe("unittests:: tspp:: macros", () => {
         assert.include(javascript, 'var UserExpandedName = "User";');
     });
 
+    it("recursively expands generated macro invocations in synchronous language-service programs", () => {
+        const content = `
+      macro function first([target], context) {
+        return context.factory.createMacroInvocationStatement(
+          context.factory.createIdentifier("second"),
+          [context.factory.createIdentifier(target.name)],
+        );
+      }
+      macro function second([target], context) {
+        return context.factory.createMacroInvocationStatement(
+          context.factory.createIdentifier("finish"),
+          [context.factory.createIdentifier(target.name)],
+        );
+      }
+      macro function finish([target], context) {
+        return context.factory.createVariableStatement(
+          undefined,
+          context.factory.createVariableDeclarationList([
+            context.factory.createVariableDeclaration(
+              target.name + "ExpandedName",
+              undefined,
+              context.factory.createLiteralTypeNode(context.factory.createStringLiteral(target.name)),
+              context.factory.createStringLiteral(target.name),
+            ),
+          ]),
+        );
+      }
+      interface User { id: number }
+      macro first(User);
+      const checked: "User" = UserExpandedName;
+    `;
+        const { program } = createProgram(content);
+        const diagnostics = program.getSemanticDiagnostics();
+        assert.isEmpty(diagnostics, diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, "\n")).join("\n"));
+        assert.include(program.getMacroExpansions!()[0].text, 'var UserExpandedName: "User" = "User";');
+    });
+
     it("limits recursive macro expansion depth", async () => {
         const content = `
       macro function recurse([target], context) {
@@ -708,7 +745,7 @@ describe("unittests:: tspp:: macros", () => {
         });
     });
 
-    it("refreshes the language-service program after an asynchronous macro settles", async () => {
+    it("keeps language-service requests usable while refreshing after an asynchronous macro settles", async () => {
         const content = `
       macro function exposeLater([target], context) {
         return { then(resolve) {
@@ -746,6 +783,13 @@ describe("unittests:: tspp:: macros", () => {
         assert.include(initial.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")).join("\n"), "UserAsyncName");
 
         await new Promise(resolve => setTimeout(resolve, 0));
+
+        const classifications = service.getEncodedSemanticClassifications(
+            "/file.tspp",
+            { start: 0, length: content.length },
+            ts.SemanticClassificationFormat.TwentyTwenty,
+        );
+        assert.isNotEmpty(classifications.spans);
 
         const settled = service.getSemanticDiagnostics("/file.tspp");
         assert.isEmpty(settled, settled.map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n")).join("\n"));

@@ -36,6 +36,9 @@ export function Component(x: Config): any;`,
             getScriptVersion(_fileName) {
                 return "";
             },
+            getProjectVersion() {
+                return "1";
+            },
             getScriptSnapshot(fileName) {
                 if (fileName === ".ts") {
                     return ts.ScriptSnapshot.fromString("");
@@ -56,6 +59,21 @@ export function Component(x: Config): any;`,
         const languageService = createLanguageService();
         const definitions = languageService.getDefinitionAtPosition("foo.ts", 160); // 160 is the latter `vueTemplateHtml` position
         expect(definitions).to.exist; // eslint-disable-line @typescript-eslint/no-unused-expressions
+    });
+
+    it("rebuilds semantic state after cleanup when the project version is unchanged", () => {
+        const languageService = createLanguageService();
+        assert.isDefined(languageService.getProgram());
+
+        languageService.cleanupSemanticCache();
+
+        const classifications = languageService.getEncodedSemanticClassifications(
+            "foo.ts",
+            { start: 0, length: files["foo.ts"].length },
+            ts.SemanticClassificationFormat.TwentyTwenty,
+        );
+        assert.isNotEmpty(classifications.spans);
+        assert.isDefined(languageService.getProgram());
     });
 
     it("getEmitOutput on language service has way to force dts emit", () => {

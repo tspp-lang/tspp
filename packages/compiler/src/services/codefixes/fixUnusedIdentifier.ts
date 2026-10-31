@@ -32,6 +32,7 @@ import {
     isComputedPropertyName,
     isDeclarationWithTypeParameterChildren,
     isExpressionStatement,
+    isExtensionTypeConstructor,
     isFunctionDeclaration,
     isIdentifier,
     isImportClause,
@@ -229,7 +230,9 @@ function createDeleteFix(changes: FileTextChanges[], diag: DiagnosticOrDiagnosti
 }
 
 function deleteTypeParameters(changes: textChanges.ChangeTracker, sourceFile: SourceFile, token: Node): void {
-    changes.delete(sourceFile, Debug.checkDefined(cast(token.parent, isDeclarationWithTypeParameterChildren).typeParameters, "The type parameter to delete should exist"));
+    const declaration = cast(token.parent, isDeclarationWithTypeParameterChildren);
+    if (isExtensionTypeConstructor(declaration)) return;
+    changes.delete(sourceFile, Debug.checkDefined(declaration.typeParameters, "The type parameter to delete should exist"));
 }
 
 function isImport(token: Node) {
@@ -311,6 +314,7 @@ function canPrefix(token: Identifier): boolean {
 }
 
 function tryDeleteDeclaration(sourceFile: SourceFile, token: Node, changes: textChanges.ChangeTracker, checker: TypeChecker, sourceFiles: readonly SourceFile[], program: Program, cancellationToken: CancellationToken, isFixAll: boolean) {
+    if (token.parent.kind === SyntaxKind.TypeParameter && isExtensionTypeConstructor(token.parent.parent)) return;
     tryDeleteDeclarationWorker(token, changes, sourceFile, checker, sourceFiles, program, cancellationToken, isFixAll);
     if (isIdentifier(token)) {
         FindAllReferences.Core.eachSymbolReferenceInFile(token, checker, sourceFile, (ref: Node) => {
