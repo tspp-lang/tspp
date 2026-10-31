@@ -1,0 +1,37 @@
+export {};
+
+// Ordered type matching supports literals, tuples, arrays, and object patterns.
+type Classify<T> = match T {
+    0: "zero",
+    1: "one",
+    true: "boolean-true",
+    "ping": "pong",
+    [infer Head, ...infer Tail]: { head: Head; tail: Tail },
+    Array<infer Element>: [Element, "array"],
+    { data: infer Data; status: 200 }: Data,
+    string: "text",
+    number: "number",
+    _: "other"
+};
+
+const zero: Classify<0> = "zero";
+const one: Classify<1> = "one";
+const literal: Classify<true> = "boolean-true";
+const ping: Classify<"ping"> = "pong";
+const tuple: Classify<[string, number]> = { head: "first", tail: [1] };
+const array: Classify<number[]> = [42, "array"];
+const object: Classify<{ data: boolean; status: 200 }> = true;
+const text: Classify<"hello"> = "text";
+const number: Classify<42> = "number";
+const other: Classify<symbol> = "other";
+
+void zero;
+void one;
+void literal;
+void ping;
+void tuple;
+void array;
+void object;
+void text;
+void number;
+void other;

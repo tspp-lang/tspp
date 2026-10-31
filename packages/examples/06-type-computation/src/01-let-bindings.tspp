@@ -1,0 +1,36 @@
+export {};
+
+// A local type binding gives a repeated intermediate result a lexical name.
+export type Response<T> = let Payload = {
+    data: T;
+    status: "ok";
+} in {
+    current: Payload;
+    backup: Payload;
+};
+
+const response: Response<string> = {
+    current: { data: "now", status: "ok" },
+    backup: { data: "then", status: "ok" },
+};
+
+// Bindings can form a pipeline and may shadow an outer name.
+type Normalized<T> =
+    let Raw = { raw: T } in
+    let Wrapped = { wrapped: Raw } in
+    [Raw, Wrapped];
+
+const normalized: Normalized<number> = [
+    { raw: 42 },
+    { wrapped: { raw: 42 } },
+];
+
+type Shadowed = let Value = number in let Value = string in Value;
+const shadowed: Shadowed = "inner";
+
+// @ts-expect-error A local type binding does not escape its body.
+type EscapedBinding = Payload;
+
+void response;
+void normalized;
+void shadowed;

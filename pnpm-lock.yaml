@@ -402,6 +402,9 @@ importers:
 
   packages/examples/06-type-computation:
     dependencies:
+      '@tspp/plugin-higher-kinded-types':
+        specifier: workspace:*
+        version: link:../../plugins/higher-kinded-types
       '@tspp/plugin-type-computation':
         specifier: workspace:*
         version: link:../../plugins/type-computation

@@ -4,6 +4,7 @@ type Pair<Left, Right> = [Left, Right];
 type Apply2<Constructor: (Type, Type) => Type, Left, Right> = Constructor<Left, Right>;
 type NumberAtType0: Type0 = number;
 export type UniverseZero: Type1 = Type0;
+export type UniverseOne: Type2 = Type1;
 type IdentityAtOne<Kind: Type1>: Type1 = Kind;
 export type PreservedType0: Type1 = IdentityAtOne<Type0>;
 
@@ -49,6 +50,10 @@ declare const wrongUniverseLevel: WrongUniverseLevel;
 // @ts-expect-error Type0 itself lives in Type1.
 type UniverseCannotContainItself: Type0 = Type0;
 declare const universeCannotContainItself: UniverseCannotContainItself;
+type LocalArray<Value> = Value[];
+// @ts-expect-error A non-generic alias needs an explicit kind to retain a constructor.
+type MissingConstructorKind = LocalArray;
+declare const missingConstructorKind: MissingConstructorKind;
 
 void namedPair;
 void mapping;
@@ -57,3 +62,4 @@ void box;
 void wrongUniverseLevel;
 void universeCannotContainItself;
 void parenthesizedNumbers;
+void missingConstructorKind;

@@ -1,0 +1,45 @@
+export {};
+
+// These combinations come from the original monolithic example and remain
+// useful because they exercise generic and nested constructor patterns.
+data Either<Left, Right> = Left(value: Left) | Right(value: Right) | Empty;
+data Outcome = Success(value: number) | Failure(code: number);
+data ScreenState = Idle | Loading | Finished(outcome: Outcome);
+newtype Point = { x: number; y: number };
+
+const left: Either<number, string> = Left(1);
+const right: Either<number, string> = Right("TS++");
+const empty: Either<number, string> = Empty;
+
+function mapRight<LeftValue, RightValue, Output>(
+    value: Either<LeftValue, RightValue>,
+    transform: (right: RightValue) => Output,
+): Either<LeftValue, Output> {
+    return match value {
+        Left(item) => Left(item),
+        Right(item) => Right(transform(item)),
+        Empty => Empty,
+    };
+}
+
+function score(screen: ScreenState): number {
+    return match screen {
+        Idle | Loading => 0,
+        Finished(Success(value)) if value > 0 => value,
+        Finished(Success(_)) => 0,
+        Finished(Failure(code)) => -code,
+    };
+}
+
+const mapped = mapRight(right, value => value.length);
+const successfulScore = score(Finished(Success(42)));
+const failedScore = score(Finished(Failure(5)));
+const pointKeys: "x" | "y" = "x" satisfies keyof Point;
+
+if (false) {
+    // @ts-expect-error Structurally similar values do not carry the variant brand.
+    const forged: typeof Empty = { _tag: "Empty" as const };
+    console.log(forged);
+}
+
+console.log(left, right, empty, mapped, successfulScore, failedScore, pointKeys);

@@ -7,6 +7,7 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@tspp/plugin-higher-kinded-types": "workspace:*",
     "@tspp/plugin-type-computation": "workspace:*",
     "ts-plus-plus": "workspace:*"
   },

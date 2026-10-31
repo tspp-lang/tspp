@@ -1,0 +1,34 @@
+export {};
+
+// The three forms compose: match selects a shape, let names an intermediate
+// result, and a type lambda supplies a reusable transformation.
+type Transform<Container, Mapper: Type => Type> = match Container {
+    [infer Left, infer Right]:
+        let NextLeft = Mapper<Left> in
+        let NextRight = Mapper<Right> in
+        [NextLeft, NextRight],
+    Array<infer Element>:
+        let Next = Mapper<Element> in
+        Array<Next>,
+    { value: infer Value }:
+        { value: Mapper<Value> },
+    infer Other: Mapper<Other>
+};
+
+type WrapInArray = <Value> =>> Value[];
+type PairWithSelf = <Value> =>> [Value, Value];
+
+type ArrayResult = Transform<number[], WrapInArray>;
+type TupleResult = Transform<[string, boolean], PairWithSelf>;
+type ObjectResult = Transform<{ value: bigint }, WrapInArray>;
+type ScalarResult = Transform<string, WrapInArray>;
+
+const array: ArrayResult = [[1], [2]];
+const tuple: TupleResult = [["left", "left"], [true, true]];
+const object: ObjectResult = { value: [1n] };
+const scalar: ScalarResult = ["TS++"];
+
+void array;
+void tuple;
+void object;
+void scalar;
