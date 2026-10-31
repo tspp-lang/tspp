@@ -8,4 +8,5 @@ The example also contains compile-time assertions proving that erased
 constructors cannot escape as first-class runtime values and accept exactly one
 argument.
 
-Build the producer first, then run `pnpm build` in this package.
+Source lives in `src/` and build output goes to `dist/`. Build the producer
+first, then run `pnpm build` in this package.

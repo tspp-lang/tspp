@@ -1,6 +1,8 @@
 {
   "compilerOptions": {
     "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
     "strict": true,
     "target": "ES2022",
     "plugins": [
@@ -10,5 +12,5 @@
       }
     ]
   },
-  "include": ["index.tspp"]
+  "include": ["src/**/*.tspp"]
 }
