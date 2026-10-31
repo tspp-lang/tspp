@@ -6,7 +6,7 @@
   "description": "Cross-package consumer for the TS++ newtype plugin.",
   "scripts": {
     "build": "tspp -p tsconfig.json --pretty false",
-    "check": "tspp -p tsconfig.json --noEmit --pretty false",
+    "check": "pnpm --filter @tspp/example-nominal-types build && tspp -p tsconfig.json --noEmit --pretty false",
     "lint": "eslint src"
   },
   "dependencies": {

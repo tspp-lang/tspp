@@ -29,6 +29,8 @@ jobs:
       - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:features
+      - run: pnpm build:compiler
+      - run: pnpm test:examples
 
   compiler-regression:
     name: Compiler regression suite
