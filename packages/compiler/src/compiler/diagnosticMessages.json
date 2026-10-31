@@ -8555,5 +8555,9 @@
     "'{0}' is not a valid meta-property for keyword 'import'. Did you mean 'meta' or 'defer'?": {
         "category": "Error",
         "code": 18061
+    },
+    "The extension value '{0}' can only be used as the target of a direct call.": {
+        "category": "Error",
+        "code": 18062
     }
 }

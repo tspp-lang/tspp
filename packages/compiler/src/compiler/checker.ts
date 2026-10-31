@@ -1158,6 +1158,7 @@ import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
+    hasExtensionDeclarationValueUseRestrictions,
 } from "./plugins/registry.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
@@ -1497,6 +1498,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     // See: https://github.com/microsoft/TypeScript/issues/52924
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
+    var hasTSPPValueUseRestrictions = hasExtensionDeclarationValueUseRestrictions();
 
     var addLazyDiagnostic = (arg: () => void) => {
         deferredDiagnosticsCallbacks.push(arg);
@@ -31110,6 +31112,18 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return errorType;
         }
 
+        const extensionDeclaration = hasTSPPValueUseRestrictions
+            ? getExtensionDeclarationFromSymbol(symbol)
+            : undefined;
+        const extensionSyntax = extensionDeclaration && getExtensionDeclarationSyntax(extensionDeclaration);
+        if (
+            extensionSyntax?.valueUse === "call-only" &&
+            !isInTypeQuery(node) &&
+            !(isCallExpression(node.parent) && node.parent.expression === node)
+        ) {
+            error(node, Diagnostics.The_extension_value_0_can_only_be_used_as_the_target_of_a_direct_call, idText(node));
+        }
+
         checkIdentifierCalculateNodeCheckFlags(node, symbol);
 
         if (symbol === argumentsSymbol) {
@@ -51366,16 +51380,18 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             const reference = getParseTreeNode(referenceIn, isIdentifier);
             if (reference) {
                 const symbol = getReferencedValueSymbol(reference);
-                if (symbol) {
-                    const target = getExportSymbolOfValueSymbolIfExported(
-                        symbol.flags & SymbolFlags.Alias ? resolveAlias(symbol) : symbol,
-                    );
-                    return target.declarations?.find(declaration => getExtensionDeclarationSyntax(declaration)?.binding === "type-and-value");
-                }
+                if (symbol) return getExtensionDeclarationFromSymbol(symbol);
             }
         }
 
         return undefined;
+    }
+
+    function getExtensionDeclarationFromSymbol(symbol: Symbol): Declaration | undefined {
+        const target = getExportSymbolOfValueSymbolIfExported(
+            symbol.flags & SymbolFlags.Alias ? resolveAlias(symbol) : symbol,
+        );
+        return target.declarations?.find(declaration => getExtensionDeclarationSyntax(declaration)?.binding === "type-and-value");
     }
 
     function getReferencedValueDeclarations(referenceIn: Identifier): Declaration[] | undefined {
@@ -51492,8 +51508,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 const node = getParseTreeNode(nodeIn);
                 if (!node || !isAliasSymbolDeclaration(node)) return false;
                 const symbol = getSymbolOfDeclaration(node as Declaration);
-                const target = symbol && resolveAlias(symbol);
-                return !!target?.declarations?.some(declaration => getExtensionDeclarationSyntax(declaration)?.runtime === "erased");
+                const declaration = symbol && getExtensionDeclarationFromSymbol(symbol);
+                return !!declaration && getExtensionDeclarationSyntax(declaration)?.runtime === "erased";
             },
             hasGlobalName,
             isReferencedAliasDeclaration: (nodeIn, checkChildren?) => {

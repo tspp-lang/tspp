@@ -224,7 +224,18 @@ export function getExtensionDeclarationSyntax(node: object): TSPPDeclarationSynt
 
 /** @internal */
 export function hasExtensionDeclarationCallTransforms(): boolean {
-    return [...declarationSyntaxByPluginId.values()].some(syntax => !!syntax.transformCall);
+    for (const syntax of declarationSyntaxByPluginId.values()) {
+        if (syntax.transformCall) return true;
+    }
+    return false;
+}
+
+/** @internal */
+export function hasExtensionDeclarationValueUseRestrictions(): boolean {
+    for (const syntax of declarationSyntaxByPluginId.values()) {
+        if (syntax.valueUse === "call-only") return true;
+    }
+    return false;
 }
 
 /** Exposed for architecture tests and diagnostics. */

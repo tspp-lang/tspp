@@ -22,6 +22,7 @@ test("registers a type-and-value declaration capsule", () => {
   assert.equal(registration.pluginId, "nominal-types/newtype");
   assert.equal(registration.syntax.binding, "type-and-value");
   assert.equal(registration.syntax.runtime, "erased");
+  assert.equal(registration.syntax.valueUse, "call-only");
 
   const declaration = {};
   const notEmitted = {};
@@ -41,6 +42,11 @@ test("registers a type-and-value declaration capsule", () => {
       return visitedArgument;
     },
   }), visitedArgument);
+  const invalidCall = {};
+  assert.equal(registration.syntax.transformCall(invalidCall, declaration, {
+    getArguments() { return []; },
+    visitExpression() { throw new Error("invalid calls must not be erased"); },
+  }), invalidCall);
 
   let emitted;
   registration.syntax.emitDeclaration(declaration, {

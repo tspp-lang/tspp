@@ -167,6 +167,8 @@ export interface TSPPDeclarationSyntax {
     readonly binding: "type" | "type-and-value";
     /** Controls whether imports that only reference this declaration need a JavaScript binding. */
     readonly runtime?: "emitted" | "erased";
+    /** Restricts an erased value to direct calls so it cannot escape into emitted JavaScript. */
+    readonly valueUse?: "unrestricted" | "call-only";
     isStart(parser: TSPPDeclarationParser): boolean;
     parse(parser: TSPPDeclarationParser): TSPPDeclaration;
     getDeclaredType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker, underlyingType: TSPPType): TSPPType;

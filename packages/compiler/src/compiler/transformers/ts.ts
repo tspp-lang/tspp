@@ -263,6 +263,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
     const moduleKind = getEmitModuleKind(compilerOptions);
     const legacyDecorators = !!compilerOptions.experimentalDecorators;
     const typeSerializer = compilerOptions.emitDecoratorMetadata ? createRuntimeTypeSerializer(context) : undefined;
+    const hasTSPPCallTransforms = hasExtensionDeclarationCallTransforms();
 
     // Save the previous transformation hooks.
     const previousOnEmitNode = context.onEmitNode;
@@ -407,7 +408,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
         if (node.transformFlags & TransformFlags.ContainsTypeScript) {
             return visitTypeScript(node);
         }
-        if (hasExtensionDeclarationCallTransforms()) {
+        if (hasTSPPCallTransforms) {
             if (isCallExpression(node)) return visitCallExpression(node);
             return visitEachChild(node, visitor, context);
         }
