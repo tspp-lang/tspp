@@ -6,7 +6,7 @@ export interface ExpressionEnvironment {
     readonly substitutions?: Readonly<Record<string, { readonly smt: string; readonly sort: Sort; }>>;
 }
 
-const tokenPattern = /\s*([A-Za-z_$][\w$]*|\d+n?|true|false|===|!==|<=|>=|&&|\|\||[()+\-*<>!])\s*/gy;
+const tokenPattern = /\s*([A-Za-z_$][\w$]*|\d+n?|true|false|===|!==|<=|>=|&&|\|\||[()+\-*\/%<>!])\s*/gy;
 
 export function expressionToSmt(text: string, environment: ExpressionEnvironment = {}): string {
     const result = expressionToSmtTerm(text, environment);
@@ -59,7 +59,12 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
         if (peek() === "-") { take(); return { smt: `(- ${requireSort(unary(), "Int").smt})`, sort: "Int" }; }
         return primary();
     };
-    const multiply = (): Term => binary(unary, ["*"], (op, left, right) => ({ smt: `(${op} ${requireSort(left, "Int").smt} ${requireSort(right, "Int").smt})`, sort: "Int" }));
+    const multiply = (): Term => binary(unary, ["*", "/", "%"], (op, left, right) => {
+        const lhs = requireSort(left, "Int").smt;
+        const rhs = requireSort(right, "Int").smt;
+        const symbol = op === "/" ? "tspp.js.trunc.div" : op === "%" ? "tspp.js.trunc.rem" : op;
+        return { smt: `(${symbol} ${lhs} ${rhs})`, sort: "Int" };
+    });
     const add = (): Term => binary(multiply, ["+", "-"], (op, left, right) => ({ smt: `(${op} ${requireSort(left, "Int").smt} ${requireSort(right, "Int").smt})`, sort: "Int" }));
     const compare = (): Term => binary(add, ["<", "<=", ">", ">="], (op, left, right) => ({ smt: `(${op} ${requireSort(left, "Int").smt} ${requireSort(right, "Int").smt})`, sort: "Bool" }));
     const equality = (): Term => binary(compare, ["===", "!=="], (op, left, right) => {

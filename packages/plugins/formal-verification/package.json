@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-formal-verification",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Isolated SMT/Z3-backed verification feature for TSPP.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*",
+    "typescript": "5.9.3",
     "z3-solver": "5.2.0"
   },
   "devDependencies": {

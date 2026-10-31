@@ -13,6 +13,12 @@ export interface Z3Answer {
 
 const workerSource = String.raw`
 const { parentPort, workerData } = require("node:worker_threads");
+const programSemantics =
+  "(define-fun tspp.js.sign ((value Int)) Int (ite (< value 0) (- 1) 1))\n" +
+  "(define-fun tspp.js.trunc.div ((left Int) (right Int)) Int " +
+  "(* (tspp.js.sign left) (tspp.js.sign right) (div (ite (< left 0) (- left) left) (ite (< right 0) (- right) right))))\n" +
+  "(define-fun tspp.js.trunc.rem ((left Int) (right Int)) Int " +
+  "(- left (* right (tspp.js.trunc.div left right))))";
 async function main() {
   const z3 = require(workerData.z3Path);
   const { Z3 } = await z3.init();
@@ -23,7 +29,7 @@ async function main() {
       const context = Z3.mk_context(config);
       const evaluate = text => Z3.eval_smtlib2_string(context, text);
       try {
-        const loaded = await evaluate("(set-option :timeout 10000)\n" + (query.script || "") + "\n(assert (not " + query.goal + "))");
+        const loaded = await evaluate("(set-option :timeout 10000)\n" + programSemantics + "\n" + (query.script || "") + "\n(assert (not " + query.goal + "))");
         const error = loaded.match(/\(error [^\n]*/);
         if (error) answers.push({ status: "error", message: error[0] });
         else {

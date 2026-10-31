@@ -1,0 +1,11 @@
+assert: 1n + 1n === 2n;
+assert: (3n * 4n) - 2n === 10n;
+
+function incrementFromTrustedInput(value: bigint): bigint {
+    assume: value >= 0n;
+    const next = value + 1n;
+    assert: next > 0n;
+    return next;
+}
+
+console.log(incrementFromTrustedInput(1n));

@@ -1,0 +1,14 @@
+function count(limit: bigint) with {
+    requires: limit >= 0n;
+    ensures: result === limit;
+}: bigint {
+    let current: bigint = 0n;
+    while (current < limit) with {
+        invariant: [current >= 0n, current <= limit];
+    } {
+        current += 1n;
+    }
+    return current;
+}
+
+console.log(count(4n));

@@ -1,14 +1,15 @@
-# Formal verification
+# 02 — Formal verification
 
-This package enables `@tspp/plugin-formal-verification`. Run `pnpm check` to
-send the two closed arithmetic proof points through the plugin-owned Z3 worker.
-The same package also demonstrates symbolic function pre/postconditions and
-loop-invariant initialization/preservation. Change an assertion, postcondition,
-or invariant to see a verification diagnostic in both the CLI and the VS Code
-development host.
+This package exercises the verification path owned by
+`@tspp/plugin-formal-verification`:
 
-The independent `@tspp/plugin-modern-syntax` capsule is enabled alongside
-it. This keeps a real multi-plugin project in the test path without coupling
-either feature package to the other.
+- closed and local `assert:` proof points plus trusted `assume:` facts;
+- function `requires`/`ensures`, call-site checks, call summaries, branches,
+  and multiple return paths;
+- loop-invariant initialization and preservation;
+- erased refinement types and predicate propagation;
+- JavaScript-compatible bigint division/remainder and divisor obligations.
 
-The example source is `src/index.tspp`.
+Run `pnpm check` in this directory. An invalid assertion, precondition call,
+invariant, or refinement introduction produces a Z3 counterexample diagnostic
+at the originating source expression.
