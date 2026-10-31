@@ -6,12 +6,19 @@ compiler package.
 
 Open the repository root in VSCode and press `F5`. The default launch
 configuration builds the SDK, plugins, compiler, language server, and extension,
-then opens a separate Extension Development Host with this extension loaded.
+then keeps the language server bundler in watch mode while a separate Extension
+Development Host is open. Closing the development host ends the debug session.
 
 The same development build can be run from the repository root with:
 
 ```sh
 pnpm build:vscode:dev
+```
+
+The persistent development watcher used by `F5` can also be started directly:
+
+```sh
+pnpm watch:vscode:dev
 ```
 
 Set `tspp.sdkPath` only when you want the extension to use another TSPP SDK.

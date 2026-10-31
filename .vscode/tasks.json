@@ -4,15 +4,28 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "TSPP: build VSCode extension dependencies",
+            "label": "TSPP: watch VSCode extension dependencies",
             "type": "shell",
             "command": "pnpm",
             "args": [
-                "build:vscode:dev"
+                "watch:vscode:dev"
             ],
-            "problemMatcher": [],
+            "isBackground": true,
+            "problemMatcher": [
+                {
+                    "owner": "tspp-vscode-watch",
+                    "pattern": {
+                        "regexp": "^(?!)$"
+                    },
+                    "background": {
+                        "activeOnStart": true,
+                        "beginsPattern": "^\\[TSPP watch\\] starting$",
+                        "endsPattern": "^\\[TSPP watch\\] ready$"
+                    }
+                }
+            ],
             "presentation": {
-                "reveal": "silent",
+                "reveal": "never",
                 "panel": "dedicated",
                 "clear": true
             },
