@@ -1,0 +1,4 @@
+const total: number = let left = 20, right = 22 in left + right;
+const greeting: string = let name = "TS++" in `Hello from ${name}`;
+
+console.log(greeting, total);

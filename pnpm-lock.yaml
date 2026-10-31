@@ -315,6 +315,17 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1
 
+  packages/examples: {}
+
+  packages/examples/01-let-in-expression:
+    dependencies:
+      '@tspp/plugin-let-in-expression':
+        specifier: workspace:*
+        version: link:../../plugins/let-in-expression
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/language-server:
     devDependencies:
       '@eslint/js':

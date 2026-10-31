@@ -5,6 +5,15 @@ import process from "node:process";
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const extensionDir = path.resolve(rootDir, "packages/vscode-extension");
+const workspaceDir = path.resolve(rootDir, "packages/examples");
+
+function commandInvocation(command, args) {
+  if (process.platform !== "win32") return { command, args };
+  return {
+    command: process.env.ComSpec ?? "cmd.exe",
+    args: ["/d", "/s", "/c", `${command}.cmd`, ...args],
+  };
+}
 
 console.log("\x1b[36m%s\x1b[0m", "============================================================");
 console.log("\x1b[1m\x1b[32m%s\x1b[0m", "[TS++] Preparing the extension development host...");
@@ -15,11 +24,10 @@ delete cleanEnv.NODE_OPTIONS;
 delete cleanEnv.VSCODE_INSPECTOR_OPTIONS;
 
 console.log("\x1b[33m%s\x1b[0m", "[1/2] Building the SDK, plugins, compiler, language server, and extension...");
-const pnpmCmd = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-const buildResult = spawnSync(pnpmCmd, ["build:vscode:dev"], {
+const buildCommand = commandInvocation("pnpm", ["build:vscode:dev"]);
+const buildResult = spawnSync(buildCommand.command, buildCommand.args, {
   cwd: rootDir,
   stdio: "inherit",
-  shell: true,
   env: cleanEnv,
 });
 
@@ -30,11 +38,10 @@ if (buildResult.status !== 0) {
 
 console.log("\x1b[32m%s\x1b[0m", "[2/2] Build complete. Launching the Extension Development Host...");
 console.log("\x1b[90m%s\x1b[0m", `Extension: ${extensionDir}`);
-console.log("\x1b[90m%s\x1b[0m", `Workspace: ${rootDir}`);
+console.log("\x1b[90m%s\x1b[0m", `Workspace: ${workspaceDir}`);
 console.log("\x1b[33m%s\x1b[0m", "This terminal will remain active until the development host is closed.");
 console.log("\x1b[36m%s\x1b[0m", "============================================================");
 
-const codeCmd = process.platform === "win32" ? "code.cmd" : "code";
 const codeArgs = [
   "--new-window",
   "--wait",
@@ -44,13 +51,13 @@ const codeArgs = [
   "--disable-extension=wakatime.vscode-wakatime",
   "--disable-extension=fittentech.fitten-code",
   "--disable-extension=biomejs.biome",
-  rootDir,
+  workspaceDir,
 ];
+const codeCommand = commandInvocation("code", codeArgs);
 
-const codeProcess = spawn(codeCmd, codeArgs, {
+const codeProcess = spawn(codeCommand.command, codeCommand.args, {
   cwd: rootDir,
   stdio: "inherit",
-  shell: true,
   env: cleanEnv,
 });
 

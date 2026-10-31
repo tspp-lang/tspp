@@ -1,0 +1,9 @@
+{
+  "name": "@tspp/examples",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Examples for the TS++ compiler and editor tooling.",
+  "scripts": {
+    "check": "node scripts/run-all.mjs check"
+  }
+}
