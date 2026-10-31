@@ -53,6 +53,7 @@ async function activate(context) {
   await languageClient.start();
 
   const expansionCache = new Map();
+  const analysisCache = new Map();
   const expandedDocuments = new Map();
   const expandedChanges = new vscode.EventEmitter();
   const selector = { language: "tspp", scheme: "file", pattern: "**/*.tspp" };
@@ -93,6 +94,15 @@ async function activate(context) {
   }
 
   async function createAnalysisProgram(document) {
+    const cacheKey = `${document.uri}:${document.version}`;
+    if (analysisCache.has(cacheKey)) return analysisCache.get(cacheKey);
+    const pending = createAnalysisProgramWorker(document);
+    analysisCache.set(cacheKey, pending);
+    try { return await pending; }
+    catch (error) { analysisCache.delete(cacheKey); throw error; }
+  }
+
+  async function createAnalysisProgramWorker(document) {
     const sdkPath = resolveSdkPath(context);
     const compilerPath = sdkPath.endsWith("tsserver.js")
       ? path.join(path.dirname(sdkPath), "typescript.js")
@@ -237,8 +247,8 @@ async function activate(context) {
       const report = await vscode.workspace.openTextDocument({ language: "plaintext", content });
       await vscode.window.showTextDocument(report, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     }),
-    vscode.workspace.onDidChangeTextDocument(() => expansionCache.clear()),
-    vscode.workspace.onDidSaveTextDocument(() => expansionCache.clear()),
+    vscode.workspace.onDidChangeTextDocument(() => { expansionCache.clear(); analysisCache.clear(); }),
+    vscode.workspace.onDidSaveTextDocument(() => { expansionCache.clear(); analysisCache.clear(); }),
   );
 }
 

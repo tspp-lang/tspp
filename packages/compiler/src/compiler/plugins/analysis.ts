@@ -13,6 +13,7 @@ import { SyntaxKind } from "../types.js";
 import { getOriginalTSPPSource, getRegisteredTSPPProgramAnalyzers } from "./registry.js";
 
 const analysisArtifacts = new WeakMap<Program, readonly TSPPAnalysisArtifact[]>();
+const analysisResults = new WeakMap<Program, Promise<readonly TSPPAnalysisDiagnostic[]>>();
 
 function snapshotNode(sourceFile: SourceFile, node: Node): TSPPAnalysisNode {
     const children: TSPPAnalysisNode[] = [];
@@ -55,12 +56,24 @@ function snapshotProgram(program: Program): TSPPProgramAnalysisInput {
 
 /** Runs isolated feature analyzers without exposing compiler-owned objects. @internal */
 export async function runTSPPProgramAnalyzers(program: Program): Promise<readonly TSPPAnalysisDiagnostic[]> {
+    const existing = analysisResults.get(program);
+    if (existing) return existing;
     const analyzers = getRegisteredTSPPProgramAnalyzers();
     if (!analyzers.length) return [];
-    const input = snapshotProgram(program);
-    const diagnostics = await Promise.all(analyzers.map(analyzer => analyzer.analyze(input)));
-    analysisArtifacts.set(program, diagnostics.flatMap(result => result.artifacts ?? []));
-    return diagnostics.flat();
+    const pending = (async () => {
+        const input = snapshotProgram(program);
+        const diagnostics = await Promise.all(analyzers.map(analyzer => analyzer.analyze(input)));
+        analysisArtifacts.set(program, diagnostics.flatMap(result => result.artifacts ?? []));
+        return diagnostics.flat();
+    })();
+    analysisResults.set(program, pending);
+    try {
+        return await pending;
+    }
+    catch (error) {
+        analysisResults.delete(program);
+        throw error;
+    }
 }
 
 /** Returns artifacts from the most recent analyzer run for this program. @internal */

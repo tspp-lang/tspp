@@ -6,7 +6,7 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import { maskContractClauses, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
-import { renderZ3Query, solveWithZ3 } from "./solver";
+import { renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
 
 export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
@@ -27,7 +27,7 @@ export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
         for (const sourceFile of input.sourceFiles) {
             for (const proof of collectProgramProofs(sourceFile, diagnostics, logic)) queries.push({ proof });
         }
-        const answers = await solveWithZ3(queries.map(query => query.proof.query));
+        const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
         const artifacts: TSPPAnalysisArtifact[] = [];
         answers.forEach((answer, index) => {
             const proof = queries[index].proof;
