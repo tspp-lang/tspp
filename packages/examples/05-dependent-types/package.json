@@ -3,10 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "tspp --project tsconfig.json"
+    "check": "tspp --project tsconfig.json",
+    "lint": "eslint src"
   },
   "devDependencies": {
     "@tspp/plugin-dependent-types": "workspace:*",
+    "eslint": "^10.10.0",
     "ts-plus-plus": "workspace:*"
   }
 }

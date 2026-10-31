@@ -6,11 +6,15 @@
   "description": "Cross-package consumer for the TS++ newtype plugin.",
   "scripts": {
     "build": "tspp -p tsconfig.json --pretty false",
-    "check": "tspp -p tsconfig.json --noEmit --pretty false"
+    "check": "tspp -p tsconfig.json --noEmit --pretty false",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@tspp/example-newtype": "workspace:*",
     "@tspp/plugin-newtype": "workspace:*",
     "ts-plus-plus": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0"
   }
 }

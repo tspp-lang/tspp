@@ -4,10 +4,14 @@
   "private": true,
   "description": "Example project for the TS++ let-in expression plugin.",
   "scripts": {
-    "check": "tspp -p tsconfig.json --pretty false"
+    "check": "tspp -p tsconfig.json --pretty false",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@tspp/plugin-let-in-expression": "workspace:*",
     "ts-plus-plus": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0"
   }
 }

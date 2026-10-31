@@ -23,6 +23,7 @@
   "main": "./extension.js",
   "scripts": {
     "build": "node scripts/build-plugin-grammar.mjs && node --check extension.js",
+    "lint": "eslint extension.js scripts",
     "test": "node --check extension.js"
   },
   "dependencies": {
@@ -32,6 +33,10 @@
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-newtype": "workspace:*",
     "vscode-languageclient": "9.0.1"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0"
   },
   "contributes": {
     "languages": [

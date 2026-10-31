@@ -12,10 +12,14 @@
   },
   "scripts": {
     "build": "tspp -p tsconfig.json --pretty false",
-    "check": "tspp -p tsconfig.json --noEmit --pretty false"
+    "check": "tspp -p tsconfig.json --noEmit --pretty false",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@tspp/plugin-newtype": "workspace:*",
     "ts-plus-plus": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0"
   }
 }

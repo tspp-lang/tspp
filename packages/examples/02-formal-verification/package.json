@@ -3,10 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "tspp -p tsconfig.json"
+    "check": "tspp -p tsconfig.json",
+    "lint": "eslint src"
   },
   "dependencies": {
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-let-in-expression": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0"
   }
 }

@@ -25,9 +25,10 @@
     "test:plugin-sdk": "pnpm --filter @tspp/plugin-sdk test",
     "test:plugins": "pnpm --filter \"./packages/plugins/**\" test",
     "test:vscode": "pnpm --filter tspp-vscode test",
-    "lint": "pnpm lint:compiler && pnpm lint:language-server",
+    "lint": "pnpm lint:compiler && pnpm lint:packages",
     "lint:compiler": "pnpm --filter ts-plus-plus lint",
     "lint:language-server": "pnpm --filter tspp-language-server lint",
+    "lint:packages": "pnpm --filter @tspp/plugin-sdk --filter \"./packages/plugins/**\" --filter tspp-vscode --filter \"./packages/examples/**\" lint",
     "knip": "pnpm --filter ts-plus-plus knip",
     "format": "pnpm --filter ts-plus-plus format",
     "clean": "pnpm --filter @tspp/plugin-sdk clean && pnpm --filter \"./packages/plugins/**\" clean && pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"
