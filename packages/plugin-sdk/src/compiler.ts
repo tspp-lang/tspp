@@ -4,6 +4,10 @@ import type { TSPPPluginDisposer, TSPPPluginLogger } from "./index";
 export type TSPPSyntaxNode = object;
 export type TSPPExpression = TSPPSyntaxNode;
 export type TSPPVariableDeclarationList = TSPPSyntaxNode;
+export type TSPPDeclaration = TSPPSyntaxNode;
+export type TSPPIdentifier = TSPPSyntaxNode;
+export type TSPPTypeNode = TSPPSyntaxNode;
+export type TSPPTypeParameterList = TSPPSyntaxNode;
 export type TSPPType = object;
 export type TSPPSyntaxKind = number;
 
@@ -111,16 +115,67 @@ export interface TSPPExpressionSyntax {
     transform(node: TSPPExtensionExpression, transformer: TSPPExpressionTransformer): TSPPExpression;
 }
 
+export interface TSPPDeclarationParser {
+    token(): TSPPSyntaxKind;
+    tokenText(): string;
+    nextToken(): TSPPSyntaxKind;
+    hasPrecedingLineBreak(): boolean;
+    lookAhead<T>(callback: () => T): T;
+    getNodePos(): number;
+    parseExpected(kind: TSPPSyntaxKind): boolean;
+    parseIdentifier(): TSPPIdentifier;
+    parseTypeParameters(): TSPPTypeParameterList | undefined;
+    parseType(): TSPPTypeNode;
+    parseSemicolon(): boolean;
+    finishTypeAliasDeclaration(
+        name: TSPPIdentifier,
+        typeParameters: TSPPTypeParameterList | undefined,
+        type: TSPPTypeNode,
+        pos: number,
+    ): TSPPDeclaration;
+}
+
+export interface TSPPDeclarationSyntaxKinds {
+    readonly identifier: TSPPSyntaxKind;
+    readonly equalsToken: TSPPSyntaxKind;
+}
+
+export interface TSPPDeclarationChecker {
+    getTypeNode(node: TSPPDeclaration): TSPPTypeNode;
+    getTypeFromTypeNode(node: TSPPTypeNode): TSPPType;
+    getDeclaredType(node: TSPPDeclaration): TSPPType;
+    createNominalType(node: TSPPDeclaration, underlyingType: TSPPType): TSPPType;
+    createIdentityConstructorType(node: TSPPDeclaration, parameterType: TSPPType, returnType: TSPPType): TSPPType;
+}
+
+export interface TSPPDeclarationTransformer {
+    createIdentityFunctionDeclaration(node: TSPPDeclaration): TSPPSyntaxNode;
+}
+
+export interface TSPPDeclarationSyntax {
+    readonly startTokens: readonly TSPPSyntaxKind[];
+    readonly binding: "type" | "type-and-value";
+    isStart(parser: TSPPDeclarationParser): boolean;
+    parse(parser: TSPPDeclarationParser): TSPPDeclaration;
+    getDeclaredType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker, underlyingType: TSPPType): TSPPType;
+    getValueType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker): TSPPType;
+    transform?(node: TSPPDeclaration, transformer: TSPPDeclarationTransformer): TSPPSyntaxNode;
+}
+
 export interface TSPPCompilerPluginAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
+    readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
+    registerDeclarationSyntax(syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
+    readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
+    registerDeclarationSyntax(pluginId: string, syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }

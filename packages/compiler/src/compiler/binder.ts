@@ -310,6 +310,7 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import { getExtensionDeclarationSyntax } from "./plugins/registry.js";
 
 /** @internal */
 export const enum ModuleInstanceState {
@@ -3032,8 +3033,17 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
                 return bindClassLikeDeclaration(node as ClassLikeDeclaration);
             case SyntaxKind.InterfaceDeclaration:
                 return bindBlockScopedDeclaration(node as Declaration, SymbolFlags.Interface, SymbolFlags.InterfaceExcludes);
-            case SyntaxKind.TypeAliasDeclaration:
+            case SyntaxKind.TypeAliasDeclaration: {
+                const extension = getExtensionDeclarationSyntax(node);
+                if (extension?.binding === "type-and-value") {
+                    return bindBlockScopedDeclaration(
+                        node as Declaration,
+                        SymbolFlags.TypeAlias | SymbolFlags.Function,
+                        SymbolFlags.TypeAliasExcludes | SymbolFlags.FunctionExcludes,
+                    );
+                }
                 return bindBlockScopedDeclaration(node as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
+            }
             case SyntaxKind.EnumDeclaration:
                 return bindEnumDeclaration(node as EnumDeclaration);
             case SyntaxKind.ModuleDeclaration:

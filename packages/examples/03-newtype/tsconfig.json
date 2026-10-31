@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "plugins": [
+      {
+        "name": "@tspp/plugin-newtype",
+        "tspp": true
+      }
+    ]
+  },
+  "include": ["index.tspp"]
+}

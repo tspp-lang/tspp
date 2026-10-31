@@ -120,6 +120,15 @@ Tsserver caches analyzer results per `Program`. Completion of an asynchronous
 analysis requests the existing project diagnostic refresh; the generic LSP
 bridge then publishes the merged semantic diagnostics normally.
 
+### Declaration extensions
+
+Declaration plugins register a contextual start-token parser and return an
+ordinary upstream declaration node. The host records plugin ownership out of
+band, so the binder, checker, and TypeScript transformer can delegate only the
+extension-specific binding, declared/value type, and runtime lowering without
+adding a feature-specific syntax kind. The SDK exposes opaque type-building
+primitives; plugin packages never receive compiler nodes or symbol tables.
+
 ## Current process boundary
 
 Compiler syntax registration is process-wide because the upstream TypeScript

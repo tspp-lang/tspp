@@ -4,6 +4,9 @@ import {
 } from "@tspp/plugin-sdk";
 import type {
     TSPPCompilerHostAPI,
+    TSPPDeclarationParser,
+    TSPPDeclarationSyntax,
+    TSPPDeclarationSyntaxKinds,
     TSPPExpressionParser,
     TSPPExpressionSyntax,
     TSPPExpressionSyntaxKinds,
@@ -13,11 +16,17 @@ import type {
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 
 import { version } from "../corePublic.js";
-import type { ExtensionExpression } from "../types.js";
+import type {
+    ExtensionExpression,
+    Statement,
+} from "../types.js";
 import { SyntaxKind } from "../types.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
+const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax>();
+const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
+const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
@@ -44,8 +53,14 @@ export const expressionSyntaxKinds: TSPPExpressionSyntaxKinds = {
     letKeyword: SyntaxKind.LetKeyword,
 };
 
+export const declarationSyntaxKinds: TSPPDeclarationSyntaxKinds = {
+    identifier: SyntaxKind.Identifier,
+    equalsToken: SyntaxKind.EqualsToken,
+};
+
 const compilerAPI: TSPPCompilerHostAPI = {
     expressionSyntaxKinds,
+    declarationSyntaxKinds,
     registerExpressionSyntax(pluginId, syntax) {
         if (expressionSyntaxByPluginId.has(pluginId)) {
             throw new Error(`TSPP plugin '${pluginId}' registered expression syntax more than once.`);
@@ -70,6 +85,31 @@ const compilerAPI: TSPPCompilerHostAPI = {
                 const index = candidates.indexOf(registration);
                 if (index >= 0) candidates.splice(index, 1);
                 if (candidates.length === 0) expressionSyntaxByStartToken.delete(token);
+            }
+        };
+    },
+    registerDeclarationSyntax(pluginId, syntax) {
+        if (declarationSyntaxByPluginId.has(pluginId)) {
+            throw new Error(`TSPP plugin '${pluginId}' registered declaration syntax more than once.`);
+        }
+        if (syntax.startTokens.length === 0) {
+            throw new Error(`TSPP declaration plugin '${pluginId}' must claim at least one start token.`);
+        }
+        const registration = { pluginId, syntax };
+        declarationSyntaxByPluginId.set(pluginId, syntax);
+        for (const token of syntax.startTokens) {
+            const candidates = declarationSyntaxByStartToken.get(token);
+            if (candidates) candidates.push(registration);
+            else declarationSyntaxByStartToken.set(token, [registration]);
+        }
+        return () => {
+            declarationSyntaxByPluginId.delete(pluginId);
+            for (const token of syntax.startTokens) {
+                const candidates = declarationSyntaxByStartToken.get(token);
+                if (!candidates) continue;
+                const index = candidates.indexOf(registration);
+                if (index >= 0) candidates.splice(index, 1);
+                if (candidates.length === 0) declarationSyntaxByStartToken.delete(token);
             }
         };
     },
@@ -142,6 +182,28 @@ export function getExtensionExpressionSyntax(node: ExtensionExpression): TSPPExp
     const syntax = expressionSyntaxByPluginId.get(node.pluginId);
     if (!syntax) throw new Error(`Unknown TSPP extension expression plugin: ${node.pluginId}`);
     return syntax;
+}
+
+/** @internal */
+export function tryParseExtensionDeclaration(
+    token: SyntaxKind,
+    createParser: (pluginId: string) => TSPPDeclarationParser,
+): Statement | undefined {
+    const candidates = declarationSyntaxByStartToken.get(token);
+    if (!candidates) return undefined;
+    for (const { pluginId, syntax } of candidates) {
+        const parser = createParser(pluginId);
+        if (!syntax.isStart(parser)) continue;
+        const declaration = syntax.parse(parser) as Statement;
+        declarationSyntaxByNode.set(declaration, syntax);
+        return declaration;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function getExtensionDeclarationSyntax(node: object): TSPPDeclarationSyntax | undefined {
+    return declarationSyntaxByNode.get(node);
 }
 
 /** Exposed for architecture tests and diagnostics. */

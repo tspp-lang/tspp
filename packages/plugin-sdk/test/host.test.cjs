@@ -12,7 +12,9 @@ const logger = {
 
 const compiler = {
   expressionSyntaxKinds: {},
+  declarationSyntaxKinds: {},
   registerExpressionSyntax(_pluginId, _syntax) { return () => {}; },
+  registerDeclarationSyntax(_pluginId, _syntax) { return () => {}; },
   registerProgramAnalyzer(_pluginId, _analyzer) { return () => {}; },
   registerSourcePreprocessor(_pluginId, _preprocessor) { return () => {}; },
 };

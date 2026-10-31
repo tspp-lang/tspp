@@ -1,4 +1,7 @@
-import type { TSPPExpressionParser } from "@tspp/plugin-sdk/compiler";
+import type {
+    TSPPDeclarationParser,
+    TSPPExpressionParser,
+} from "@tspp/plugin-sdk/compiler";
 import {
     AccessorDeclaration,
     addRange,
@@ -406,6 +409,7 @@ import * as performance from "./_namespaces/ts.performance.js";
 import {
     expressionSyntaxKinds,
     projectTSPPSource,
+    tryParseExtensionDeclaration,
     tryParseExtensionExpression,
 } from "./plugins/registry.js";
 
@@ -7414,6 +7418,8 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
+        const extensionDeclaration = tryParseExtensionDeclaration(token(), createExtensionDeclarationParser);
+        if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
             case SyntaxKind.SemicolonToken:
                 return parseEmptyStatement();
@@ -7494,6 +7500,32 @@ namespace Parser {
                 break;
         }
         return parseExpressionOrLabeledStatement();
+    }
+
+    function createExtensionDeclarationParser(_pluginId: string): TSPPDeclarationParser {
+        return {
+            token,
+            tokenText: () => scanner.getTokenText(),
+            nextToken,
+            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
+            lookAhead,
+            getNodePos,
+            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
+            parseIdentifier,
+            parseTypeParameters,
+            parseType,
+            parseSemicolon,
+            finishTypeAliasDeclaration: (name, typeParameters, type, pos) =>
+                finishNode(
+                    factory.createTypeAliasDeclaration(
+                        /*modifiers*/ undefined,
+                        name as Identifier,
+                        typeParameters as NodeArray<TypeParameterDeclaration> | undefined,
+                        type as TypeNode,
+                    ),
+                    pos,
+                ),
+        };
     }
 
     function isDeclareModifier(modifier: ModifierLike) {

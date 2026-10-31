@@ -333,6 +333,15 @@ importers:
         specifier: workspace:*
         version: link:../../plugins/let-in-expression
 
+  packages/examples/03-newtype:
+    dependencies:
+      '@tspp/plugin-newtype':
+        specifier: workspace:*
+        version: link:../../plugins/newtype
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/language-server:
     devDependencies:
       '@eslint/js':
@@ -491,11 +500,27 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/plugins/newtype:
+    dependencies:
+      '@tspp/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../plugin-sdk
+    devDependencies:
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/vscode-extension:
     dependencies:
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:../plugins/formal-verification
+      '@tspp/plugin-newtype':
+        specifier: workspace:*
+        version: link:../plugins/newtype
       ts-plus-plus:
         specifier: workspace:*
         version: link:../compiler

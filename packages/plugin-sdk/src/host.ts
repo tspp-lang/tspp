@@ -120,7 +120,9 @@ export class TSPPPluginHost {
             logger: prefixLogger(this.environment.logger, pluginId),
             compiler: {
                 expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
+                declarationSyntaxKinds: this.environment.compiler.declarationSyntaxKinds,
                 registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
+                registerDeclarationSyntax: syntax => this.environment.compiler.registerDeclarationSyntax(pluginId, syntax),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
             },

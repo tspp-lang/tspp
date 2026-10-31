@@ -1,4 +1,7 @@
-import type { TSPPExpressionChecker } from "@tspp/plugin-sdk/compiler";
+import type {
+    TSPPDeclarationChecker,
+    TSPPExpressionChecker,
+} from "@tspp/plugin-sdk/compiler";
 import {
     __String,
     AccessExpression,
@@ -1152,7 +1155,10 @@ import {
 } from "./_namespaces/ts.js";
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionExpressionSyntax } from "./plugins/registry.js";
+import {
+    getExtensionDeclarationSyntax,
+    getExtensionExpressionSyntax,
+} from "./plugins/registry.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -7679,6 +7685,9 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     if (isExpanding(context) && propertySymbol.flags & SymbolFlags.Prototype) {
                         continue;
                     }
+                    if (isTSPPNominalBrandPropertyName(propertySymbol.escapedName)) {
+                        continue;
+                    }
                     i++;
                     if (context.flags & NodeBuilderFlags.WriteClassExpressionAsTypeLiteral) {
                         if (propertySymbol.flags & SymbolFlags.Prototype) {
@@ -12805,6 +12814,10 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
     function getTypeOfFuncClassEnumModuleWorker(symbol: Symbol): Type {
         const declaration = symbol.valueDeclaration;
+        const extension = declaration && getExtensionDeclarationSyntax(declaration);
+        if (extension?.getValueType && declaration && isTypeAliasDeclaration(declaration)) {
+            return extension.getValueType(declaration, createExtensionDeclarationChecker(declaration)) as Type;
+        }
         if (symbol.flags & SymbolFlags.Module && isShorthandAmbientModuleSymbol(symbol)) {
             return anyType;
         }
@@ -13515,6 +13528,10 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             let type = typeNode ? getTypeFromTypeNode(typeNode) : errorType;
             if (popTypeResolution()) {
                 const typeParameters = getLocalTypeParametersOfClassOrInterfaceOrTypeAlias(symbol);
+                const extension = getExtensionDeclarationSyntax(declaration);
+                if (extension?.getDeclaredType && isTypeAliasDeclaration(declaration)) {
+                    type = extension.getDeclaredType(declaration, createExtensionDeclarationChecker(declaration, typeParameters), type) as Type;
+                }
                 if (typeParameters) {
                     // Initialize the instantiation cache for generic type aliases. The declared type corresponds to
                     // an instantiation of the type alias with the type parameters supplied as type arguments.
@@ -24379,6 +24396,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
 
         function reportUnmatchedProperty(source: Type, target: Type, unmatchedProperty: Symbol, requireOptionalProperties: boolean) {
+            if (isTSPPNominalBrandPropertyName(unmatchedProperty.escapedName)) return;
             let shouldSkipElaboration = false;
             // give specific error in case where private names have the same description
             if (
@@ -24402,7 +24420,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     return;
                 }
             }
-            const props = arrayFrom(getUnmatchedProperties(source, target, requireOptionalProperties, /*matchDiscriminantProperties*/ false));
+            const props = arrayFrom(getUnmatchedProperties(source, target, requireOptionalProperties, /*matchDiscriminantProperties*/ false))
+                .filter(property => !isTSPPNominalBrandPropertyName(property.escapedName));
             if (
                 !headMessage || (headMessage.code !== Diagnostics.Class_0_incorrectly_implements_interface_1.code &&
                     headMessage.code !== Diagnostics.Class_0_incorrectly_implements_class_1_Did_you_mean_to_extend_1_and_inherit_its_members_as_a_subclass.code)
@@ -41950,6 +41969,57 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             checkVariableDeclarationList: declarations => checkVariableDeclarationList(declarations as VariableDeclarationList),
         };
         return getExtensionExpressionSyntax(node).check(node, pluginChecker, checkMode) as Type;
+    }
+
+    function createExtensionDeclarationChecker(
+        declaration: TypeAliasDeclaration,
+        typeParameters?: readonly TypeParameter[],
+    ): TSPPDeclarationChecker {
+        const symbol = getSymbolOfDeclaration(declaration);
+        return {
+            getTypeNode: node => (node as TypeAliasDeclaration).type,
+            getTypeFromTypeNode: node => getTypeFromTypeNode(node as TypeNode),
+            getDeclaredType: node => getDeclaredTypeOfSymbol(getSymbolOfDeclaration(node as Declaration)),
+            createNominalType: (_node, underlyingType) => {
+                const brand = createSymbol(
+                    SymbolFlags.Property,
+                    `__@tsppNominal@${getSymbolId(symbol)}` as __String,
+                    CheckFlags.Readonly,
+                );
+                brand.links.type = trueType;
+                const brandType = createAnonymousType(
+                    /*symbol*/ undefined,
+                    createSymbolTable([brand]),
+                    emptyArray,
+                    emptyArray,
+                    emptyArray,
+                );
+                const parameters = typeParameters ?? getSymbolLinks(symbol).typeParameters;
+                brandType.aliasSymbol = symbol;
+                brandType.aliasTypeArguments = parameters;
+                return getIntersectionType([underlyingType as Type, brandType], IntersectionFlags.None, symbol, parameters);
+            },
+            createIdentityConstructorType: (_node, parameterType, returnType) => {
+                const value = createSymbol(SymbolFlags.FunctionScopedVariable, "value" as __String);
+                value.links.type = parameterType as Type;
+                const parameters = getSymbolLinks(symbol).typeParameters;
+                const signature = createSignature(
+                    /*declaration*/ undefined,
+                    parameters,
+                    /*thisParameter*/ undefined,
+                    [value],
+                    returnType as Type,
+                    /*resolvedTypePredicate*/ undefined,
+                    /*minArgumentCount*/ 1,
+                    SignatureFlags.None,
+                );
+                return createAnonymousType(/*symbol*/ undefined, emptySymbols, [signature], emptyArray, emptyArray);
+            },
+        };
+    }
+
+    function isTSPPNominalBrandPropertyName(name: __String): boolean {
+        return typeof name === "string" && name.startsWith("__@tsppNominal@");
     }
 
     // DECLARATION AND STATEMENT TYPE CHECKING
