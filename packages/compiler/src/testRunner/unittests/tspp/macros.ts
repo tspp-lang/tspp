@@ -503,10 +503,11 @@ describe("unittests:: tspp:: macros", () => {
             { documents: [new documents.TextDocument("/file.tspp", content)], cwd: "/" },
         );
         const host = new fakes.CompilerHost(fs, compilerOptions);
-        (host as ts.CompilerHost).macroBenchmarkMs = 5;
+        // Keep the derived deadline comfortably above worker scheduling jitter in parallel CI.
+        (host as ts.CompilerHost).macroBenchmarkMs = 50;
         const program = await ts.createProgramAsync({ host, rootNames: ["/file.tspp"], options: compilerOptions });
         const messages = program.getSemanticDiagnostics().map(d => ts.flattenDiagnosticMessageText(d.messageText, "\n"));
-        assert.include(messages.join("\n"), "timed out after 10 ms (2x local benchmark");
+        assert.include(messages.join("\n"), "timed out after 100 ms (2x local benchmark");
     });
 
     it("reports invalid timeout options without running the macro", () => {
