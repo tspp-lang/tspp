@@ -1,9 +1,20 @@
 import { OrderId, UserId } from "@tspp/example-newtype";
 
+type UserIdConstructor = typeof UserId;
 const userId: UserId = UserId("consumer-1");
 const orderId: OrderId = OrderId("order-1");
 
 // @ts-expect-error Distinct newtype declarations remain nominal across packages.
 const wrong: UserId = orderId;
+
+if (false) {
+    // @ts-expect-error Erased constructors cannot escape into runtime values.
+    const escapedConstructor: UserIdConstructor = UserId;
+    // @ts-expect-error Newtype constructors require exactly one argument.
+    UserId();
+    // @ts-expect-error Extra arguments are rejected and are not silently erased.
+    UserId("consumer-2", "extra");
+    console.log(escapedConstructor);
+}
 
 console.log(userId, orderId, wrong);

@@ -18,6 +18,7 @@ export const newtypePlugin = definePlugin({
                     startTokens: [kinds.identifier],
                     binding: "type-and-value",
                     runtime: "erased",
+                    valueUse: "call-only",
                     isStart: parser => parser.tokenText() === "newtype" && parser.lookAhead(() => {
                         parser.nextToken();
                         return !parser.hasPrecedingLineBreak() && /^[A-Za-z_$][\w$]*$/.test(parser.tokenText());
@@ -40,8 +41,8 @@ export const newtypePlugin = definePlugin({
                     ),
                     transform: (node, transformer) => transformer.createNotEmittedStatement(node),
                     transformCall: (node, _declaration, transformer) => {
-                        const [value] = transformer.getArguments(node);
-                        return value ? transformer.visitExpression(value) : node;
+                        const args = transformer.getArguments(node);
+                        return args.length === 1 ? transformer.visitExpression(args[0]) : node;
                     },
                     emitDeclaration: (node, emitter) => emitter.emitTypeAliasDeclaration(node, "newtype"),
                 };
