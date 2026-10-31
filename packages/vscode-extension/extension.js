@@ -137,10 +137,25 @@ async function activate(context) {
         await vscode.window.showInformationMessage(emptyMessage);
         return;
       }
-      const content = artifacts
+      let selected = artifacts;
+      if (artifacts.length > 1) {
+        const choices = [
+          { label: "$(list-unordered) Show all artifacts", artifacts },
+          ...artifacts.map(artifact => ({
+            label: `$(file-code) ${artifact.name}`,
+            description: artifact.status ?? "generated",
+            detail: artifact.kind,
+            artifacts: [artifact],
+          })),
+        ];
+        const choice = await vscode.window.showQuickPick(choices, { placeHolder: "Choose a TS++ analysis artifact" });
+        if (!choice) return;
+        selected = choice.artifacts;
+      }
+      const content = selected
         .map((artifact, index) => `; [${index + 1}] ${artifact.name} — ${artifact.status ?? "generated"}\n${artifact.content}`)
         .join("\n");
-      const artifactDocument = await vscode.workspace.openTextDocument({ language: artifacts[0].language, content });
+      const artifactDocument = await vscode.workspace.openTextDocument({ language: selected[0].language, content });
       await vscode.window.showTextDocument(artifactDocument, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     }
     catch (error) {
@@ -192,6 +207,27 @@ async function activate(context) {
     }),
     vscode.commands.registerCommand("tspp.showMlttNormalForms", async () => {
       await showAnalysisArtifacts(artifact => artifact.kind === "dependent-types/normal-form", "This file has no MLTT normal forms.");
+    }),
+    vscode.commands.registerCommand("tspp.showProjectedSource", async () => {
+      const document = vscode.window.activeTextEditor?.document;
+      if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
+      const analysis = await createAnalysisProgram(document);
+      if (!analysis) return;
+      const content = analysis.ts.getTSPPProjectedSource(document.fileName, document.getText());
+      const projected = await vscode.workspace.openTextDocument({ language: "typescript", content });
+      await vscode.window.showTextDocument(projected, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+    }),
+    vscode.commands.registerCommand("tspp.showActivePlugins", async () => {
+      const document = vscode.window.activeTextEditor?.document;
+      if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
+      const analysis = await createAnalysisProgram(document);
+      if (!analysis) return;
+      const plugins = analysis.ts.getRegisteredTSPPPlugins();
+      const content = plugins.length
+        ? plugins.map(plugin => `${plugin.displayName ?? plugin.id}\n  id: ${plugin.id}\n  version: ${plugin.version}\n  API: ${plugin.apiVersion}`).join("\n\n")
+        : "No TS++ feature capsules are active.\n";
+      const report = await vscode.workspace.openTextDocument({ language: "plaintext", content });
+      await vscode.window.showTextDocument(report, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     }),
     vscode.workspace.onDidChangeTextDocument(() => expansionCache.clear()),
     vscode.workspace.onDidSaveTextDocument(() => expansionCache.clear()),

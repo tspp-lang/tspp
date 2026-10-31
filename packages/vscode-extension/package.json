@@ -92,12 +92,21 @@
       {
         "command": "tspp.showMlttNormalForms",
         "title": "TS++: Show MLTT Normal Forms"
+      },
+      {
+        "command": "tspp.showProjectedSource",
+        "title": "TS++: Show Projected TypeScript"
+      },
+      {
+        "command": "tspp.showActivePlugins",
+        "title": "TS++: Show Active Feature Capsules"
       }
     ],
     "menus": {
       "editor/title": [
         { "command": "tspp.showExpandedSource", "when": "editorLangId == tspp", "group": "navigation" },
-        { "command": "tspp.showAnalysisArtifacts", "when": "editorLangId == tspp", "group": "navigation" }
+        { "command": "tspp.showAnalysisArtifacts", "when": "editorLangId == tspp", "group": "navigation" },
+        { "command": "tspp.showProjectedSource", "when": "editorLangId == tspp", "group": "navigation" }
       ]
     },
     "configuration": {

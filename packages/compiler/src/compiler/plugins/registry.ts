@@ -1,6 +1,7 @@
 import {
     type TSPPPlugin,
     type TSPPPluginLogger,
+    type TSPPPluginManifest,
 } from "@tspp/plugin-sdk";
 import type {
     TSPPCompilerHostAPI,
@@ -379,6 +380,17 @@ export function getTSPPPluginFromModule(moduleValue: unknown): TSPPPlugin | unde
     return plugin.manifest && plugin.facets && typeof plugin.facets === "object"
         ? plugin as TSPPPlugin
         : undefined;
+}
+
+/** Lists the feature capsules active in this compiler process. */
+export function getRegisteredTSPPPlugins(): readonly TSPPPluginManifest[] {
+    initializeTSPPCompilerPlugins(version);
+    return pluginHost!.list();
+}
+
+/** Applies every active feature projection and returns the TypeScript-compatible source. */
+export function getTSPPProjectedSource(fileName: string, sourceText: string): string {
+    return projectTSPPSource(fileName, sourceText);
 }
 
 /** @internal */

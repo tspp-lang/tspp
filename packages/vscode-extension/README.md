@@ -33,3 +33,7 @@ analysis artifacts:
 - **TS++: Show MLTT Normal Forms** opens each alias's normalized MLTT type and
   beta-normal term;
 - **TS++: Show Analysis Artifacts** opens every artifact for the active file.
+- **TS++: Show Projected TypeScript** shows the length-preserving source seen by
+  the upstream parser after all feature projections.
+- **TS++: Show Active Feature Capsules** reports the active plugin identities,
+  versions, and SDK contract versions.
