@@ -57,6 +57,13 @@ function describeUnusableWorkspaceVersions(unusable: UnusableTypeScriptInstallat
     return `The TypeScript of the workspace (${descriptions.join(', ')}) provides no tsserver.js.`;
 }
 
+function isProjectInitializationError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('TypeScript Server Error')
+        && message.includes('Cannot read properties of undefined')
+        && message.includes('getSourceFile');
+}
+
 export class LspServer {
     private tsClient: TsClient;
     private fileConfigurationManager: FileConfigurationManager;
@@ -73,6 +80,9 @@ export class LspServer {
     private implementationsCodeLensProvider: TypeScriptImplementationsCodeLensProvider | null = null;
     private referencesCodeLensProvider: TypeScriptReferencesCodeLensProvider | null = null;
     private watchEventManager: WatchEventManager | null = null;
+    private processHandlersInstalled = false;
+    private readonly processExitHandler = () => this.shutdown();
+    private readonly processSigintHandler = () => process.exit();
 
     constructor(private options: LspServerConfiguration) {
         this.logger = new PrefixingLogger(options.logger, '[lspserver]');
@@ -104,6 +114,11 @@ export class LspServer {
     }
 
     shutdown(): void {
+        if (this.processHandlersInstalled) {
+            process.off('exit', this.processExitHandler);
+            process.off('SIGINT', this.processSigintHandler);
+            this.processHandlersInstalled = false;
+        }
         this.watchEventManager?.dispose();
         this.watchEventManager = null;
         this.tsClient.shutdown();
@@ -233,12 +248,9 @@ export class LspServer {
         if (!started) {
             throw new Error('tsserver process has failed to start.');
         }
-        process.on('exit', () => {
-            this.shutdown();
-        });
-        process.on('SIGINT', () => {
-            process.exit();
-        });
+        process.on('exit', this.processExitHandler);
+        process.on('SIGINT', this.processSigintHandler);
+        this.processHandlersInstalled = true;
 
         if (canUseWatchEvents) {
             this.watchEventManager = new WatchEventManager({
@@ -891,6 +903,18 @@ export class LspServer {
     }
 
     async codeAction(params: lsp.CodeActionParams, token?: lsp.CancellationToken): Promise<(lsp.CodeAction | lsp.Command)[]> {
+        try {
+            return await this.codeActionWorker(params, token);
+        }
+        catch (error) {
+            if (isProjectInitializationError(error)) {
+                return [];
+            }
+            throw error;
+        }
+    }
+
+    private async codeActionWorker(params: lsp.CodeActionParams, token?: lsp.CancellationToken): Promise<(lsp.CodeAction | lsp.Command)[]> {
         const document = this.tsClient.toOpenDocument(params.textDocument.uri);
         if (!document) {
             return [];
@@ -1366,19 +1390,28 @@ export class LspServer {
     }
 
     async getSemanticTokens(doc: LspDocument, file: string, startOffset: number, endOffset: number, token?: lsp.CancellationToken): Promise<lsp.SemanticTokens> {
-        const response = await this.tsClient.execute(
-            CommandTypes.EncodedSemanticClassificationsFull,
-            {
-                file,
-                start: startOffset,
-                length: endOffset - startOffset,
-                format: '2020',
-            },
-            token,
-            {
-                cancelOnResourceChange: doc.uri.toString(),
-            },
-        );
+        let response;
+        try {
+            response = await this.tsClient.execute(
+                CommandTypes.EncodedSemanticClassificationsFull,
+                {
+                    file,
+                    start: startOffset,
+                    length: endOffset - startOffset,
+                    format: '2020',
+                },
+                token,
+                {
+                    cancelOnResourceChange: doc.uri.toString(),
+                },
+            );
+        }
+        catch (error) {
+            if (isProjectInitializationError(error)) {
+                return { data: [] };
+            }
+            throw error;
+        }
 
         if (response.type !== 'response' || !response.body?.spans) {
             return { data: [] };
