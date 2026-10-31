@@ -7,6 +7,6 @@ This isolated example package demonstrates the
 const total = let left = 20, right = 22 in left + right;
 ```
 
-Its package manifest declares only the compiler and plugin needed by this
-example. Future examples should follow the same one-package-per-capability-set
-boundary.
+The shared examples workspace supplies the compiler. This project keeps its own
+manifest and compiler configuration so future examples can select a different
+capability set without merging their settings.
