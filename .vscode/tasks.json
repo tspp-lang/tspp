@@ -13,14 +13,12 @@
             "isBackground": true,
             "problemMatcher": [
                 {
+                    "base": "$tsc-watch",
                     "owner": "tspp-vscode-watch",
-                    "pattern": {
-                        "regexp": "^(?!)$"
-                    },
                     "background": {
                         "activeOnStart": true,
-                        "beginsPattern": "^\\[TSPP watch\\] starting$",
-                        "endsPattern": "^\\[TSPP watch\\] ready$"
+                        "beginsPattern": "^bundles .+$",
+                        "endsPattern": "^created .+$"
                     }
                 }
             ],
