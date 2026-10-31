@@ -1,11 +1,12 @@
 import { build, transform } from "esbuild";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
 
 const require = createRequire(import.meta.url);
-const compilerSource = dirname(dirname(require.resolve("ts-plus-plus/source")));
+const compilerSource = resolve(import.meta.dirname, "../compiler/src");
+const compilerEntry = join(compilerSource, "typescript/typescript.ts");
 const normalizedCompilerSource = compilerSource.replaceAll("\\", "/");
 const z3Build = dirname(require.resolve("z3-solver"));
 const browserPackages = [
@@ -124,6 +125,7 @@ function z3Runtime(): Plugin {
 
 export default defineConfig({
   base: "./",
+  resolve: { alias: { "ts-plus-plus/source": compilerEntry } },
   optimizeDeps: { include: browserPackages },
   oxc: { exclude: [/packages[\\/]compiler[\\/]src[\\/]/] },
   plugins: [...workerPlugins(), z3Runtime()],

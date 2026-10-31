@@ -29,7 +29,6 @@
             "types": "./lib/typescript.d.ts",
             "default": "./lib/typescript.js"
         },
-        "./source": "./src/typescript/typescript.ts",
         "./package.json": "./package.json"
     },
     "bin": {
