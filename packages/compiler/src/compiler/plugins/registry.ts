@@ -1,38 +1,25 @@
 import {
     type TSPPPlugin,
     type TSPPPluginLogger,
-    type TSPPPluginManifest,
 } from "@tspp/plugin-sdk";
 import type {
     TSPPCompilerHostAPI,
-    TSPPDeclarationParser,
     TSPPDeclarationSyntax,
-    TSPPDeclarationSyntaxKinds,
-    TSPPDeepReadonlyBindingParser,
     TSPPDeepReadonlyBindingSyntax,
-    TSPPExpressionParser,
     TSPPExpressionSyntax,
-    TSPPExpressionSyntaxKinds,
-    TSPPFunctionBodyParser,
     TSPPFunctionBodySyntax,
     TSPPInterfaceMemberContract,
-    TSPPKindAnnotationParser,
     TSPPKindAnnotationSyntax,
-    TSPPPostfixTypeParser,
     TSPPPostfixTypeSyntax,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
-    TSPPStatementParser,
     TSPPTrailingClosureBindingSyntax,
     TSPPTypeKind,
-    TSPPTypeParser,
     TSPPTypeSyntax,
-    TSPPTypeSyntaxKinds,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 import type {
     TSPPLanguageServiceHostAPI,
-    TSPPQuickInfo,
     TSPPQuickInfoProvider,
 } from "@tspp/plugin-sdk/language-service";
 
