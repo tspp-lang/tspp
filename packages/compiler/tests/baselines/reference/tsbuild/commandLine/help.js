@@ -18,11 +18,11 @@ declare const console: { log(msg: any): void; };
 /home/src/tslibs/TS/Lib/tsc.js --build --help
 Output::
 Version FakeTSVersion
-tsc: The TypeScript Compiler - Version FakeTSVersion
+TS++ Compiler - Version FakeTSVersion
 
 [1mBUILD OPTIONS[22m
 
-Using --build, -b will make tsc behave more like a build orchestrator than a compiler. This is used to trigger building composite projects which you can learn more about at https://aka.ms/tsc-composite-builds
+Using --build, -b will make tspp behave more like a build orchestrator than a compiler. This is used to trigger building composite projects which you can learn more about at https://aka.ms/tsc-composite-builds
 
 [94m--help, -h[39m
 Print this message.

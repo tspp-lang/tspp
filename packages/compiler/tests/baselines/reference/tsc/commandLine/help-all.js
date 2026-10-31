@@ -17,7 +17,7 @@ declare const console: { log(msg: any): void; };
 
 /home/src/tslibs/TS/Lib/tsc.js --help --all
 Output::
-tsc: The TypeScript Compiler - Version FakeTSVersion
+TS++ Compiler - Version FakeTSVersion
 
 [1mALL COMPILER OPTIONS[22m
 
@@ -673,7 +673,7 @@ Remove a list of files from the watch mode's processing.
 
 [1mBUILD OPTIONS[22m
 
-Using --build, -b will make tsc behave more like a build orchestrator than a compiler. This is used to trigger building composite projects which you can learn more about at https://aka.ms/tsc-composite-builds
+Using --build, -b will make tspp behave more like a build orchestrator than a compiler. This is used to trigger building composite projects which you can learn more about at https://aka.ms/tsc-composite-builds
 
 [94m--verbose, -v[39m
 Enable verbose logging.

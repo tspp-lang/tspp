@@ -18,30 +18,30 @@ declare const console: { log(msg: any): void; };
 /home/src/tslibs/TS/Lib/tsc.js 
 Output::
 Version FakeTSVersion
-tsc: The TypeScript Compiler - Version FakeTSVersion
+TS++ Compiler - Version FakeTSVersion
 
 COMMON COMMANDS
 
-  tsc
+  tspp
   Compiles the current project (tsconfig.json in the working directory.)
 
-  tsc app.ts util.ts
+  tspp app.ts util.ts
   Ignoring tsconfig.json, compiles the specified files with default compiler options.
 
-  tsc -b
+  tspp -b
   Build a composite project in the working directory.
 
-  tsc --init
+  tspp --init
   Creates a tsconfig.json with the recommended settings in the working directory.
 
-  tsc -p ./path/to/tsconfig.json
+  tspp -p ./path/to/tsconfig.json
   Compiles the TypeScript project located at the specified path.
 
-  tsc --help --all
+  tspp --help --all
   An expanded version of this information, showing all possible compiler options
 
-  tsc --noEmit
-  tsc --target esnext
+  tspp --noEmit
+  tspp --target esnext
   Compiles the current project, with additional settings.
 
 COMMAND LINE FLAGS

@@ -27,30 +27,30 @@ declare const console: { log(msg: any): void; };
 /home/src/tslibs/TS/Lib/tsc.js 
 Output::
 Version FakeTSVersion
-tsc: The TypeScript Compiler - Version FakeTSVersion
+TS++ Compiler - Version FakeTSVersion
 
 [1mCOMMON COMMANDS[22m
 
-  [94mtsc[39m
+  [94mtspp[39m
   Compiles the current project (tsconfig.json in the working directory.)
 
-  [94mtsc app.ts util.ts[39m
+  [94mtspp app.ts util.ts[39m
   Ignoring tsconfig.json, compiles the specified files with default compiler options.
 
-  [94mtsc -b[39m
+  [94mtspp -b[39m
   Build a composite project in the working directory.
 
-  [94mtsc --init[39m
+  [94mtspp --init[39m
   Creates a tsconfig.json with the recommended settings in the working directory.
 
-  [94mtsc -p ./path/to/tsconfig.json[39m
+  [94mtspp -p ./path/to/tsconfig.json[39m
   Compiles the TypeScript project located at the specified path.
 
-  [94mtsc --help --all[39m
+  [94mtspp --help --all[39m
   An expanded version of this information, showing all possible compiler options
 
-  [94mtsc --noEmit[39m
-  [94mtsc --target esnext[39m
+  [94mtspp --noEmit[39m
+  [94mtspp --target esnext[39m
   Compiles the current project, with additional settings.
 
 [1mCOMMAND LINE FLAGS[22m
