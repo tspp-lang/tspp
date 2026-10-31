@@ -3,6 +3,7 @@ const vscode = require("vscode");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 
 let languageClient;
+const activatedAnalysisPlugins = new Set();
 
 function resolveSdkPath(context) {
   const configuredPath = vscode.workspace.getConfiguration("tspp").get("sdkPath", "").trim();
@@ -91,6 +92,39 @@ async function activate(context) {
     return ts.createProgramAsync({ rootNames, options: parsed.options, host });
   }
 
+  async function createAnalysisProgram(document) {
+    const sdkPath = resolveSdkPath(context);
+    const compilerPath = sdkPath.endsWith("tsserver.js")
+      ? path.join(path.dirname(sdkPath), "typescript.js")
+      : require.resolve("ts-plus-plus");
+    const ts = require(compilerPath);
+    const configPath = ts.findConfigFile(path.dirname(document.fileName), ts.sys.fileExists, "tsconfig.json");
+    if (!configPath) return undefined;
+    const config = ts.readConfigFile(configPath, ts.sys.readFile);
+    if (config.error) return undefined;
+    for (const entry of config.config.compilerOptions?.plugins ?? []) {
+      if (!entry?.tspp || typeof entry.name !== "string") continue;
+      const key = `${compilerPath}:${entry.name}`;
+      if (activatedAnalysisPlugins.has(key)) continue;
+      const modulePath = require.resolve(entry.name, { paths: [path.dirname(configPath), context.extensionPath] });
+      const pluginModule = require(modulePath);
+      ts.registerTSPPCompilerPlugin(pluginModule.default ?? pluginModule);
+      activatedAnalysisPlugins.add(key);
+    }
+    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath), undefined, configPath);
+    const host = ts.createCompilerHost(parsed.options);
+    const originalGetSourceFile = host.getSourceFile.bind(host);
+    host.getSourceFile = (fileName, languageVersion, onError, createNew) => {
+      const open = vscode.workspace.textDocuments.find(candidate => candidate.uri.scheme === "file" && path.resolve(candidate.fileName).toLowerCase() === path.resolve(fileName).toLowerCase());
+      return open
+        ? ts.createSourceFile(fileName, open.getText(), languageVersion, true, ts.ScriptKind.TS)
+        : originalGetSourceFile(fileName, languageVersion, onError, createNew);
+    };
+    const program = await ts.createProgramAsync({ rootNames: parsed.fileNames, options: parsed.options, host });
+    await ts.runTSPPProgramAnalyzers(program);
+    return { ts, program };
+  }
+
   context.subscriptions.push(
     expandedChanges,
     vscode.workspace.registerTextDocumentContentProvider("tspp-expanded", {
@@ -126,6 +160,27 @@ async function activate(context) {
       let expanded = await vscode.workspace.openTextDocument(uri);
       expanded = await vscode.languages.setTextDocumentLanguage(expanded, "tspp");
       await vscode.window.showTextDocument(expanded, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+    }),
+    vscode.commands.registerCommand("tspp.showAnalysisArtifacts", async () => {
+      const document = vscode.window.activeTextEditor?.document;
+      if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
+      try {
+        const analysis = await createAnalysisProgram(document);
+        const artifacts = analysis?.ts.getTSPPAnalysisArtifacts?.(analysis.program, document.fileName) ?? [];
+        if (!artifacts.length) {
+          await vscode.window.showInformationMessage("This file has no plugin analysis artifacts.");
+          return;
+        }
+        const content = artifacts
+          .slice().sort((left, right) => left.start - right.start)
+          .map((artifact, index) => `; [${index + 1}] ${artifact.name} — ${artifact.status ?? "generated"}\n${artifact.content}`)
+          .join("\n");
+        const artifactDocument = await vscode.workspace.openTextDocument({ language: artifacts[0].language, content });
+        await vscode.window.showTextDocument(artifactDocument, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+      }
+      catch (error) {
+        await vscode.window.showErrorMessage(`Could not produce TS++ analysis artifacts: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }),
     vscode.workspace.onDidChangeTextDocument(() => expansionCache.clear()),
     vscode.workspace.onDidSaveTextDocument(() => expansionCache.clear()),

@@ -80,11 +80,16 @@
       {
         "command": "tspp.showExpandedSource",
         "title": "TS++: Show Macro Expansion"
+      },
+      {
+        "command": "tspp.showAnalysisArtifacts",
+        "title": "TS++: Show Analysis Artifacts"
       }
     ],
     "menus": {
       "editor/title": [
-        { "command": "tspp.showExpandedSource", "when": "editorLangId == tspp", "group": "navigation" }
+        { "command": "tspp.showExpandedSource", "when": "editorLangId == tspp", "group": "navigation" },
+        { "command": "tspp.showAnalysisArtifacts", "when": "editorLangId == tspp", "group": "navigation" }
       ]
     },
     "configuration": {

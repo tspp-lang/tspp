@@ -139,6 +139,15 @@ Tsserver caches analyzer results per `Program`. Completion of an asynchronous
 analysis requests the existing project diagnostic refresh; the generic LSP
 bridge then publishes the merged semantic diagnostics normally.
 
+Analyzers may attach `TSPPAnalysisArtifact` values to their diagnostic array.
+Artifacts are immutable, compiler-neutral text outputs identified by source
+location, language, name, and status. The compiler caches them per `Program`
+without interpreting their contents. The generic VS Code command **TS++: Show
+Analysis Artifacts** rebuilds the active project, runs its configured analyzers,
+and opens the current file's artifacts beside the source. Formal verification
+uses this seam for replayable SMT-LIB; future analyzers can publish another
+language without adding a feature branch to the compiler or editor.
+
 ## Semantic kernels are not one universal IR
 
 Feature capsules may extract a pure semantic kernel when more than one host

@@ -30,3 +30,9 @@ All feature syntax is projected to equal-length whitespace before the upstream
 TypeScript parser runs. Core only schedules the SDK's generic preprocessor and
 background analyzer hooks; parsing, symbolic execution, SMT lowering, solver
 isolation, diagnostics, and editor grammar remain in this package.
+
+Every obligation also publishes a replayable SMT-LIB analysis artifact. In the
+development host, run **TS++: Show Analysis Artifacts** to open all obligations
+for the active file, ordered by source position and labelled with their proof
+status. The editor consumes the SDK's generic artifact shape and does not know
+about Z3 or formal-verification internals.

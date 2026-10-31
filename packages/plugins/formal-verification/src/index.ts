@@ -1,11 +1,12 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import type {
     TSPPAnalysisDiagnostic,
+    TSPPAnalysisArtifact,
     TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
 import { maskContractClauses, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
-import { solveWithZ3 } from "./solver";
+import { renderZ3Query, solveWithZ3 } from "./solver";
 
 export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
     id: "proof-points",
@@ -16,9 +17,16 @@ export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
             for (const proof of collectProgramProofs(sourceFile, diagnostics)) queries.push({ proof });
         }
         const answers = await solveWithZ3(queries.map(query => query.proof.query));
+        const artifacts: TSPPAnalysisArtifact[] = [];
         answers.forEach((answer, index) => {
-            if (answer.status === "unsat") return;
             const proof = queries[index].proof;
+            const status = answer.status === "unsat" ? "proved" : answer.status === "sat" ? "failed" : answer.status;
+            artifacts.push({
+                fileName: proof.fileName, start: proof.start, length: proof.length,
+                name: proof.name, language: "smt2", status,
+                content: `; ${proof.name}: ${status}\n${renderZ3Query(proof.query)}\n`,
+            });
+            if (answer.status === "unsat") return;
             diagnostics.push({
                 fileName: proof.fileName,
                 start: proof.start,
@@ -31,6 +39,7 @@ export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
                     : `${proof.name} verification ${answer.status}: ${answer.message ?? "the solver returned no result"}`,
             });
         });
+        Object.defineProperty(diagnostics, "artifacts", { value: artifacts });
         return diagnostics;
     },
 };
@@ -57,6 +66,7 @@ export const formalVerificationPlugin = definePlugin({
             },
         },
         editor: {
+            commands: [{ id: "tspp.showAnalysisArtifacts", title: "TS++: Show Analysis Artifacts" }],
             grammars: ["./editor/verification.tmLanguage.json"],
         },
     },

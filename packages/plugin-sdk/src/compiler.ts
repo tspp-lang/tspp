@@ -53,9 +53,24 @@ export interface TSPPAnalysisDiagnostic {
     readonly source?: string;
 }
 
+/** Replayable or human-readable output produced by an isolated analyzer. */
+export interface TSPPAnalysisArtifact {
+    readonly fileName: string;
+    readonly start: number;
+    readonly length: number;
+    readonly name: string;
+    readonly language: string;
+    readonly content: string;
+    readonly status?: "proved" | "failed" | "unknown" | "error";
+}
+
+export type TSPPProgramAnalysisOutput = readonly TSPPAnalysisDiagnostic[] & {
+    readonly artifacts?: readonly TSPPAnalysisArtifact[];
+};
+
 export interface TSPPProgramAnalyzer {
     readonly id: string;
-    analyze(input: TSPPProgramAnalysisInput): Promise<readonly TSPPAnalysisDiagnostic[]>;
+    analyze(input: TSPPProgramAnalysisInput): Promise<TSPPProgramAnalysisOutput>;
 }
 
 export interface TSPPSourcePreprocessor {
