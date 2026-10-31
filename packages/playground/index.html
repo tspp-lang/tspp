@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TS++ Playground</title>
+  </head>
+  <body>
+    <main>
+      <header><h1>TS++ Playground</h1><span id="status">starting…</span></header>
+      <section id="features" class="features" aria-label="Feature capsules"></section>
+      <section class="workspace">
+        <label>TS++ source<textarea id="source" spellcheck="false"></textarea></label>
+        <label>Projected TypeScript<textarea id="projected" readonly></textarea></label>
+      </section>
+      <section><h2>Diagnostics</h2><pre id="diagnostics">Waiting for compiler…</pre></section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

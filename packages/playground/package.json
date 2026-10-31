@@ -1,0 +1,29 @@
+{
+  "name": "tspp-playground",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint src vite.config.ts"
+  },
+  "dependencies": {
+    "@tspp/plugin-sdk": "workspace:*",
+    "@tspp/plugin-dependent-types": "workspace:*",
+    "@tspp/plugin-higher-kinded-types": "workspace:*",
+    "@tspp/plugin-modern-syntax": "workspace:*",
+    "@tspp/plugin-nominal-types": "workspace:*",
+    "@tspp/plugin-static-interface-members": "workspace:*",
+    "@tspp/plugin-type-computation": "workspace:*",
+    "ts-plus-plus": "workspace:*"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.3",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "^8.70.0",
+    "vite": "^8.0.0"
+  }
+}

@@ -24,6 +24,14 @@
     },
     "main": "./lib/typescript.js",
     "typings": "./lib/typescript.d.ts",
+    "exports": {
+        ".": {
+            "types": "./lib/typescript.d.ts",
+            "default": "./lib/typescript.js"
+        },
+        "./source": "./src/typescript/typescript.ts",
+        "./package.json": "./package.json"
+    },
     "bin": {
         "tspp": "./bin/tspp",
         "tsppserver": "./bin/tsppserver"

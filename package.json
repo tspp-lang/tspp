@@ -21,6 +21,8 @@
     "build:language-server": "pnpm --filter tspp-language-server build",
     "build:tests": "pnpm --filter ts-plus-plus build:tests",
     "build:vscode": "pnpm --filter tspp-vscode build",
+    "build:playground": "pnpm --filter tspp-playground build",
+    "playground:dev": "pnpm --filter tspp-playground dev",
     "build:vscode:dev": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode",
     "test": "pnpm test:features && pnpm test:compiler && pnpm test:language-server && pnpm test:vscode",
     "test:features": "pnpm test:plugin-sdk && pnpm test:plugins && pnpm test:examples",
