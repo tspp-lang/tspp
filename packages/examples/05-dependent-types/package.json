@@ -1,0 +1,13 @@
+{
+  "name": "@tspp/example-dependent-types",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tspp --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@tspp/plugin-dependent-types": "workspace:*",
+    "ts-plus-plus": "workspace:*"
+  }
+}
+

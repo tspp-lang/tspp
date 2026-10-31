@@ -1,5 +1,6 @@
 node_modules/
 built/
+**/dist/
 packages/*/node_modules/
 packages/*/built/
 pnpm-debug.log*

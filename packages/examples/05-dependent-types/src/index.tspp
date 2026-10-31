@@ -1,0 +1,27 @@
+// Every ordinary TypeScript type inhabits Type0; each universe inhabits its successor.
+export type UniverseZero: Type1 = Type0;
+export type UniverseOne: Type2 = Type1;
+
+// A genuinely dependent polymorphic identity.
+// Curly binders are implicit/type-level, while parenthesized binders are explicit.
+export type PolymorphicIdentity: Type1 =
+  {A: Type0} -> (value: A) -> A;
+
+// Binder names are irrelevant to definitional equality.
+export type IdentityAgain: Type1 =
+  {T: Type0} -> (item: T) -> T;
+
+// A type family receives an ordinary type and returns another ordinary type.
+export type TypeFamily: Type1 =
+  (A: Type0) -> Type0;
+
+// The capsule also exposes the first MLTT data types and equality primitives.
+export type BooleanConsumer: Type0 =
+  (value: Bool) -> Bool;
+
+export type NaturalConsumer: Type0 =
+  (value: Nat) -> Nat;
+
+export type ZeroEqualsZero: Type0 =
+  Eq<Nat, Zero, Zero>;
+
