@@ -170,12 +170,45 @@ export const dependentTypesPlugin = definePlugin({
                 };
             },
         },
+        languageService: {
+            activate(context) {
+                return context.languageService.registerQuickInfoProvider(request => {
+                    const match = wordAt(request.sourceText, request.position);
+                    if (!match) return undefined;
+                    const documentation = dependentTypeDocumentation(match.text);
+                    if (!documentation) return undefined;
+                    return {
+                        start: match.start,
+                        length: match.text.length,
+                        display: `(TS++ dependent types) ${match.text}`,
+                        documentation,
+                    };
+                });
+            },
+        },
         editor: {
             commands: [{ id: "tspp.showMlttNormalForms", title: "TS++: Show MLTT Normal Forms" }],
             grammars: ["./editor/dependent-types.tmLanguage.json"],
         },
     },
 });
+
+function dependentTypeDocumentation(word: string): string | undefined {
+    if (/^Type\d*$/.test(word)) return "A universe of types. A numeric suffix selects a higher universe level.";
+    if (word === "reify") return "Creates a runtime descriptor for the following static type.";
+    if (word === "mltt") return "Selects normalization and matching governed by the Martin-Löf type theory engine.";
+    return undefined;
+}
+
+function wordAt(sourceText: string, position: number): { readonly start: number; readonly text: string; } | undefined {
+    const expression = /[A-Za-z][A-Za-z0-9]*/g;
+    for (let match = expression.exec(sourceText); match; match = expression.exec(sourceText)) {
+        if (match.index <= position && position <= match.index + match[0].length) {
+            return { start: match.index, text: match[0] };
+        }
+    }
+    return undefined;
+}
 
 function getReifiedType(
     node: TSPPExtensionExpression,

@@ -114,6 +114,7 @@ import {
     ResolvedTypeReferenceDirectiveWithFailedLookupLocations,
     resolvePackageNameToPackageJson,
     returnFalse,
+    ScriptElementKind,
     ScriptKind,
     some,
     sortAndDeduplicate,
@@ -2212,6 +2213,31 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
                             );
                         }
                         return diagnostics;
+                    };
+                    languageService.getQuickInfoAtPosition = (
+                        fileName: string,
+                        position: number,
+                        maximumLength?: number,
+                        verbosityLevel?: number,
+                    ) => {
+                        const upstream = upstreamLanguageService.getQuickInfoAtPosition(
+                            fileName,
+                            position,
+                            maximumLength,
+                            verbosityLevel,
+                        );
+                        const sourceFile = upstreamLanguageService.getProgram()?.getSourceFile(fileName);
+                        const contribution = sourceFile && ts.getTSPPQuickInfo(fileName, sourceFile.text, position);
+                        if (!contribution) return upstream;
+                        return {
+                            kind: upstream?.kind ?? ScriptElementKind.unknown,
+                            kindModifiers: upstream?.kindModifiers ?? "",
+                            textSpan: { start: contribution.start, length: contribution.length },
+                            displayParts: [{ text: contribution.display, kind: "text" }],
+                            documentation: contribution.documentation
+                                ? [{ text: contribution.documentation, kind: "text" }]
+                                : undefined,
+                        };
                     };
                     this.languageService = languageService;
                 }

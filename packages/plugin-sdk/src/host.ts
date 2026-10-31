@@ -6,11 +6,13 @@ import {
     TSPPPluginManifest,
 } from "./index";
 import type { TSPPCompilerHostAPI, TSPPCompilerPluginContext } from "./compiler";
+import type { TSPPLanguageServiceHostAPI, TSPPLanguageServicePluginContext } from "./language-service";
 
 export interface TSPPPluginHostEnvironment {
     readonly compilerVersion: string;
     readonly logger: TSPPPluginLogger;
     readonly compiler: TSPPCompilerHostAPI;
+    readonly languageService?: TSPPLanguageServiceHostAPI;
 }
 
 interface PluginRegistration {
@@ -49,8 +51,7 @@ export class TSPPPluginHost {
 
         for (const registration of activationOrder) {
             try {
-                const disposer = registration.plugin.facets.compiler?.activate(this.createContext(registration));
-                if (disposer) registration.disposers.push(disposer);
+                this.activateFacets(registration);
                 this.activationOrder.push(registration);
             }
             catch (cause) {
@@ -81,8 +82,7 @@ export class TSPPPluginHost {
         const registration = this.addRegistration(plugin);
         try {
             validateActiveDependencies(registration, this.registrations, this.activationOrder);
-            const disposer = plugin.facets.compiler?.activate(this.createContext(registration));
-            if (disposer) registration.disposers.push(disposer);
+            this.activateFacets(registration);
             this.activationOrder.push(registration);
             return this;
         }
@@ -114,7 +114,18 @@ export class TSPPPluginHost {
         if (firstError !== undefined) throw firstError;
     }
 
-    private createContext(registration: PluginRegistration): TSPPCompilerPluginContext {
+    private activateFacets(registration: PluginRegistration): void {
+        const compilerDisposer = registration.plugin.facets.compiler?.activate(this.createCompilerContext(registration));
+        if (compilerDisposer) registration.disposers.push(compilerDisposer);
+        if (this.environment.languageService) {
+            const languageServiceDisposer = registration.plugin.facets.languageService?.activate(
+                this.createLanguageServiceContext(registration, this.environment.languageService),
+            );
+            if (languageServiceDisposer) registration.disposers.push(languageServiceDisposer);
+        }
+    }
+
+    private createCompilerContext(registration: PluginRegistration): TSPPCompilerPluginContext {
         const pluginId = registration.plugin.manifest.id;
         return {
             compilerVersion: this.environment.compilerVersion,
@@ -140,6 +151,21 @@ export class TSPPPluginHost {
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
                 registerCompileTimeMacros: () => this.environment.compiler.registerCompileTimeMacros(pluginId),
+            },
+            onDispose: disposer => registration.disposers.push(disposer),
+        };
+    }
+
+    private createLanguageServiceContext(
+        registration: PluginRegistration,
+        host: TSPPLanguageServiceHostAPI,
+    ): TSPPLanguageServicePluginContext {
+        const pluginId = registration.plugin.manifest.id;
+        return {
+            pluginId,
+            logger: prefixLogger(this.environment.logger, pluginId),
+            languageService: {
+                registerQuickInfoProvider: provider => host.registerQuickInfoProvider(pluginId, provider),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

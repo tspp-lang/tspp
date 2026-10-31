@@ -79,11 +79,43 @@ export const formalVerificationPlugin = definePlugin({
                 };
             },
         },
+        languageService: {
+            activate(context) {
+                return context.languageService.registerQuickInfoProvider(request => {
+                    const match = wordAt(request.sourceText, request.position);
+                    const documentation = match && contractDocumentation[match.text];
+                    if (!match || !documentation) return undefined;
+                    return {
+                        start: match.start,
+                        length: match.text.length,
+                        display: `(TS++ verification clause) ${match.text}`,
+                        documentation,
+                    };
+                });
+            },
+        },
         editor: {
             commands: [{ id: "tspp.showSmtSource", title: "TS++: Show SMT Source" }],
             grammars: ["./editor/verification.tmLanguage.json"],
         },
     },
 });
+
+const contractDocumentation: Readonly<Record<string, string>> = {
+    requires: "Declares a precondition assumed while proving the function body.",
+    ensures: "Declares a postcondition that must hold for every function result.",
+    assert: "Creates a proof obligation at this program point.",
+    invariant: "Declares a loop invariant checked before and after every iteration.",
+};
+
+function wordAt(sourceText: string, position: number): { readonly start: number; readonly text: string; } | undefined {
+    const expression = /[A-Za-z]+/g;
+    for (let match = expression.exec(sourceText); match; match = expression.exec(sourceText)) {
+        if (match.index <= position && position <= match.index + match[0].length) {
+            return { start: match.index, text: match[0] };
+        }
+    }
+    return undefined;
+}
 
 export default formalVerificationPlugin;

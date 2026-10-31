@@ -126,3 +126,32 @@ test("late plugins can require already active capsules", () => {
     /requires missing plugin/,
   );
 });
+
+test("language-service facets register feature-owned semantic providers", () => {
+  const providers = [];
+  const languageService = {
+    registerQuickInfoProvider(pluginId, provider) {
+      const entry = { pluginId, provider };
+      providers.push(entry);
+      return () => providers.splice(providers.indexOf(entry), 1);
+    },
+  };
+  const feature = definePlugin({
+    manifest: { id: "test/tooling", version: "0.0.1", apiVersion: TSPP_PLUGIN_API_VERSION },
+    facets: {
+      languageService: {
+        activate(context) {
+          context.onDispose(context.languageService.registerQuickInfoProvider(() => ({
+            start: 0, length: 4, display: "tooling", documentation: "owned by feature",
+          })));
+        },
+      },
+    },
+  });
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, languageService });
+  host.register(feature).activateAll();
+  assert.equal(providers[0].pluginId, "test/tooling");
+  assert.equal(providers[0].provider({ fileName: "x.tspp", sourceText: "test", position: 1 }).display, "tooling");
+  host.dispose();
+  assert.equal(providers.length, 0);
+});

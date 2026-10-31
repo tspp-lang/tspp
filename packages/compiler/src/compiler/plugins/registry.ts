@@ -30,6 +30,11 @@ import type {
     TSPPTypeSyntaxKinds,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
+import type {
+    TSPPLanguageServiceHostAPI,
+    TSPPQuickInfo,
+    TSPPQuickInfoProvider,
+} from "@tspp/plugin-sdk/language-service";
 
 import { version } from "../corePublic.js";
 import type {
@@ -70,6 +75,7 @@ const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const compileTimeMacroPlugins = new Set<string>();
+const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
 let pluginHost: TSPPPluginHost | undefined;
 
@@ -342,6 +348,16 @@ const compilerAPI: TSPPCompilerHostAPI = {
     },
 };
 
+const languageServiceAPI: TSPPLanguageServiceHostAPI = {
+    registerQuickInfoProvider(pluginId, provider) {
+        if (quickInfoProviders.has(pluginId)) {
+            throw new Error(`TSPP plugin '${pluginId}' registered more than one quick-info provider.`);
+        }
+        quickInfoProviders.set(pluginId, provider);
+        return () => quickInfoProviders.delete(pluginId);
+    },
+};
+
 /** @internal */
 export function hasCompileTimeMacros(): boolean {
     return compileTimeMacroPlugins.size > 0;
@@ -350,7 +366,12 @@ export function hasCompileTimeMacros(): boolean {
 /** @internal */
 export function initializeTSPPCompilerPlugins(compilerVersion: string): void {
     if (pluginHost) return;
-    pluginHost = new TSPPPluginHost({ compilerVersion, logger: silentLogger, compiler: compilerAPI });
+    pluginHost = new TSPPPluginHost({
+        compilerVersion,
+        logger: silentLogger,
+        compiler: compilerAPI,
+        languageService: languageServiceAPI,
+    });
     pluginHost.activateAll();
 }
 
@@ -391,6 +412,19 @@ export function getRegisteredTSPPPlugins(): readonly TSPPPluginManifest[] {
 /** Applies every active feature projection and returns the TypeScript-compatible source. */
 export function getTSPPProjectedSource(fileName: string, sourceText: string): string {
     return projectTSPPSource(fileName, sourceText);
+}
+
+/** @internal */
+export function getTSPPQuickInfo(
+    fileName: string,
+    sourceText: string,
+    position: number,
+): TSPPQuickInfo | undefined {
+    for (const provider of quickInfoProviders.values()) {
+        const result = provider({ fileName, sourceText, position });
+        if (result) return result;
+    }
+    return undefined;
 }
 
 /** @internal */
