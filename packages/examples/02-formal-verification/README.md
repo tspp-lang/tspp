@@ -10,3 +10,5 @@ development host.
 The independent `@tspp/plugin-let-in-expression` capsule is enabled alongside
 it. This keeps a real multi-plugin project in the test path without coupling
 either feature package to the other.
+
+The example source is `src/index.tspp`.

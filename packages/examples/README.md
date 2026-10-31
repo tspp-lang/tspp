@@ -7,5 +7,9 @@ configuration.
 
 This keeps every example's capability set isolated from the others.
 
+Every example keeps authored code under `src/`. Packages that emit JavaScript
+or declarations write generated files to `dist/`; package roots contain only
+configuration, metadata, and documentation.
+
 `04-newtype-consumer` additionally demonstrates consuming the declaration
 output published by `03-newtype` across a package boundary.

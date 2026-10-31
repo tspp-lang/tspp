@@ -5,4 +5,5 @@ nominal aliases over the same underlying type and the plugin-owned identity
 constructor erasure. Its exported declaration remains `newtype` in `.d.ts`
 output for downstream TS++ projects.
 
-Run `pnpm check` for type checking or `pnpm build` to inspect `index.js`.
+Source lives in `src/`. Run `pnpm check` for type checking or `pnpm build` to
+inspect `dist/index.js` and `dist/index.d.ts`.
