@@ -5,6 +5,9 @@
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "browser": {
+    "./dist/solver-default.js": "./dist/solver-browser-default.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

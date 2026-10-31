@@ -119,3 +119,5 @@ function wordAt(sourceText: string, position: number): { readonly start: number;
 }
 
 export default formalVerificationPlugin;
+export { configureZ3Solver } from "./solver";
+export type { Z3Answer, Z3Query, Z3Solver } from "./solver";
