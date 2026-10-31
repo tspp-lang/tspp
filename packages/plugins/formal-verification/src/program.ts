@@ -406,6 +406,10 @@ export function collectProgramProofs(
     const constructors = collectDataTypes(source.text, records);
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
+        if (isMacroFunction(statement, source.text, sourceFile)) {
+            functions.delete(statement.name.text);
+            continue;
+        }
         const existing = functions.get(statement.name.text);
         const variables: Record<string, Sort> = {};
         const parameters: string[] = [];
@@ -442,6 +446,7 @@ export function collectProgramProofs(
     };
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) continue;
+        if (isMacroFunction(statement, source.text, sourceFile)) continue;
         const model = functions.get(statement.name.text);
         if (!model) continue;
         const context: Context = { ...base, currentFunction: model };
@@ -455,8 +460,11 @@ export function collectProgramProofs(
         base.nextTemporary = context.nextTemporary;
     }
     const topLevelState: State = { variables: {}, values: {}, declarations: new Set(logic.declarations), facts: [] };
+    const proofVariables = collectTopLevelProofVariables(sourceFile, refinements);
     for (const statement of sourceFile.statements) {
-        if (ts.isVariableStatement(statement) || (ts.isLabeledStatement(statement) && statement.label.text === "assert")) {
+        if (ts.isVariableStatement(statement) && statement.declarationList.declarations.some(declaration =>
+            ts.isIdentifier(declaration.name) && proofVariables.has(declaration.name.text)
+        ) || ts.isLabeledStatement(statement) && statement.label.text === "assert") {
             executeStatement(statement, topLevelState, base as Context);
         }
     }
@@ -469,4 +477,48 @@ export function collectProgramProofs(
     };
     sourceFile.statements.forEach(visitCalls);
     return proofs;
+}
+
+function isMacroFunction(statement: ts.FunctionDeclaration, sourceText: string, sourceFile: ts.SourceFile): boolean {
+    const headerEnd = statement.body?.getStart(sourceFile) ?? statement.end;
+    const headerStart = Math.max(0, statement.getStart(sourceFile) - 32);
+    return /\bmacro\s+function\b/.test(sourceText.slice(headerStart, headerEnd));
+}
+
+function collectTopLevelProofVariables(
+    sourceFile: ts.SourceFile,
+    refinements: ReadonlyMap<string, RefinementModel>,
+): ReadonlySet<string> {
+    const needed = new Set<string>();
+    const declarations = new Map<string, ts.VariableDeclaration>();
+    for (const statement of sourceFile.statements) {
+        if (ts.isVariableStatement(statement)) {
+            for (const declaration of statement.declarationList.declarations) {
+                if (!ts.isIdentifier(declaration.name)) continue;
+                declarations.set(declaration.name.text, declaration);
+                if (refinementFromType(declaration.type, refinements)) needed.add(declaration.name.text);
+            }
+        }
+        else if (ts.isLabeledStatement(statement) && statement.label.text === "assert") {
+            collectIdentifiers(statement.statement, needed);
+        }
+    }
+    const pending = [...needed];
+    while (pending.length) {
+        const declaration = declarations.get(pending.pop()!);
+        if (!declaration?.initializer) continue;
+        const dependencies = new Set<string>();
+        collectIdentifiers(declaration.initializer, dependencies);
+        for (const dependency of dependencies) {
+            if (needed.has(dependency)) continue;
+            needed.add(dependency);
+            pending.push(dependency);
+        }
+    }
+    return needed;
+}
+
+function collectIdentifiers(node: ts.Node, names: Set<string>): void {
+    if (ts.isIdentifier(node) && !ts.isPropertyAccessExpression(node.parent)) names.add(node.text);
+    ts.forEachChild(node, child => collectIdentifiers(child, names));
 }
