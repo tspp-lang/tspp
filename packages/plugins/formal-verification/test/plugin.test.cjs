@@ -149,3 +149,70 @@ test("rejects an invalid refinement introduction", async () => {
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /refinement introduction could not be proved/);
 });
+
+test("verifies number arithmetic under an explicit mathematical-real model", async () => {
+  const source = `function scaledSum(left: number, right: number) with {
+    numberModel: "mathematical-real";
+    ensures: result === (left + right) * 0.5;
+  }: number { return (left + right) * 0.5; }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["real.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "real.tspp", text: source, root: {} }],
+  });
+  assert.deepEqual(diagnostics, []);
+});
+
+test("requires an explicit model for number proofs", async () => {
+  const source = `function increment(value: number) with {
+    ensures: result > value;
+  }: number { return value + 1; }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["number.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "number.tspp", text: source, root: {} }],
+  });
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /requires numberModel/);
+});
+
+test("emits safe-integer overflow obligations", async () => {
+  const source = `function double(value: number) with {
+    numberModel: "safe-integer";
+  }: number { return value * 2; }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["safe.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "safe.tspp", text: source, root: {} }],
+  });
+  assert.equal(diagnostics.length, 1);
+  assert.match(diagnostics[0].message, /safe-integer range could not be proved/);
+});
+
+test("supports string equality without treating strings as arithmetic", async () => {
+  const source = `function status() with {
+    ensures: result === "ok";
+  }: string { return "ok"; }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["strings.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "strings.tspp", text: source, root: {} }],
+  });
+  assert.deepEqual(diagnostics, []);
+});
+
+test("uses branch facts for record fields and discriminated unions", async () => {
+  const source = `type ParseResult =
+    | { _tag: "Parsed"; value: bigint }
+    | { _tag: "Rejected"; code: string };
+  function magnitude(input: ParseResult) with {
+    ensures: result >= 0n;
+  }: bigint {
+    if (input._tag === "Parsed") {
+      if (input.value >= 0n) return input.value;
+      return -input.value;
+    }
+    return 0n;
+  }`;
+  const diagnostics = await formalVerificationAnalyzer.analyze({
+    currentDirectory: process.cwd(), rootFileNames: ["records.tspp"], syntaxKinds: {},
+    sourceFiles: [{ fileName: "records.tspp", text: source, root: {} }],
+  });
+  assert.deepEqual(diagnostics, []);
+});

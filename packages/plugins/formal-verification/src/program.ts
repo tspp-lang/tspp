@@ -15,6 +15,8 @@ interface FunctionModel {
     readonly bodyStart: number;
     readonly parameterRefinements?: Readonly<Record<string, RefinementModel>>;
     readonly returnRefinement?: RefinementModel;
+    readonly numberModel?: "mathematical-real" | "safe-integer";
+    readonly returnSort?: Sort;
 }
 interface State {
     readonly variables: Record<string, Sort>;
@@ -28,6 +30,7 @@ interface Context {
     readonly sourceText: string;
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly refinements: ReadonlyMap<string, RefinementModel>;
+    readonly records: ReadonlyMap<string, ReadonlyMap<string, Sort>>;
     readonly proofs: PendingProof[];
     readonly diagnostics: TSPPAnalysisDiagnostic[];
     readonly currentFunction?: FunctionModel;
@@ -51,11 +54,66 @@ function refinementFromType(type: ts.TypeNode | undefined, refinements: Readonly
     return type && ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) ? refinements.get(type.typeName.text) : undefined;
 }
 
-function sortFromType(type: ts.TypeNode | undefined, refinements: ReadonlyMap<string, RefinementModel> = new Map()): Sort | undefined {
+function sortFromType(
+    type: ts.TypeNode | undefined,
+    refinements: ReadonlyMap<string, RefinementModel> = new Map(),
+    numberModel?: FunctionModel["numberModel"],
+): Sort | undefined {
     if (!type) return undefined;
     if (type.kind === ts.SyntaxKind.BooleanKeyword) return "Bool";
-    if (type.kind === ts.SyntaxKind.BigIntKeyword || type.kind === ts.SyntaxKind.NumberKeyword) return "Int";
+    if (type.kind === ts.SyntaxKind.StringKeyword) return "String";
+    if (ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) return "String";
+    if (type.kind === ts.SyntaxKind.BigIntKeyword) return "Int";
+    if (type.kind === ts.SyntaxKind.NumberKeyword) return numberModel === "mathematical-real" ? "Real" : numberModel === "safe-integer" ? "Int" : undefined;
     return refinementFromType(type, refinements)?.sort;
+}
+
+function fieldsFromType(
+    type: ts.TypeNode | undefined,
+    records: ReadonlyMap<string, ReadonlyMap<string, Sort>>,
+    numberModel?: FunctionModel["numberModel"],
+): ReadonlyMap<string, Sort> | undefined {
+    if (!type) return undefined;
+    if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) return records.get(type.typeName.text);
+    if (ts.isParenthesizedTypeNode(type)) return fieldsFromType(type.type, records, numberModel);
+    const members = ts.isTypeLiteralNode(type) ? type.members : undefined;
+    if (members) {
+        const fields = new Map<string, Sort>();
+        for (const member of members) {
+            if (!ts.isPropertySignature(member) || !member.type || !member.name) continue;
+            const name = ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) ? member.name.text : undefined;
+            const sort = sortFromType(member.type, new Map(), numberModel);
+            if (name && sort) fields.set(name, sort);
+        }
+        return fields;
+    }
+    if (ts.isUnionTypeNode(type)) {
+        const fields = new Map<string, Sort>();
+        for (const part of type.types) {
+            for (const [name, sort] of fieldsFromType(part, records, numberModel) ?? []) {
+                const previous = fields.get(name);
+                if (!previous || previous === sort) fields.set(name, sort);
+            }
+        }
+        return fields;
+    }
+    return undefined;
+}
+
+function collectRecordTypes(sourceFile: ts.SourceFile): Map<string, ReadonlyMap<string, Sort>> {
+    const records = new Map<string, ReadonlyMap<string, Sort>>();
+    for (const statement of sourceFile.statements) {
+        if (ts.isTypeAliasDeclaration(statement)) {
+            const fields = fieldsFromType(statement.type, records);
+            if (fields) records.set(statement.name.text, fields);
+        }
+        else if (ts.isInterfaceDeclaration(statement)) {
+            const literal = ts.factory.createTypeLiteralNode(statement.members);
+            const fields = fieldsFromType(literal, records);
+            if (fields) records.set(statement.name.text, fields);
+        }
+    }
+    return records;
 }
 
 function parseFunctionModels(sourceText: string): Map<string, FunctionModel> {
@@ -74,10 +132,13 @@ function parseFunctionModels(sourceText: string): Map<string, FunctionModel> {
             variables[parameter[1]] = parameter[2] === "boolean" ? "Bool" : "Int";
         }
         const properties = parseProperties(sourceText.slice(open + 1, close), open + 1);
+        const numberModelValue = properties.find(item => item.name === "numberModel")?.value.replace(/["']/g, "");
+        const numberModel = numberModelValue === "mathematical-real" || numberModelValue === "safe-integer" ? numberModelValue : undefined;
         models.set(match[1], {
             name: match[1], parameters, variables,
             requires: properties.filter(item => item.name === "requires"),
             ensures: properties.filter(item => item.name === "ensures"), bodyStart,
+            numberModel,
         });
         pattern.lastIndex = close + 1;
     }
@@ -96,11 +157,11 @@ function addProof(context: Context, state: State, goal: string, node: ts.Node, n
     });
 }
 
-function instantiate(clause: string, names: readonly string[], values: readonly Term[], result?: Term): Term {
+function instantiate(clause: string, names: readonly string[], values: readonly Term[], result?: Term, numberModel?: FunctionModel["numberModel"]): Term {
     const substitutions: Record<string, Term> = {};
     names.forEach((name, index) => substitutions[name] = values[index]);
     if (result) substitutions.result = result;
-    return expressionToSmtTerm(clause, { substitutions });
+    return expressionToSmtTerm(clause, { substitutions, defaultNumberSort: numberModel === "mathematical-real" ? "Real" : "Int" });
 }
 
 function lowerCall(node: ts.CallExpression, state: State, context: Context): Term {
@@ -108,19 +169,20 @@ function lowerCall(node: ts.CallExpression, state: State, context: Context): Ter
     const model = context.functions.get(node.expression.text);
     if (!model) throw new Error(`Call to unsupported function '${node.expression.text}'.`);
     if (node.arguments.length !== model.parameters.length) throw new Error(`'${model.name}' expects ${model.parameters.length} arguments.`);
-    const arguments_ = node.arguments.map(argument => lowerExpression(argument, state, context));
+    const argumentContext = context.currentFunction ? context : { ...context, currentFunction: model };
+    const arguments_ = node.arguments.map(argument => lowerExpression(argument, state, argumentContext));
     for (const requirement of model.requires) {
-        const goal = instantiate(requirement.value, model.parameters, arguments_);
+        const goal = instantiate(requirement.value, model.parameters, arguments_, undefined, model.numberModel);
         if (goal.sort !== "Bool") throw new Error(`The precondition of '${model.name}' is not Boolean.`);
         addProof(context, state, goal.smt, node, `${model.name} call precondition`);
     }
-    const sort: Sort = "Int";
+    const sort: Sort = model.returnSort ?? "Int";
     const name = `tspp.call.${model.name}.${context.nextTemporary++}`;
     const result = { smt: `|${name}|`, sort } as const;
     state.declarations.add(`(declare-const |${name}| ${sort})`);
     if (model !== context.currentFunction) {
         for (const ensure of model.ensures) {
-            const fact = instantiate(ensure.value, model.parameters, arguments_, result);
+            const fact = instantiate(ensure.value, model.parameters, arguments_, result, model.numberModel);
             if (fact.sort === "Bool") state.facts.push(fact.smt);
         }
     }
@@ -137,14 +199,31 @@ function lowerExpression(node: ts.Expression, state: State, context: Context): T
         if (!sort) throw new Error(`Unknown proof variable '${node.text}'.`);
         return { smt: `|${node.text}|`, sort };
     }
-    if (ts.isBigIntLiteral(node) || ts.isNumericLiteral(node)) return { smt: node.text.replace(/n$/, ""), sort: "Int" };
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
+        const name = `${node.expression.text}.${node.name.text}`;
+        const value = state.values[name];
+        if (value) return value;
+        const sort = state.variables[name];
+        if (!sort) throw new Error(`Unknown proof field '${name}'.`);
+        return { smt: `|${name}|`, sort };
+    }
+    if (ts.isBigIntLiteral(node)) return { smt: node.text.replace(/n$/, ""), sort: "Int" };
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        return { smt: `"${node.text.replace(/"/g, '""')}"`, sort: "String" };
+    }
+    if (ts.isNumericLiteral(node)) {
+        const model = context.currentFunction?.numberModel;
+        if (!context.currentFunction) return { smt: node.text, sort: "Int" };
+        if (!model) throw new Error("A number proof requires numberModel: 'mathematical-real' or 'safe-integer'.");
+        return { smt: node.text, sort: model === "mathematical-real" ? "Real" : "Int" };
+    }
     if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
         return { smt: node.kind === ts.SyntaxKind.TrueKeyword ? "true" : "false", sort: "Bool" };
     }
     if (ts.isPrefixUnaryExpression(node)) {
         const operand = lowerExpression(node.operand, state, context);
         if (node.operator === ts.SyntaxKind.ExclamationToken && operand.sort === "Bool") return { smt: `(not ${operand.smt})`, sort: "Bool" };
-        if (node.operator === ts.SyntaxKind.MinusToken && operand.sort === "Int") return { smt: `(- ${operand.smt})`, sort: "Int" };
+        if (node.operator === ts.SyntaxKind.MinusToken && (operand.sort === "Int" || operand.sort === "Real")) return { smt: `(- ${operand.smt})`, sort: operand.sort };
         throw new Error("Unsupported unary proof expression.");
     }
     if (ts.isCallExpression(node)) return lowerCall(node, state, context);
@@ -160,13 +239,20 @@ function lowerExpression(node: ts.Expression, state: State, context: Context): T
             [ts.SyntaxKind.LessThanToken, "<"], [ts.SyntaxKind.LessThanEqualsToken, "<="],
             [ts.SyntaxKind.GreaterThanToken, ">"], [ts.SyntaxKind.GreaterThanEqualsToken, ">="],
         ]);
-        if (arithmetic.has(operator) && left.sort === "Int" && right.sort === "Int") {
+        if (arithmetic.has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) {
+            if (operator === ts.SyntaxKind.PercentToken && left.sort !== "Int") throw new Error("Remainder requires the safe-integer model.");
+            if (operator === ts.SyntaxKind.SlashToken && left.sort === "Real") return { smt: `(/ ${left.smt} ${right.smt})`, sort: "Real" };
             if (operator === ts.SyntaxKind.SlashToken || operator === ts.SyntaxKind.PercentToken) {
                 addProof(context, state, `(not (= ${right.smt} 0))`, node.right, "division definedness");
             }
-            return { smt: `(${arithmetic.get(operator)} ${left.smt} ${right.smt})`, sort: "Int" };
+            const result = { smt: `(${arithmetic.get(operator)} ${left.smt} ${right.smt})`, sort: left.sort } as Term;
+            if (context.currentFunction?.numberModel === "safe-integer"
+                && (operator === ts.SyntaxKind.PlusToken || operator === ts.SyntaxKind.MinusToken || operator === ts.SyntaxKind.AsteriskToken)) {
+                addProof(context, state, `(and (>= ${result.smt} (- 9007199254740991)) (<= ${result.smt} 9007199254740991))`, node, "safe-integer range");
+            }
+            return result;
         }
-        if (comparison.has(operator) && left.sort === "Int" && right.sort === "Int") return { smt: `(${comparison.get(operator)} ${left.smt} ${right.smt})`, sort: "Bool" };
+        if (comparison.has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) return { smt: `(${comparison.get(operator)} ${left.smt} ${right.smt})`, sort: "Bool" };
         if (operator === ts.SyntaxKind.EqualsEqualsEqualsToken || operator === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
             if (left.sort !== right.sort) throw new Error("Both sides of equality must have the same proof sort.");
             const equal = `(= ${left.smt} ${right.smt})`;
@@ -192,7 +278,12 @@ function updateAssignment(node: ts.BinaryExpression, state: State, context: Cont
     if (!operator) state.values[node.left.text] = right;
     else {
         const left = lowerExpression(node.left, state, context);
-        state.values[node.left.text] = { smt: `(${operator} ${left.smt} ${right.smt})`, sort: left.sort };
+        const result = { smt: `(${operator} ${left.smt} ${right.smt})`, sort: left.sort };
+        if (context.currentFunction?.numberModel === "safe-integer"
+            && (operator === "+" || operator === "-" || operator === "*")) {
+            addProof(context, state, `(and (>= ${result.smt} (- 9007199254740991)) (<= ${result.smt} 9007199254740991))`, node, "safe-integer range");
+        }
+        state.values[node.left.text] = result;
     }
     return true;
 }
@@ -205,7 +296,7 @@ function executeStatement(node: ts.Statement, state: State, context: Context): S
                 if (!ts.isIdentifier(declaration.name)) continue;
                 const value = declaration.initializer ? lowerExpression(declaration.initializer, state, context) : undefined;
                 const refinement = refinementFromType(declaration.type, context.refinements);
-                const sort = sortFromType(declaration.type, context.refinements) ?? value?.sort;
+                const sort = sortFromType(declaration.type, context.refinements, context.currentFunction?.numberModel) ?? value?.sort;
                 if (sort) state.variables[declaration.name.text] = sort;
                 if (value) state.values[declaration.name.text] = value;
                 if (value && refinement) {
@@ -231,7 +322,10 @@ function executeStatement(node: ts.Statement, state: State, context: Context): S
             const result = lowerExpression(node.expression, state, context);
             for (const ensure of context.currentFunction?.ensures ?? []) {
                 const substitutions = { ...state.values, result };
-                const goal = expressionToSmtTerm(ensure.value, { variables: state.variables, substitutions });
+                const goal = expressionToSmtTerm(ensure.value, {
+                    variables: state.variables, substitutions,
+                    defaultNumberSort: context.currentFunction?.numberModel === "mathematical-real" ? "Real" : "Int",
+                });
                 if (goal.sort !== "Bool") throw new Error("A postcondition must be Boolean.");
                 addProof(context, state, goal.smt, node.expression, `${context.currentFunction?.name} postcondition`, ensure);
             }
@@ -322,8 +416,16 @@ function initialState(model: FunctionModel): State {
     for (const [name, sort] of Object.entries(model.variables)) declarations.add(`(declare-const |${name}| ${sort})`);
     const state: State = { variables: { ...model.variables }, values: {}, declarations, facts: [] };
     for (const requirement of model.requires) {
-        const fact = expressionToSmtTerm(requirement.value, { variables: state.variables });
+        const fact = expressionToSmtTerm(requirement.value, {
+            variables: state.variables,
+            defaultNumberSort: model.numberModel === "mathematical-real" ? "Real" : "Int",
+        });
         if (fact.sort === "Bool") state.facts.push(fact.smt);
+    }
+    if (model.numberModel === "safe-integer") {
+        for (const [name, sort] of Object.entries(model.variables)) {
+            if (sort === "Int") state.facts.push(`(and (>= |${name}| (- 9007199254740991)) (<= |${name}| 9007199254740991))`);
+        }
     }
     for (const [name, refinement] of Object.entries(model.parameterRefinements ?? {})) {
         const fact = expressionToSmtTerm(refinement.predicate, {
@@ -339,6 +441,7 @@ export function collectProgramProofs(source: TSPPAnalysisSourceFile, diagnostics
     const sourceFile = ts.createSourceFile(source.fileName, masked, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
     const functions = parseFunctionModels(source.text);
     const refinements = collectRefinements(source.text);
+    const records = collectRecordTypes(sourceFile);
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
         const existing = functions.get(statement.name.text);
@@ -347,12 +450,18 @@ export function collectProgramProofs(source: TSPPAnalysisSourceFile, diagnostics
         const parameterRefinements: Record<string, RefinementModel> = {};
         for (const parameter of statement.parameters) {
             if (!ts.isIdentifier(parameter.name)) continue;
-            const sort = sortFromType(parameter.type, refinements);
-            if (!sort) continue;
-            parameters.push(parameter.name.text);
-            variables[parameter.name.text] = sort;
-            const refinement = refinementFromType(parameter.type, refinements);
-            if (refinement) parameterRefinements[parameter.name.text] = refinement;
+            const sort = sortFromType(parameter.type, refinements, existing?.numberModel);
+            if (sort) {
+                parameters.push(parameter.name.text);
+                variables[parameter.name.text] = sort;
+                const refinement = refinementFromType(parameter.type, refinements);
+                if (refinement) parameterRefinements[parameter.name.text] = refinement;
+            }
+            else {
+                for (const [field, fieldSort] of fieldsFromType(parameter.type, records, existing?.numberModel) ?? []) {
+                    variables[`${parameter.name.text}.${field}`] = fieldSort;
+                }
+            }
         }
         functions.set(statement.name.text, {
             name: statement.name.text, parameters, variables,
@@ -360,17 +469,25 @@ export function collectProgramProofs(source: TSPPAnalysisSourceFile, diagnostics
             bodyStart: statement.body?.getStart(sourceFile) ?? statement.end,
             parameterRefinements,
             returnRefinement: refinementFromType(statement.type, refinements),
+            numberModel: existing?.numberModel,
+            returnSort: sortFromType(statement.type, refinements, existing?.numberModel),
         });
     }
     const proofs: PendingProof[] = [];
     const base: Omit<Context, "currentFunction"> = {
-        fileName: source.fileName, sourceFile, sourceText: source.text, functions, refinements, proofs, diagnostics, nextTemporary: 0,
+        fileName: source.fileName, sourceFile, sourceText: source.text, functions, refinements, records, proofs, diagnostics, nextTemporary: 0,
     };
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) continue;
         const model = functions.get(statement.name.text);
         if (!model) continue;
         const context: Context = { ...base, currentFunction: model };
+        const usesNumber = statement.parameters.some(parameter => parameter.type?.kind === ts.SyntaxKind.NumberKeyword)
+            || statement.type?.kind === ts.SyntaxKind.NumberKeyword;
+        if (usesNumber && !model.numberModel) {
+            diagnostic(context, statement.name, new Error("A number proof requires numberModel: 'mathematical-real' or 'safe-integer'."));
+            continue;
+        }
         executeStatements(statement.body.statements, [initialState(model)], context);
         base.nextTemporary = context.nextTemporary;
     }

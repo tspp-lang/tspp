@@ -1,12 +1,13 @@
-export type Sort = "Bool" | "Int";
+export type Sort = "Bool" | "Int" | "Real" | "String";
 export interface Term { readonly smt: string; readonly sort: Sort; }
 
 export interface ExpressionEnvironment {
     readonly variables?: Readonly<Record<string, Sort>>;
     readonly substitutions?: Readonly<Record<string, { readonly smt: string; readonly sort: Sort; }>>;
+    readonly defaultNumberSort?: "Int" | "Real";
 }
 
-const tokenPattern = /\s*([A-Za-z_$][\w$]*|\d+n?|true|false|===|!==|<=|>=|&&|\|\||[()+\-*\/%<>!])\s*/gy;
+const tokenPattern = /\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|\d+(?:\.\d+)?n?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|true|false|===|!==|<=|>=|&&|\|\||[()+\-*\/%<>!])\s*/gy;
 
 export function expressionToSmt(text: string, environment: ExpressionEnvironment = {}): string {
     const result = expressionToSmtTerm(text, environment);
@@ -44,8 +45,16 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
             return term;
         }
         if (token === "true" || token === "false") return { smt: token, sort: "Bool" };
-        if (/^\d+n?$/.test(token ?? "")) return { smt: token.replace(/n$/, ""), sort: "Int" };
-        if (/^[A-Za-z_$][\w$]*$/.test(token ?? "")) {
+        if (/^\d+(?:\.\d+)?n?$/.test(token ?? "")) {
+            const explicitBigInt = token.endsWith("n");
+            const decimal = token.includes(".");
+            return { smt: token.replace(/n$/, ""), sort: explicitBigInt ? "Int" : decimal ? "Real" : environment.defaultNumberSort ?? "Int" };
+        }
+        if (/^["']/.test(token ?? "")) {
+            const value = JSON.parse(token.startsWith("'") ? `"${token.slice(1, -1).replace(/"/g, '\\"')}"` : token);
+            return { smt: `"${String(value).replace(/"/g, '""')}"`, sort: "String" };
+        }
+        if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(token ?? "")) {
             const substitution = environment.substitutions?.[token];
             if (substitution) return substitution;
             const sort = environment.variables?.[token];
@@ -56,17 +65,28 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
     };
     const unary = (): Term => {
         if (peek() === "!") { take(); return { smt: `(not ${requireSort(unary(), "Bool").smt})`, sort: "Bool" }; }
-        if (peek() === "-") { take(); return { smt: `(- ${requireSort(unary(), "Int").smt})`, sort: "Int" }; }
+        if (peek() === "-") {
+            take();
+            const term = unary();
+            if (term.sort !== "Int" && term.sort !== "Real") throw new Error(`Expected numeric sort, received ${term.sort}.`);
+            return { smt: `(- ${term.smt})`, sort: term.sort };
+        }
         return primary();
     };
     const multiply = (): Term => binary(unary, ["*", "/", "%"], (op, left, right) => {
-        const lhs = requireSort(left, "Int").smt;
-        const rhs = requireSort(right, "Int").smt;
-        const symbol = op === "/" ? "tspp.js.trunc.div" : op === "%" ? "tspp.js.trunc.rem" : op;
-        return { smt: `(${symbol} ${lhs} ${rhs})`, sort: "Int" };
+        if (left.sort !== right.sort || (left.sort !== "Int" && left.sort !== "Real")) throw new Error("Arithmetic operands must have the same numeric sort.");
+        if (op === "%" && left.sort !== "Int") throw new Error("Remainder requires the integer model.");
+        const symbol = op === "/" && left.sort === "Int" ? "tspp.js.trunc.div" : op === "%" ? "tspp.js.trunc.rem" : op;
+        return { smt: `(${symbol} ${left.smt} ${right.smt})`, sort: left.sort };
     });
-    const add = (): Term => binary(multiply, ["+", "-"], (op, left, right) => ({ smt: `(${op} ${requireSort(left, "Int").smt} ${requireSort(right, "Int").smt})`, sort: "Int" }));
-    const compare = (): Term => binary(add, ["<", "<=", ">", ">="], (op, left, right) => ({ smt: `(${op} ${requireSort(left, "Int").smt} ${requireSort(right, "Int").smt})`, sort: "Bool" }));
+    const add = (): Term => binary(multiply, ["+", "-"], (op, left, right) => {
+        if (left.sort !== right.sort || (left.sort !== "Int" && left.sort !== "Real")) throw new Error("Arithmetic operands must have the same numeric sort.");
+        return { smt: `(${op} ${left.smt} ${right.smt})`, sort: left.sort };
+    });
+    const compare = (): Term => binary(add, ["<", "<=", ">", ">="], (op, left, right) => {
+        if (left.sort !== right.sort || (left.sort !== "Int" && left.sort !== "Real")) throw new Error("Comparison operands must have the same numeric sort.");
+        return { smt: `(${op} ${left.smt} ${right.smt})`, sort: "Bool" };
+    });
     const equality = (): Term => binary(compare, ["===", "!=="], (op, left, right) => {
         if (left.sort !== right.sort) throw new Error("Both sides of equality must have the same proof sort.");
         const equal = `(= ${left.smt} ${right.smt})`;

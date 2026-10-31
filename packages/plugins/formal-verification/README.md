@@ -16,6 +16,16 @@ and return sites and propagated from refined parameters. Runtime bigint `/` and
 `%` use JavaScript's truncation-toward-zero semantics; variable divisors create
 an explicit nonzero proof obligation.
 
+`number` is never silently treated as mathematical arithmetic. A function must
+select `numberModel: "mathematical-real"` or `numberModel: "safe-integer"`.
+The latter constrains parameters to JavaScript's exact integer range and emits
+range obligations for executed addition, subtraction, and multiplication.
+
+String equality and scalar fields of ordinary records/discriminated unions are
+lowered into the same symbolic state. Branch conditions over `_tag` fields feed
+the path solver, so field arithmetic and postconditions can use the narrowed
+branch facts without a second TypeScript type checker inside the plugin.
+
 All feature syntax is projected to equal-length whitespace before the upstream
 TypeScript parser runs. Core only schedules the SDK's generic preprocessor and
 background analyzer hooks; parsing, symbolic execution, SMT lowering, solver

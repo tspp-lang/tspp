@@ -87,7 +87,7 @@ export function splitClauseExpressions(value: string): string[] {
 
 export function parseProperties(text: string, absoluteStart: number): { name: string; value: string; start: number; }[] {
     const properties: { name: string; value: string; start: number; }[] = [];
-    const pattern = /\b(requires|ensures|invariant|predicate)\s*:\s*([^;]+);/g;
+    const pattern = /\b(requires|ensures|invariant|predicate|numberModel)\s*:\s*([^;]+);/g;
     for (let match; (match = pattern.exec(text));) {
         const raw = match[2].trim();
         const base = absoluteStart + match.index + match[0].indexOf(match[2]);

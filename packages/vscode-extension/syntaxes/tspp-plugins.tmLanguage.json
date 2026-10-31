@@ -29,7 +29,7 @@
       "name": "keyword.control.contract.tspp"
     },
     {
-      "match": "\\b(requires|ensures|invariant|predicate)(?=\\s*:)",
+      "match": "\\b(requires|ensures|invariant|predicate|numberModel)(?=\\s*:)",
       "name": "support.type.contract-property.tspp"
     },
     {
