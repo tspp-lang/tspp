@@ -5,20 +5,22 @@ derived from TypeScript. This repository starts from the TypeScript 6.0.3 source
 tree and develops TS++ as a separate product while preserving TypeScript as its
 compatibility boundary.
 
-The project is intentionally being rebuilt in small, isolated layers. The
-current branch contains the upstream compiler in a pnpm monorepo and establishes
-the TS++ package and command-line identity; language extensions will be added in
-later commits.
+The project grows through isolated feature capsules. Each feature owns its
+syntax, semantic analysis, language-service additions, and editor metadata;
+shared packages provide loading and narrow SDK contracts instead of accumulating
+feature branches in the TypeScript-derived core.
 
 ## Repository layout
 
 ```text
 .
 └─ packages/
-   ├─ compiler/          # TS++ compiler, tsserver and compiler test suite
+   ├─ compiler/          # TypeScript-derived TS++ compiler and tsserver
+   ├─ examples/          # One independently configured project per plugin set
    ├─ language-server/   # LSP adapter around the TSPP server protocol
+   ├─ playground/        # Browser compiler with worker-isolated capsule sets
    ├─ plugin-sdk/        # Public contracts shared by isolated plugin packages
-   ├─ plugins/           # Future one-package-per-plugin workspace
+   ├─ plugins/           # One package per complete feature capsule
    └─ vscode-extension/  # VSCode client for the TSPP language server
 ```
 
@@ -32,6 +34,7 @@ pnpm install
 pnpm build
 pnpm lint
 pnpm test
+pnpm playground:dev
 ```
 
 ## Commands
@@ -45,9 +48,15 @@ The separate LSP package exposes `tspp-language-server`, which adapts that
 protocol to LSP. The VSCode extension starts the LSP with the workspace
 `ts-plus-plus` SDK and associates `.tspp` files with the `tspp` language mode.
 
-Compiler extensions use `@tspp/plugin-sdk`. The initial framework deliberately
-contains lifecycle and registration contracts only; compiler hook ports are
-added when a real plugin demonstrates the boundary it needs.
+Compiler extensions use `@tspp/plugin-sdk`. The SDK currently covers expression,
+statement, declaration and type syntax; source projection; asynchronous program
+analysis and artifacts; compile-time macros; semantic Quick Info; activation
+dependencies and static editor contributions. New ports are added only when a
+real feature demonstrates the boundary it needs.
+
+Feature projects select capsules through `compilerOptions.plugins`. The host
+validates required, optional and conflicting relationships, activates capsules
+in dependency order, and keeps feature code out of the LSP and VS Code clients.
 
 During repository development, build the compiler before invoking its generated
 outputs. The root scripts delegate to the `ts-plus-plus` workspace.

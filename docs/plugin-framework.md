@@ -9,13 +9,13 @@ flowchart LR
     Config[tsconfig.json plugins] --> Resolver[package resolution]
     Resolver --> CompilerHost[compiler facet host]
     Resolver --> LSHost[language-service facet host]
-    Resolver --> LSPHost[optional LSP facet host]
+    Resolver -.-> LSPHost[optional future LSP facet host]
     Resolver --> EditorBuild[optional editor contribution builder]
 
     Feature[feature package] --> SDK[@tspp/plugin-sdk]
     Feature --> CompilerHost
     Feature --> LSHost
-    Feature --> LSPHost
+    Feature -. optional .-> LSPHost
     Feature --> EditorBuild
 
     CompilerHost --> Compiler[TSPP compiler]
@@ -33,9 +33,11 @@ flowchart LR
 A feature package may expose four facets:
 
 - `compiler`: parsing, checking, diagnostics, and lowering;
-- `languageService`: feature-specific completions, hovers, refactors, and other
-  capabilities not already derived by the standard TypeScript language service;
-- `lsp`: optional capabilities that cannot be represented by tsserver;
+- `languageService`: feature-specific synchronous semantic contributions not
+  already derived by the standard TypeScript language service; Quick Info is
+  the first concrete port;
+- `lsp`: reserved for capabilities that cannot be represented by tsserver; no
+  current feature needs this escape hatch;
 - `editor`: optional static editor metadata such as commands and snippets.
 
 Plugins depend on `@tspp/plugin-sdk`, never compiler internals or another
@@ -62,9 +64,10 @@ the single executable capability declaration:
 The `tspp` marker distinguishes a feature capsule from an ordinary TypeScript
 language-service plugin. Both the TSPP compiler CLI and TSPP tsserver resolve that package from the
 project. The compiler activates its compiler facet before parsing project source
-files. Tsserver activates the same facet before constructing the configured
-project, then ordinary TypeScript language-service features operate on the
-resulting AST, symbols, and types.
+files. Tsserver activates the compiler and language-service facets before
+constructing the configured project. Ordinary TypeScript language-service
+features operate on the resulting AST, symbols, and types, while feature-owned
+Quick Info flows through the same request the generic LSP bridge translates.
 
 `typescript-language-server` remains a generic LSP-to-tsserver bridge and the
 VS Code extension remains a generic client. Neither contains a modern-syntax branch.
@@ -111,6 +114,7 @@ return acquire(arg, value => { return rest(value); })
 - no compiler-internal imports from feature packages;
 - registrations return disposers and are owned by a host lifecycle;
 - duplicate IDs and incompatible API versions fail at activation;
+- required, optional, and conflicting capsule relationships are manifest data;
 - plugin packages are resolved from the declaring project;
 - standard language-service behavior is reused instead of reimplemented;
 - new SDK ports require a concrete feature consumer.
@@ -145,8 +149,21 @@ location, language, name, and status. The compiler caches them per `Program`
 without interpreting their contents. The generic VS Code command **TS++: Show
 Analysis Artifacts** rebuilds the active project, runs its configured analyzers,
 and opens the current file's artifacts beside the source. Formal verification
-uses this seam for replayable SMT-LIB; future analyzers can publish another
-language without adding a feature branch to the compiler or editor.
+uses this seam for replayable SMT-LIB and dependent types publish normalized
+MLTT forms without adding feature branches to the compiler or editor.
+
+## Tooling and observability
+
+The VS Code client exposes generic views for active capsule manifests, projected
+TypeScript, and analyzer artifacts. It does not import feature implementations.
+Feature packages declare static command and grammar metadata; all runtime data
+crosses compiler-neutral SDK shapes.
+
+The browser playground starts a fresh Web Worker whenever its selected capsule
+set changes. That makes the current process-wide parser boundary explicit and
+prevents registrations from one configuration leaking into another. Node-only
+execution adapters such as Z3 and compile-time macro workers remain available in
+CLI, tsserver, LSP, and VS Code while their browser adapters are still absent.
 
 ## Semantic kernels are not one universal IR
 
