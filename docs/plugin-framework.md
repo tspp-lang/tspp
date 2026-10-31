@@ -120,6 +120,38 @@ Tsserver caches analyzer results per `Program`. Completion of an asynchronous
 analysis requests the existing project diagnostic refresh; the generic LSP
 bridge then publishes the merged semantic diagnostics normally.
 
+## Semantic kernels are not one universal IR
+
+Feature capsules may extract a pure semantic kernel when more than one host
+surface needs the same algebra. That does not imply that unrelated algebras
+belong in a single shared package.
+
+```mermaid
+flowchart LR
+    Dependent[dependent-types plugin] --> MLTT[private MLTT core]
+    Verification[formal-verification plugin] --> SMT[verification IR]
+    MLTT --> Terms[binders, universes, normalization]
+    SMT --> Formulas[sorts, quantifiers, solver lowering]
+```
+
+
+The dependent-types package's private MLTT core owns the Martin-Löf term IR, de Bruijn operations,
+normalization, definitional equality, and bidirectional checking. It has no
+compiler, SDK, editor, or solver dependency. The surrounding feature owns
+source syntax and translates into that kernel through opaque external terms.
+
+The kernel remains an internal module until a second concrete consumer justifies
+extracting a package. The verification IR used by Z3 is deliberately separate. It represents
+first-order solver formulas rather than dependent terms. Sharing utilities is
+allowed when real duplication appears; merging the two semantic models merely
+because both are called “IR” is not.
+
+The current dependent-types vertical slice uses the generic length-preserving
+projection and asynchronous analyzer ports for kernel diagnostics. Full runtime
+call projection and TypeScript assignability require a future generic
+semantic-type SDK port; the feature package must not import checker internals as
+a shortcut.
+
 ### Declaration extensions
 
 Declaration plugins register a contextual start-token parser and return an

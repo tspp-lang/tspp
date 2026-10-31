@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "noEmit": true,
+    "plugins": [
+      {
+        "name": "@tspp/plugin-dependent-types",
+        "tspp": true
+      }
+    ],
+    "strict": true,
+    "target": "ES2022"
+  },
+  "include": ["src/**/*.tspp"]
+}
+

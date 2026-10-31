@@ -1,0 +1,17 @@
+{
+  "patterns": [
+    {
+      "match": "\\bType(?:0|[1-9]\\d*)?\\b",
+      "name": "support.type.universe.tspp"
+    },
+    {
+      "match": "\\b(?:Bool|True|False|Nat|Zero|Succ|NatAdd|Eq|Refl)\\b",
+      "name": "support.type.mltt.tspp"
+    },
+    {
+      "match": "->",
+      "name": "keyword.operator.dependent-function.tspp"
+    }
+  ]
+}
+
