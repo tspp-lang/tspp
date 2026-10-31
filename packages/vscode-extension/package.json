@@ -79,11 +79,13 @@
       },
       {
         "command": "tspp.showExpandedSource",
-        "title": "TS++: Show Macro Expansion"
+        "title": "TS++: Show Macro Expansion",
+        "icon": "$(preview)"
       },
       {
         "command": "tspp.showAnalysisArtifacts",
-        "title": "TS++: Show Analysis Artifacts"
+        "title": "TS++: Show Analysis Artifacts",
+        "icon": "$(symbol-operator)"
       },
       {
         "command": "tspp.showSmtSource",
@@ -95,7 +97,8 @@
       },
       {
         "command": "tspp.showProjectedSource",
-        "title": "TS++: Show Projected TypeScript"
+        "title": "TS++: Show Projected TypeScript",
+        "icon": "$(code)"
       },
       {
         "command": "tspp.showActivePlugins",
@@ -104,9 +107,9 @@
     ],
     "menus": {
       "editor/title": [
-        { "command": "tspp.showExpandedSource", "when": "editorLangId == tspp", "group": "navigation" },
-        { "command": "tspp.showAnalysisArtifacts", "when": "editorLangId == tspp", "group": "navigation" },
-        { "command": "tspp.showProjectedSource", "when": "editorLangId == tspp", "group": "navigation" }
+        { "command": "tspp.showExpandedSource", "when": "editorLangId == tspp && resourceExtname == .tspp", "group": "navigation@10" },
+        { "command": "tspp.showAnalysisArtifacts", "when": "editorLangId == tspp && resourceExtname == .tspp", "group": "navigation@11" },
+        { "command": "tspp.showProjectedSource", "when": "editorLangId == tspp && resourceExtname == .tspp", "group": "navigation@12" }
       ]
     },
     "configuration": {

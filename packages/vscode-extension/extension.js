@@ -53,56 +53,63 @@ async function activate(context) {
   await languageClient.start();
 
   const expansionCache = new Map();
+  const programCache = new Map();
   const analysisCache = new Map();
-  const expandedDocuments = new Map();
-  const expandedChanges = new vscode.EventEmitter();
+  const previewDocuments = new Map();
+  const previewChanges = new vscode.EventEmitter();
   const selector = { language: "tspp", scheme: "file", pattern: "**/*.tspp" };
+
+  function getPreviewUri(document, kind, language) {
+    const extensions = {
+      json: "json",
+      markdown: "md",
+      plaintext: "txt",
+      typescript: "ts",
+      tspp: "tspp",
+    };
+    const extension = extensions[language] ?? "txt";
+    const sourcePath = document.uri.path.replace(/\.tspp$/i, "");
+    return vscode.Uri.from({ scheme: "tspp-preview", path: `${sourcePath}.${kind}.${extension}` });
+  }
+
+  async function showReadonlyPreview(document, kind, language, content) {
+    const uri = getPreviewUri(document, kind, language);
+    previewDocuments.set(uri.toString(), content);
+    previewChanges.fire(uri);
+    let preview = await vscode.workspace.openTextDocument(uri);
+    if (preview.languageId !== language) preview = await vscode.languages.setTextDocumentLanguage(preview, language);
+    await vscode.window.showTextDocument(preview, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+  }
+
+  function withProgress(title, task) {
+    return vscode.window.withProgress({
+      location: vscode.ProgressLocation.Notification,
+      title,
+      cancellable: false,
+    }, task);
+  }
 
   async function analyze(document) {
     const key = `${document.uri}:${document.version}`;
     if (expansionCache.has(key)) return expansionCache.get(key);
-    const pending = createMacroProgram(document).then(program => program?.getMacroExpansions?.(document.fileName) ?? [], () => []);
+    const pending = createProgram(document).then(
+      result => result?.program.getMacroExpansions?.(document.fileName) ?? [],
+      () => [],
+    );
     expansionCache.set(key, pending);
     return pending;
   }
 
-  async function createMacroProgram(document) {
-    const sdkPath = resolveSdkPath(context);
-    const compilerPath = sdkPath.endsWith("tsserver.js")
-      ? path.join(path.dirname(sdkPath), "typescript.js")
-      : require.resolve("ts-plus-plus");
-    const ts = require(compilerPath);
-    const pluginModule = require("@tspp/plugin-macros");
-    ts.registerTSPPCompilerPlugin(pluginModule.default ?? pluginModule);
-    const configPath = ts.findConfigFile(path.dirname(document.fileName), ts.sys.fileExists, "tsconfig.json");
-    if (!configPath) return undefined;
-    const config = ts.readConfigFile(configPath, ts.sys.readFile);
-    if (config.error) return undefined;
-    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath), undefined, configPath);
-    const host = ts.createCompilerHost(parsed.options);
-    const originalGetSourceFile = host.getSourceFile.bind(host);
-    host.getSourceFile = (fileName, languageVersion, onError, createNew) => {
-      const open = vscode.workspace.textDocuments.find(candidate => candidate.uri.scheme === "file" && path.resolve(candidate.fileName).toLowerCase() === path.resolve(fileName).toLowerCase());
-      return open
-        ? ts.createSourceFile(fileName, open.getText(), languageVersion, true, ts.ScriptKind.TS)
-        : originalGetSourceFile(fileName, languageVersion, onError, createNew);
-    };
-    const rootNames = parsed.fileNames.some(file => path.resolve(file).toLowerCase() === path.resolve(document.fileName).toLowerCase())
-      ? parsed.fileNames
-      : [...parsed.fileNames, document.fileName];
-    return ts.createProgramAsync({ rootNames, options: parsed.options, host });
-  }
-
-  async function createAnalysisProgram(document) {
+  async function createProgram(document) {
     const cacheKey = `${document.uri}:${document.version}`;
-    if (analysisCache.has(cacheKey)) return analysisCache.get(cacheKey);
-    const pending = createAnalysisProgramWorker(document);
-    analysisCache.set(cacheKey, pending);
+    if (programCache.has(cacheKey)) return programCache.get(cacheKey);
+    const pending = createProgramWorker(document);
+    programCache.set(cacheKey, pending);
     try { return await pending; }
-    catch (error) { analysisCache.delete(cacheKey); throw error; }
+    catch (error) { programCache.delete(cacheKey); throw error; }
   }
 
-  async function createAnalysisProgramWorker(document) {
+  async function createProgramWorker(document) {
     const sdkPath = resolveSdkPath(context);
     const compilerPath = sdkPath.endsWith("tsserver.js")
       ? path.join(path.dirname(sdkPath), "typescript.js")
@@ -130,16 +137,34 @@ async function activate(context) {
         ? ts.createSourceFile(fileName, open.getText(), languageVersion, true, ts.ScriptKind.TS)
         : originalGetSourceFile(fileName, languageVersion, onError, createNew);
     };
-    const program = await ts.createProgramAsync({ rootNames: parsed.fileNames, options: parsed.options, host });
-    await ts.runTSPPProgramAnalyzers(program);
+    const rootNames = parsed.fileNames.some(file => path.resolve(file).toLowerCase() === path.resolve(document.fileName).toLowerCase())
+      ? parsed.fileNames
+      : [...parsed.fileNames, document.fileName];
+    const program = await ts.createProgramAsync({ rootNames, options: parsed.options, host });
     return { ts, program };
+  }
+
+  async function createAnalysisProgram(document) {
+    const cacheKey = `${document.uri}:${document.version}`;
+    if (analysisCache.has(cacheKey)) return analysisCache.get(cacheKey);
+    const pending = createAnalysisProgramWorker(document);
+    analysisCache.set(cacheKey, pending);
+    try { return await pending; }
+    catch (error) { analysisCache.delete(cacheKey); throw error; }
+  }
+
+  async function createAnalysisProgramWorker(document) {
+    const result = await createProgram(document);
+    if (!result) return undefined;
+    await result.ts.runTSPPProgramAnalyzers(result.program);
+    return result;
   }
 
   async function showAnalysisArtifacts(filter, emptyMessage) {
     const document = vscode.window.activeTextEditor?.document;
     if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
     try {
-      const analysis = await createAnalysisProgram(document);
+      const analysis = await withProgress("TS++: Generating analysis artifacts…", () => createAnalysisProgram(document));
       const artifacts = (analysis?.ts.getTSPPAnalysisArtifacts?.(analysis.program, document.fileName) ?? [])
         .filter(filter)
         .sort((left, right) => left.start - right.start);
@@ -165,8 +190,7 @@ async function activate(context) {
       const content = selected
         .map((artifact, index) => `; [${index + 1}] ${artifact.name} — ${artifact.status ?? "generated"}\n${artifact.content}`)
         .join("\n");
-      const artifactDocument = await vscode.workspace.openTextDocument({ language: selected[0].language, content });
-      await vscode.window.showTextDocument(artifactDocument, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+      await showReadonlyPreview(document, "analysis", selected[0].language, content);
     }
     catch (error) {
       await vscode.window.showErrorMessage(`Could not produce TS++ analysis artifacts: ${error instanceof Error ? error.message : String(error)}`);
@@ -174,10 +198,10 @@ async function activate(context) {
   }
 
   context.subscriptions.push(
-    expandedChanges,
-    vscode.workspace.registerTextDocumentContentProvider("tspp-expanded", {
-      onDidChange: expandedChanges.event,
-      provideTextDocumentContent: uri => expandedDocuments.get(uri.toString()) ?? "",
+    previewChanges,
+    vscode.workspace.registerTextDocumentContentProvider("tspp-preview", {
+      onDidChange: previewChanges.event,
+      provideTextDocumentContent: uri => previewDocuments.get(uri.toString()) ?? "",
     }),
     vscode.languages.registerHoverProvider(selector, {
       async provideHover(document, position) {
@@ -193,21 +217,17 @@ async function activate(context) {
     vscode.commands.registerCommand("tspp.showExpandedSource", async () => {
       const document = vscode.window.activeTextEditor?.document;
       if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
-      let text = document.getText();
-      const expansions = [...await analyze(document)].sort((left, right) => right.start - left.start);
+      const expansions = [...await withProgress("TS++: Generating macro expansion…", () => analyze(document))];
       if (!expansions.length) {
         await vscode.window.showInformationMessage("This file contains no compile-time macro invocations.");
         return;
       }
+      let text = document.getText();
+      expansions.sort((left, right) => right.start - left.start);
       for (const expansion of expansions) {
         text = text.slice(0, expansion.start) + expansion.text + text.slice(expansion.start + expansion.length);
       }
-      const uri = vscode.Uri.from({ scheme: "tspp-expanded", path: document.uri.path.replace(/\.tspp$/i, ".expanded.tspp") });
-      expandedDocuments.set(uri.toString(), text);
-      expandedChanges.fire(uri);
-      let expanded = await vscode.workspace.openTextDocument(uri);
-      expanded = await vscode.languages.setTextDocumentLanguage(expanded, "tspp");
-      await vscode.window.showTextDocument(expanded, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+      await showReadonlyPreview(document, "expanded", "tspp", text);
     }),
     vscode.commands.registerCommand("tspp.showAnalysisArtifacts", async () => {
       await showAnalysisArtifacts(() => true, "This file has no plugin analysis artifacts.");
@@ -221,11 +241,10 @@ async function activate(context) {
     vscode.commands.registerCommand("tspp.showProjectedSource", async () => {
       const document = vscode.window.activeTextEditor?.document;
       if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
-      const analysis = await createAnalysisProgram(document);
-      if (!analysis) return;
-      const content = analysis.ts.getTSPPProjectedSource(document.fileName, document.getText());
-      const projected = await vscode.workspace.openTextDocument({ language: "typescript", content });
-      await vscode.window.showTextDocument(projected, { viewColumn: vscode.ViewColumn.Beside, preview: true });
+      const result = await withProgress("TS++: Generating projected TypeScript…", () => createProgram(document));
+      if (!result) return;
+      const content = result.ts.getTSPPProjectedSource(document.fileName, document.getText());
+      await showReadonlyPreview(document, "projected", "typescript", content);
     }),
     vscode.commands.registerCommand("tspp.showActivePlugins", async () => {
       const document = vscode.window.activeTextEditor?.document;
@@ -247,8 +266,18 @@ async function activate(context) {
       const report = await vscode.workspace.openTextDocument({ language: "plaintext", content });
       await vscode.window.showTextDocument(report, { viewColumn: vscode.ViewColumn.Beside, preview: true });
     }),
-    vscode.workspace.onDidChangeTextDocument(() => { expansionCache.clear(); analysisCache.clear(); }),
-    vscode.workspace.onDidSaveTextDocument(() => { expansionCache.clear(); analysisCache.clear(); }),
+    vscode.workspace.onDidChangeTextDocument(event => {
+      if (event.document.uri.scheme !== "file" || event.document.languageId !== "tspp") return;
+      expansionCache.clear();
+      programCache.clear();
+      analysisCache.clear();
+    }),
+    vscode.workspace.onDidSaveTextDocument(document => {
+      if (document.uri.scheme !== "file" || document.languageId !== "tspp") return;
+      expansionCache.clear();
+      programCache.clear();
+      analysisCache.clear();
+    }),
   );
 }
 
