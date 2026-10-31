@@ -2,17 +2,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Run TS++ Extension",
-            "type": "extensionHost",
+            "name": "TS++: Launch in Terminal (Keep Alive)",
+            "type": "node",
             "request": "launch",
-            "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}/packages/vscode-extension",
-                "--disable-extensions"
-            ],
-            "outFiles": [
-                "${workspaceFolder}/packages/vscode-extension/**/*.js"
-            ],
-            "preLaunchTask": "${defaultBuildTask}"
+            "program": "${workspaceFolder}/scripts/launch-editor.mjs",
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
         }
     ]
 }
