@@ -1,4 +1,7 @@
-import type { TSPPDeclarationEmitter, TSPPTypeKind } from "@tspp/plugin-sdk/compiler";
+import type {
+    TSPPDeclarationEmitter,
+    TSPPTypeKind,
+} from "@tspp/plugin-sdk/compiler";
 import * as ts from "./_namespaces/ts.js";
 import {
     AccessorDeclaration,
@@ -56,8 +59,8 @@ import {
     createSourceMapGenerator,
     createTextWriter,
     Debug,
-    Declaration,
     DebuggerStatement,
+    Declaration,
     DeclarationName,
     Decorator,
     DefaultClause,
@@ -206,6 +209,7 @@ import {
     isExportSpecifier,
     isExpression,
     isFileLevelUniqueName,
+    isFunctionDeclaration,
     isFunctionLike,
     isGeneratedIdentifier,
     isGeneratedPrivateIdentifier,
@@ -213,8 +217,8 @@ import {
     isImportAttributes,
     isImportEqualsDeclaration,
     isIncrementalCompilation,
-    isInterfaceDeclaration,
     isInJsonFile,
+    isInterfaceDeclaration,
     isJSDocLikeText,
     isJsonSourceFile,
     isJsxClosingElement,
@@ -222,8 +226,8 @@ import {
     isJsxOpeningElement,
     isKeyword,
     isLet,
-    isLiteralTypeNode,
     isLiteralExpression,
+    isLiteralTypeNode,
     isMemberName,
     isModifier,
     isModuleDeclaration,
@@ -240,8 +244,8 @@ import {
     isStringLiteral,
     isTemplateLiteralKind,
     isTokenKind,
-    isTypeParameterDeclaration,
     isTypeAliasDeclaration,
+    isTypeParameterDeclaration,
     isTypeReferenceNode,
     isVarAwaitUsing,
     isVarConst,
@@ -298,6 +302,7 @@ import {
     LiteralExpression,
     LiteralLikeNode,
     LiteralTypeNode,
+    MacroInvocationStatement,
     makeIdentifierFromModuleName,
     MappedTypeNode,
     memoize,
@@ -424,6 +429,8 @@ import {
     version,
     VoidExpression,
     WhileStatement,
+    WithClause,
+    WithProperty,
     WithStatement,
     writeCommentRange,
     writeFile,
@@ -431,7 +438,13 @@ import {
     YieldExpression,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionDeclarationSyntax, getTypeApplication, getTypeKindAnnotation, getTypeUniverseLevel, isExtensionTypeConstructor } from "./plugins/registry.js";
+import {
+    getExtensionDeclarationSyntax,
+    getTypeApplication,
+    getTypeKindAnnotation,
+    getTypeUniverseLevel,
+    isExtensionTypeConstructor,
+} from "./plugins/registry.js";
 import { getTaggedUnionData } from "./plugins/taggedUnion.js";
 
 const brackets = createBracketsMap();
@@ -1742,6 +1755,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
                     return emitEmptyStatement(/*isEmbeddedStatement*/ false);
                 case SyntaxKind.ExpressionStatement:
                     return emitExpressionStatement(node as ExpressionStatement);
+                case SyntaxKind.WithClause:
+                    return emitWithClause(node as WithClause);
+                case SyntaxKind.WithProperty:
+                    return emitWithProperty(node as WithProperty);
+                case SyntaxKind.MacroInvocationStatement:
+                    return emitMacroInvocationStatement(node as MacroInvocationStatement);
                 case SyntaxKind.IfStatement:
                     return emitIfStatement(node as IfStatement);
                 case SyntaxKind.DoStatement:
@@ -3217,6 +3236,36 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
     }
 
+    function emitMacroInvocationStatement(node: MacroInvocationStatement) {
+        writeKeyword("macro");
+        writeSpace();
+        emit(node.macro);
+        writePunctuation("(");
+        emitList(node, node.targets, ListFormat.CommaListElements);
+        writePunctuation(")");
+        writeTrailingSemicolon();
+    }
+
+    function emitWithClause(node: WithClause) {
+        writeKeyword("with");
+        writeSpace();
+        writePunctuation("{");
+        for (const property of node.properties) {
+            writeSpace();
+            emit(property);
+        }
+        if (node.properties.length) writeSpace();
+        writePunctuation("}");
+    }
+
+    function emitWithProperty(node: WithProperty) {
+        emit(node.name);
+        writePunctuation(":");
+        writeSpace();
+        emitExpression(node.value);
+        writeTrailingSemicolon();
+    }
+
     function emitIfStatement(node: IfStatement) {
         const openParenPos = emitTokenWithComment(SyntaxKind.IfKeyword, node.pos, writeKeyword, node);
         writeSpace();
@@ -3625,6 +3674,10 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitSignatureHead(node: SignatureDeclaration) {
         emitTypeParameters(node, node.typeParameters);
         emitParameters(node, node.parameters);
+        if (isFunctionDeclaration(node) && node.withClause) {
+            writeSpace();
+            emit(node.withClause);
+        }
         emitTypeAnnotation(node.type);
     }
 
@@ -3935,8 +3988,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         const kind = getTypeKindAnnotation(node);
         const syntheticTypeParameterCount = tsppCompatibilityDeclaration && !node.typeParameters?.length
             ? kind?.kind === "function" ? kind.parameters.length
-            : isExtensionTypeConstructor(node.type) ? (node.type as FunctionTypeNode).typeParameters?.length ?? 0
-            : 0
+                : isExtensionTypeConstructor(node.type) ? (node.type as FunctionTypeNode).typeParameters?.length ?? 0
+                : 0
             : 0;
         if (syntheticTypeParameterCount) emitCompatibilitySyntheticTypeParameters(syntheticTypeParameterCount);
         if (kind && !tsppCompatibilityDeclaration) {

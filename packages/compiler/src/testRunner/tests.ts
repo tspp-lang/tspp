@@ -232,3 +232,4 @@ export * from "./unittests/tsserver/versionCache.js";
 export * from "./unittests/tsserver/watchEnvironment.js";
 export * from "./unittests/typeParameterIsPossiblyReferenced.js";
 export * from "./unittests/tspp/interop.js";
+export * from "./unittests/tspp/macros.js";

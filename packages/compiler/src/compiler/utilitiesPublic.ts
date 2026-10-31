@@ -1619,6 +1619,7 @@ export function isModifierKind(token: SyntaxKind): token is Modifier["kind"] {
         case SyntaxKind.DefaultKeyword:
         case SyntaxKind.ExportKeyword:
         case SyntaxKind.InKeyword:
+        case SyntaxKind.MacroKeyword:
         case SyntaxKind.PublicKeyword:
         case SyntaxKind.PrivateKeyword:
         case SyntaxKind.ProtectedKeyword:
@@ -2386,6 +2387,7 @@ function isStatementKindButNotDeclarationKind(kind: SyntaxKind) {
         || kind === SyntaxKind.ForStatement
         || kind === SyntaxKind.IfStatement
         || kind === SyntaxKind.LabeledStatement
+        || kind === SyntaxKind.MacroInvocationStatement
         || kind === SyntaxKind.ReturnStatement
         || kind === SyntaxKind.SwitchStatement
         || kind === SyntaxKind.ThrowStatement

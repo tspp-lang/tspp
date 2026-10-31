@@ -1,0 +1,16 @@
+import type { MacroContext, MacroReturn, MacroTarget } from "@tspp/plugin-macros/sdk";
+
+export macro function requireFunction(
+  [target]: readonly MacroTarget[],
+  context: MacroContext,
+): MacroReturn {
+  return target.node.kind === context.typescript.SyntaxKind.FunctionDeclaration
+    ? undefined
+    : context.fail(`${target.name} must be a function declaration`);
+}
+
+export function answer(): number {
+  return 42;
+}
+
+macro requireFunction(answer);

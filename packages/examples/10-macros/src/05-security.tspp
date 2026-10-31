@@ -1,0 +1,19 @@
+import type { MacroContext, MacroResult } from "@tspp/plugin-macros/sdk";
+
+declare function require(name: string): { name: string };
+
+export macro function exposePackageName(
+  _targets: readonly never[],
+  context: MacroContext,
+) with { timeout: { type: "fixed", value: 2, unit: "s" }; }: MacroResult {
+  const packageName = require("../package.json").name;
+  const { factory, NodeFlags } = context.typescript;
+  const literal = factory.createStringLiteral(packageName);
+  return factory.createVariableStatement(undefined, factory.createVariableDeclarationList([
+    factory.createVariableDeclaration("MacroPackageName", undefined, factory.createLiteralTypeNode(literal), literal),
+  ], NodeFlags.Const));
+}
+
+macro exposePackageName();
+const checkedPackageName: "@tspp/example-macros" = MacroPackageName;
+console.log(checkedPackageName);

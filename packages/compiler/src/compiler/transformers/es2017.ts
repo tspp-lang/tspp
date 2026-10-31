@@ -508,6 +508,7 @@ export function transformES2017(context: TransformationContext): (x: SourceFile 
             functionFlags & FunctionFlags.Async ?
                 transformAsyncFunctionBody(node, parameters) :
                 visitFunctionBody(node.body, visitor, context),
+            node.withClause,
         );
         lexicalArgumentsBinding = savedLexicalArgumentsBinding;
         return updated;

@@ -138,6 +138,7 @@ import {
     JsxText,
     LabeledStatement,
     LiteralTypeNode,
+    MacroInvocationStatement,
     MappedTypeNode,
     MetaProperty,
     MethodDeclaration,
@@ -226,6 +227,8 @@ import {
     VariableStatement,
     VoidExpression,
     WhileStatement,
+    WithClause,
+    WithProperty,
     WithStatement,
     YieldExpression,
 } from "../_namespaces/ts.js";
@@ -727,6 +730,18 @@ export function isEmptyStatement(node: Node): node is EmptyStatement {
 
 export function isExpressionStatement(node: Node): node is ExpressionStatement {
     return node.kind === SyntaxKind.ExpressionStatement;
+}
+
+export function isMacroInvocationStatement(node: Node): node is MacroInvocationStatement {
+    return node.kind === SyntaxKind.MacroInvocationStatement;
+}
+
+export function isWithClause(node: Node): node is WithClause {
+    return node.kind === SyntaxKind.WithClause;
+}
+
+export function isWithProperty(node: Node): node is WithProperty {
+    return node.kind === SyntaxKind.WithProperty;
 }
 
 export function isIfStatement(node: Node): node is IfStatement {

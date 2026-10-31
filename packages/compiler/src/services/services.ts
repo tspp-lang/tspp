@@ -3,6 +3,7 @@ import {
     ApplicableRefactorInfo,
     ApplyCodeActionCommandResult,
     AssignmentDeclarationKind,
+    AsyncMacroEvaluation,
     BaseType,
     BinaryExpression,
     BlockLike,
@@ -177,6 +178,7 @@ import {
     isJsxText,
     isLabelName,
     isLiteralComputedPropertyDeclarationName,
+    isMacroInvocationStatement,
     isNamedExports,
     isNamedTupleMember,
     isNameOfModuleDeclaration,
@@ -1645,6 +1647,7 @@ export function createLanguageService(
     let program: Program;
     let lastProjectVersion: string;
     let lastTypesRootVersion = 0;
+    const asyncMacroEvaluations = new Map<string, { readonly kind: "pending"; } | { readonly kind: "resolved"; readonly evaluation: AsyncMacroEvaluation; }>();
 
     const cancellationToken = host.getCancellationToken
         ? new CancellationTokenObject(host.getCancellationToken())
@@ -1774,6 +1777,29 @@ export function createLanguageService(
             getParsedCommandLine,
             jsDocParsingMode: host.jsDocParsingMode,
             getGlobalTypingsCacheLocation: maybeBind(host, host.getGlobalTypingsCacheLocation),
+            getResolvedAsyncMacroEvaluation: key => {
+                const entry = asyncMacroEvaluations.get(key);
+                if (entry?.kind !== "resolved") return undefined;
+                return entry.evaluation;
+            },
+            isAsyncMacroEvaluationPending: key => {
+                const entry = asyncMacroEvaluations.get(key);
+                return entry?.kind === "pending";
+            },
+            scheduleAsyncMacroEvaluation: (key, evaluation) => {
+                if (asyncMacroEvaluations.has(key)) return;
+                const pending = { kind: "pending" as const };
+                asyncMacroEvaluations.set(key, pending);
+                evaluation.then(result => {
+                    if (asyncMacroEvaluations.get(key) !== pending) return;
+                    asyncMacroEvaluations.set(key, { kind: "resolved", evaluation: result });
+                    // The language-service API remains synchronous. Invalidate its current
+                    // Program now, then consume this completed result during the next request.
+                    program = undefined!;
+                    lastProjectVersion = undefined!;
+                    host.onAsyncMacroExpansionComplete?.();
+                });
+            },
         };
 
         const originalGetSourceFile = compilerHost.getSourceFile;
@@ -2299,6 +2325,12 @@ export function createLanguageService(
             };
         }
 
+        const macroInvocation = findAncestor(nodeForQuickInfo, isMacroInvocationStatement);
+        const semanticMeaning = macroInvocation
+            ? macroInvocation.macro === nodeForQuickInfo || findAncestor(nodeForQuickInfo, ancestor => ancestor === macroInvocation.macro)
+                ? SymbolFlags.Value
+                : SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace
+            : undefined;
         const { symbolKind, displayParts, documentation, tags, canIncreaseVerbosityLevel } = typeChecker.runWithCancellationToken(
             cancellationToken,
             typeChecker =>
@@ -2308,7 +2340,7 @@ export function createLanguageService(
                     sourceFile,
                     getContainerNode(nodeForQuickInfo),
                     nodeForQuickInfo,
-                    /*semanticMeaning*/ undefined,
+                    semanticMeaning,
                     /*alias*/ undefined,
                     maximumLength ?? defaultHoverMaximumTruncationLength,
                     verbosityLevel,
@@ -2587,24 +2619,26 @@ export function createLanguageService(
     function getSemanticClassifications(fileName: string, span: TextSpan, format?: SemanticClassificationFormat): ClassifiedSpan[] | ClassifiedSpan2020[] {
         synchronizeHostData();
 
+        const sourceFile = getValidSourceFile(fileName);
         const responseFormat = format || SemanticClassificationFormat.Original;
         if (responseFormat === SemanticClassificationFormat.TwentyTwenty) {
-            return classifier2020.getSemanticClassifications(program, cancellationToken, getValidSourceFile(fileName), span);
+            return classifier2020.getSemanticClassifications(program, cancellationToken, sourceFile, span);
         }
         else {
-            return classifier.getSemanticClassifications(program.getTypeChecker(), cancellationToken, getValidSourceFile(fileName), program.getClassifiableNames(), span);
+            return classifier.getSemanticClassifications(program.getTypeChecker(), cancellationToken, sourceFile, program.getClassifiableNames(), span);
         }
     }
 
     function getEncodedSemanticClassifications(fileName: string, span: TextSpan, format?: SemanticClassificationFormat): Classifications {
         synchronizeHostData();
 
+        const sourceFile = getValidSourceFile(fileName);
         const responseFormat = format || SemanticClassificationFormat.Original;
         if (responseFormat === SemanticClassificationFormat.Original) {
-            return classifier.getEncodedSemanticClassifications(program.getTypeChecker(), cancellationToken, getValidSourceFile(fileName), program.getClassifiableNames(), span);
+            return classifier.getEncodedSemanticClassifications(program.getTypeChecker(), cancellationToken, sourceFile, program.getClassifiableNames(), span);
         }
         else {
-            return classifier2020.getEncodedSemanticClassifications(program, cancellationToken, getValidSourceFile(fileName), span);
+            return classifier2020.getEncodedSemanticClassifications(program, cancellationToken, sourceFile, span);
         }
     }
 

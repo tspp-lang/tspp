@@ -6,6 +6,7 @@
     "@tspp/plugin-modern-syntax": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-higher-kinded-types": "workspace:*",
+    "@tspp/plugin-macros": "workspace:*",
     "@tspp/plugin-static-interface-members": "workspace:*",
     "@tspp/plugin-type-computation": "workspace:*",
     "@tspp/plugin-sdk": "workspace:*",

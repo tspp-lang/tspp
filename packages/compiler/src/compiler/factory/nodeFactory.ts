@@ -86,9 +86,9 @@ import {
     ExportDeclaration,
     ExportSpecifier,
     Expression,
-    ExtensionExpression,
     ExpressionStatement,
     ExpressionWithTypeArguments,
+    ExtensionExpression,
     ExternalModuleReference,
     FalseLiteral,
     FileReference,
@@ -293,6 +293,7 @@ import {
     LeftHandSideExpression,
     LiteralToken,
     LiteralTypeNode,
+    MacroInvocationStatement,
     MappedTypeNode,
     MemberName,
     memoize,
@@ -457,6 +458,8 @@ import {
     VisitResult,
     VoidExpression,
     WhileStatement,
+    WithClause,
+    WithProperty,
     WithStatement,
     YieldExpression,
 } from "../_namespaces/ts.js";
@@ -713,6 +716,12 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         createEmptyStatement,
         createExpressionStatement,
         updateExpressionStatement,
+        createWithClause,
+        updateWithClause,
+        createWithProperty,
+        updateWithProperty,
+        createMacroInvocationStatement,
+        updateMacroInvocationStatement,
         createIfStatement,
         updateIfStatement,
         createDoStatement,
@@ -1559,6 +1568,7 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         const result: Modifier[] = [];
         if (flags & ModifierFlags.Export) result.push(createModifier(SyntaxKind.ExportKeyword));
         if (flags & ModifierFlags.Ambient) result.push(createModifier(SyntaxKind.DeclareKeyword));
+        if (flags & ModifierFlags.Macro) result.push(createModifier(SyntaxKind.MacroKeyword));
         if (flags & ModifierFlags.Default) result.push(createModifier(SyntaxKind.DefaultKeyword));
         if (flags & ModifierFlags.Const) result.push(createModifier(SyntaxKind.ConstKeyword));
         if (flags & ModifierFlags.Public) result.push(createModifier(SyntaxKind.PublicKeyword));
@@ -3925,6 +3935,56 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
     }
 
     // @api
+    function createWithClause(properties: readonly WithProperty[]): WithClause {
+        const node = createBaseNode<WithClause>(SyntaxKind.WithClause);
+        node.properties = createNodeArray(properties);
+        node.transformFlags |= TransformFlags.ContainsTypeScript | propagateChildrenFlags(node.properties);
+        return node;
+    }
+
+    // @api
+    function updateWithClause(node: WithClause, properties: readonly WithProperty[]) {
+        return node.properties !== properties ? update(createWithClause(properties), node) : node;
+    }
+
+    // @api
+    function createWithProperty(name: Identifier, value: Expression): WithProperty {
+        const node = createBaseNode<WithProperty>(SyntaxKind.WithProperty);
+        node.name = name;
+        node.value = value;
+        node.transformFlags |= TransformFlags.ContainsTypeScript |
+            propagateChildFlags(node.name) |
+            propagateChildFlags(node.value);
+        return node;
+    }
+
+    // @api
+    function updateWithProperty(node: WithProperty, name: Identifier, value: Expression) {
+        return node.name !== name || node.value !== value
+            ? update(createWithProperty(name, value), node)
+            : node;
+    }
+
+    // @api
+    function createMacroInvocationStatement(macro: EntityName, targets: readonly EntityName[]): MacroInvocationStatement {
+        const node = createBaseNode<MacroInvocationStatement>(SyntaxKind.MacroInvocationStatement);
+        node.macro = macro;
+        node.targets = createNodeArray(targets);
+        node.transformFlags |= TransformFlags.ContainsTypeScript |
+            propagateChildFlags(node.macro) |
+            propagateChildrenFlags(node.targets);
+        node.jsDoc = undefined;
+        return node;
+    }
+
+    // @api
+    function updateMacroInvocationStatement(node: MacroInvocationStatement, macro: EntityName, targets: readonly EntityName[]) {
+        return node.macro !== macro || node.targets !== targets
+            ? update(createMacroInvocationStatement(macro, targets), node)
+            : node;
+    }
+
+    // @api
     function createIfStatement(expression: Expression, thenStatement: Statement, elseStatement?: Statement) {
         const node = createBaseNode<IfStatement>(SyntaxKind.IfStatement);
         node.expression = expression;
@@ -4308,6 +4368,7 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         parameters: readonly ParameterDeclaration[],
         type: TypeNode | undefined,
         body: Block | undefined,
+        withClause?: WithClause,
     ) {
         const node = createBaseDeclaration<FunctionDeclaration>(SyntaxKind.FunctionDeclaration);
         node.modifiers = asNodeArray(modifiers);
@@ -4316,9 +4377,10 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         node.typeParameters = asNodeArray(typeParameters);
         node.parameters = createNodeArray(parameters);
         node.type = type;
+        node.withClause = withClause;
         node.body = body;
 
-        if (!node.body || modifiersToFlags(node.modifiers) & ModifierFlags.Ambient) {
+        if (!node.body || modifiersToFlags(node.modifiers) & (ModifierFlags.Ambient | ModifierFlags.Macro)) {
             node.transformFlags = TransformFlags.ContainsTypeScript;
         }
         else {
@@ -4331,6 +4393,7 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
                 propagateNameFlags(node.name) |
                 propagateChildrenFlags(node.typeParameters) |
                 propagateChildrenFlags(node.parameters) |
+                propagateChildFlags(node.withClause) |
                 propagateChildFlags(node.type) |
                 (propagateChildFlags(node.body) & ~TransformFlags.ContainsPossibleTopLevelAwait) |
                 (isAsyncGenerator ? TransformFlags.ContainsES2018 :
@@ -4360,15 +4423,17 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
         parameters: readonly ParameterDeclaration[],
         type: TypeNode | undefined,
         body: Block | undefined,
+        withClause: WithClause | undefined,
     ) {
         return node.modifiers !== modifiers
                 || node.asteriskToken !== asteriskToken
                 || node.name !== name
                 || node.typeParameters !== typeParameters
                 || node.parameters !== parameters
+                || node.withClause !== withClause
                 || node.type !== type
                 || node.body !== body
-            ? finishUpdateFunctionDeclaration(createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body), node)
+            ? finishUpdateFunctionDeclaration(createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body, withClause), node)
             : node;
     }
 
@@ -7110,7 +7175,7 @@ export function createNodeFactory(flags: NodeFactoryFlags, baseFactory: BaseNode
             isArrowFunction(node) ? updateArrowFunction(node, modifierArray, node.typeParameters, node.parameters, node.type, node.equalsGreaterThanToken, node.body) :
             isClassExpression(node) ? updateClassExpression(node, modifierArray, node.name, node.typeParameters, node.heritageClauses, node.members) :
             isVariableStatement(node) ? updateVariableStatement(node, modifierArray, node.declarationList) :
-            isFunctionDeclaration(node) ? updateFunctionDeclaration(node, modifierArray, node.asteriskToken, node.name, node.typeParameters, node.parameters, node.type, node.body) :
+            isFunctionDeclaration(node) ? updateFunctionDeclaration(node, modifierArray, node.asteriskToken, node.name, node.typeParameters, node.parameters, node.type, node.body, node.withClause) :
             isClassDeclaration(node) ? updateClassDeclaration(node, modifierArray, node.name, node.typeParameters, node.heritageClauses, node.members) :
             isInterfaceDeclaration(node) ? updateInterfaceDeclaration(node, modifierArray, node.name, node.typeParameters, node.heritageClauses, node.members) :
             isTypeAliasDeclaration(node) ? updateTypeAliasDeclaration(node, modifierArray, node.name, node.typeParameters, node.type) :

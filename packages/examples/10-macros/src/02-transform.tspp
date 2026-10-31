@@ -1,0 +1,25 @@
+import type { MacroContext, MacroReturn, MacroTarget } from "@tspp/plugin-macros/sdk";
+
+export interface User { id: number; name: string }
+
+export macro function exposeTypeName(
+  [target]: readonly MacroTarget[],
+  context: MacroContext,
+): MacroReturn {
+  const { factory, SyntaxKind, NodeFlags } = context.typescript;
+  const literal = factory.createStringLiteral(target.name);
+  const declaration = factory.createVariableDeclaration(
+    `${target.name}TypeName`,
+    undefined,
+    factory.createLiteralTypeNode(literal),
+    literal,
+  );
+  return factory.createVariableStatement(
+    [factory.createModifier(SyntaxKind.ExportKeyword)],
+    factory.createVariableDeclarationList([declaration], NodeFlags.Const),
+  );
+}
+
+macro exposeTypeName(User);
+const checkedName: "User" = UserTypeName;
+console.log(checkedName);

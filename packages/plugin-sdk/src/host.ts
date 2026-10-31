@@ -137,6 +137,7 @@ export class TSPPPluginHost {
                     this.environment.compiler.registerInterfaceMemberContract(pluginId, contract),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
+                registerCompileTimeMacros: () => this.environment.compiler.registerCompileTimeMacros(pluginId),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

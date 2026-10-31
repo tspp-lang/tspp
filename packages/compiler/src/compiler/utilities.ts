@@ -7398,6 +7398,8 @@ export function modifierToFlag(token: SyntaxKind): ModifierFlags {
             return ModifierFlags.Override;
         case SyntaxKind.InKeyword:
             return ModifierFlags.In;
+        case SyntaxKind.MacroKeyword:
+            return ModifierFlags.Macro;
         case SyntaxKind.OutKeyword:
             return ModifierFlags.Out;
         case SyntaxKind.Decorator:

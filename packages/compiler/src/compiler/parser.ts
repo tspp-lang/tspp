@@ -256,6 +256,7 @@ import {
     LiteralExpression,
     LiteralLikeNode,
     LiteralTypeNode,
+    MacroInvocationStatement,
     map,
     mapDefined,
     MappedTypeNode,
@@ -411,6 +412,8 @@ import {
     visitEachChild,
     VoidExpression,
     WhileStatement,
+    WithClause,
+    WithProperty,
     WithStatement,
     YieldExpression,
 } from "./_namespaces/ts.js";
@@ -421,17 +424,17 @@ import {
     projectTSPPSource,
     registerDeepReadonlyBinding,
     registerTrailingClosureBinding,
-    registerTypeConstructor,
     registerTypeApplication,
+    registerTypeConstructor,
     registerTypeUniverse,
     setTypeKindAnnotation,
+    tryParseDeepReadonlyBinding,
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
     tryParseExtensionFunctionBody,
     tryParseExtensionType,
     tryParseKindAnnotation,
     tryParsePostfixType,
-    tryParseDeepReadonlyBinding,
     tryParseTrailingClosureBinding,
     typeSyntaxKinds,
 } from "./plugins/registry.js";
@@ -681,8 +684,18 @@ const forEachChildTable: ForEachChildTable = {
             visitNode(cbNode, node.name) ||
             visitNodes(cbNode, cbNodes, node.typeParameters) ||
             visitNodes(cbNode, cbNodes, node.parameters) ||
+            visitNode(cbNode, node.withClause) ||
             visitNode(cbNode, node.type) ||
             visitNode(cbNode, node.body);
+    },
+    [SyntaxKind.MacroInvocationStatement]: function forEachChildInMacroInvocationStatement<T>(node: MacroInvocationStatement, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
+        return visitNode(cbNode, node.macro) || visitNodes(cbNode, cbNodes, node.targets);
+    },
+    [SyntaxKind.WithClause]: function forEachChildInWithClause<T>(node: WithClause, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
+        return visitNodes(cbNode, cbNodes, node.properties);
+    },
+    [SyntaxKind.WithProperty]: function forEachChildInWithProperty<T>(node: WithProperty, cbNode: (node: Node) => T | undefined): T | undefined {
+        return visitNode(cbNode, node.name) || visitNode(cbNode, node.value);
     },
     [SyntaxKind.FunctionExpression]: function forEachChildInFunctionExpression<T>(node: FunctionExpression, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
         return visitNodes(cbNode, cbNodes, node.modifiers) ||
@@ -2811,6 +2824,8 @@ namespace Parser {
 
     function nextTokenCanFollowModifier() {
         switch (token()) {
+            case SyntaxKind.MacroKeyword:
+                return nextToken() === SyntaxKind.FunctionKeyword;
             case SyntaxKind.ConstKeyword:
                 // 'const' is only a modifier if followed by 'enum'.
                 return nextToken() === SyntaxKind.EnumKeyword;
@@ -5058,12 +5073,15 @@ namespace Parser {
                     /*defaultType*/ undefined,
                 );
                 const infer = factory.createInferTypeNode(parameter);
-                return finishNode(createNonDistributiveConditional(
-                    value,
-                    infer,
-                    body,
-                    factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
-                ), pos);
+                return finishNode(
+                    createNonDistributiveConditional(
+                        value,
+                        infer,
+                        body,
+                        factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+                    ),
+                    pos,
+                );
             },
             finishOrderedTypeMatch: (scrutineeIn, armsIn, pos) => {
                 const scrutinee = scrutineeIn as TypeNode;
@@ -5081,11 +5099,14 @@ namespace Parser {
                 return finishNode(result, pos);
             },
             finishTypeConstructor: (typeParametersIn, bodyIn, pos) => {
-                const node = finishNode(factory.createFunctionTypeNode(
-                    typeParametersIn as NodeArray<TypeParameterDeclaration>,
-                    factory.createNodeArray([]),
-                    bodyIn as TypeNode,
-                ), pos);
+                const node = finishNode(
+                    factory.createFunctionTypeNode(
+                        typeParametersIn as NodeArray<TypeParameterDeclaration>,
+                        factory.createNodeArray([]),
+                        bodyIn as TypeNode,
+                    ),
+                    pos,
+                );
                 registerTypeConstructor(node);
                 return node;
             },
@@ -5107,19 +5128,24 @@ namespace Parser {
             finishTypeApplication: (targetIn, typeArgumentsIn, pos) => {
                 const target = targetIn as TypeNode;
                 const typeArguments = typeArgumentsIn as readonly TypeNode[];
-                const parameters = [target, ...typeArguments].map((type, index) => factory.createParameterDeclaration(
-                    /*modifiers*/ undefined,
-                    /*dotDotDotToken*/ undefined,
-                    index === 0 ? "__tsppTarget" : `__tsppArgument${index - 1}`,
-                    /*questionToken*/ undefined,
-                    type,
-                    /*initializer*/ undefined,
-                ));
-                const node = finishNode(factory.createFunctionTypeNode(
-                    /*typeParameters*/ undefined,
-                    factory.createNodeArray(parameters),
-                    factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
-                ), pos);
+                const parameters = [target, ...typeArguments].map((type, index) =>
+                    factory.createParameterDeclaration(
+                        /*modifiers*/ undefined,
+                        /*dotDotDotToken*/ undefined,
+                        index === 0 ? "__tsppTarget" : `__tsppArgument${index - 1}`,
+                        /*questionToken*/ undefined,
+                        type,
+                        /*initializer*/ undefined,
+                    )
+                );
+                const node = finishNode(
+                    factory.createFunctionTypeNode(
+                        /*typeParameters*/ undefined,
+                        factory.createNodeArray(parameters),
+                        factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+                    ),
+                    pos,
+                );
                 registerTypeApplication(node, target, typeArguments);
                 return node;
             },
@@ -5974,8 +6000,7 @@ namespace Parser {
                 readonly variant: Identifier;
                 readonly elements: readonly (Identifier | ParsedPattern)[];
             }
-            const isParsedPattern = (element: Identifier | ParsedPattern): element is ParsedPattern =>
-                element.kind === "pattern";
+            const isParsedPattern = (element: Identifier | ParsedPattern): element is ParsedPattern => element.kind === "pattern";
             const parsePattern = (): ParsedPattern => {
                 const variant = parseIdentifier();
                 const elements: (Identifier | ParsedPattern)[] = [];
@@ -6064,24 +6089,25 @@ namespace Parser {
                 });
                 return { condition, replacements };
             };
-            const lowerArms = (createMatched: () => Expression, preserveRanges: boolean) => arms.map(arm => {
-                const wildcard = arm.patterns.some(pattern => idText(pattern.variant) === "_");
-                const lowered = arm.patterns
-                    .filter(pattern => idText(pattern.variant) !== "_")
-                    .map(pattern => lowerPattern(pattern, createMatched(), preserveRanges));
-                const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
-                const result = substituteBindings(arm.result, replacements);
-                const guard = arm.guard && substituteBindings(arm.guard, replacements);
-                let condition = lowered[0]?.condition;
-                for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
-                    condition = factory.createBinaryExpression(
-                        Debug.checkDefined(condition),
-                        factory.createToken(SyntaxKind.BarBarToken),
-                        lowered[patternIndex].condition,
-                    );
-                }
-                return { arm, wildcard, condition, guard, result };
-            });
+            const lowerArms = (createMatched: () => Expression, preserveRanges: boolean) =>
+                arms.map(arm => {
+                    const wildcard = arm.patterns.some(pattern => idText(pattern.variant) === "_");
+                    const lowered = arm.patterns
+                        .filter(pattern => idText(pattern.variant) !== "_")
+                        .map(pattern => lowerPattern(pattern, createMatched(), preserveRanges));
+                    const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
+                    const result = substituteBindings(arm.result, replacements);
+                    const guard = arm.guard && substituteBindings(arm.guard, replacements);
+                    let condition = lowered[0]?.condition;
+                    for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
+                        condition = factory.createBinaryExpression(
+                            Debug.checkDefined(condition),
+                            factory.createToken(SyntaxKind.BarBarToken),
+                            lowered[patternIndex].condition,
+                        );
+                    }
+                    return { arm, wildcard, condition, guard, result };
+                });
             const checkerArms = lowerArms(cloneScrutinee, /*preserveRanges*/ true);
             let body: Expression = factory.createAsExpression(
                 factory.createVoidZero(),
@@ -6113,9 +6139,11 @@ namespace Parser {
                             kind: "constructor",
                             variant: idText(pattern.variant),
                             variantNode: pattern.variant,
-                            elements: pattern.elements.map(element => isParsedPattern(element)
-                                ? convert(element)
-                                : { kind: "binding", name: idText(element), node: element }),
+                            elements: pattern.elements.map(element =>
+                                isParsedPattern(element)
+                                    ? convert(element)
+                                    : { kind: "binding", name: idText(element), node: element }
+                            ),
                         };
                     }),
                     guard: arm.guard,
@@ -7653,6 +7681,8 @@ namespace Parser {
                 case SyntaxKind.TypeKeyword:
                 case SyntaxKind.DeferKeyword:
                     return nextTokenIsIdentifierOnSameLine();
+                case SyntaxKind.MacroKeyword:
+                    return nextToken() === SyntaxKind.FunctionKeyword;
                 case SyntaxKind.ModuleKeyword:
                 case SyntaxKind.NamespaceKeyword:
                     return nextTokenIsIdentifierOrStringLiteralOnSameLine();
@@ -7767,6 +7797,7 @@ namespace Parser {
             case SyntaxKind.TypeKeyword:
             case SyntaxKind.GlobalKeyword:
             case SyntaxKind.DeferKeyword:
+            case SyntaxKind.MacroKeyword:
                 // When these don't start a declaration, they're an identifier in an expression statement
                 return true;
 
@@ -7924,12 +7955,35 @@ namespace Parser {
             case SyntaxKind.StaticKeyword:
             case SyntaxKind.ReadonlyKeyword:
             case SyntaxKind.GlobalKeyword:
+            case SyntaxKind.MacroKeyword:
                 if (isStartOfDeclaration()) {
                     return parseDeclaration();
+                }
+                if (token() === SyntaxKind.MacroKeyword) {
+                    return parseMacroInvocationStatement();
                 }
                 break;
         }
         return parseExpressionOrLabeledStatement();
+    }
+
+    function parseMacroInvocationStatement(): MacroInvocationStatement {
+        const pos = getNodePos();
+        parseExpected(SyntaxKind.MacroKeyword);
+        const macro = parseEntityName(/*allowReservedWords*/ false);
+        parseExpected(SyntaxKind.OpenParenToken);
+        const targetsPos = getNodePos();
+        const targets: EntityName[] = [];
+        while (token() !== SyntaxKind.CloseParenToken && token() !== SyntaxKind.EndOfFileToken) {
+            targets.push(parseEntityName(/*allowReservedWords*/ false));
+            if (!parseOptional(SyntaxKind.CommaToken)) break;
+        }
+        const targetsEnd = getNodePos();
+        parseExpected(SyntaxKind.CloseParenToken);
+        parseSemicolon();
+        const node = factory.createMacroInvocationStatement(macro, targets);
+        setTextRangePosEnd(node.targets, targetsPos, targetsEnd);
+        return finishNode(node, pos);
     }
 
     function createExtensionDeclarationParser(
@@ -7984,9 +8038,7 @@ namespace Parser {
                 finishNode(factory.createTypeAliasDeclaration(modifiers, name, typeParameters, unionType), pos),
                 hasJSDoc,
             );
-            const aliasTypeArguments = typeParameters?.map(parameter =>
-                factory.createTypeReferenceNode(idText(parameter.name), /*typeArguments*/ undefined)
-            );
+            const aliasTypeArguments = typeParameters?.map(parameter => factory.createTypeReferenceNode(idText(parameter.name), /*typeArguments*/ undefined));
             const anyTypeArguments = typeParameters?.map(() => factory.createKeywordTypeNode(SyntaxKind.AnyKeyword));
             const registeredVariants = variants.map(variant => {
                 const generic = variant.fields.length > 0;
@@ -8350,11 +8402,33 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         if (modifierFlags & ModifierFlags.Export) setAwaitContext(/*value*/ true);
         const parameters = parseParameters(isGenerator | isAsync);
+        const withClause = parseWithClause();
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
         const body = parseFunctionBlockOrSemicolon(isGenerator | isAsync, Diagnostics.or_expected);
         setAwaitContext(savedAwaitContext);
-        const node = factory.createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body);
+        const node = factory.createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body, withClause);
         return withJSDoc(finishNode(node, pos), hasJSDoc);
+    }
+
+    function parseWithClause(): WithClause | undefined {
+        if (!parseOptional(SyntaxKind.WithKeyword)) return undefined;
+        const pos = getNodePos();
+        parseExpected(SyntaxKind.OpenBraceToken);
+        const propertiesPos = getNodePos();
+        const properties: WithProperty[] = [];
+        while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
+            const propertyPos = getNodePos();
+            const name = parseIdentifier(Diagnostics.Identifier_expected);
+            parseExpected(SyntaxKind.ColonToken);
+            const value = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
+            properties.push(finishNode(factory.createWithProperty(name, value), propertyPos));
+            parseSemicolon();
+        }
+        const propertiesEnd = getNodePos();
+        parseExpected(SyntaxKind.CloseBraceToken);
+        const node = factory.createWithClause(properties);
+        setTextRangePosEnd(node.properties, propertiesPos, propertiesEnd);
+        return finishNode(node, pos);
     }
 
     function parseConstructorName() {

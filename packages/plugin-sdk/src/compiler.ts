@@ -428,6 +428,8 @@ export interface TSPPCompilerPluginAPI {
     registerInterfaceMemberContract(contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
+    /** Enables the compiler's isolated compile-time macro pipeline for this feature capsule. */
+    registerCompileTimeMacros(): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
@@ -445,6 +447,7 @@ export interface TSPPCompilerHostAPI {
     registerInterfaceMemberContract(pluginId: string, contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
+    registerCompileTimeMacros(pluginId: string): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerPluginContext {

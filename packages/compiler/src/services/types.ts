@@ -319,6 +319,7 @@ export interface LanguageServiceHost extends GetEffectiveTypeRootsHost, MinimalR
     getNewLine?(): string;
     /** @internal */ updateFromProject?(): void;
     /** @internal */ updateFromProjectInProgress?: boolean;
+    /** @internal */ onAsyncMacroExpansionComplete?(): void;
 
     getProjectVersion?(): string;
     getScriptFileNames(): string[];

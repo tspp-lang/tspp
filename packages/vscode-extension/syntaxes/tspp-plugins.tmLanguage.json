@@ -41,6 +41,42 @@
       "name": "keyword.operator.kind.tspp"
     },
     {
+      "match": "^(\\s*)(?:(export)(\\s+))?(?:(default)(\\s+))?(?:(declare)(\\s+))?(?:(async)(\\s+))?(macro)(\\s+)(?=function\\b)",
+      "captures": {
+        "2": {
+          "name": "keyword.control.export.ts"
+        },
+        "4": {
+          "name": "storage.modifier.ts"
+        },
+        "6": {
+          "name": "storage.modifier.ts"
+        },
+        "8": {
+          "name": "storage.modifier.async.ts"
+        },
+        "10": {
+          "name": "keyword.control.macro.tspp"
+        }
+      }
+    },
+    {
+      "match": "^\\s*(macro)(?=\\s+[A-Za-z_$][\\w$]*(?:\\s*\\.\\s*[A-Za-z_$][\\w$]*)*\\s*\\()",
+      "captures": {
+        "1": {
+          "name": "keyword.control.macro.tspp"
+        }
+      }
+    },
+    {
+      "match": "\\b(with)\\b(?=\\s*\\{)",
+      "captures": {
+        "1": {
+          "name": "keyword.control.with.tspp"
+        }
+      }
+    },
+    {
       "match": "\\b(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)",
       "name": "keyword.control.let.tspp"
     },

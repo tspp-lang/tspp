@@ -2268,6 +2268,12 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
     }
 
     /** @internal */
+    onAsyncMacroExpansionComplete(): void {
+        this.markAsDirty();
+        this.refreshDiagnostics();
+    }
+
+    /** @internal */
     getPackageJsonsVisibleToFile(fileName: string, rootDir?: string): readonly ProjectPackageJsonInfo[] {
         if (this.projectService.serverMode !== LanguageServiceMode.Semantic) return emptyArray;
         return this.projectService.getPackageJsonsVisibleToFile(fileName, this, rootDir);

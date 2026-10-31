@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "plugins": [{ "name": "@tspp/plugin-macros", "tspp": true }]
+  },
+  "include": ["src/**/*.tspp"]
+}

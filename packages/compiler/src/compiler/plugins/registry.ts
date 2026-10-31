@@ -14,19 +14,19 @@ import type {
     TSPPExpressionSyntaxKinds,
     TSPPFunctionBodyParser,
     TSPPFunctionBodySyntax,
+    TSPPInterfaceMemberContract,
     TSPPKindAnnotationParser,
     TSPPKindAnnotationSyntax,
-    TSPPInterfaceMemberContract,
     TSPPPostfixTypeParser,
     TSPPPostfixTypeSyntax,
+    TSPPProgramAnalyzer,
+    TSPPSourcePreprocessor,
     TSPPStatementParser,
     TSPPTrailingClosureBindingSyntax,
+    TSPPTypeKind,
     TSPPTypeParser,
     TSPPTypeSyntax,
     TSPPTypeSyntaxKinds,
-    TSPPTypeKind,
-    TSPPProgramAnalyzer,
-    TSPPSourcePreprocessor,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 
@@ -39,7 +39,10 @@ import type {
     VariableDeclaration,
     VariableStatement,
 } from "../types.js";
-import { SyntaxKind, TransformFlags } from "../types.js";
+import {
+    SyntaxKind,
+    TransformFlags,
+} from "../types.js";
 import { getTaggedUnionSyntheticDeclarations } from "./taggedUnion.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax>();
@@ -63,6 +66,7 @@ const kindAnnotations = new WeakMap<object, TSPPTypeKind>();
 const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
+const compileTimeMacroPlugins = new Set<string>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
 let pluginHost: TSPPPluginHost | undefined;
 
@@ -324,7 +328,19 @@ const compilerAPI: TSPPCompilerHostAPI = {
         sourcePreprocessors.set(key, preprocessor);
         return () => sourcePreprocessors.delete(key);
     },
+    registerCompileTimeMacros(pluginId) {
+        if (compileTimeMacroPlugins.size && !compileTimeMacroPlugins.has(pluginId)) {
+            throw new Error(`Compile-time macros are already owned by TSPP plugin '${[...compileTimeMacroPlugins][0]}'.`);
+        }
+        compileTimeMacroPlugins.add(pluginId);
+        return () => compileTimeMacroPlugins.delete(pluginId);
+    },
 };
+
+/** @internal */
+export function hasCompileTimeMacros(): boolean {
+    return compileTimeMacroPlugins.size > 0;
+}
 
 /** @internal */
 export function initializeTSPPCompilerPlugins(compilerVersion: string): void {
