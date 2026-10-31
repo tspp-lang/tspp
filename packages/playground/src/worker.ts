@@ -1,33 +1,49 @@
 /// <reference lib="webworker" />
 import * as ts from "ts-plus-plus/source";
 import type { TSPPPlugin } from "@tspp/plugin-sdk";
-import dependentTypes from "@tspp/plugin-dependent-types";
-import higherKindedTypes from "@tspp/plugin-higher-kinded-types";
-import modernSyntax from "@tspp/plugin-modern-syntax";
-import nominalTypes from "@tspp/plugin-nominal-types";
-import staticInterfaceMembers from "@tspp/plugin-static-interface-members";
-import typeComputation from "@tspp/plugin-type-computation";
+import dependentTypesModule from "@tspp/plugin-dependent-types";
+import * as formalVerificationNamespace from "@tspp/plugin-formal-verification";
+import higherKindedTypesModule from "@tspp/plugin-higher-kinded-types";
+import macrosModule from "@tspp/plugin-macros";
+import modernSyntaxModule from "@tspp/plugin-modern-syntax";
+import nominalTypesModule from "@tspp/plugin-nominal-types";
+import staticInterfaceMembersModule from "@tspp/plugin-static-interface-members";
+import typeComputationModule from "@tspp/plugin-type-computation";
 import libraries from "virtual:tspp-libs";
 import type { WorkerRequest, WorkerResponse } from "./protocol";
+import { createBrowserZ3Solver } from "./z3Bridge";
 
 const plugins: readonly TSPPPlugin[] = [
-  modernSyntax,
-  nominalTypes,
-  typeComputation,
-  higherKindedTypes,
-  staticInterfaceMembers,
-  dependentTypes,
+  pluginDefault(modernSyntaxModule),
+  pluginDefault(nominalTypesModule),
+  pluginDefault(typeComputationModule),
+  pluginDefault(higherKindedTypesModule),
+  pluginDefault(staticInterfaceMembersModule),
+  pluginDefault(dependentTypesModule),
+  formalVerificationExports(formalVerificationNamespace).formalVerificationPlugin,
+  pluginDefault(macrosModule),
 ];
 const pluginById = new Map<string, TSPPPlugin>(plugins.map(plugin => [plugin.manifest.id, plugin]));
 const fileName = "/index.tspp";
 let initialized = false;
+
+formalVerificationExports(formalVerificationNamespace).configureZ3Solver(createBrowserZ3Solver({
+  workerUrl: new URL("../z3/z3.worker.js", self.location.href).href,
+  wasmUrl: new URL("../z3/z3-built.wasm", self.location.href).href,
+}));
 
 self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
   try {
     if (data.type === "initialize") {
       for (const id of data.features) {
         const plugin = pluginById.get(id);
-        if (plugin) ts.registerTSPPCompilerPlugin(plugin);
+        if (plugin) {
+          try { ts.registerTSPPCompilerPlugin(plugin); }
+          catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            throw new Error(`Failed to activate '${id}': ${message}`, { cause: error });
+          }
+        }
       }
       initialized = true;
       post({ type: "ready" });
@@ -42,7 +58,6 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
 };
 
 async function check(source: string): Promise<{ projected: string; diagnostics: readonly string[] }> {
-  const projected = ts.getTSPPProjectedSource(fileName, source);
   const options: ts.CompilerOptions = {
     allowNonTsExtensions: true,
     module: ts.ModuleKind.ESNext,
@@ -51,17 +66,27 @@ async function check(source: string): Promise<{ projected: string; diagnostics: 
     strict: true,
     target: ts.ScriptTarget.ES2022,
   };
-  const host = ts.createCompilerHost(options);
-  host.fileExists = path => path === fileName || readLibrary(path) !== undefined;
-  host.readFile = path => path === fileName ? source : readLibrary(path);
-  host.getSourceFile = (path, languageVersion) => {
-    const text = host.readFile(path);
-    return text === undefined ? undefined : ts.createSourceFile(path, text, languageVersion, true, ts.ScriptKind.TS);
+  const readFile = (path: string): string | undefined => path === fileName ? source : readLibrary(path);
+  const host: ts.CompilerHost = {
+    fileExists: path => readFile(path) !== undefined,
+    readFile,
+    getSourceFile(path, languageVersion) {
+      const text = readFile(path);
+      return text === undefined ? undefined : ts.createSourceFile(path, text, languageVersion, true, ts.ScriptKind.TS);
+    },
+    getDefaultLibFileName: () => "/lib.es2022.full.d.ts",
+    getCurrentDirectory: () => "/",
+    getCanonicalFileName: path => path,
+    getNewLine: () => "\n",
+    useCaseSensitiveFileNames: () => true,
+    writeFile: () => {},
   };
-  host.getDefaultLibFileName = () => "/lib.es2022.full.d.ts";
-  host.getCurrentDirectory = () => "/";
-  host.writeFile = () => {};
-  const program = ts.createProgram([fileName], options, host);
+  host.disableMacroWorkers = true;
+  host.evaluateMacroModule = evaluateMacroModule;
+  host.resolveMacroModule = resolveMacroModule;
+  const program = await ts.createProgramAsync({ rootNames: [fileName], options, host });
+  const expandedSource = applyMacroExpansions(source, program.getMacroExpansions?.(fileName) ?? []);
+  const projected = ts.getTSPPProjectedSource(fileName, expandedSource);
   const standard = ts.getPreEmitDiagnostics(program);
   const analysis = ts.hasTSPPProgramAnalyzers() ? await ts.runTSPPProgramAnalyzers(program) : [];
   return {
@@ -71,6 +96,33 @@ async function check(source: string): Promise<{ projected: string; diagnostics: 
       ...analysis.map(diagnostic => `${diagnostic.fileName}:${diagnostic.start} TS${diagnostic.code}: ${diagnostic.message}`),
     ],
   };
+}
+
+function applyMacroExpansions(source: string, expansions: readonly ts.MacroExpansion[]): string {
+  return [...expansions]
+    .sort((left, right) => right.start - left.start)
+    .reduce((text, expansion) =>
+      text.slice(0, expansion.start) + expansion.text + text.slice(expansion.start + expansion.length), source);
+}
+
+function evaluateMacroModule(
+  javascript: string,
+  moduleFileName: string,
+  requireLocal: (specifier: string) => unknown,
+  module: { exports: Record<string, unknown> },
+): void {
+  const require = (specifier: string): unknown => {
+    const local = requireLocal(specifier);
+    if (local !== undefined) return local;
+    throw new Error(`Cannot find macro module '${specifier}' in the single-file playground.`);
+  };
+  const directory = moduleFileName.slice(0, moduleFileName.lastIndexOf("/")) || "/";
+  const execute = new Function("require", "exports", "module", "__filename", "__dirname", javascript);
+  execute(require, module.exports, module, moduleFileName, directory);
+}
+
+function resolveMacroModule(): undefined {
+  return undefined;
 }
 
 function readLibrary(path: string): string | undefined {
@@ -86,4 +138,19 @@ function formatDiagnostic(diagnostic: ts.Diagnostic): string {
 
 function post(response: WorkerResponse): void {
   self.postMessage(response);
+}
+
+function pluginDefault(value: TSPPPlugin | { readonly default: TSPPPlugin }): TSPPPlugin {
+  return "default" in value ? value.default : value;
+}
+
+function formalVerificationExports(value: typeof formalVerificationNamespace): {
+  readonly formalVerificationPlugin: TSPPPlugin;
+  readonly configureZ3Solver: typeof import("@tspp/plugin-formal-verification").configureZ3Solver;
+} {
+  const exports = "configureZ3Solver" in value ? value : value.default as unknown;
+  return exports as {
+    readonly formalVerificationPlugin: TSPPPlugin;
+    readonly configureZ3Solver: typeof import("@tspp/plugin-formal-verification").configureZ3Solver;
+  };
 }

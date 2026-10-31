@@ -5,9 +5,11 @@ Changing the capsule selection restarts the worker, so process-global parser reg
 leak between configurations. It displays both diagnostics and the TypeScript projection used by
 upstream tooling.
 
-Formal verification and compile-time macros are intentionally excluded for now: their execution
-adapters use Node worker threads. Both compiler features remain available in the CLI, language
-server, and VS Code extension.
+Compile-time macros execute inside the compiler Web Worker through the compiler host boundary.
+Formal verification uses a nested browser Z3 worker and loads its Wasm only after the first proof
+obligation. The page therefore needs cross-origin isolation; the development and preview servers
+send the required headers, while the production build includes a service-worker fallback for static
+hosts such as GitHub Pages.
 
 ```sh
 pnpm playground:dev

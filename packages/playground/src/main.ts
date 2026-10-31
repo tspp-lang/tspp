@@ -11,7 +11,29 @@ const selected = new Set(features.map(feature => feature.id));
 let worker: Worker | undefined;
 let checkTimer: number | undefined;
 
-source.value = `const answer: number = let left = 20, right = 22 in left + right;\nconsole.log(answer);\n`;
+source.value = `type MacroTarget = any;
+type MacroContext = any;
+type MacroReturn = any;
+
+export macro function exposeName(
+  [target]: readonly MacroTarget[],
+  context: MacroContext,
+): MacroReturn {
+  const { factory, NodeFlags } = context.typescript;
+  const value = factory.createStringLiteral(target.name);
+  return factory.createVariableStatement(undefined, factory.createVariableDeclarationList([
+    factory.createVariableDeclaration(\`${"${target.name}"}TypeName\`, undefined, undefined, value),
+  ], NodeFlags.Const));
+}
+
+interface User { id: number }
+macro exposeName(User);
+const generated = UserTypeName;
+
+assert: 1n + 1n === 2n;
+const answer: number = let left = 20, right = 22 in left + right;
+console.log(generated, answer);
+`;
 
 for (const feature of features) {
   const label = document.createElement("label");
@@ -48,6 +70,14 @@ function restartWorker(): void {
       diagnostics.textContent = data.message;
       status.textContent = "failed";
     }
+  };
+  worker.onerror = event => {
+    diagnostics.textContent = `${event.message || "The compiler worker failed to load."}\n${event.filename}:${event.lineno}:${event.colno}`;
+    status.textContent = "failed";
+  };
+  worker.onmessageerror = () => {
+    diagnostics.textContent = "The compiler worker returned an unreadable message.";
+    status.textContent = "failed";
   };
   worker.postMessage({ type: "initialize", features: effectiveFeatures(selected) });
 }

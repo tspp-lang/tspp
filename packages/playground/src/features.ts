@@ -7,6 +7,8 @@ export const features: readonly FeatureDefinition[] = [
   { id: "higher-kinded-types", name: "Higher-kinded types" },
   { id: "static-interface-members", name: "Static interface members" },
   { id: "type-system/dependent-types", name: "Dependent types" },
+  { id: "formal-verification/z3", name: "Z3 formal verification", dependencies: ["nominal-types"] },
+  { id: "macros", name: "Compile-time macros" },
 ];
 
 export function effectiveFeatures(selected: ReadonlySet<string>): readonly string[] {
