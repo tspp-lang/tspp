@@ -1,0 +1,16 @@
+{
+  "name": "@tspp/example-static-interface-members",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tspp -p tsconfig.json --noEmit --pretty false",
+    "lint": "eslint src"
+  },
+  "dependencies": {
+    "@tspp/plugin-static-interface-members": "workspace:*",
+    "ts-plus-plus": "workspace:*"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0"
+  }
+}

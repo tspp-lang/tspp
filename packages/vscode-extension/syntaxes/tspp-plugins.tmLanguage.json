@@ -65,6 +65,10 @@
       "name": "keyword.control.match.tspp"
     },
     {
+      "match": "\\bstatic\\b",
+      "name": "storage.modifier.static.tspp"
+    },
+    {
       "match": "\\b(let|in|match|infer)\\b",
       "name": "keyword.control.type-computation.tspp"
     },

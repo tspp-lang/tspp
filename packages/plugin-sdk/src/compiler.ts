@@ -138,6 +138,17 @@ export interface TSPPKindAnnotationSyntax {
     parse(parser: TSPPKindAnnotationParser): TSPPTypeKind;
 }
 
+/**
+ * Moves interface members carrying a modifier onto a separate implementation
+ * contract. The first supported contract mirrors the constructor side of a
+ * class without exposing compiler AST types to plugins.
+ */
+export interface TSPPInterfaceMemberContract {
+    readonly modifier: "static";
+    readonly implementationSide: "class-static";
+    readonly thisType: "implementing-instance";
+}
+
 export interface TSPPTypeMatchArm {
     readonly pattern: TSPPTypeNode;
     readonly result: TSPPTypeNode;
@@ -408,6 +419,7 @@ export interface TSPPCompilerPluginAPI {
     registerTypeSyntax(syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
     registerKindAnnotationSyntax(syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;
+    registerInterfaceMemberContract(contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }
@@ -424,6 +436,7 @@ export interface TSPPCompilerHostAPI {
     registerTypeSyntax(pluginId: string, syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(pluginId: string, syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
     registerKindAnnotationSyntax(pluginId: string, syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;
+    registerInterfaceMemberContract(pluginId: string, contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
 }

@@ -16,6 +16,7 @@ import type {
     TSPPFunctionBodySyntax,
     TSPPKindAnnotationParser,
     TSPPKindAnnotationSyntax,
+    TSPPInterfaceMemberContract,
     TSPPPostfixTypeParser,
     TSPPPostfixTypeSyntax,
     TSPPStatementParser,
@@ -59,6 +60,7 @@ const typeUniverseLevels = new WeakMap<object, number>();
 const typeApplications = new WeakMap<object, { readonly target: object; readonly typeArguments: readonly object[]; }>();
 const kindSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPKindAnnotationSyntax; }[]>();
 const kindAnnotations = new WeakMap<object, TSPPTypeKind>();
+const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
@@ -300,6 +302,16 @@ const compilerAPI: TSPPCompilerHostAPI = {
             }
         };
     },
+    registerInterfaceMemberContract(pluginId, contract) {
+        if (interfaceMemberContracts.has(pluginId)) {
+            throw new Error(`TSPP plugin '${pluginId}' registered an interface member contract more than once.`);
+        }
+        if ([...interfaceMemberContracts.values()].some(existing => existing.modifier === contract.modifier)) {
+            throw new Error(`The interface member modifier '${contract.modifier}' is already claimed by another TSPP plugin.`);
+        }
+        interfaceMemberContracts.set(pluginId, contract);
+        return () => interfaceMemberContracts.delete(pluginId);
+    },
     registerProgramAnalyzer(pluginId, analyzer) {
         const key = `${pluginId}/${analyzer.id}`;
         if (programAnalyzers.has(key)) throw new Error(`Duplicate TSPP program analyzer '${key}'.`);
@@ -347,6 +359,11 @@ export function getTSPPPluginFromModule(moduleValue: unknown): TSPPPlugin | unde
     return plugin.manifest && plugin.facets && typeof plugin.facets === "object"
         ? plugin as TSPPPlugin
         : undefined;
+}
+
+/** @internal */
+export function hasInterfaceMemberContract(modifier: TSPPInterfaceMemberContract["modifier"]): boolean {
+    return [...interfaceMemberContracts.values()].some(contract => contract.modifier === modifier);
 }
 
 /** @internal */

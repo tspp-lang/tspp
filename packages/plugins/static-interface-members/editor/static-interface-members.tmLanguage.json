@@ -1,0 +1,11 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TS++ static interface members",
+  "scopeName": "source.tspp.static-interface-members",
+  "patterns": [
+    {
+      "match": "\\bstatic\\b",
+      "name": "storage.modifier.static.tspp"
+    }
+  ]
+}

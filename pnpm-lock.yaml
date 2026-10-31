@@ -181,6 +181,9 @@ importers:
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:packages/plugin-sdk
+      '@tspp/plugin-static-interface-members':
+        specifier: workspace:*
+        version: link:packages/plugins/static-interface-members
       '@tspp/plugin-type-computation':
         specifier: workspace:*
         version: link:packages/plugins/type-computation
@@ -412,6 +415,19 @@ importers:
       '@tspp/plugin-type-computation':
         specifier: workspace:*
         version: link:../../plugins/type-computation
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+
+  packages/examples/08-static-interface-members:
+    dependencies:
+      '@tspp/plugin-static-interface-members':
+        specifier: workspace:*
+        version: link:../../plugins/static-interface-members
       ts-plus-plus:
         specifier: workspace:*
         version: link:../../compiler
@@ -671,6 +687,28 @@ importers:
         specifier: ^8.70.0
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
 
+  packages/plugins/static-interface-members:
+    dependencies:
+      '@tspp/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../plugin-sdk
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      globals:
+        specifier: ^17.12.0
+        version: 17.13.0
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.70.0
+        version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
+
   packages/plugins/type-computation:
     dependencies:
       '@tspp/plugin-sdk':
@@ -707,6 +745,9 @@ importers:
       '@tspp/plugin-nominal-types':
         specifier: workspace:*
         version: link:../plugins/nominal-types
+      '@tspp/plugin-static-interface-members':
+        specifier: workspace:*
+        version: link:../plugins/static-interface-members
       '@tspp/plugin-type-computation':
         specifier: workspace:*
         version: link:../plugins/type-computation

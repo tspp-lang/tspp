@@ -1165,6 +1165,7 @@ import {
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
+    hasInterfaceMemberContract,
     hasExtensionDeclarationValueUseRestrictions,
     isDeepReadonlyBinding,
     isExtensionTypeConstructor,
@@ -48068,12 +48069,63 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                         if (!checkTypeAssignableTo(typeWithThis, baseWithThis, /*errorNode*/ undefined)) {
                             issueMemberSpecificError(node, typeWithThis, baseWithThis, genericDiag);
                         }
+                        else {
+                            const staticInterfaceType = getStaticInterfaceType(t, type);
+                            if (staticInterfaceType && !checkTypeAssignableTo(staticType, staticInterfaceType, /*errorNode*/ undefined)) {
+                                issueMemberSpecificError(
+                                    node,
+                                    staticType,
+                                    staticInterfaceType,
+                                    Diagnostics.Class_static_side_0_incorrectly_implements_static_side_of_interface_1,
+                                );
+                            }
+                        }
                     }
                     else {
                         error(typeRefNode, Diagnostics.A_class_can_only_implement_an_object_type_or_intersection_of_object_types_with_statically_known_members);
                     }
                 }
             };
+        }
+
+        function getStaticInterfaceType(interfaceType: Type, implementingInstanceType: Type): Type | undefined {
+            if (
+                !hasInterfaceMemberContract("static")
+                || !(interfaceType.flags & TypeFlags.Object)
+                || !(getObjectFlags(interfaceType) & (ObjectFlags.ClassOrInterface | ObjectFlags.Reference))
+                || !(interfaceType.symbol.flags & SymbolFlags.Interface)
+            ) {
+                return undefined;
+            }
+
+            const staticTypes: Type[] = [];
+            const staticMembers = createSymbolTable();
+            for (const member of getExportsOfSymbol(interfaceType.symbol).values()) {
+                if (some(member.declarations, declaration =>
+                    declaration.parent.kind === SyntaxKind.InterfaceDeclaration && hasStaticModifier(declaration))) {
+                    staticMembers.set(member.escapedName, member);
+                }
+            }
+            if (staticMembers.size) {
+                const interfaceThisType = getDeclaredTypeOfClassOrInterface(interfaceType.symbol).thisType;
+                const members = interfaceThisType
+                    ? createInstantiatedSymbolTable(
+                        arrayFrom(staticMembers.values()),
+                        createTypeMapper([interfaceThisType], [implementingInstanceType]),
+                        /*mappingThisOnly*/ true,
+                    )
+                    : staticMembers;
+                staticTypes.push(createAnonymousType(/*symbol*/ undefined, members, emptyArray, emptyArray, emptyArray));
+            }
+
+            for (const baseType of getBaseTypes(interfaceType as InterfaceType)) {
+                const staticBaseType = getStaticInterfaceType(baseType, implementingInstanceType);
+                if (staticBaseType) staticTypes.push(staticBaseType);
+            }
+
+            return staticTypes.length === 0 ? undefined
+                : staticTypes.length === 1 ? staticTypes[0]
+                : getIntersectionType(staticTypes);
         }
     }
 
@@ -50678,7 +50730,10 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     copySymbol(argumentsSymbol, meaning);
                 }
 
-                isStaticSymbol = isStatic(location);
+                isStaticSymbol = isStatic(location)
+                    || hasInterfaceMemberContract("static")
+                        && location.parent?.kind === SyntaxKind.InterfaceDeclaration
+                        && hasStaticModifier(location);
                 location = location.parent;
             }
 
@@ -52741,7 +52796,14 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             }
             else {
                 if (modifier.kind !== SyntaxKind.ReadonlyKeyword) {
-                    if (node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature) {
+                    if (
+                        (node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature)
+                        && !(
+                            modifier.kind === SyntaxKind.StaticKeyword
+                            && node.parent.kind === SyntaxKind.InterfaceDeclaration
+                            && hasInterfaceMemberContract("static")
+                        )
+                    ) {
                         return grammarErrorOnNode(modifier, Diagnostics._0_modifier_cannot_appear_on_a_type_member, tokenToString(modifier.kind));
                     }
                     if (node.kind === SyntaxKind.IndexSignature && (modifier.kind !== SyntaxKind.StaticKeyword || !isClassLike(node.parent))) {

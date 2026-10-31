@@ -133,6 +133,8 @@ export class TSPPPluginHost {
                 registerPostfixTypeSyntax: syntax => this.environment.compiler.registerPostfixTypeSyntax(pluginId, syntax),
                 registerKindAnnotationSyntax: syntax =>
                     this.environment.compiler.registerKindAnnotationSyntax(pluginId, syntax),
+                registerInterfaceMemberContract: contract =>
+                    this.environment.compiler.registerInterfaceMemberContract(pluginId, contract),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
             },

@@ -116,6 +116,7 @@ import {
     hasDynamicName,
     hasJSDocNodes,
     HasLocals,
+    hasStaticModifier,
     hasSyntacticModifier,
     Identifier,
     identifierToKeywordKind,
@@ -310,7 +311,7 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionDeclarationSyntax } from "./plugins/registry.js";
+import { getExtensionDeclarationSyntax, hasInterfaceMemberContract } from "./plugins/registry.js";
 import { getTaggedUnionSyntheticDeclarations } from "./plugins/taggedUnion.js";
 
 /** @internal */
@@ -2285,7 +2286,6 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
             case SyntaxKind.TypeLiteral:
             case SyntaxKind.JSDocTypeLiteral:
             case SyntaxKind.ObjectLiteralExpression:
-            case SyntaxKind.InterfaceDeclaration:
             case SyntaxKind.JsxAttributes:
                 // Interface/Object-types always have their children added to the 'members' of
                 // their container. They are only accessible through an instance of their
@@ -2293,6 +2293,11 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
                 // object / type / interface declaring them). An exception is type parameters,
                 // which are in scope without qualification (similar to 'locals').
                 return declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
+
+            case SyntaxKind.InterfaceDeclaration:
+                return hasInterfaceMemberContract("static") && hasStaticModifier(node)
+                    ? declareSymbol(container.symbol.exports ||= createSymbolTable(), container.symbol, node, symbolFlags, symbolExcludes)
+                    : declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
 
             case SyntaxKind.FunctionType:
             case SyntaxKind.ConstructorType:
