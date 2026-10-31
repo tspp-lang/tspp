@@ -6,8 +6,11 @@
     "@tspp/plugin-let-in-expression": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-sdk": "workspace:*",
+    "eslint": "^10.10.0",
+    "globals": "^17.12.0",
     "ts-plus-plus": "workspace:*",
-    "tspp-language-server": "workspace:*"
+    "tspp-language-server": "workspace:*",
+    "typescript-eslint": "^8.70.0"
   },
   "scripts": {
     "build": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode && pnpm build:tests",
@@ -25,9 +28,10 @@
     "test:plugin-sdk": "pnpm --filter @tspp/plugin-sdk test",
     "test:plugins": "pnpm --filter \"./packages/plugins/**\" test",
     "test:vscode": "pnpm --filter tspp-vscode test",
-    "lint": "pnpm lint:compiler && pnpm lint:language-server",
+    "lint": "pnpm lint:compiler && pnpm lint:packages",
     "lint:compiler": "pnpm --filter ts-plus-plus lint",
     "lint:language-server": "pnpm --filter tspp-language-server lint",
+    "lint:packages": "eslint packages --config eslint.config.mjs",
     "knip": "pnpm --filter ts-plus-plus knip",
     "format": "pnpm --filter ts-plus-plus format",
     "clean": "pnpm --filter @tspp/plugin-sdk clean && pnpm --filter \"./packages/plugins/**\" clean && pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"
