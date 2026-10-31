@@ -7,7 +7,12 @@ import * as vfs from "../../_namespaces/vfs.js";
 describe("unittests:: tspp:: macros", () => {
     ts.registerTSPPCompilerPlugin({
         manifest: { id: "macros", version: "0.0.1-test", apiVersion: 1 },
-        facets: { compiler: { activate: context => context.compiler.registerCompileTimeMacros() } },
+        facets: {
+            compiler: {
+                activate: (context: { compiler: { registerCompileTimeMacros(): () => void; }; }) =>
+                    context.compiler.registerCompileTimeMacros(),
+            },
+        },
     });
 
     function createProgram(content: string, options: ts.CompilerOptions = {}) {

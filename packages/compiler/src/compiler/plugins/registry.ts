@@ -86,7 +86,28 @@ const silentLogger: TSPPPluginLogger = {
     error() {},
 };
 
-export const expressionSyntaxKinds: TSPPExpressionSyntaxKinds = {
+/** @internal */
+export const expressionSyntaxKinds: {
+    readonly endOfFileToken: SyntaxKind;
+    readonly identifier: SyntaxKind;
+    readonly openBracketToken: SyntaxKind;
+    readonly closeBracketToken: SyntaxKind;
+    readonly openBraceToken: SyntaxKind;
+    readonly closeBraceToken: SyntaxKind;
+    readonly openParenToken: SyntaxKind;
+    readonly closeParenToken: SyntaxKind;
+    readonly semicolonToken: SyntaxKind;
+    readonly commaToken: SyntaxKind;
+    readonly equalsToken: SyntaxKind;
+    readonly colonToken: SyntaxKind;
+    readonly lessThanToken: SyntaxKind;
+    readonly minusToken: SyntaxKind;
+    readonly equalsGreaterThanToken: SyntaxKind;
+    readonly inKeyword: SyntaxKind;
+    readonly letKeyword: SyntaxKind;
+    readonly doKeyword: SyntaxKind;
+    readonly whileKeyword: SyntaxKind;
+} = {
     endOfFileToken: SyntaxKind.EndOfFileToken,
     identifier: SyntaxKind.Identifier,
     openBracketToken: SyntaxKind.OpenBracketToken,
@@ -108,7 +129,16 @@ export const expressionSyntaxKinds: TSPPExpressionSyntaxKinds = {
     whileKeyword: SyntaxKind.WhileKeyword,
 };
 
-export const declarationSyntaxKinds: TSPPDeclarationSyntaxKinds = {
+/** @internal */
+export const declarationSyntaxKinds: {
+    readonly identifier: SyntaxKind;
+    readonly equalsToken: SyntaxKind;
+    readonly barToken: SyntaxKind;
+    readonly openParenToken: SyntaxKind;
+    readonly closeParenToken: SyntaxKind;
+    readonly commaToken: SyntaxKind;
+    readonly colonToken: SyntaxKind;
+} = {
     identifier: SyntaxKind.Identifier,
     equalsToken: SyntaxKind.EqualsToken,
     barToken: SyntaxKind.BarToken,
@@ -118,7 +148,25 @@ export const declarationSyntaxKinds: TSPPDeclarationSyntaxKinds = {
     colonToken: SyntaxKind.ColonToken,
 };
 
-export const typeSyntaxKinds: TSPPTypeSyntaxKinds = {
+/** @internal */
+export const typeSyntaxKinds: {
+    readonly endOfFileToken: SyntaxKind;
+    readonly identifier: SyntaxKind;
+    readonly letKeyword: SyntaxKind;
+    readonly inKeyword: SyntaxKind;
+    readonly inferKeyword: SyntaxKind;
+    readonly lessThanToken: SyntaxKind;
+    readonly greaterThanToken: SyntaxKind;
+    readonly equalsToken: SyntaxKind;
+    readonly equalsGreaterThanToken: SyntaxKind;
+    readonly openBraceToken: SyntaxKind;
+    readonly closeBraceToken: SyntaxKind;
+    readonly colonToken: SyntaxKind;
+    readonly commaToken: SyntaxKind;
+    readonly semicolonToken: SyntaxKind;
+    readonly openParenToken: SyntaxKind;
+    readonly closeParenToken: SyntaxKind;
+} = {
     endOfFileToken: SyntaxKind.EndOfFileToken,
     identifier: SyntaxKind.Identifier,
     letKeyword: SyntaxKind.LetKeyword,
@@ -376,23 +424,24 @@ export function initializeTSPPCompilerPlugins(compilerVersion: string): void {
 }
 
 /** Registers the compiler facet of a feature package for this process. */
-export function registerTSPPCompilerPlugin(plugin: TSPPPlugin): boolean {
+export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
+    const capsule = plugin as TSPPPlugin;
     initializeTSPPCompilerPlugins(version);
-    const existing = pluginHost!.list().find(manifest => manifest.id === plugin.manifest.id);
+    const existing = pluginHost!.list().find(manifest => manifest.id === capsule.manifest.id);
     if (existing) {
-        if (existing.version !== plugin.manifest.version || existing.apiVersion !== plugin.manifest.apiVersion) {
+        if (existing.version !== capsule.manifest.version || existing.apiVersion !== capsule.manifest.apiVersion) {
             throw new Error(
-                `TSPP plugin '${plugin.manifest.id}' is already active at version ${existing.version}; cannot activate ${plugin.manifest.version}.`,
+                `TSPP plugin '${capsule.manifest.id}' is already active at version ${existing.version}; cannot activate ${capsule.manifest.version}.`,
             );
         }
         return false;
     }
-    pluginHost!.registerAndActivate(plugin);
+    pluginHost!.registerAndActivate(capsule);
     return true;
 }
 
-/** Extracts a feature capsule from either CommonJS or ESM-shaped package exports. */
-export function getTSPPPluginFromModule(moduleValue: unknown): TSPPPlugin | undefined {
+/** Extracts a feature capsule from either CommonJS or ESM-shaped package exports. @internal */
+export function getTSPPPluginFromModule(moduleValue: unknown): any {
     if (!moduleValue || typeof moduleValue !== "object") return undefined;
     const exports = moduleValue as { default?: unknown; };
     const candidate = exports.default ?? moduleValue;
@@ -403,8 +452,19 @@ export function getTSPPPluginFromModule(moduleValue: unknown): TSPPPlugin | unde
         : undefined;
 }
 
-/** Lists the feature capsules active in this compiler process. */
-export function getRegisteredTSPPPlugins(): readonly TSPPPluginManifest[] {
+/** Public, compiler-neutral description of an active feature capsule. */
+export interface TSPPPluginSummary {
+    readonly id: string;
+    readonly version: string;
+    readonly apiVersion: number;
+    readonly displayName?: string;
+    readonly requires?: readonly string[];
+    readonly optionalDependencies?: readonly string[];
+    readonly conflicts?: readonly string[];
+    readonly capabilities?: readonly string[];
+}
+
+export function getRegisteredTSPPPlugins(): readonly TSPPPluginSummary[] {
     initializeTSPPCompilerPlugins(version);
     return pluginHost!.list();
 }
@@ -419,7 +479,7 @@ export function getTSPPQuickInfo(
     fileName: string,
     sourceText: string,
     position: number,
-): TSPPQuickInfo | undefined {
+): { readonly start: number; readonly length: number; readonly display: string; readonly documentation?: string; } | undefined {
     for (const provider of quickInfoProviders.values()) {
         const result = provider({ fileName, sourceText, position });
         if (result) return result;
@@ -428,14 +488,14 @@ export function getTSPPQuickInfo(
 }
 
 /** @internal */
-export function hasInterfaceMemberContract(modifier: TSPPInterfaceMemberContract["modifier"]): boolean {
+export function hasInterfaceMemberContract(modifier: "static"): boolean {
     return [...interfaceMemberContracts.values()].some(contract => contract.modifier === modifier);
 }
 
 /** @internal */
 export function tryParseExtensionExpression(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPExpressionParser,
+    createParser: (pluginId: string) => any,
 ): Expression | undefined {
     const candidates = expressionSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -454,7 +514,7 @@ export function tryParseExtensionExpression(
 /** @internal */
 export function tryParseExtensionType(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPTypeParser,
+    createParser: (pluginId: string) => any,
 ): object | undefined {
     const candidates = typeSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -495,7 +555,7 @@ export function getTypeApplication(node: object): { readonly target: object; rea
 export function tryParsePostfixType(
     token: SyntaxKind,
     target: object,
-    createParser: (pluginId: string) => TSPPPostfixTypeParser,
+    createParser: (pluginId: string) => any,
 ): object | undefined {
     const candidates = postfixTypeSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -520,8 +580,8 @@ export function getTypeUniverseLevel(node: object): number | undefined {
 /** @internal */
 export function tryParseKindAnnotation(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPKindAnnotationParser,
-): TSPPTypeKind | undefined {
+    createParser: (pluginId: string) => any,
+): any {
     const candidates = kindSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
     for (const { pluginId, syntax } of candidates) {
@@ -532,12 +592,12 @@ export function tryParseKindAnnotation(
 }
 
 /** @internal */
-export function setTypeKindAnnotation(node: object, kind: TSPPTypeKind | undefined): void {
+export function setTypeKindAnnotation(node: object, kind: any): void {
     if (kind) kindAnnotations.set(node, kind);
 }
 
 /** @internal */
-export function getTypeKindAnnotation(node: object): TSPPTypeKind | undefined {
+export function getTypeKindAnnotation(node: object): any {
     let current: { readonly original?: object; } | undefined = node;
     while (current) {
         const kind = kindAnnotations.get(current);
@@ -558,7 +618,7 @@ export function isExtensionTypeConstructor(node: object): boolean {
 }
 
 /** @internal */
-export function getExtensionExpressionSyntax(node: ExtensionExpression): TSPPExpressionSyntax {
+export function getExtensionExpressionSyntax(node: ExtensionExpression): any {
     let current: { readonly original?: object; } | undefined = node;
     while (current) {
         const syntax = expressionSyntaxByNode.get(current);
@@ -573,7 +633,7 @@ export function getExtensionExpressionSyntax(node: ExtensionExpression): TSPPExp
 /** @internal */
 export function tryParseExtensionFunctionBody(
     token: SyntaxKind,
-    createParser: () => TSPPFunctionBodyParser,
+    createParser: () => any,
 ): Block | undefined {
     const candidates = functionBodySyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -589,7 +649,7 @@ export function tryParseExtensionFunctionBody(
 }
 
 /** @internal */
-export function getExtensionFunctionBodySyntax(block: object): TSPPFunctionBodySyntax | undefined {
+export function getExtensionFunctionBodySyntax(block: object): any {
     let current: { readonly original?: object; } | undefined = block;
     while (current) {
         const syntax = functionBodySyntaxByBlock.get(current);
@@ -599,6 +659,7 @@ export function getExtensionFunctionBodySyntax(block: object): TSPPFunctionBodyS
     return undefined;
 }
 
+/** @internal */
 export interface TrailingClosureBindingData {
     readonly statement: VariableStatement;
     readonly declaration: VariableDeclaration;
@@ -608,7 +669,7 @@ export interface TrailingClosureBindingData {
 /** @internal */
 export function tryParseTrailingClosureBinding(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPStatementParser,
+    createParser: (pluginId: string) => any,
 ): Statement | undefined {
     const candidates = trailingClosureSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -642,7 +703,7 @@ export function getTrailingClosureBinding(node: object): TrailingClosureBindingD
 /** @internal */
 export function tryParseDeepReadonlyBinding(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPDeepReadonlyBindingParser,
+    createParser: (pluginId: string) => any,
 ): Statement | undefined {
     const candidates = deepReadonlySyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -687,7 +748,7 @@ export function getSelectedExtensionExpression(owner: object): object | undefine
 /** @internal */
 export function isStartOfExtensionDeclaration(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPDeclarationParser,
+    createParser: (pluginId: string) => any,
 ): boolean {
     const candidates = declarationSyntaxByStartToken.get(token);
     if (!candidates) return false;
@@ -697,7 +758,7 @@ export function isStartOfExtensionDeclaration(
 /** @internal */
 export function tryParseExtensionDeclaration(
     token: SyntaxKind,
-    createParser: (pluginId: string) => TSPPDeclarationParser,
+    createParser: (pluginId: string) => any,
 ): Statement | undefined {
     const candidates = declarationSyntaxByStartToken.get(token);
     if (!candidates) return undefined;
@@ -715,7 +776,7 @@ export function tryParseExtensionDeclaration(
 }
 
 /** @internal */
-export function getExtensionDeclarationSyntax(node: object): TSPPDeclarationSyntax | undefined {
+export function getExtensionDeclarationSyntax(node: object): any {
     let current: { readonly original?: object; } | undefined = node;
     while (current) {
         const syntax = declarationSyntaxByNode.get(current);
@@ -741,13 +802,13 @@ export function hasExtensionDeclarationValueUseRestrictions(): boolean {
     return false;
 }
 
-/** Exposed for architecture tests and diagnostics. */
+/** Exposed for architecture tests and diagnostics. @internal */
 export function getRegisteredExpressionPluginIds(): readonly string[] {
     return [...expressionSyntaxByPluginId.keys()];
 }
 
 /** @internal */
-export function getRegisteredTSPPProgramAnalyzers(): readonly TSPPProgramAnalyzer[] {
+export function getRegisteredTSPPProgramAnalyzers(): readonly any[] {
     return [...programAnalyzers.values()].map(registration => registration.analyzer);
 }
 

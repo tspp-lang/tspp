@@ -55,7 +55,7 @@ function snapshotProgram(program: Program): TSPPProgramAnalysisInput {
 }
 
 /** Runs isolated feature analyzers without exposing compiler-owned objects. @internal */
-export async function runTSPPProgramAnalyzers(program: Program): Promise<readonly TSPPAnalysisDiagnostic[]> {
+export async function runTSPPProgramAnalyzers(program: Program): Promise<readonly any[]> {
     const existing = analysisResults.get(program);
     if (existing) return existing;
     const analyzers = getRegisteredTSPPProgramAnalyzers();
@@ -77,7 +77,7 @@ export async function runTSPPProgramAnalyzers(program: Program): Promise<readonl
 }
 
 /** Returns artifacts from the most recent analyzer run for this program. @internal */
-export function getTSPPAnalysisArtifacts(program: Program, fileName?: string): readonly TSPPAnalysisArtifact[] {
+export function getTSPPAnalysisArtifacts(program: Program, fileName?: string): readonly any[] {
     const artifacts = analysisArtifacts.get(program) ?? [];
     if (fileName === undefined) return artifacts;
     const normalized = normalizePath(fileName);
