@@ -1,6 +1,10 @@
 {
-  "name": "tspp-example-01-let-in-expression",
+  "name": "@tspp/example-let-in-expression",
   "version": "0.0.0",
   "private": true,
-  "description": "Example project for the TS++ let-in expression plugin."
+  "description": "Example project for the TS++ let-in expression plugin.",
+  "dependencies": {
+    "@tspp/plugin-let-in-expression": "workspace:*",
+    "ts-plus-plus": "workspace:*"
+  }
 }
