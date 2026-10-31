@@ -12,7 +12,10 @@ function resolveSdkPath(context) {
   }
 
   if (context.extensionMode === vscode.ExtensionMode.Development) {
-    return path.resolve(context.extensionPath, "../compiler/built/local");
+    // Pass the concrete file. The language server treats a directory as an SDK
+    // root and normalizes it back to <package>/lib/tsserver.js, which would
+    // silently select the stale LKG instead of the development build.
+    return path.resolve(context.extensionPath, "../compiler/built/local/tsserver.js");
   }
 
   return path.dirname(require.resolve("ts-plus-plus/lib/tsserver.js"));
