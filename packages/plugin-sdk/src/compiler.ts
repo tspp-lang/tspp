@@ -218,6 +218,7 @@ export interface TSPPExpressionParser {
     getNodePos(): number;
     parseExpected(kind: TSPPSyntaxKind): boolean;
     parseVariableDeclarationList(inForStatementInitializer: boolean): TSPPVariableDeclarationList;
+    parseType(): TSPPTypeNode;
     parseAssignmentExpression(): TSPPExpression;
     parseBlock(): TSPPBlock;
     parseTaggedUnionMatchExpression(): TSPPExpression;
@@ -229,6 +230,20 @@ export interface TSPPExpressionChecker {
     checkVariableDeclarationList(node: TSPPVariableDeclarationList): void;
     checkTaggedUnionMatch(node: TSPPExtensionExpression, checkMode: number | undefined): TSPPType;
     checkCompletionBlock(block: TSPPBlock, checkMode: number | undefined): TSPPType;
+    /** Creates an opaque runtime descriptor type that retains its represented static type. */
+    createReifiedType(type: TSPPTypeNode): TSPPType;
+    checkReifiedTypeMatch(
+        owner: TSPPExtensionExpression,
+        scrutinee: TSPPExpression,
+        arms: readonly TSPPReifiedTypeMatchArm[],
+        checkMode: number | undefined,
+    ): TSPPType;
+}
+
+export interface TSPPReifiedTypeMatchArm {
+    /** Missing only for the required final wildcard arm. */
+    readonly pattern?: TSPPTypeNode;
+    readonly result: TSPPExpression;
 }
 
 export interface TSPPExpressionTransformer {
@@ -241,6 +256,9 @@ export interface TSPPExpressionTransformer {
     createParenthesizedExpression(expression: TSPPExpression): TSPPExpression;
     createCallExpression(expression: TSPPExpression): TSPPExpression;
     createCompletionBlockIIFE(block: TSPPBlock): TSPPExpression;
+    /** Emits a serializable runtime descriptor for an authored type node. */
+    createReifiedTypeDescriptor(type: TSPPTypeNode): TSPPExpression;
+    getSelectedExpression(owner: TSPPExtensionExpression): TSPPExpression;
 }
 
 export interface TSPPFunctionBodyParser {

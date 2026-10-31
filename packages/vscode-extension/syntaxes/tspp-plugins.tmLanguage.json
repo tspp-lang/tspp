@@ -9,8 +9,12 @@
       "name": "support.type.universe.tspp"
     },
     {
-      "match": "\\b(?:Bool|True|False|Nat|Zero|Succ|NatAdd|Eq|Refl)\\b",
+      "match": "\\b(?:Bool|True|False|BoolElim|If|Nat|Zero|Succ|NatAdd|NatElim|Eq|Refl|J|Sigma|Pair|First|Second|Lam|Ann)\\b",
       "name": "support.type.mltt.tspp"
+    },
+    {
+      "match": "\\b(?:reify|match\\s+mltt)\\b",
+      "name": "keyword.control.mltt.tspp"
     },
     {
       "match": "->",

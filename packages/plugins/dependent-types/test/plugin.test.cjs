@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const {
+  dependentTypesPlugin,
   dependentTypesAnalyzer,
   parseDependentType,
   projectDependentTypes,
@@ -39,7 +40,19 @@ test("projects plugin-owned syntax to length-preserving TypeScript", () => {
   const projected = projectDependentTypes("identity.tspp", source);
   assert.equal(projected.length, source.length);
   assert.equal(projected.split("\n").length, source.split("\n").length);
-  assert.match(projected, /type Identity\s+= any\s+;/);
+  assert.match(projected, /type Identity\s+= <A>\(value:A\)=>A\s+;/);
+});
+
+test("projects erased binders and partial inference through ordinary TypeScript", () => {
+  const source = `
+    export type Select: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
+    declare const select: Select;
+    select<auto, string>(1, "right");
+  `;
+  const projected = projectDependentTypes("select.tspp", source);
+  assert.equal(projected.length, source.length);
+  assert.match(projected, /type Select\s+= <A,B>\(left:A,right:B\)=>B/);
+  assert.doesNotMatch(projected, /auto/);
 });
 
 test("analyzer accepts valid aliases and resolves earlier aliases", async () => {
@@ -59,5 +72,57 @@ test("analyzer reports kind mismatches and ill-typed core terms", async () => {
   assert.equal(diagnostics.length, 2);
   assert.match(diagnostics[0].message, /Type1, not Type0/);
   assert.match(diagnostics[1].message, /Expected Nat/);
+});
+
+test("parses and normalizes all built-in eliminators", () => {
+  const trueResult = parseDependentType(
+    "If<True, Ann<Lam<(ignored: Bool) -> Type0>, (ignored: Bool) -> Type1>, string, number>",
+  );
+  assert.equal(mltt.normalizeMlttTerm(trueResult).displayName, "string");
+
+  const sum = parseDependentType("NatAdd<Succ<Zero>, Succ<Zero>>");
+  assert.deepEqual(
+    mltt.normalizeMlttTerm(sum),
+    mltt.mlttSuccessor(mltt.mlttSuccessor(mltt.mlttZero())),
+  );
+
+  const pair = parseDependentType(
+    "Pair<Sigma<(value: Nat) -> Eq<Nat, value, Zero>>, Zero, Refl<Nat, Zero>>",
+  );
+  assert.deepEqual(mltt.normalizeMlttTerm(mltt.mlttFirst(pair)), mltt.mlttZero());
+  assert.equal(mltt.normalizeMlttTerm(mltt.mlttSecond(pair)).kind, "refl");
+});
+
+test("parses ordered type matching with generic captures", () => {
+  const term = parseDependentType(
+    "match mltt Array<string> { Array<infer Element>: Element, _: never }",
+  );
+  assert.equal(term.kind, "type-match");
+  assert.equal(term.cases.length, 1);
+  assert.equal(term.cases[0].captures[0].name, "Element");
+  assert.equal(term.cases[0].result.kind, "variable");
+});
+
+test("checks aliases annotated by terms as well as universes", async () => {
+  const diagnostics = await dependentTypesAnalyzer.analyze(input(`
+    export type One: Nat = Succ<Zero>;
+    export type Two: Nat = NatAdd<One, One>;
+    export type Proof: Type0 = Eq<Nat, Two, Succ<Succ<Zero>>>;
+  `));
+  assert.deepEqual(diagnostics, []);
+});
+
+test("registers type projection, analysis, reification, and matching as one capsule", () => {
+  const registrations = [];
+  const compiler = {
+    expressionSyntaxKinds: { identifier: 1 },
+    registerExpressionSyntax(syntax) { registrations.push(["expression", syntax]); return () => {}; },
+    registerSourcePreprocessor(preprocessor) { registrations.push(["projection", preprocessor]); return () => {}; },
+    registerProgramAnalyzer(analyzer) { registrations.push(["analysis", analyzer]); return () => {}; },
+  };
+  const dispose = dependentTypesPlugin.facets.compiler.activate({ compiler });
+  assert.equal(registrations.filter(([kind]) => kind === "expression").length, 2);
+  assert.deepEqual(registrations.map(([kind]) => kind), ["expression", "expression", "projection", "analysis"]);
+  dispose();
 });
 

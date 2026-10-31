@@ -65,6 +65,7 @@ import {
     getOriginalNode,
     getParseTreeNode,
     getProperties,
+    getSourceTextOfNodeFromSourceFile,
     getTextOfNode,
     hasDecorators,
     hasSyntacticModifier,
@@ -204,6 +205,7 @@ import {
     Transformer,
     TransformFlags,
     TypeAliasDeclaration,
+    TypeNode,
     VariableDeclaration,
     VariableDeclarationList,
     VariableStatement,
@@ -219,6 +221,7 @@ import {
     getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
     getExtensionFunctionBodySyntax,
+    getSelectedExtensionExpression,
     getTrailingClosureBinding,
     hasExtensionDeclarationCallTransforms,
 } from "../plugins/registry.js";
@@ -714,6 +717,22 @@ export function transformTypeScript(context: TransformationContext): Transformer
                     /*typeArguments*/ undefined,
                     [],
                 );
+            },
+            createReifiedTypeDescriptor: type => {
+                const typeNode = type as TypeNode;
+                const text = currentSourceFile
+                    ? getSourceTextOfNodeFromSourceFile(currentSourceFile, typeNode, /*includeTrivia*/ false).trim()
+                    : "unknown";
+                return factory.createObjectLiteralExpression([
+                    factory.createPropertyAssignment("kind", factory.createStringLiteral("type")),
+                    factory.createPropertyAssignment("text", factory.createStringLiteral(text)),
+                ]);
+            },
+            getSelectedExpression: owner => {
+                const selected = getSelectedExtensionExpression(owner);
+                return selected
+                    ? Debug.checkDefined(visitNode(selected as Expression, visitor, isExpression))
+                    : factory.createVoidZero();
             },
         };
         return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;

@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-dependent-types",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Martin-Löf dependent types as an isolated TSPP feature capsule.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",

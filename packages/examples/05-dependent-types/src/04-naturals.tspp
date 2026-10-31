@@ -1,0 +1,10 @@
+export type One: Nat = Succ<Zero>;
+export type Two: Nat = NatAdd<One, One>;
+export type Four: Nat = NatAdd<Two, Two>;
+
+export type NaturalNumberInduction: Type1 =
+  (P: (N: Nat) -> Type0) ->
+  (zeroCase: P<Zero>) ->
+  (successorCase: (N: Nat) -> (previous: P<N>) -> P<Succ<N>>) ->
+  (N: Nat) ->
+  P<N>;

@@ -8,7 +8,11 @@ export function createValueMatchSyntax(
 ): TSPPExpressionSyntax {
     return {
         startTokens: [kinds.identifier],
-        isStart: parser => parser.token() === kinds.identifier && parser.tokenText() === "match",
+        isStart: parser => parser.token() === kinds.identifier && parser.tokenText() === "match"
+            && parser.lookAhead(() => {
+                parser.nextToken();
+                return parser.tokenText() !== "mltt";
+            }),
         parse: parser => parser.parseTaggedUnionMatchExpression(),
         check: (node, checker, checkMode) => checker.checkTaggedUnionMatch(node, checkMode),
         transform: () => {

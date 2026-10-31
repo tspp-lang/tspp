@@ -165,11 +165,13 @@ first-order solver formulas rather than dependent terms. Sharing utilities is
 allowed when real duplication appears; merging the two semantic models merely
 because both are called “IR” is not.
 
-The current dependent-types vertical slice uses the generic length-preserving
-projection and asynchronous analyzer ports for kernel diagnostics. Full runtime
-call projection and TypeScript assignability require a future generic
-semantic-type SDK port; the feature package must not import checker internals as
-a shortcut.
+The dependent-types capsule uses length-preserving projection for representable
+Pi signatures and the asynchronous analyzer port for kernel diagnostics. The
+SDK additionally exposes generic reified-type descriptor and compile-time
+selection operations. Consequently `reify T` and expression-level exact type
+matching retain ordinary TypeScript types without exposing checker nodes to the
+feature package. These host operations have no MLTT feature IDs or imports;
+the plugin still owns its syntax, kernel, projection policy, and editor grammar.
 
 ### Declaration extensions
 

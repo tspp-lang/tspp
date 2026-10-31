@@ -1,0 +1,13 @@
+export const stringDescriptor = reify string;
+export const arrayDescriptor = reify Array<string>;
+
+export const matchedDescriptor = match mltt stringDescriptor {
+  string => "text",
+  number => "number",
+  _ => "fallback"
+};
+
+// Only the selected expression is emitted; the match itself has no runtime
+// dispatch cost. The descriptors remain ordinary serializable values.
+export const descriptorKind: "type" = stringDescriptor.kind;
+export const descriptorText: string = arrayDescriptor.text;

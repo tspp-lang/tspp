@@ -6163,6 +6163,7 @@ namespace Parser {
             getNodePos,
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
             parseVariableDeclarationList,
+            parseType,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
             parseBlock: () => parseBlock(/*ignoreMissingOpenBrace*/ false),
             parseTaggedUnionMatchExpression,
