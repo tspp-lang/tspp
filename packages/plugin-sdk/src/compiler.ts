@@ -5,6 +5,7 @@ export type TSPPSyntaxNode = object;
 export type TSPPExpression = TSPPSyntaxNode;
 export type TSPPVariableDeclarationList = TSPPSyntaxNode;
 export type TSPPDeclaration = TSPPSyntaxNode;
+export type TSPPCallExpression = TSPPExpression;
 export type TSPPIdentifier = TSPPSyntaxNode;
 export type TSPPTypeNode = TSPPSyntaxNode;
 export type TSPPTypeParameterList = TSPPSyntaxNode;
@@ -149,17 +150,34 @@ export interface TSPPDeclarationChecker {
 }
 
 export interface TSPPDeclarationTransformer {
-    createIdentityFunctionDeclaration(node: TSPPDeclaration): TSPPSyntaxNode;
+    createNotEmittedStatement(node: TSPPDeclaration): TSPPSyntaxNode;
+}
+
+export interface TSPPDeclarationCallTransformer {
+    getArguments(node: TSPPCallExpression): readonly TSPPExpression[];
+    visitExpression(node: TSPPExpression): TSPPExpression;
+}
+
+export interface TSPPDeclarationEmitter {
+    emitTypeAliasDeclaration(node: TSPPDeclaration, keyword: string): void;
 }
 
 export interface TSPPDeclarationSyntax {
     readonly startTokens: readonly TSPPSyntaxKind[];
     readonly binding: "type" | "type-and-value";
+    /** Controls whether imports that only reference this declaration need a JavaScript binding. */
+    readonly runtime?: "emitted" | "erased";
     isStart(parser: TSPPDeclarationParser): boolean;
     parse(parser: TSPPDeclarationParser): TSPPDeclaration;
     getDeclaredType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker, underlyingType: TSPPType): TSPPType;
     getValueType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker): TSPPType;
     transform?(node: TSPPDeclaration, transformer: TSPPDeclarationTransformer): TSPPSyntaxNode;
+    transformCall?(
+        node: TSPPCallExpression,
+        declaration: TSPPDeclaration,
+        transformer: TSPPDeclarationCallTransformer,
+    ): TSPPExpression;
+    emitDeclaration?(node: TSPPDeclaration, emitter: TSPPDeclarationEmitter): void;
 }
 
 export interface TSPPCompilerPluginAPI {

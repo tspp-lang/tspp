@@ -2,7 +2,14 @@
   "name": "@tspp/example-newtype",
   "version": "0.0.0",
   "private": true,
+  "type": "module",
   "description": "Example project for the TS++ newtype plugin.",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
   "scripts": {
     "build": "tspp -p tsconfig.json --pretty false",
     "check": "tspp -p tsconfig.json --noEmit --pretty false"

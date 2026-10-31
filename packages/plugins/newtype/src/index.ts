@@ -17,6 +17,7 @@ export const newtypePlugin = definePlugin({
                 const syntax: TSPPDeclarationSyntax = {
                     startTokens: [kinds.identifier],
                     binding: "type-and-value",
+                    runtime: "erased",
                     isStart: parser => parser.tokenText() === "newtype" && parser.lookAhead(() => {
                         parser.nextToken();
                         return !parser.hasPrecedingLineBreak() && /^[A-Za-z_$][\w$]*$/.test(parser.tokenText());
@@ -37,7 +38,12 @@ export const newtypePlugin = definePlugin({
                         checker.getTypeFromTypeNode(checker.getTypeNode(node)),
                         checker.getDeclaredType(node),
                     ),
-                    transform: (node, transformer) => transformer.createIdentityFunctionDeclaration(node),
+                    transform: (node, transformer) => transformer.createNotEmittedStatement(node),
+                    transformCall: (node, _declaration, transformer) => {
+                        const [value] = transformer.getArguments(node);
+                        return value ? transformer.visitExpression(value) : node;
+                    },
+                    emitDeclaration: (node, emitter) => emitter.emitTypeAliasDeclaration(node, "newtype"),
                 };
                 return context.compiler.registerDeclarationSyntax(syntax);
             },

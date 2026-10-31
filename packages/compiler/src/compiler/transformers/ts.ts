@@ -1,4 +1,5 @@
 import type {
+    TSPPDeclarationCallTransformer,
     TSPPDeclarationTransformer,
     TSPPExpressionTransformer,
 } from "@tspp/plugin-sdk/compiler";
@@ -82,6 +83,7 @@ import {
     isBindingName,
     isBindingPattern,
     isBlock,
+    isCallExpression,
     isCatchClause,
     isClassElement,
     isClassLike,
@@ -213,6 +215,7 @@ import {
 import {
     getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
+    hasExtensionDeclarationCallTransforms,
 } from "../plugins/registry.js";
 
 /**
@@ -403,6 +406,10 @@ export function transformTypeScript(context: TransformationContext): Transformer
     function visitorWorker(node: Node): VisitResult<Node | undefined> {
         if (node.transformFlags & TransformFlags.ContainsTypeScript) {
             return visitTypeScript(node);
+        }
+        if (hasExtensionDeclarationCallTransforms()) {
+            if (isCallExpression(node)) return visitCallExpression(node);
+            return visitEachChild(node, visitor, context);
         }
         return node;
     }
@@ -684,26 +691,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
         const syntax = getExtensionDeclarationSyntax(node);
         if (!syntax?.transform) return undefined;
         const pluginTransformer: TSPPDeclarationTransformer = {
-            createIdentityFunctionDeclaration: declaration => {
-                const source = declaration as TypeAliasDeclaration;
-                const value = factory.createIdentifier("value");
-                const result = factory.createFunctionDeclaration(
-                    /*modifiers*/ undefined,
-                    /*asteriskToken*/ undefined,
-                    source.name,
-                    /*typeParameters*/ undefined,
-                    [factory.createParameterDeclaration(
-                        /*modifiers*/ undefined,
-                        /*dotDotDotToken*/ undefined,
-                        value,
-                    )],
-                    /*type*/ undefined,
-                    factory.createBlock([factory.createReturnStatement(value)], /*multiLine*/ true),
-                );
-                setOriginalNode(result, source);
-                setTextRange(result, source);
-                return result;
-            },
+            createNotEmittedStatement: declaration => factory.createNotEmittedStatement(declaration as Node),
         };
         return visitNode(syntax.transform(node, pluginTransformer) as Statement, visitor, isStatement);
     }
@@ -1815,6 +1803,17 @@ export function transformTypeScript(context: TransformationContext): Transformer
     }
 
     function visitCallExpression(node: CallExpression) {
+        if (isIdentifier(node.expression)) {
+            const declaration = resolver.getReferencedExtensionDeclaration(node.expression);
+            const syntax = declaration && getExtensionDeclarationSyntax(declaration);
+            if (syntax?.transformCall && declaration) {
+                const pluginTransformer: TSPPDeclarationCallTransformer = {
+                    getArguments: call => (call as CallExpression).arguments,
+                    visitExpression: expression => Debug.checkDefined(visitNode(expression as Expression, visitor, isExpression)),
+                };
+                return syntax.transformCall(node, declaration, pluginTransformer) as Expression;
+            }
+        }
         return factory.updateCallExpression(
             node,
             Debug.checkDefined(visitNode(node.expression, visitor, isExpression)),
@@ -2822,6 +2821,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
     }
 
     function shouldEmitAliasDeclaration(node: Node): boolean {
-        return compilerOptions.verbatimModuleSyntax || isInJSFile(node) || resolver.isReferencedAliasDeclaration(node);
+        return compilerOptions.verbatimModuleSyntax || isInJSFile(node) ||
+            (!resolver.isErasedExtensionValueAliasDeclaration(node) && resolver.isReferencedAliasDeclaration(node));
     }
 }

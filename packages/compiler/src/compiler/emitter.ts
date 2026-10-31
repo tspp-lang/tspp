@@ -1,3 +1,4 @@
+import type { TSPPDeclarationEmitter } from "@tspp/plugin-sdk/compiler";
 import * as ts from "./_namespaces/ts.js";
 import {
     AccessorDeclaration,
@@ -424,6 +425,7 @@ import {
     YieldExpression,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import { getExtensionDeclarationSyntax } from "./plugins/registry.js";
 
 const brackets = createBracketsMap();
 
@@ -1151,6 +1153,7 @@ export const notImplementedResolver: EmitResolver = {
     getReferencedDeclarationWithCollidingName: notImplemented,
     isDeclarationWithCollidingName: notImplemented,
     isValueAliasDeclaration: notImplemented,
+    isErasedExtensionValueAliasDeclaration: notImplemented,
     isReferencedAliasDeclaration: notImplemented,
     isTopLevelValueImportEqualsWithEntityName: notImplemented,
     hasNodeCheckFlag: notImplemented,
@@ -1172,6 +1175,7 @@ export const notImplementedResolver: EmitResolver = {
     getConstantValue: notImplemented,
     getEnumMemberValue: notImplemented,
     getReferencedValueDeclaration: notImplemented,
+    getReferencedExtensionDeclaration: notImplemented,
     getReferencedValueDeclarations: notImplemented,
     getTypeReferenceSerializationKind: notImplemented,
     isOptionalParameter: notImplemented,
@@ -3603,6 +3607,26 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitTypeAliasDeclaration(node: TypeAliasDeclaration) {
+        const syntax = getExtensionDeclarationSyntax(node);
+        if (syntax?.emitDeclaration) {
+            const pluginEmitter: TSPPDeclarationEmitter = {
+                emitTypeAliasDeclaration: (declaration, keyword) => {
+                    const alias = declaration as TypeAliasDeclaration;
+                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
+                    writeKeyword(keyword);
+                    writeSpace();
+                    emit(alias.name);
+                    emitTypeParameters(alias, alias.typeParameters);
+                    writeSpace();
+                    writePunctuation("=");
+                    writeSpace();
+                    emit(alias.type);
+                    writeTrailingSemicolon();
+                },
+            };
+            syntax.emitDeclaration(node, pluginEmitter);
+            return;
+        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
         writeKeyword("type");
         writeSpace();

@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "plugins": [
+      {
+        "name": "@tspp/plugin-newtype",
+        "tspp": true
+      }
+    ]
+  },
+  "include": ["index.tspp"]
+}

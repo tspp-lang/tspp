@@ -185,6 +185,16 @@ export function getExtensionExpressionSyntax(node: ExtensionExpression): TSPPExp
 }
 
 /** @internal */
+export function isStartOfExtensionDeclaration(
+    token: SyntaxKind,
+    createParser: (pluginId: string) => TSPPDeclarationParser,
+): boolean {
+    const candidates = declarationSyntaxByStartToken.get(token);
+    if (!candidates) return false;
+    return candidates.some(({ pluginId, syntax }) => syntax.isStart(createParser(pluginId)));
+}
+
+/** @internal */
 export function tryParseExtensionDeclaration(
     token: SyntaxKind,
     createParser: (pluginId: string) => TSPPDeclarationParser,
@@ -203,7 +213,18 @@ export function tryParseExtensionDeclaration(
 
 /** @internal */
 export function getExtensionDeclarationSyntax(node: object): TSPPDeclarationSyntax | undefined {
-    return declarationSyntaxByNode.get(node);
+    let current: { readonly original?: object; } | undefined = node;
+    while (current) {
+        const syntax = declarationSyntaxByNode.get(current);
+        if (syntax) return syntax;
+        current = current.original;
+    }
+    return undefined;
+}
+
+/** @internal */
+export function hasExtensionDeclarationCallTransforms(): boolean {
+    return [...declarationSyntaxByPluginId.values()].some(syntax => !!syntax.transformCall);
 }
 
 /** Exposed for architecture tests and diagnostics. */
