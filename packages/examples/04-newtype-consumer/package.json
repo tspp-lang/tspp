@@ -4,10 +4,6 @@
   "private": true,
   "type": "module",
   "description": "Cross-package consumer for the TS++ newtype plugin.",
-  "tsppPlayground": {
-    "group": "03-nominal-types",
-    "directory": "consumer"
-  },
   "scripts": {
     "build": "tspp -p tsconfig.json --pretty false",
     "check": "pnpm --filter @tspp/example-nominal-types build && tspp -p tsconfig.json --noEmit --pretty false",

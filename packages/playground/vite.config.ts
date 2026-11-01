@@ -176,9 +176,6 @@ function examplesPlugin(): Plugin {
         const directory = join(examplesRoot, project);
         const configPath = join(directory, "tsconfig.json");
         if (!existsSync(configPath)) return [];
-        const manifest = JSON.parse(readFileSync(join(directory, "package.json"), "utf8")) as {
-          tsppPlayground?: { group?: string; directory?: string };
-        };
         const config = JSON.parse(readFileSync(configPath, "utf8")) as {
           compilerOptions?: { plugins?: { name?: string; tspp?: boolean }[] };
         };
@@ -197,31 +194,12 @@ function examplesPlugin(): Plugin {
         ]);
         return [{
           id: project,
-          group: manifest.tsppPlayground?.group,
-          directory: manifest.tsppPlayground?.directory ?? project,
           features,
           entry: `/src/${sources[0]}`,
           files,
         }];
       });
-      const projects = entries.filter(entry => !entry.group).map(entry => ({
-        id: entry.id,
-        features: [...entry.features],
-        entry: entry.entry,
-        files: { ...entry.files },
-      }));
-      for (const grouped of entries.filter(entry => entry.group)) {
-        const target = projects.find(project => project.id === grouped.group);
-        if (!target) throw new Error(`Playground example '${grouped.id}' targets missing group '${grouped.group}'.`);
-        for (const feature of grouped.features) {
-          if (!target.features.includes(feature)) target.features.push(feature);
-        }
-        for (const [fileName, content] of Object.entries(grouped.files)) {
-          if (!fileName.startsWith("/src/")) continue;
-          target.files[`/src/${grouped.directory}/${fileName.slice("/src/".length)}`] = content;
-        }
-      }
-      return `export default ${JSON.stringify(projects)};`;
+      return `export default ${JSON.stringify(entries)};`;
     },
   };
 }
