@@ -8,10 +8,14 @@ export function createValueMatchSyntax(
 ): TSPPExpressionSyntax {
     return {
         startTokens: [kinds.identifier],
+        // `match` stays an ordinary identifier unless a scrutinee and its arms' `{` follow on the same line, so
+        // `match = 6`, `match.x`, and `match(1)` followed by a block on the next line keep their TypeScript meaning.
         isStart: parser => parser.token() === kinds.identifier && parser.tokenText() === "match"
             && parser.lookAhead(() => {
                 parser.nextToken();
-                return parser.tokenText() !== "mltt";
+                if (parser.hasPrecedingLineBreak() || parser.tokenText() === "mltt") return false;
+                parser.parseAssignmentExpression();
+                return parser.token() === kinds.openBraceToken && !parser.hasPrecedingLineBreak();
             }),
         parse: parser => parser.parseTaggedUnionMatchExpression(),
         check: (node, checker, checkMode) => checker.checkTaggedUnionMatch(node, checkMode),

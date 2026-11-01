@@ -206,6 +206,13 @@ test("match reports missing, duplicate, and unknown variants", () => {
   assert.match(messages("match envelope { Wrapped(Missing(value)) => value, Wrapped(_) => 0, Empty => 0 }"), /Pattern 'Missing' does not belong/);
 });
 
+test("match stays an ordinary identifier outside match expressions", () => {
+  assert.deepEqual(messagesOf("let match = 5;\nmatch = 6;\nexport const out = match + 1;"), []);
+  assert.deepEqual(messagesOf("declare const match: { x: number };\nexport const x = match.x;"), []);
+  // A call followed by a block on the next line is not a match with arms.
+  assert.deepEqual(messagesOf("const match = (x: number) => x;\nmatch(1)\n{ const ignored = 2; }"), []);
+});
+
 test("malformed match arms report syntax errors and finish parsing", () => {
   const declarations = "data Opt = None | Some(value: number); declare const o: Opt;\n";
   // Each of these used to reparse the same token forever until the heap ran out.
