@@ -47,8 +47,8 @@ type TsppCompletionItem = monaco.languages.CompletionItem & { entry: CompletionE
 
 export function registerProviders(client: LanguageClient) {
   monaco.languages.registerHoverProvider(languageId, {
-    async provideHover(model, position) {
-      const info = await client.quickInfo(model.uri.path, model.getOffsetAt(position));
+    async provideHover(model, position, token) {
+      const info = await client.quickInfo(model.uri.path, model.getOffsetAt(position), token);
       if (!info) return undefined;
       const contents: monaco.IMarkdownString[] = [];
       if (info.display) contents.push({ value: codeBlock(info.display) });
@@ -79,9 +79,9 @@ export function registerProviders(client: LanguageClient) {
 
   monaco.languages.registerCompletionItemProvider(languageId, {
     triggerCharacters: [".", '"', "'", "`", "/", "@", "<", "#", " "],
-    async provideCompletionItems(model, position, context) {
+    async provideCompletionItems(model, position, context, token) {
       const offset = model.getOffsetAt(position);
-      const info = await client.completions(model.uri.path, offset, context.triggerCharacter);
+      const info = await client.completions(model.uri.path, offset, context.triggerCharacter, token);
       if (!info) return undefined;
       const word = model.getWordUntilPosition(position);
       const wordRange = new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn);
@@ -101,9 +101,9 @@ export function registerProviders(client: LanguageClient) {
       }));
       return { suggestions, incomplete: info.isIncomplete };
     },
-    async resolveCompletionItem(item) {
+    async resolveCompletionItem(item, token) {
       const { entry, fileName, offset } = item as TsppCompletionItem;
-      const details = await client.completionDetails(fileName, offset, entry.name, entry.source, entry.data);
+      const details = await client.completionDetails(fileName, offset, entry.name, entry.source, entry.data, token);
       if (!details) return item;
       return { ...item, detail: details.display, documentation: { value: details.documentation } };
     },
@@ -112,8 +112,8 @@ export function registerProviders(client: LanguageClient) {
   monaco.languages.registerSignatureHelpProvider(languageId, {
     signatureHelpTriggerCharacters: ["(", ",", "<"],
     signatureHelpRetriggerCharacters: [")"],
-    async provideSignatureHelp(model, position, _token, context) {
-      const help = await client.signatureHelp(model.uri.path, model.getOffsetAt(position), context.triggerCharacter, context.isRetrigger);
+    async provideSignatureHelp(model, position, token, context) {
+      const help = await client.signatureHelp(model.uri.path, model.getOffsetAt(position), context.triggerCharacter, context.isRetrigger, token);
       if (!help) return undefined;
       return {
         value: {
@@ -131,8 +131,8 @@ export function registerProviders(client: LanguageClient) {
   });
 
   monaco.languages.registerDefinitionProvider(languageId, {
-    async provideDefinition(model, position) {
-      const locations = await client.definition(model.uri.path, model.getOffsetAt(position));
+    async provideDefinition(model, position, token) {
+      const locations = await client.definition(model.uri.path, model.getOffsetAt(position), token);
       return locations.flatMap(({ fileName, span }) => {
         const target = monaco.editor.getModel(monaco.Uri.file(fileName));
         return target ? [{ uri: target.uri, range: toRange(target, span) }] : [];

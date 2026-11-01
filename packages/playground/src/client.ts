@@ -1,8 +1,25 @@
-import type { Request, Response, WorkerApi, WorkerEvent } from "./protocol";
+import type { Cancel, Request, Response, WorkerApi, WorkerEvent } from "./protocol";
 
+/** Monaco's CancellationToken, structurally. */
+export interface Cancellation {
+  readonly isCancellationRequested: boolean;
+  onCancellationRequested(listener: () => void): { dispose(): void };
+}
+
+/** Every method takes an optional trailing cancellation; a cancelled call rejects with Monaco's "Canceled" error. */
 export type LanguageClient = {
-  [K in keyof WorkerApi]: (...args: Parameters<WorkerApi[K]>) => Promise<Awaited<ReturnType<WorkerApi[K]>>>;
+  [K in keyof WorkerApi]: (...args: [...Parameters<WorkerApi[K]>, Cancellation?]) => Promise<Awaited<ReturnType<WorkerApi[K]>>>;
 };
+
+const isCancellation = (value: unknown): value is Cancellation =>
+  typeof (value as Cancellation | undefined)?.onCancellationRequested === "function";
+
+/** The error Monaco recognizes as a cancelled provider call and does not report. */
+function canceled(): Error {
+  const error = new Error("Canceled");
+  error.name = "Canceled";
+  return error;
+}
 
 /** A stable RPC facade. Changing the capsule set starts a fresh compiler worker. */
 export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): LanguageClient {
@@ -32,11 +49,22 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
     pending.clear();
   }
 
-  function send(method: keyof WorkerApi, args: unknown[]): Promise<unknown> {
+  function send(method: keyof WorkerApi, args: unknown[], cancellation?: Cancellation): Promise<unknown> {
+    if (cancellation?.isCancellationRequested) return Promise.reject(canceled());
     return new Promise((resolve, reject) => {
       const id = nextId++;
-      pending.set(id, { resolve, reject });
-      worker.postMessage({ id, method, args } as Request);
+      const target = worker;
+      const subscription = cancellation?.onCancellationRequested(() => {
+        if (!pending.delete(id)) return;
+        target.postMessage({ cancel: id } satisfies Cancel);
+        reject(canceled());
+      });
+      const settled = <T>(settle: (value: T) => void) => (value: T) => {
+        subscription?.dispose();
+        settle(value);
+      };
+      pending.set(id, { resolve: settled(resolve), reject: settled(reject) });
+      target.postMessage({ id, method, args } as Request);
     });
   }
 
@@ -51,6 +79,7 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
     get: (_target, method: keyof WorkerApi | "then") => {
       if (method === "then") return undefined;
       return async (...args: unknown[]) => {
+        const cancellation = isCancellation(args.at(-1)) ? args.pop() as Cancellation : undefined;
         if (method === "init") {
           z3 = args[0] as typeof z3;
           return send(method, args);
@@ -65,7 +94,7 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
           return transition;
         }
         await transition;
-        return send(method, args);
+        return send(method, args, cancellation);
       };
     },
   });

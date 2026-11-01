@@ -16,7 +16,7 @@ import operatorSectionsModule from "@tspp/plugin-operator-sections";
 import staticInterfaceMembersModule from "@tspp/plugin-static-interface-members";
 import typeComputationModule from "@tspp/plugin-type-computation";
 import libs from "virtual:tspp-libs";
-import type { CompletionEntry, DiagnosticInfo, Location, OutputCategory, OutputItem, OutputSnapshot, QuickInfo, Request, Response, SignatureHelp, Span, WorkerApi, WorkerEvent } from "../protocol";
+import type { Cancel, CompletionEntry, DiagnosticInfo, Location, OutputCategory, OutputItem, OutputSnapshot, QuickInfo, Request, Response, SignatureHelp, Span, WorkerApi, WorkerEvent } from "../protocol";
 import { createBrowserZ3Solver } from "../z3Bridge";
 
 interface AnalysisDiagnostic {
@@ -167,6 +167,60 @@ function languageService(): ts.LanguageService {
   return service ??= ts.createLanguageService(host);
 }
 
+// Program analyzers (formal verification solves with Z3) run in the background, as in
+// the language server: diagnostics answer at once and gain analyzer results once the run
+// for the current Program settles.
+let analyzedProgram: ts.Program | undefined;
+let analyzingProgram: ts.Program | undefined;
+let analysisDiagnostics: readonly ts.Diagnostic[] = [];
+/** Bumped by every project change, so a run for an outdated Program is not reported. */
+let projectVersion = 0;
+
+function startAnalysis(program: ts.Program): void {
+  if (analyzedProgram === program || analyzingProgram === program) return;
+  analyzingProgram = program;
+  const version = projectVersion;
+  const settle = (diagnostics: readonly ts.Diagnostic[]) => {
+    if (analyzingProgram !== program) return;
+    analyzingProgram = undefined;
+    if (projectVersion !== version) return;
+    analyzedProgram = program;
+    analysisDiagnostics = diagnostics;
+    post({ event: "analysisSettled" });
+  };
+  tspp.runTSPPProgramAnalyzers(program).then(
+    analyzed => settle(analyzed.map(diagnostic => ({
+      file: program.getSourceFile(diagnostic.fileName),
+      start: diagnostic.start,
+      length: diagnostic.length,
+      messageText: diagnostic.message,
+      code: diagnostic.code,
+      category: diagnostic.category === "error" ? ts.DiagnosticCategory.Error : ts.DiagnosticCategory.Warning,
+    }))),
+    error => {
+      console.error(`[tspp worker] program analysis failed: ${error instanceof Error ? error.stack : error}`);
+      // a crashed analyzer must not look like a verified program
+      settle([{
+        file: undefined,
+        start: undefined,
+        length: undefined,
+        messageText: `Program analysis failed: ${error instanceof Error ? error.message : String(error)}`,
+        code: 0,
+        category: ts.DiagnosticCategory.Error,
+      }]);
+    },
+  );
+}
+
+/** Analyzer diagnostics of the current Program for one file, once its run has settled. */
+function settledAnalysisDiagnostics(program: ts.Program, fileName: string): readonly ts.Diagnostic[] {
+  if (analyzedProgram !== program) {
+    startAnalysis(program);
+    return [];
+  }
+  return analysisDiagnostics.filter(diagnostic => !diagnostic.file || diagnostic.file.fileName === fileName);
+}
+
 async function loadPackageTypesIfImported(): Promise<void> {
   if (Object.keys(packageTypes).length || ![...files.values()].some(file => packageImport.test(file.text))) return;
   packageTypes = (await import("virtual:tspp-package-types")).default;
@@ -293,14 +347,18 @@ const api: WorkerApi = {
     for (const fileName of files.keys()) {
       if (!(fileName in projectFiles)) files.delete(fileName);
     }
+    projectVersion++;
   },
 
   editFile(fileName, text) {
     const file = files.get(fileName);
-    if (file && file.text !== text) files.set(fileName, { text, version: file.version + 1 });
+    if (file && file.text !== text) {
+      files.set(fileName, { text, version: file.version + 1 });
+      projectVersion++;
+    }
   },
 
-  async diagnostics(fileName) {
+  diagnostics(fileName) {
     if (!isSourceFile(fileName)) return [];
     const activeService = languageService();
     const diagnostics = [
@@ -315,17 +373,7 @@ const api: WorkerApi = {
       // Suggestions are optional; a failure there must not hide the errors above.
     }
     const program = activeService.getProgram();
-    if (program) {
-      const analyzed = await tspp.runTSPPProgramAnalyzers(program);
-      diagnostics.push(...analyzed.filter(diagnostic => diagnostic.fileName === fileName).map(diagnostic => ({
-        file: program.getSourceFile(diagnostic.fileName),
-        start: diagnostic.start,
-        length: diagnostic.length,
-        messageText: diagnostic.message,
-        code: diagnostic.code,
-        category: diagnostic.category === "error" ? ts.DiagnosticCategory.Error : ts.DiagnosticCategory.Warning,
-      })));
-    }
+    if (program) diagnostics.push(...settledAnalysisDiagnostics(program, fileName));
     return diagnostics.map(toDiagnostic);
   },
 
@@ -416,19 +464,54 @@ const api: WorkerApi = {
   },
 };
 
-async function handle({ id, method, args }: Request) {
-  try {
-    await loadPackageTypesIfImported();
-    post({ id, result: await (api[method] as (...a: unknown[]) => unknown)(...args) });
-  }
-  catch (error) {
-    console.error(`[tspp worker] ${method} failed: ${error instanceof Error ? error.stack : error}`);
-    post({ id, error: error instanceof Error ? error.message : String(error) });
-  }
+/** Resolves after any messages already posted to the worker, such as cancellations, are delivered. */
+function yieldToMessages(): Promise<void> {
+  return new Promise(resolve => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve();
+    channel.port2.postMessage(undefined);
+  });
 }
 
-// Requests run strictly in arrival order, even when one waits for the package types.
-let queue = Promise.resolve();
-self.onmessage = (event: MessageEvent<Request>) => {
-  queue = queue.then(() => handle(event.data));
+const cancelled = new Set<number>();
+let lastStarted = 0;
+
+/** Starts one request; the returned box carries its result without waiting for it. */
+async function start({ id, method, args }: Request): Promise<{ result: unknown } | undefined> {
+  await yieldToMessages();
+  lastStarted = id;
+  if (cancelled.delete(id)) return undefined;
+  await loadPackageTypesIfImported();
+  return { result: (api[method] as (...a: unknown[]) => unknown)(...args) };
+}
+
+function fail(method: string, id: number, error: unknown) {
+  console.error(`[tspp worker] ${method} failed: ${error instanceof Error ? error.stack : error}`);
+  post({ id, error: error instanceof Error ? error.message : String(error) });
+}
+
+// Requests start strictly in arrival order, even when one waits for the package types.
+// Only the synchronous part is ordered: a request whose answer is asynchronous (SMT
+// outputs wait for Z3) must not hold back the hovers and completions behind it.
+let queue: Promise<unknown> = Promise.resolve();
+self.onmessage = (event: MessageEvent<Request | Cancel>) => {
+  const message = event.data;
+  if ("cancel" in message) {
+    if (message.cancel > lastStarted) cancelled.add(message.cancel);
+    return;
+  }
+  const started = queue.then(() => start(message));
+  queue = started.catch(() => undefined);
+  started.then(
+    async box => {
+      if (!box) return;
+      try {
+        post({ id: message.id, result: await box.result });
+      }
+      catch (error) {
+        fail(message.method, message.id, error);
+      }
+    },
+    error => fail(message.method, message.id, error),
+  );
 };

@@ -97,7 +97,8 @@ export interface WorkerApi {
   init(z3: { workerUrl: string; wasmUrl: string }): { version: string; features: readonly FeatureDefinition[] };
   setProject(files: ProjectFiles, features: readonly string[]): void;
   editFile(fileName: string, text: string): void;
-  diagnostics(fileName: string): Promise<DiagnosticInfo[]>;
+  /** Includes program analyzer results once their background run for this Program settles. */
+  diagnostics(fileName: string): DiagnosticInfo[];
   outputs(fileName: string, category: OutputCategory): Promise<OutputSnapshot>;
   quickInfo(fileName: string, offset: number): QuickInfo | undefined;
   completions(fileName: string, offset: number, triggerCharacter: string | undefined): { entries: CompletionEntry[]; isIncomplete: boolean } | undefined;
@@ -108,9 +109,11 @@ export interface WorkerApi {
 
 /** Notifications the worker sends on its own. */
 export type WorkerEvent =
-  /** Macro expansion or verification finished in the background; diagnostics may have changed. */
+  /** Macro expansion or program analysis finished in the background; diagnostics may have changed. */
   | { readonly event: "analysisSettled" }
   | { readonly event: "solver"; readonly busy: boolean };
 
 export type Request = { [K in keyof WorkerApi]: { id: number; method: K; args: Parameters<WorkerApi[K]> } }[keyof WorkerApi];
 export type Response = { id: number; result: unknown } | { id: number; error: string };
+/** Asks the worker to skip a request that has not started yet. */
+export type Cancel = { cancel: number };

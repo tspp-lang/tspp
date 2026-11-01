@@ -26,7 +26,8 @@ const bootOverlay = element("boot-overlay");
 const bootDetail = element("boot-detail");
 
 const client = startLanguageWorker(event => {
-  if (event.event === "analysisSettled") void check();
+  // several background runs (macros, then analyzers) often settle together
+  if (event.event === "analysisSettled") requestCheck(50);
   else {
     analysisStatus.hidden = !event.busy;
     analysisStatus.closest("section")?.setAttribute("aria-busy", String(event.busy));
@@ -184,10 +185,17 @@ const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selec
 let checkTimer: ReturnType<typeof setTimeout> | undefined;
 let checkGeneration = 0;
 
+let checkCancellation: monaco.CancellationTokenSource | undefined;
+
+/** Type checks the open file after a pause, replacing a check that has not run yet. */
+function requestCheck(delay: number) {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(check, delay);
+}
+
 /** Type checks the open file after a pause, and keeps the share link in the URL current. */
 function scheduleCheck() {
-  clearTimeout(checkTimer);
-  checkTimer = setTimeout(check, 300);
+  requestCheck(300);
   history.replaceState(null, "", "#" + encodeState({ files: projectFiles(), features: [...selected], active }));
   shareLink.hidden = true;
   syncExampleSelect();
@@ -197,11 +205,15 @@ async function check() {
   const generation = ++checkGeneration;
   const model = models.get(active);
   if (!model) return;
+  // an older check still waiting in the worker is skipped there
+  checkCancellation?.cancel();
+  const cancellation = checkCancellation = new monaco.CancellationTokenSource();
   let diagnostics: DiagnosticInfo[];
   try {
-    diagnostics = await client.diagnostics(active);
+    diagnostics = await client.diagnostics(active, cancellation.token);
   }
   catch (error) {
+    if (cancellation.token.isCancellationRequested) return;
     // a crash in the compiler must not look like a clean file
     diagnostics = [{ message: `Type checking failed: ${(error as Error).message}`, code: 0, category: "error", unnecessary: false, deprecated: false }];
   }
