@@ -31,8 +31,8 @@ jobs:
         with:
           node-version: 22.22.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:features
       - run: pnpm build:compiler
+      - run: pnpm test:features
       - run: pnpm test:examples
 
   products:

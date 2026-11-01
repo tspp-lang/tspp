@@ -6,7 +6,9 @@ const path = require("node:path");
 function loadCompiler() {
   const root = path.dirname(require.resolve("ts-plus-plus/package.json", { paths: [__dirname] }));
   const development = path.join(root, "built", "local", "typescript.js");
-  return require(fs.existsSync(development) ? development : path.join(root, "lib", "typescript.js"));
+  // The checked-in lib is upstream TypeScript without the plugin host, so these tests need the workspace build.
+  if (!fs.existsSync(development)) throw new Error(`Build the compiler first (pnpm build:compiler): ${development} is missing.`);
+  return require(development);
 }
 
 const ts = loadCompiler();
