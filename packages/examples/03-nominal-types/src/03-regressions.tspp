@@ -1,0 +1,25 @@
+data RegressionPair<A, B> = RegressionPair(left: A, right: B);
+
+const inferredPair = RegressionPair(1, "right");
+const inferredLeft: number = inferredPair.left;
+const inferredRight: string = inferredPair.right;
+
+data RegressionOption<T> = RegressionNone | RegressionSome(value: T);
+
+function unwrapNested(value: RegressionOption<RegressionOption<number>>): number {
+  return match value {
+    RegressionSome(inner) => match inner {
+      RegressionSome(result) => result,
+      RegressionNone => 0,
+    },
+    RegressionNone => 0,
+  };
+}
+
+data RegressionFields = RegressionFields(text: string, count: number);
+
+const selectedCount: number = match RegressionFields("value", 1) {
+  RegressionFields(_, count) => count,
+};
+
+console.log(inferredLeft, inferredRight, unwrapNested(RegressionSome(RegressionSome(1))), selectedCount);

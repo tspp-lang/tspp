@@ -409,7 +409,6 @@ import {
     VariableDeclaration,
     VariableDeclarationList,
     VariableStatement,
-    visitEachChild,
     VoidExpression,
     WhileStatement,
     WithClause,
@@ -6037,7 +6036,7 @@ namespace Parser {
             parseExpected(SyntaxKind.CloseBraceToken);
 
             const temporaryName = `__tspp_match_${pos}`;
-            const cloneScrutinee = () => getSynthesizedDeepClone(scrutinee);
+            const cloneWithRange = <T extends Node>(node: T): T => setTextRange(factory.cloneNode(node), node);
             const fieldAccess = (
                 value: Expression,
                 fieldIndex: number,
@@ -6053,28 +6052,48 @@ namespace Parser {
                     ? setTextRange(factory.createNonNullExpression(setTextRange(access, location)), location)
                     : access;
             };
-            const substituteBindings = (expression: Expression, replacements: ReadonlyMap<string, Expression>) => {
-                const visit = (node: Node): Node => {
-                    if (isIdentifierNode(node)) {
-                        const replacement = replacements.get(idText(node));
-                        if (replacement) return factory.cloneNode(replacement);
-                    }
-                    return visitEachChild(node, visit, /*context*/ undefined);
-                };
-                return visit(expression) as Expression;
+            const bindPatternValues = (expression: Expression, replacements: ReadonlyMap<string, Expression>) => {
+                if (replacements.size === 0) return expression;
+                const declarations = [...replacements].map(([name, replacement]) =>
+                    factory.createVariableDeclaration(
+                        name,
+                        /*exclamationToken*/ undefined,
+                        /*type*/ undefined,
+                        cloneWithRange(replacement),
+                    )
+                );
+                const arrow = factory.createArrowFunction(
+                    /*modifiers*/ undefined,
+                    /*typeParameters*/ undefined,
+                    emptyArray,
+                    /*type*/ undefined,
+                    factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                    factory.createBlock([
+                        factory.createVariableStatement(
+                            /*modifiers*/ undefined,
+                            factory.createVariableDeclarationList(declarations, NodeFlags.Const),
+                        ),
+                        factory.createReturnStatement(expression),
+                    ], /*multiLine*/ true),
+                );
+                return factory.createCallExpression(
+                    factory.createParenthesizedExpression(arrow),
+                    /*typeArguments*/ undefined,
+                    emptyArray,
+                );
             };
             const lowerPattern = (pattern: ParsedPattern, value: Expression, preserveRanges: boolean): {
                 readonly condition: Expression;
                 readonly replacements: ReadonlyMap<string, Expression>;
             } => {
                 let condition = factory.createBinaryExpression(
-                    factory.createPropertyAccessExpression(factory.cloneNode(value), "_tag"),
+                    factory.createPropertyAccessExpression(cloneWithRange(value), "_tag"),
                     factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
                     factory.createStringLiteral(idText(pattern.variant)),
                 );
                 const replacements = new Map<string, Expression>();
                 pattern.elements.forEach((element, fieldIndex) => {
-                    const access = fieldAccess(factory.cloneNode(value), fieldIndex, pattern.variant, preserveRanges);
+                    const access = fieldAccess(cloneWithRange(value), fieldIndex, pattern.variant, preserveRanges);
                     if (isParsedPattern(element)) {
                         const nested = lowerPattern(element, access, preserveRanges);
                         condition = factory.createBinaryExpression(
@@ -6097,8 +6116,8 @@ namespace Parser {
                         .filter(pattern => idText(pattern.variant) !== "_")
                         .map(pattern => lowerPattern(pattern, createMatched(), preserveRanges));
                     const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
-                    const result = substituteBindings(arm.result, replacements);
-                    const guard = arm.guard && substituteBindings(arm.guard, replacements);
+                    const result = bindPatternValues(arm.result, replacements);
+                    const guard = arm.guard && bindPatternValues(arm.guard, replacements);
                     let condition = lowered[0]?.condition;
                     for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
                         condition = factory.createBinaryExpression(
@@ -6109,7 +6128,10 @@ namespace Parser {
                     }
                     return { arm, wildcard, condition, guard, result };
                 });
-            const checkerArms = lowerArms(cloneScrutinee, /*preserveRanges*/ true);
+            const checkerArms = lowerArms(
+                () => setTextRange(factory.createIdentifier(temporaryName), scrutinee),
+                /*preserveRanges*/ true,
+            );
             let body: Expression = factory.createAsExpression(
                 factory.createVoidZero(),
                 factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
@@ -6130,7 +6152,35 @@ namespace Parser {
                     body,
                 );
             }
-            const matchExpression = finishNode(factory.createExtensionExpression(pluginId, [scrutinee, body]), pos);
+            const checkerBody = factory.createCallExpression(
+                factory.createParenthesizedExpression(factory.createArrowFunction(
+                    /*modifiers*/ undefined,
+                    /*typeParameters*/ undefined,
+                    emptyArray,
+                    /*type*/ undefined,
+                    factory.createToken(SyntaxKind.EqualsGreaterThanToken),
+                    factory.createBlock([
+                        factory.createVariableStatement(
+                            /*modifiers*/ undefined,
+                            factory.createVariableDeclarationList([
+                                factory.createVariableDeclaration(
+                                    temporaryName,
+                                    /*exclamationToken*/ undefined,
+                                    /*type*/ undefined,
+                                    scrutinee,
+                                ),
+                            ], NodeFlags.Const),
+                        ),
+                        factory.createReturnStatement(body),
+                    ], /*multiLine*/ true),
+                )),
+                /*typeArguments*/ undefined,
+                emptyArray,
+            );
+            const matchExpression = finishNode(
+                factory.createExtensionExpression(pluginId, [getSynthesizedDeepClone(scrutinee), checkerBody]),
+                pos,
+            );
             setTaggedUnionMatchData(matchExpression, {
                 scrutinee,
                 temporaryName,

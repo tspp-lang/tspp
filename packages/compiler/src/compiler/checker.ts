@@ -42390,9 +42390,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         node: ExtensionExpression,
         pattern: TaggedUnionMatchPattern,
         info: TaggedUnionMatchVariantInfo,
+        invalid: { value: boolean; },
     ): boolean {
         const fields = info.variant?.fields ?? emptyArray;
         if (pattern.elements.length !== fields.length) {
+            invalid.value = true;
             error(
                 node,
                 Diagnostics.Pattern_0_expects_1_fields_but_received_2,
@@ -42411,6 +42413,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             const fieldType = getTypeOfPropertyOfType(info.type, field.name.escapedText);
             const nested = fieldType && getTaggedUnionMatchVariants(fieldType).get(element.variant);
             if (!nested) {
+                invalid.value = true;
                 error(
                     node,
                     Diagnostics.Pattern_0_does_not_belong_to_data_type_1,
@@ -42419,7 +42422,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 );
                 continue;
             }
-            checkTaggedUnionMatchPattern(node, element, nested);
+            checkTaggedUnionMatchPattern(node, element, nested, invalid);
         }
         return irrefutable;
     }
@@ -42466,6 +42469,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             const variants = getTaggedUnionMatchVariants(matchedType);
             const covered = new Set<string>();
             const unguardedPatterns = new Map<string, TaggedUnionMatchPattern[]>();
+            const invalid = { value: false };
             let hasWildcard = false;
             for (const arm of taggedUnionMatch.arms) {
                 const wildcard = arm.patterns.find(pattern => pattern.variant === "_");
@@ -42506,7 +42510,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                         continue;
                     }
                     seenInArm.add(pattern.variant);
-                    const irrefutable = checkTaggedUnionMatchPattern(node, pattern, info);
+                    const irrefutable = checkTaggedUnionMatchPattern(node, pattern, info, invalid);
                     if (!arm.guard) {
                         if (irrefutable) covered.add(pattern.variant);
                         else {
@@ -42526,6 +42530,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     error(node, Diagnostics.Non_exhaustive_match_Missing_patterns_Colon_0, missing.join(", "));
                 }
             }
+            if (invalid.value) return errorType;
         }
         return checkExpression(node.extensionChildren[1] as Expression, checkMode);
     }
@@ -42805,27 +42810,31 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 const data = getTaggedUnionVariantData(node as Declaration);
                 if (!data) return errorType;
                 const aliasSymbol = getSymbolOfDeclaration(data.declaration);
-                const parameters = getSymbolLinks(aliasSymbol).typeParameters ?? emptyArray;
                 const declaredType = getDeclaredTypeOfSymbol(aliasSymbol);
+                const aliasParameters = getTypeParametersFromDeclaration(data.declaration) ?? emptyArray;
                 const variantType = getTypeFromTypeNode(data.variant.type);
                 let returnType = getIntersectionType(
                     [declaredType, variantType],
                     IntersectionFlags.None,
                     aliasSymbol,
-                    parameters,
+                    aliasParameters,
                 );
                 if (data.variant.fields.length === 0) {
-                    if (parameters.length > 0) {
+                    if (aliasParameters.length > 0) {
                         returnType = instantiateType(
                             returnType,
-                            createTypeMapper(parameters, parameters.map(() => anyType)),
+                            createTypeMapper(aliasParameters, aliasParameters.map(() => anyType)),
                         );
                     }
                     return returnType;
                 }
+                const constructor = data.variant.declaration;
+                const parameters = getTypeParametersFromDeclaration(constructor) ?? emptyArray;
+                const mapper = createTypeMapper(aliasParameters, parameters);
+                returnType = instantiateType(returnType, mapper);
                 const fields = data.variant.fields.map(field => {
                     const parameter = createSymbol(SymbolFlags.FunctionScopedVariable, field.name.escapedText);
-                    parameter.links.type = getTypeFromTypeNode(field.type);
+                    parameter.links.type = instantiateType(getTypeFromTypeNode(field.type), mapper);
                     return parameter;
                 });
                 const signature = createSignature(
