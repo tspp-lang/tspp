@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Dual declaration and one-way source interop example for TS++ and TypeScript.",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "tsppTypes": "./dist/index.d.tspp",
+  "main": "./dist/01-library.js",
+  "types": "./dist/01-library.d.ts",
+  "tsppTypes": "./dist/01-library.d.tspp",
   "exports": {
     ".": {
-      "tspp-types": "./dist/index.d.tspp",
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "tspp-types": "./dist/01-library.d.tspp",
+      "types": "./dist/01-library.d.ts",
+      "default": "./dist/01-library.js"
     }
   },
   "scripts": {

@@ -1,4 +1,4 @@
-import { normalizeName, type LegacyUser } from "./legacy.js";
+import { normalizeName, type LegacyUser } from "./02-legacy.js";
 
 export newtype UserId = string;
 export data Lookup<T> = Missing | Found(value: T);

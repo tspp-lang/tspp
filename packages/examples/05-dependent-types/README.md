@@ -1,7 +1,7 @@
 # Dependent types
 
-This example enables only `@tspp/plugin-dependent-types`. The `src/index.tspp`
-files exercise the complete plugin-owned MLTT kernel and its TypeScript
+This example enables only `@tspp/plugin-dependent-types`. The numbered files in
+`src/` exercise the complete plugin-owned MLTT kernel and its TypeScript
 projection boundary:
 
 - cumulative universes;

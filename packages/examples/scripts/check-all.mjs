@@ -115,7 +115,7 @@ function verifyFeatureRichDeclarations(example, outputDirectory) {
 }
 
 function verifyNominalTypeDeclarations(outputDirectory) {
-    const rich = readFileSync(join(outputDirectory, "index.d.tspp"), "utf8");
+    const rich = readFileSync(join(outputDirectory, "01-basics.d.tspp"), "utf8");
     for (const expected of [
         "export newtype UserId = string;",
         "export data Option<T> = None | Some(value: T);",
@@ -191,8 +191,8 @@ function verifyTypeComputationDeclarations(outputDirectory) {
 }
 
 function verifyHigherKindedDeclarations(outputDirectory) {
-    const rich = readFileSync(join(outputDirectory, "index.d.tspp"), "utf8");
-    const compatibility = readFileSync(join(outputDirectory, "index.d.ts"), "utf8");
+    const rich = readFileSync(join(outputDirectory, "01-basics.d.tspp"), "utf8");
+    const compatibility = readFileSync(join(outputDirectory, "01-basics.d.ts"), "utf8");
     for (const expected of [
         "export type UniverseZero: Type1 = Type0;",
         "export type Arrays: Type0 => Type0 = Array;",
@@ -206,7 +206,7 @@ function verifyHigherKindedDeclarations(outputDirectory) {
 }
 
 function verifyStaticInterfaceDeclarations(outputDirectory) {
-    const rich = readFileSync(join(outputDirectory, "index.d.tspp"), "utf8");
+    const rich = readFileSync(join(outputDirectory, "01-basics.d.tspp"), "utf8");
     for (const expected of [
         "static readonly mediaType: string;",
         "static deserialize(data: string): this;",

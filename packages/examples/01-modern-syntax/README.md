@@ -35,4 +35,4 @@ The `compilerOptions.plugins` entry in `tsconfig.json` is the executable
 capability declaration. Both the TS++ compiler and tsserver load the same
 feature package from it.
 
-The example source is `src/index.tspp`.
+The example source is `src/01-basics.tspp`.
