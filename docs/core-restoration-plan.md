@@ -179,6 +179,22 @@ manifest: {
 5. 跑该插件测试、examples、language-server 测试（按单进程、限制堆内存的方式运行）。
 6. 运行 `core-diff`，确认数字下降，并在本文档记录。
 
+**进度记录（2026-11-01）**
+
+- 第 1 步 operator-sections：已完成（见阶段 1 记录）。
+- 第 5 步中的改名：`match mltt` → `typecase` 已完成；`reify` 与运行时类型匹配仍在核心。
+- 第 7 步中的 ADT 依赖：nominal-types 发布 `nominal-types/adt`，formal-verification 改用它，已完成；`with` 的归属等宏迁移。
+- 第 8 步中的合并：higher-kinded-types 已并入 type-computation；"类型层扩展"插槽尚未设计。
+- 已知违规只剩 `with @ function-clause`（macros 与 formal-verification），随第 6、7 步消除。
+- `core-diff`：40 个上游文件 +4885 −167，核心新增文件只剩 `macroWorker.ts`（338 行），无标记 hunk 422 个。
+
+剩余各步都要把特性语义从 checker/parser/emitter 中迁出，其中几处需要先评审插槽设计（规则 6 与"类型层扩展"一行）：
+
+- static-interface-members：静态成员不进入接口实例类型（binder）、`static` 在接口成员上合法（语法检查）、implements 时检查类的静态侧（checker）。公共 API 无法从外部改变绑定与语法检查，源码投影也无法等长改写，所以需要决定是否把现有的声明式"接口成员契约"认定为通用插槽。
+- modern-syntax、nominal-types、dependent-types 的 `reify`：可用"扩展节点检查 / 降级 / 附加诊断"插槽实现，工作量大但不需要新的设计决定。
+- macros：用"程序重建"插槽，表中已登记，不需要新的设计决定；涉及 `program.ts` 约 860 行与同步、异步两条建程序路径。
+- type-computation：需要先设计并评审"类型层扩展"插槽。
+
 ### 阶段 3：逐文件还原与收口
 
 1. 对每个改过的上游文件，与基线逐 hunk 对比：剩余 hunk 必须全部是带标记的插槽调用点，其余一律还原原文（包括格式、命名、顺序、注释）。
