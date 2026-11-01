@@ -762,6 +762,36 @@ importers:
         specifier: ^8.70.0
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
 
+  packages/plugins/integration:
+    devDependencies:
+      '@tspp/plugin-dependent-types':
+        specifier: workspace:*
+        version: link:../dependent-types
+      '@tspp/plugin-formal-verification':
+        specifier: workspace:*
+        version: link:../formal-verification
+      '@tspp/plugin-higher-kinded-types':
+        specifier: workspace:*
+        version: link:../higher-kinded-types
+      '@tspp/plugin-macros':
+        specifier: workspace:*
+        version: link:../macros
+      '@tspp/plugin-modern-syntax':
+        specifier: workspace:*
+        version: link:../modern-syntax
+      '@tspp/plugin-nominal-types':
+        specifier: workspace:*
+        version: link:../nominal-types
+      '@tspp/plugin-operator-sections':
+        specifier: workspace:*
+        version: link:../operator-sections
+      '@tspp/plugin-static-interface-members':
+        specifier: workspace:*
+        version: link:../static-interface-members
+      '@tspp/plugin-type-computation':
+        specifier: workspace:*
+        version: link:../type-computation
+
   packages/plugins/macros:
     dependencies:
       '@tspp/plugin-sdk':

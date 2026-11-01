@@ -26,21 +26,26 @@ const defaultOptions = {
   module: ts.ModuleKind.CommonJS,
 };
 
-/** Creates a program over in-memory files; `files` is one source text or a map from file name to text. */
+/**
+ * Creates a program over in-memory files; `files` is one source text or a map from file name to text. With
+ * `noLib: false`, the default library files are read from the compiler's own build.
+ */
 function createProgram(files, options = {}) {
   const sources = typeof files === "string" ? { "/main.tspp": files } : files;
   const compilerOptions = { ...defaultOptions, ...options };
   const host = ts.createCompilerHost(compilerOptions);
+  const readsLib = compilerOptions.noLib === false;
   const outputs = new Map();
+  const libSourceFile = host.getSourceFile;
   Object.assign(host, {
-    fileExists: fileName => fileName in sources,
-    readFile: fileName => sources[fileName],
+    fileExists: fileName => fileName in sources || readsLib && ts.sys.fileExists(fileName),
+    readFile: fileName => fileName in sources ? sources[fileName] : readsLib ? ts.sys.readFile(fileName) : undefined,
     getSourceFile: (fileName, languageVersion) => fileName in sources
       ? ts.createSourceFile(fileName, sources[fileName], languageVersion, /*setParentNodes*/ true)
-      : undefined,
+      : readsLib ? libSourceFile(fileName, languageVersion) : undefined,
     writeFile: (fileName, text) => outputs.set(fileName, text),
     getCurrentDirectory: () => "/",
-    getDefaultLibFileName: () => "/lib.d.ts",
+    getDefaultLibFileName: () => readsLib ? ts.getDefaultLibFilePath(compilerOptions) : "/lib.d.ts",
     useCaseSensitiveFileNames: () => true,
     getCanonicalFileName: fileName => fileName,
     directoryExists: () => true,

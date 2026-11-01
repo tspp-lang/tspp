@@ -1,0 +1,61 @@
+// Plugin syntax with errors, for the language service smoke test. Every construct here is wrong on purpose.
+
+// Operator sections without a contextual type have implicit any parameters (code fixes once crashed here).
+const increment = (_ + 1);
+const compare = (_ < _);
+const member = (_.length);
+
+// Matches with duplicate, unknown, unreachable, and non-exhaustive arms.
+data Result<T> = Ok(value: T) | Err(error: string);
+data Envelope<T> = Empty | Wrapped(result: Result<T>);
+declare const result: Result<number>;
+declare const envelope: Envelope<number>;
+const duplicate = match result { Ok(value) => value, Ok(other) => other, Err(error) => 0 };
+const unknownVariant = match result { Ok(value) => value, Missing => 0, _ => 0 };
+const unreachable = match result { _ => 0, Ok(value) => value };
+const nonExhaustive = match envelope { Empty => 0, Wrapped(Ok(value)) => value };
+const orWithFields = match result { Ok | Err(error) => 0 };
+const misplacedWildcard = match result { Ok(value) | _ => value };
+
+// Data declarations with malformed fields.
+data Maybe<T> = None | Some(T);
+data Pair = Pair(left number, right: string);
+
+// Nominal types that would lose their brand.
+newtype Anything = any;
+newtype Nothing = never;
+
+// let-in, do, and use with missing pieces.
+const uninitialized = let x in 1;
+const unusedBody = do { };
+function outsideDo() { use value = load(); return value; }
+declare function load(): number;
+
+// Type computation with unbound names and wrong applications.
+type Unbound<T> = let X = Missing in X;
+type WrongArity = let F = <T> =>> [T] in F<number, string>;
+type NotGeneric = let N = number in N<string>;
+type Selected<T> = match T { 1: "one", _: "other", 2: "two" };
+type Apply<F: Type => Type, X> = F<X>;
+type KindMismatch = Apply<number, string>;
+
+// Dependent types with an arm after the default.
+type Dependent<N> = match mltt N { Zero: true, _: false, Succ<infer M>: M };
+
+// Contracts with duplicate and unknown properties.
+function contract(value: bigint) with {
+    requires: value > 0n;
+    requires: value < 10n;
+    ensure: result > value;
+}: bigint {
+    while (value > 0n) with { invariant: value >= 0n; invariant: true; } { value -= 1n; }
+    return value;
+}
+
+// Static interface members implemented with the wrong type.
+interface Parser {
+    static parse(text: string): Parser;
+}
+class NumberParser implements Parser {
+    static parse(text: number): NumberParser { return new NumberParser(); }
+}
