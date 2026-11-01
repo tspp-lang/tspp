@@ -7,8 +7,7 @@ const { dependentTypesPlugin } = require("../dist");
 
 const grammars = loadGrammars(`${__dirname}/..`, dependentTypesPlugin);
 const samples = new Map([
-  ["match", "type R: Type1 = (A: Type0) -> match mltt A { _: never };"],
-  ["mltt", "type R: Type1 = (A: Type0) -> match mltt A { _: never };"],
+  ["typecase", "type R: Type1 = (A: Type0) -> typecase A { _: never };"],
   ["reify", "const runtime = reify(Bool);"],
 ]);
 

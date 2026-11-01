@@ -95,7 +95,7 @@ class Parser {
     }
 
     private parseTerm(stop?: string): MlttTerm {
-        if (this.at("match")) return this.parseTypeMatch();
+        if (this.at("typecase")) return this.parseTypeMatch();
         if ((this.at("(") || this.at("{")) && this.isBinder()) return this.parseBinder(stop);
         return this.parseUnion(stop);
     }
@@ -215,8 +215,7 @@ class Parser {
     }
 
     private parseTypeMatch(): MlttTerm {
-        this.expect("match");
-        this.expect("mltt");
+        this.expect("typecase");
         const scrutinee = this.parseTerm("{");
         this.expect("{");
         const cases: MlttTypeMatchCase[] = [];

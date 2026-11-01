@@ -13,7 +13,7 @@ export function createValueMatchSyntax(
         isStart: parser => parser.token() === kinds.identifier && parser.tokenText() === "match"
             && parser.lookAhead(() => {
                 parser.nextToken();
-                if (parser.hasPrecedingLineBreak() || parser.tokenText() === "mltt") return false;
+                if (parser.hasPrecedingLineBreak()) return false;
                 parser.parseAssignmentExpression();
                 return parser.token() === kinds.openBraceToken && !parser.hasPrecedingLineBreak();
             }),

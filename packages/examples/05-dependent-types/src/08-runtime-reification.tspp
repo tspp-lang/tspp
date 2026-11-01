@@ -1,7 +1,7 @@
 export const stringDescriptor = reify string;
 export const arrayDescriptor = reify Array<string>;
 
-export const matchedDescriptor = match mltt stringDescriptor {
+export const matchedDescriptor = typecase stringDescriptor {
   string => "text",
   number => "number",
   _ => "fallback"

@@ -11,7 +11,7 @@ projection boundary:
 - ordered definitional type matching with `infer` captures;
 - identity types and path-induction primitives;
 - Sigma types and dependent projections.
-- runtime type descriptors and compile-time `match mltt` branch selection.
+- runtime type descriptors and compile-time `typecase` branch selection.
 
 Run:
 

@@ -23,7 +23,7 @@ host, run **TS++: Show MLTT Normal Forms** for the active file.
 Implicit `{A: Type0}` binders become erased generic parameters, explicit
 binders remain runtime parameters, and `auto` type arguments preserve inference
 at the TypeScript call boundary. `reify T` produces a serializable descriptor
-whose static type retains `T`; expression-level `match mltt` selects an exact
-type branch at compile time and emits only that branch. Type-level `match mltt`
+whose static type retains `T`; expression-level `typecase` selects an exact
+type branch at compile time and emits only that branch. Type-level `typecase`
 also supports ordered `infer` captures through the isolated MLTT matcher.
 

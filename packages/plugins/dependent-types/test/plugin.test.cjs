@@ -59,7 +59,7 @@ test("projects erased binders and partial inference through ordinary TypeScript"
 test("restores authored dependent aliases for feature-rich declarations", () => {
   const source = `
     export type UniverseZero: Type1 = Type0;
-    export type ElementOrSelf: Type1 = (A: Type0) -> match mltt A {
+    export type ElementOrSelf: Type1 = (A: Type0) -> typecase A {
       Array<infer Element>: Element,
       _: A
     };
@@ -77,7 +77,7 @@ test("restores authored dependent aliases for feature-rich declarations", () => 
     declarationStart: source.indexOf("type ElementOrSelf"),
   }), {
     annotation: "Type1",
-    type: "(A: Type0) -> match mltt A {\n      Array<infer Element>: Element,\n      _: A\n    }",
+    type: "(A: Type0) -> typecase A {\n      Array<infer Element>: Element,\n      _: A\n    }",
   });
 });
 
@@ -149,7 +149,7 @@ test("parses and normalizes all built-in eliminators", () => {
 
 test("parses ordered type matching with generic captures", () => {
   const term = parseDependentType(
-    "match mltt Array<string> { Array<infer Element>: Element, _: never }",
+    "typecase Array<string> { Array<infer Element>: Element, _: never }",
   );
   assert.equal(term.kind, "type-match");
   assert.equal(term.cases.length, 1);
@@ -159,9 +159,9 @@ test("parses ordered type matching with generic captures", () => {
 
 test("requires the '_' default arm to close a type match", () => {
   // Ported from the legacy-monolith compiler tests: arms match in source order, so `_` must come last.
-  assert.throws(() => parseDependentType("match mltt number { string: boolean }"), /must end with an '_' default arm/);
-  assert.throws(() => parseDependentType("match mltt number { _: never, string: number }"), /default arm must be the last arm/);
-  assert.throws(() => parseDependentType("match mltt number { { value: infer U }: U, _: never }"));
+  assert.throws(() => parseDependentType("typecase number { string: boolean }"), /must end with an '_' default arm/);
+  assert.throws(() => parseDependentType("typecase number { _: never, string: number }"), /default arm must be the last arm/);
+  assert.throws(() => parseDependentType("typecase number { { value: infer U }: U, _: never }"));
 });
 
 test("checks aliases annotated by terms as well as universes", async () => {

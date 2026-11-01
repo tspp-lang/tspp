@@ -39,7 +39,7 @@ export const pair: Pair = [4, 5];
 
 // dependent-types
 export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
-export type Chosen: Type0 = match mltt number { number: string, _: boolean };
+export type Chosen: Type0 = typecase number { number: string, _: boolean };
 export const chosen: Chosen = "dependent";
 
 // static-interface-members

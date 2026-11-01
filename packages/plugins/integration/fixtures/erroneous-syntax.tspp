@@ -40,7 +40,7 @@ type Apply<F: Type => Type, X> = F<X>;
 type KindMismatch = Apply<number, string>;
 
 // Dependent types with an arm after the default.
-type Dependent<N> = match mltt N { Zero: true, _: false, Succ<infer M>: M };
+type Dependent<N> = typecase N { Zero: true, _: false, Succ<infer M>: M };
 
 // Contracts with duplicate and unknown properties.
 function contract(value: bigint) with {

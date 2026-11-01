@@ -165,8 +165,8 @@ function verifyDependentTypeDeclarations(outputDirectory) {
         if (!basics.includes(expected)) throw new Error(`Feature-rich declaration lost dependent syntax: ${expected}`);
     }
     for (const expected of [
-        "export type NumberResult: Type0 = match mltt number",
-        "export type ElementOrSelf: Type1 = (A: Type0) -> match mltt A",
+        "export type NumberResult: Type0 = typecase number",
+        "export type ElementOrSelf: Type1 = (A: Type0) -> typecase A",
     ]) {
         if (!matching.includes(expected)) throw new Error(`Feature-rich declaration lost dependent syntax: ${expected}`);
     }

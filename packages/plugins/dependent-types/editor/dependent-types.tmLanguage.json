@@ -9,7 +9,7 @@
       "name": "support.type.mltt.tspp"
     },
     {
-      "match": "\\b(?:reify|match\\s+mltt)\\b",
+      "match": "\\b(?:reify|typecase)\\b",
       "name": "keyword.control.mltt.tspp"
     },
     {

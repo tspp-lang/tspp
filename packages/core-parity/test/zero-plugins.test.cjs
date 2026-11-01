@@ -52,7 +52,7 @@ const pluginSyntaxSamples = {
   typeLet: `type Pair = let P = <A> =>> [A, A] in P<number>;`,
   kindAnnotation: `type Apply<F: Type => Type, X> = F<X>;`,
   dependentAlias: `type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;`,
-  typecase: `type Chosen: Type0 = match mltt number { number: string, _: boolean };`,
+  typecase: `type Chosen: Type0 = typecase number { number: string, _: boolean };`,
   operatorSection: `const doubled = [1, 2].map((_ * 2));`,
   letIn: `const squared = let x = 2 in x * x;`,
   doExpression: `const total = do { const a = 1; a + 1 };`,

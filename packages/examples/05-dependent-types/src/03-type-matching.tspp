@@ -1,11 +1,11 @@
 export type NumberResult: Type0 =
-  match mltt number { number: string, _: boolean };
+  typecase number { number: string, _: boolean };
 
 export type FallbackResult: Type0 =
-  match mltt string { number: string, _: boolean };
+  typecase string { number: string, _: boolean };
 
 export type ElementOrSelf: Type1 =
-  (A: Type0) -> match mltt A {
+  (A: Type0) -> typecase A {
     Array<infer Element>: Element,
     _: A
   };

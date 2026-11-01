@@ -88,7 +88,7 @@ export const dependentTypesPlugin = definePlugin({
         syntax: {
             keywords: [
                 { keyword: "reify", position: "expression" },
-                { keyword: "match", position: "expression" },
+                { keyword: "typecase", position: "expression" },
                 { keyword: ":", position: "type-alias-annotation" },
             ],
         },
@@ -122,14 +122,12 @@ export const dependentTypesPlugin = definePlugin({
                 };
                 const matchSyntax: TSPPExpressionSyntax = {
                     startTokens: [kinds.identifier],
-                    isStart: parser => parser.tokenText() === "match" && parser.lookAhead(() => {
+                    isStart: parser => parser.tokenText() === "typecase" && parser.lookAhead(() => {
                         parser.nextToken();
-                        return parser.tokenText() === "mltt" && !parser.hasPrecedingLineBreak();
+                        return !parser.hasPrecedingLineBreak();
                     }),
                     parse: parser => {
                         const pos = parser.getNodePos();
-                        parser.nextToken();
-                        if (parser.tokenText() !== "mltt") throw new Error("Expected 'mltt' after 'match'.");
                         parser.nextToken();
                         const scrutinee = parser.parseAssignmentExpression();
                         parser.parseExpected(kinds.openBraceToken);
@@ -206,7 +204,6 @@ export const dependentTypesPlugin = definePlugin({
             },
         },
         editor: {
-            keywords: ["mltt"],
             commands: [{ id: "tspp.showMlttNormalForms", title: "TS++: Show MLTT Normal Forms" }],
             grammars: ["./editor/dependent-types.tmLanguage.json"],
         },
@@ -216,7 +213,7 @@ export const dependentTypesPlugin = definePlugin({
 function dependentTypeDocumentation(word: string): string | undefined {
     if (/^Type\d*$/.test(word)) return "A universe of types. A numeric suffix selects a higher universe level.";
     if (word === "reify") return "Creates a runtime descriptor for the following static type.";
-    if (word === "mltt") return "Selects normalization and matching governed by the Martin-Löf type theory engine.";
+    if (word === "typecase") return "Matches a type, or a runtime type descriptor, against type patterns in order.";
     return undefined;
 }
 
