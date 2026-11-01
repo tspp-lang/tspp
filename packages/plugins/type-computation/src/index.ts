@@ -108,6 +108,10 @@ export const typeComputationPlugin = definePlugin({
                         return quickInfo(token, `(type parameter) ${token.text}`);
                     }
 
+                    // `F: Type => Type` in a type parameter list is a kinded parameter, not a property.
+                    const declaringOwner = typeParameterListOwnerAt(request.sourceText, token.start);
+                    if (declaringOwner) return quickInfo(token, `(type parameter) ${token.text} in ${declaringOwner}`);
+
                     const propertyType = propertyTypeAt(request.sourceText, token.start, token.text);
                     if (propertyType) return quickInfo(token, `(property) ${token.text}: ${propertyType}`);
 
@@ -162,6 +166,31 @@ function isInferBinding(sourceText: string, position: number, name: string): boo
     return /\binfer\s*$/.test(prefix) && /^[A-Za-z_$][\w$]*$/.test(name);
 }
 
+/** The alias whose type parameter list contains `position`, displayed with every parameter's kind. */
+function typeParameterListOwnerAt(sourceText: string, position: number): string | undefined {
+    const header = /\btype\s+([A-Za-z_$][\w$]*)\s*</g;
+    let candidate: RegExpExecArray | null;
+    let owner: string | undefined;
+    while ((candidate = header.exec(sourceText)) && candidate.index < position) {
+        const open = header.lastIndex - 1;
+        let depth = 0;
+        let close = -1;
+        for (let index = open; index < sourceText.length && close < 0; index++) {
+            const character = sourceText[index];
+            if (character === ">" && sourceText[index - 1] === "=") continue;
+            if ("<([".includes(character)) depth++;
+            else if (">)]".includes(character) && --depth === 0) close = index;
+        }
+        const parameters = sourceText.slice(open + 1, close);
+        // Plain TypeScript parameter lists keep the compiler's own hover.
+        const kinded = splitTopLevelCommas(parameters).some(parameter => parameter.includes(":"));
+        owner = kinded && open < position && position < close
+            ? `type ${candidate[1]}<${normalizeKindParameters(parameters)}>`
+            : owner;
+    }
+    return owner;
+}
+
 function propertyTypeAt(sourceText: string, position: number, name: string): string | undefined {
     const suffix = sourceText.slice(position + name.length);
     const match = /^\s*:\s*([^;,}\n]+)/.exec(suffix);
@@ -204,10 +233,24 @@ function typeLambdaAt(sourceText: string, position: number): {
 }
 
 function normalizeKindParameters(parameters: string): string {
-    return parameters.split(",").map(parameter => {
+    return splitTopLevelCommas(parameters).map(parameter => {
         const normalized = parameter.trim();
         return normalized.includes(":") ? normalized : `${normalized}: Type0`;
     }).join(", ");
+}
+
+function splitTopLevelCommas(text: string): string[] {
+    const parts: string[] = [];
+    let depth = 0;
+    let start = 0;
+    for (let index = 0; index < text.length; index++) {
+        const character = text[index];
+        if (character === ">" && text[index - 1] === "=") continue;
+        if ("<([{".includes(character)) depth++;
+        else if (">)]}".includes(character)) depth--;
+        else if (character === "," && depth === 0) { parts.push(text.slice(start, index)); start = index + 1; }
+    }
+    return [...parts, text.slice(start)];
 }
 
 function normalizeSource(source: string): string {
