@@ -8,7 +8,7 @@ const shiftedNonnegative = smt.definePredicate(
     ),
 );
 
-const triangular = smt.defineRecursiveFunction(
+const triangular: smt.LogicFunction<[bigint], bigint> = smt.defineRecursiveFunction(
     [["value", smt.Int]],
     smt.Int,
     value => smt.ite(
