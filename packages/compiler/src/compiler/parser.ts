@@ -6074,6 +6074,7 @@ namespace Parser {
                 readonly result: Expression;
             }[] = [];
             while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
+                const armStart = getNodePos();
                 const patterns = [parsePattern()];
                 while (parseOptional(SyntaxKind.BarToken)) patterns.push(parsePattern());
                 const guard = parseOptional(SyntaxKind.IfKeyword)
@@ -6083,6 +6084,8 @@ namespace Parser {
                 const result = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
                 arms.push({ patterns, guard, result });
                 if (!parseOptional(SyntaxKind.CommaToken)) parseOptional(SyntaxKind.SemicolonToken);
+                // An arm that consumed no token would be parsed again at the same token forever.
+                if (getNodePos() === armStart) nextToken();
             }
             parseExpected(SyntaxKind.CloseBraceToken);
 

@@ -206,6 +206,15 @@ test("match reports missing, duplicate, and unknown variants", () => {
   assert.match(messages("match envelope { Wrapped(Missing(value)) => value, Wrapped(_) => 0, Empty => 0 }"), /Pattern 'Missing' does not belong/);
 });
 
+test("malformed match arms report syntax errors and finish parsing", () => {
+  const declarations = "data Opt = None | Some(value: number); declare const o: Opt;\n";
+  // Each of these used to reparse the same token forever until the heap ran out.
+  assert.match(messagesOf(`${declarations}const n = match o { None: 0 };`).join("\n"), /'=>' expected/);
+  assert.match(messagesOf(`${declarations}const n = match o { Some(1) => 0 };`).join("\n"), /Identifier expected/);
+  assert.match(messagesOf(`${declarations}const n = match o { None => 0`).join("\n"), /'}' expected/);
+  assert.match(messagesOf(`${declarations}const n = match o { Some(`).join("\n"), /expected/);
+});
+
 test("explains that a bare variant field is a field name, not a type", () => {
   const hint = /Variant fields need a name, as in 'Some\(value: T\)'; a bare name is a field name, not a type\./;
   assert.match(messagesOf("data Maybe<T> = None | Some(T);").join("\n"), hint);
