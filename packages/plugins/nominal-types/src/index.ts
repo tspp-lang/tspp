@@ -75,6 +75,16 @@ export const nominalTypesPlugin = definePlugin({
                         };
                     }
 
+                    const declarationParameter = findDeclarationTypeParameter(request.sourceText, token);
+                    if (declarationParameter) {
+                        return quickInfo(
+                            token,
+                            `(type parameter) ${declarationParameter.name}${declarationParameter.constraint
+                                ? `: ${declarationParameter.constraint}`
+                                : ""}`,
+                        );
+                    }
+
                     const newtype = findNewtype(request.sourceText, token.text);
                     if (newtype) {
                         const called = /^\s*\(/.test(request.sourceText.slice(token.start + token.length));
@@ -127,9 +137,16 @@ interface SourceVariant {
     readonly fields: readonly { readonly name: string; readonly type: string; }[];
 }
 
+interface SourceTypeParameter {
+    readonly name: string;
+    readonly constraint?: string;
+    readonly start: number;
+    readonly length: number;
+}
+
 interface SourceDataDeclaration {
     readonly name: string;
-    readonly parameters: readonly string[];
+    readonly parameters: readonly SourceTypeParameter[];
     readonly variants: readonly SourceVariant[];
     readonly display: string;
 }
@@ -153,7 +170,7 @@ function findDataDeclarations(sourceText: string): readonly SourceDataDeclaratio
     const expression = /\bdata\s+([A-Za-z_$][\w$]*)(\s*<([^;=]+)>)?\s*=\s*([\s\S]*?)\s*;/g;
     let match: RegExpExecArray | null;
     while ((match = expression.exec(sourceText))) {
-        const parameters = match[3]?.split(",").map(parameter => parameter.trim().split(/\s*:/)[0]) ?? [];
+        const parameters = parseTypeParameters(match, 3);
         const variants = splitTopLevel(match[4], "|").map(parseVariant).filter((value): value is SourceVariant => !!value);
         declarations.push({
             name: match[1],
@@ -163,6 +180,36 @@ function findDataDeclarations(sourceText: string): readonly SourceDataDeclaratio
         });
     }
     return declarations;
+}
+
+function findDeclarationTypeParameter(sourceText: string, token: SourceToken): SourceTypeParameter | undefined {
+    const expression = /\b(?:data|newtype)\s+[A-Za-z_$][\w$]*(\s*<([^;=]+)>)?\s*=/g;
+    let match: RegExpExecArray | null;
+    while ((match = expression.exec(sourceText))) {
+        const parameter = parseTypeParameters(match, 2).find(candidate =>
+            candidate.start === token.start && candidate.length === token.length,
+        );
+        if (parameter) return parameter;
+    }
+    return undefined;
+}
+
+function parseTypeParameters(match: RegExpExecArray, captureIndex: number): readonly SourceTypeParameter[] {
+    const source = match[captureIndex];
+    if (!source) return [];
+    const sourceOffset = match[0].indexOf(source);
+    if (sourceOffset < 0) return [];
+    return splitTopLevelWithOffsets(source, ",").flatMap(part => {
+        const parsed = /^\s*([A-Za-z_$][\w$]*)(?:\s*:\s*([\s\S]+))?\s*$/.exec(part.text);
+        if (!parsed) return [];
+        const nameOffset = part.text.indexOf(parsed[1]);
+        return [{
+            name: parsed[1],
+            constraint: parsed[2]?.trim(),
+            start: match.index + sourceOffset + part.start + nameOffset,
+            length: parsed[1].length,
+        }];
+    });
 }
 
 function parseVariant(source: string): SourceVariant | undefined {
@@ -188,12 +235,14 @@ function formatVariantQuickInfo(
     const substitutions = new Map<string, string>();
     declaration.parameters.forEach((parameter, index) => {
         const argument = argumentsAtUse?.[index];
-        if (argument) substitutions.set(parameter, argument);
+        if (argument) substitutions.set(parameter.name, argument);
     });
-    const resultArguments = declaration.parameters.map(parameter => substitutions.get(parameter) ?? parameter);
+    const resultArguments = declaration.parameters.map(parameter => substitutions.get(parameter.name) ?? parameter.name);
     const result = `${declaration.name}${resultArguments.length ? `<${resultArguments.join(", ")}>` : ""}`;
     const fields = variant.fields.map(field => `${field.name}: ${substitutions.get(field.type) ?? field.type}`).join(", ");
-    const parameters = argumentsAtUse ? "" : declaration.parameters.length ? `<${declaration.parameters.join(", ")}>` : "";
+    const parameters = argumentsAtUse
+        ? ""
+        : declaration.parameters.length ? `<${declaration.parameters.map(parameter => parameter.name).join(", ")}>` : "";
     return `(data constructor) ${variant.name}${parameters}${fields ? `(${fields})` : ""}: ${result}`;
 }
 
@@ -211,7 +260,11 @@ function instantiationAt(
 }
 
 function splitTopLevel(source: string, separator: string): string[] {
-    const parts: string[] = [];
+    return splitTopLevelWithOffsets(source, separator).map(part => part.text);
+}
+
+function splitTopLevelWithOffsets(source: string, separator: string): { readonly text: string; readonly start: number; }[] {
+    const parts: { readonly text: string; readonly start: number; }[] = [];
     let start = 0;
     let depth = 0;
     for (let index = 0; index < source.length; index++) {
@@ -219,11 +272,11 @@ function splitTopLevel(source: string, separator: string): string[] {
         if ("(<[{".includes(character)) depth++;
         else if (")>]}".includes(character)) depth--;
         else if (character === separator && depth === 0) {
-            parts.push(source.slice(start, index));
+            parts.push({ text: source.slice(start, index), start });
             start = index + 1;
         }
     }
-    parts.push(source.slice(start));
+    parts.push({ text: source.slice(start), start });
     return parts;
 }
 

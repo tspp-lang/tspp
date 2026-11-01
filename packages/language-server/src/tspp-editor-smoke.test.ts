@@ -188,9 +188,16 @@ describe('TS++ examples editor smoke test', () => {
             },
             {
                 packageName: '03-nominal-types',
+                fileName: 'src/index.tspp',
+                targets: [{ search: 'newtype Box<T>', offset: 12, includes: ['type parameter', 'T'] }],
+            },
+            {
+                packageName: '03-nominal-types',
                 fileName: 'src/02-composed-patterns.tspp',
                 targets: [
                     { search: 'Either<', includes: ['data Either', 'Left', 'Right'] },
+                    { search: 'Either<Left', offset: 7, includes: ['type parameter', 'Left'] },
+                    { search: 'Left, Right', offset: 6, includes: ['type parameter', 'Right'] },
                     { search: 'Left(value', includes: ['data constructor', 'Left', 'Either'] },
                     { search: 'Left(1)', includes: ['Left', 'number', 'Either<number, string>'] },
                 ],
