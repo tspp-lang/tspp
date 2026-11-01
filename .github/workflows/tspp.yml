@@ -31,7 +31,8 @@ jobs:
         with:
           node-version: 22.22.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build:compiler
+      # The end-to-end plugin tests compile through the workspace compiler, which imports the plugin SDK.
+      - run: pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler
       - run: pnpm test:features
       - run: pnpm test:examples
 
