@@ -3,12 +3,13 @@ import * as monaco from "./monaco";
 import type { OutputCategory, OutputItem, OutputSnapshot } from "./protocol";
 import { languageId } from "./tsppLanguage";
 
-const categories: readonly { id: OutputCategory; label: string }[] = [
+/** `feature` is the capsule that produces the artifact; without it there is nothing to ask the compiler for. */
+const categories: readonly { id: OutputCategory; label: string; feature?: string }[] = [
   { id: "javascript", label: "JavaScript" },
   { id: "dts", label: ".d.ts" },
   { id: "dtspp", label: ".d.tspp" },
-  { id: "macro", label: "Macro expansion" },
-  { id: "smt", label: "SMT-LIB2" },
+  { id: "macro", label: "Macro expansion", feature: "macros" },
+  { id: "smt", label: "SMT-LIB2", feature: "formal-verification/z3" },
 ];
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -20,7 +21,7 @@ export interface OutputController {
 }
 
 /** Owns lazily-loaded compiler artifacts and the explicitly-invoked runtime worker. */
-export function createOutputController(client: LanguageClient): OutputController {
+export function createOutputController(client: LanguageClient, enabledFeatures: () => readonly string[]): OutputController {
   const editorColumn = element("editor-column");
   const outputTabs = element("output-tabs");
   const outputItems = element<HTMLSelectElement>("output-items");
@@ -112,6 +113,14 @@ export function createOutputController(client: LanguageClient): OutputController
       renderItems(current?.id);
       return;
     }
+    const definition = categories.find(item => item.id === nextCategory)!;
+    if (definition.feature && !enabledFeatures().includes(definition.feature)) {
+      requestGeneration++;
+      loaded.set(nextCategory, { items: [], diagnostics: [] });
+      renderItems();
+      outputStatus.textContent = "Not produced";
+      return;
+    }
     const generation = ++requestGeneration;
     current = undefined;
     outputModel?.dispose();
@@ -120,7 +129,7 @@ export function createOutputController(client: LanguageClient): OutputController
     outputItems.hidden = true;
     outputEmpty.hidden = false;
     outputEmpty.classList.add("loading");
-    const label = categories.find(item => item.id === nextCategory)!.label;
+    const label = definition.label;
     outputEmpty.textContent = `Generating ${label}…`;
     outputStatus.textContent = `Loading ${label}…`;
     renderTabs(nextCategory);

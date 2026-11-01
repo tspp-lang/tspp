@@ -29,6 +29,7 @@ interface AnalysisDiagnostic {
 }
 
 interface AnalysisArtifact extends Span {
+  readonly kind: string;
   readonly fileName: string;
   readonly name: string;
   readonly content: string;
@@ -287,7 +288,7 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
   const program = languageService().getProgram();
   if (!program) return { items: [], diagnostics: [] };
   const items: OutputItem[] = [];
-  let emitDiagnostics: readonly ts.Diagnostic[] = [];
+  let diagnostics: readonly ts.Diagnostic[] = [];
   if (requested === "javascript" || requested === "dts" || requested === "dtspp") {
     const emit = program.emit(undefined, (outputName, content) => {
       const type = outputCategory(outputName);
@@ -299,7 +300,8 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
         content,
       });
     });
-    emitDiagnostics = emit.diagnostics;
+    // whole-program diagnostics only tell whether emitted files may be wrong
+    diagnostics = [...emit.diagnostics, ...program.getOptionsDiagnostics(), ...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics()];
   }
   if (requested === "macro") {
     const macro = expandedSource(program, fileName);
@@ -321,9 +323,7 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
       });
     }
   }
-  const diagnostics = [...emitDiagnostics, ...program.getOptionsDiagnostics(), ...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics()]
-    .map(toDiagnostic);
-  return { items, diagnostics };
+  return { items, diagnostics: diagnostics.map(toDiagnostic) };
 }
 
 const api: WorkerApi = {

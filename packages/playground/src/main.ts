@@ -46,7 +46,7 @@ const editor = monaco.editor.create(element("editor"), {
   scrollBeyondLastLine: false,
   fixedOverflowWidgets: true,
 });
-const outputs = createOutputController(client);
+const outputs = createOutputController(client, () => currentFeatures());
 dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
 let initialization: Awaited<ReturnType<typeof client.init>>;
