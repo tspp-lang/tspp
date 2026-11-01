@@ -89,6 +89,7 @@ manifest: {
 | nominal-types 的 `match` 与 dependent-types 的 `match mltt` | 关键词冲突 | dependent-types 改用 `typecase`，删除 nominal-types 里的 `"mltt"` 排除 |
 | macros 与 formal-verification 都使用 `function ... with { ... }` | 关键词冲突 + 隐性干扰（#34） | `with` 归 formal-verification；宏的配置改为 `macro({ timeout: ... }) function`。迁移前 formal-verification 暂时用 `isMacroWithClause` 跳过宏函数，迁移后删除 |
 | formal-verification 用正则读 nominal-types 的 `data` 并假设 `_tag` | 未建模的单向依赖 | nominal-types 通过 `provides` 发布 ADT 描述，formal-verification 声明 `requires` 并改用 API |
+| nominal-types 的测试加载 higher-kinded-types（"data 类型构造器作高阶参数"的用例） | 未声明的测试依赖 | 这些用例随阶段 2 第 8 步合并后的插件一起迁移 |
 
 ## 目标插槽清单
 
@@ -128,6 +129,14 @@ manifest: {
    - 现有违规写进已知清单（即上文"已知违规与处理"），CI 只拦截新增违规。
 
 完成标准：脚本能输出当前数字，所有测试绿色，CI 跑这个脚本但先不卡门槛；关系检查已在 CI 中拦截新增违规。
+
+**完成记录（2026-11-01）**
+
+- 标签 `tspp-core-baseline` → `c631124d2`。`pnpm core-diff`（`scripts/core-diff.mjs`）输出：40 个上游文件 +4954 −168，核心新增文件 4 个共 1464 行，无 `TSPP-SLOT` 标记的 hunk 427 个；CI 的 "Core drift report" 只报告不拦截。
+- 零插件：`packages/core-parity` 用 npm 上的 `typescript@6.0.3` 作对照，比较诊断与输出。不加载插件时只有 `macro` 与 `with` 子句仍是核心语法，记为已知违规，迁移后测试会要求删除对应条目。
+- 关系检查：清单新增 `syntax.keywords`，九个插件全部声明；`packages/plugins/integration/test/relations.test.cjs` 检查关键词冲突、依赖环、测试加载未声明插件，现有违规与上表一致。
+- 隐性干扰：`pnpm test:plugins:together` 在加载全部插件的环境下运行每个插件自己的测试集。首次运行发现 nominal-types 把 `match = 6`、`match.x` 等普通标识符误解析为 match 表达式（单独加载 nominal-types 时同样存在），已修复。
+- 以上都并入 `pnpm test:features`，由 CI 的 "Feature capsules" 运行。
 
 ### 阶段 1：插槽地基
 
