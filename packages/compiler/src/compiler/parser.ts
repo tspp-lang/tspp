@@ -482,6 +482,20 @@ export const parseBaseNodeFactory: BaseNodeFactory = {
 /** @internal */
 export const parseNodeFactory: NodeFactory = createNodeFactory(NodeFactoryFlags.NoParenthesizerRules, parseBaseNodeFactory);
 
+const synthesizedParseBaseNodeFactory: BaseNodeFactory = {
+    createBaseSourceFileNode: kind => markSynthesized(parseBaseNodeFactory.createBaseSourceFileNode(kind)),
+    createBaseIdentifierNode: kind => markSynthesized(parseBaseNodeFactory.createBaseIdentifierNode(kind)),
+    createBasePrivateIdentifierNode: kind => markSynthesized(parseBaseNodeFactory.createBasePrivateIdentifierNode(kind)),
+    createBaseTokenNode: kind => markSynthesized(parseBaseNodeFactory.createBaseTokenNode(kind)),
+    createBaseNode: kind => markSynthesized(parseBaseNodeFactory.createBaseNode(kind)),
+};
+const synthesizedParseNodeFactory = createNodeFactory(NodeFactoryFlags.NoParenthesizerRules, synthesizedParseBaseNodeFactory);
+
+function markSynthesized<T extends Node>(node: T): T {
+    (node as Mutable<T>).flags |= NodeFlags.Synthesized;
+    return node;
+}
+
 function visitNode<T>(cbNode: (node: Node) => T, node: Node | undefined): T | undefined {
     return node && cbNode(node);
 }
@@ -5991,6 +6005,9 @@ namespace Parser {
 
     function createExtensionParser(pluginId: string): TSPPExpressionParser {
         function parseTaggedUnionMatchExpression(): Expression {
+            // This checker-only tree has no source tokens to finish its ranges from. Use the
+            // synthesized factory so zero-width parser nodes are not mistaken for missing syntax.
+            const generated = synthesizedParseNodeFactory;
             const pos = getNodePos();
             nextToken();
             const scrutinee = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
@@ -6043,41 +6060,37 @@ namespace Parser {
                 location: Node,
                 preserveRanges: boolean,
             ) => {
-                const index = factory.createNumericLiteral(fieldIndex);
-                const access = factory.createElementAccessExpression(
-                    factory.createPropertyAccessExpression(value, "_values"),
+                const index = generated.createNumericLiteral(fieldIndex);
+                const access = generated.createElementAccessExpression(
+                    generated.createPropertyAccessExpression(value, "_values"),
                     preserveRanges ? setTextRange(index, location) : index,
                 );
                 return preserveRanges
-                    ? setTextRange(factory.createNonNullExpression(setTextRange(access, location)), location)
+                    ? setTextRange(generated.createNonNullExpression(setTextRange(access, location)), location)
                     : access;
             };
             const bindPatternValues = (expression: Expression, replacements: ReadonlyMap<string, Expression>) => {
                 if (replacements.size === 0) return expression;
-                const declarations = [...replacements].map(([name, replacement]) =>
-                    factory.createVariableDeclaration(
+                const parameters = [...replacements].map(([name, replacement]) =>
+                    generated.createParameterDeclaration(
+                        /*modifiers*/ undefined,
+                        /*dotDotDotToken*/ undefined,
                         name,
-                        /*exclamationToken*/ undefined,
+                        /*questionToken*/ undefined,
                         /*type*/ undefined,
                         cloneWithRange(replacement),
                     )
                 );
-                const arrow = factory.createArrowFunction(
+                const arrow = generated.createArrowFunction(
                     /*modifiers*/ undefined,
                     /*typeParameters*/ undefined,
-                    emptyArray,
+                    parameters,
                     /*type*/ undefined,
-                    factory.createToken(SyntaxKind.EqualsGreaterThanToken),
-                    factory.createBlock([
-                        factory.createVariableStatement(
-                            /*modifiers*/ undefined,
-                            factory.createVariableDeclarationList(declarations, NodeFlags.Const),
-                        ),
-                        factory.createReturnStatement(expression),
-                    ], /*multiLine*/ true),
+                    generated.createToken(SyntaxKind.EqualsGreaterThanToken),
+                    expression,
                 );
-                return factory.createCallExpression(
-                    factory.createParenthesizedExpression(arrow),
+                return generated.createCallExpression(
+                    generated.createParenthesizedExpression(arrow),
                     /*typeArguments*/ undefined,
                     emptyArray,
                 );
@@ -6086,19 +6099,19 @@ namespace Parser {
                 readonly condition: Expression;
                 readonly replacements: ReadonlyMap<string, Expression>;
             } => {
-                let condition = factory.createBinaryExpression(
-                    factory.createPropertyAccessExpression(cloneWithRange(value), "_tag"),
-                    factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
-                    factory.createStringLiteral(idText(pattern.variant)),
+                let condition = generated.createBinaryExpression(
+                    generated.createPropertyAccessExpression(cloneWithRange(value), "_tag"),
+                    generated.createToken(SyntaxKind.EqualsEqualsEqualsToken),
+                    generated.createStringLiteral(idText(pattern.variant)),
                 );
                 const replacements = new Map<string, Expression>();
                 pattern.elements.forEach((element, fieldIndex) => {
                     const access = fieldAccess(cloneWithRange(value), fieldIndex, pattern.variant, preserveRanges);
                     if (isParsedPattern(element)) {
                         const nested = lowerPattern(element, access, preserveRanges);
-                        condition = factory.createBinaryExpression(
+                        condition = generated.createBinaryExpression(
                             condition,
-                            factory.createToken(SyntaxKind.AmpersandAmpersandToken),
+                            generated.createToken(SyntaxKind.AmpersandAmpersandToken),
                             nested.condition,
                         );
                         for (const [name, replacement] of nested.replacements) replacements.set(name, replacement);
@@ -6120,21 +6133,21 @@ namespace Parser {
                     const guard = arm.guard && bindPatternValues(arm.guard, replacements);
                     let condition = lowered[0]?.condition;
                     for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
-                        condition = factory.createBinaryExpression(
+                        condition = generated.createBinaryExpression(
                             Debug.checkDefined(condition),
-                            factory.createToken(SyntaxKind.BarBarToken),
+                            generated.createToken(SyntaxKind.BarBarToken),
                             lowered[patternIndex].condition,
                         );
                     }
                     return { arm, wildcard, condition, guard, result };
                 });
             const checkerArms = lowerArms(
-                () => setTextRange(factory.createIdentifier(temporaryName), scrutinee),
+                () => setTextRange(generated.createIdentifier(temporaryName), scrutinee),
                 /*preserveRanges*/ true,
             );
-            let body: Expression = factory.createAsExpression(
-                factory.createVoidZero(),
-                factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+            let body: Expression = generated.createAsExpression(
+                generated.createVoidZero(),
+                generated.createKeywordTypeNode(SyntaxKind.NeverKeyword),
             );
             for (let index = checkerArms.length - 1; index >= 0; index--) {
                 const { wildcard, guard, result } = checkerArms[index];
@@ -6142,41 +6155,45 @@ namespace Parser {
                     body = result;
                     continue;
                 }
-                let condition = checkerArms[index].condition ?? factory.createTrue();
-                if (guard) condition = factory.createLogicalAnd(condition, guard);
-                body = factory.createConditionalExpression(
+                let condition = checkerArms[index].condition ?? generated.createTrue();
+                if (guard) condition = generated.createLogicalAnd(condition, guard);
+                body = generated.createConditionalExpression(
                     condition,
-                    factory.createToken(SyntaxKind.QuestionToken),
+                    generated.createToken(SyntaxKind.QuestionToken),
                     result,
-                    factory.createToken(SyntaxKind.ColonToken),
+                    generated.createToken(SyntaxKind.ColonToken),
                     body,
                 );
             }
-            const checkerBody = factory.createCallExpression(
-                factory.createParenthesizedExpression(factory.createArrowFunction(
+            const checkerBody = generated.createCallExpression(
+                generated.createParenthesizedExpression(generated.createArrowFunction(
                     /*modifiers*/ undefined,
                     /*typeParameters*/ undefined,
-                    emptyArray,
+                    [generated.createParameterDeclaration(
+                        /*modifiers*/ undefined,
+                        /*dotDotDotToken*/ undefined,
+                        temporaryName,
+                        /*questionToken*/ undefined,
+                        /*type*/ undefined,
+                        scrutinee,
+                    )],
                     /*type*/ undefined,
-                    factory.createToken(SyntaxKind.EqualsGreaterThanToken),
-                    factory.createBlock([
-                        factory.createVariableStatement(
-                            /*modifiers*/ undefined,
-                            factory.createVariableDeclarationList([
-                                factory.createVariableDeclaration(
-                                    temporaryName,
-                                    /*exclamationToken*/ undefined,
-                                    /*type*/ undefined,
-                                    scrutinee,
-                                ),
-                            ], NodeFlags.Const),
-                        ),
-                        factory.createReturnStatement(body),
-                    ], /*multiLine*/ true),
+                    generated.createToken(SyntaxKind.EqualsGreaterThanToken),
+                    body,
                 )),
                 /*typeArguments*/ undefined,
                 emptyArray,
             );
+            const giveGeneratedNodesSourceRange = (node: Node): undefined => {
+                if (node.pos < 0) setTextRangePosEnd(node, pos, pos + 1);
+                forEachChild(node, giveGeneratedNodesSourceRange, nodes => {
+                    if (nodes.pos < 0) setTextRangePosEnd(nodes, pos, pos + 1);
+                    for (const child of nodes) giveGeneratedNodesSourceRange(child);
+                    return undefined;
+                });
+                return undefined;
+            };
+            giveGeneratedNodesSourceRange(checkerBody);
             const matchExpression = finishNode(
                 factory.createExtensionExpression(pluginId, [getSynthesizedDeepClone(scrutinee), checkerBody]),
                 pos,
@@ -8162,12 +8179,12 @@ namespace Parser {
                 hasJSDoc,
             );
             const aliasTypeArguments = typeParameters?.map(parameter => factory.createTypeReferenceNode(idText(parameter.name), /*typeArguments*/ undefined));
-            const anyTypeArguments = typeParameters?.map(() => factory.createKeywordTypeNode(SyntaxKind.AnyKeyword));
+            const emptyTypeArguments = typeParameters?.map(() => factory.createKeywordTypeNode(SyntaxKind.NeverKeyword));
             const registeredVariants = variants.map(variant => {
                 const generic = variant.fields.length > 0;
                 const aliasReference = factory.createTypeReferenceNode(
                     idText(name),
-                    generic ? aliasTypeArguments : anyTypeArguments,
+                    generic ? aliasTypeArguments : emptyTypeArguments,
                 );
                 const returnType = factory.createIntersectionTypeNode(factory.createNodeArray([
                     aliasReference,
