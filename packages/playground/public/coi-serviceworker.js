@@ -32,8 +32,11 @@ if (typeof window === 'undefined') {
                 credentials: "omit",
             })
             : r;
+        const networkRequest = r.mode === "navigate"
+            ? new Request(request, { cache: "reload" })
+            : request;
         event.respondWith(
-            fetch(request)
+            fetch(networkRequest)
                 .then((response) => {
                     if (response.status === 0) {
                         return response;
@@ -121,9 +124,16 @@ if (typeof window === 'undefined') {
             return;
         }
 
-        n.serviceWorker.register(window.document.currentScript.src).then(
+        n.serviceWorker.register(window.document.currentScript.src, { updateViaCache: "none" }).then(
             (registration) => {
                 !coi.quiet && console.log("COOP/COEP Service Worker registered", registration.scope);
+
+                // GitHub Pages gives the bootstrap script a stable URL. Revalidate it on
+                // every visit so a deployment cannot leave the page controlled by an old
+                // worker until the browser's normal service-worker update interval expires.
+                registration.update().catch((error) => {
+                    !coi.quiet && console.warn("COOP/COEP Service Worker update failed", error);
+                });
 
                 registration.addEventListener("updatefound", () => {
                     !coi.quiet && console.log("Reloading page to make use of updated COOP/COEP Service Worker.");

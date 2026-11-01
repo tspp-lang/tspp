@@ -128,7 +128,25 @@ function packageTypes(): Plugin {
   };
 }
 
-const workerPlugins = () => [compilerSources(), compilerLibraries(), packageTypes()];
+function editorKeywords(): Plugin {
+  const id = "virtual:tspp-editor-keywords";
+  return {
+    name: "tspp:editor-keywords",
+    resolveId(source) { return source === id ? `\0${id}` : undefined; },
+    load(source) {
+      if (source !== `\0${id}`) return undefined;
+      const keywords = new Set<string>();
+      for (const packageName of declarationPackages) {
+        const loaded = require(packageName) as { default?: unknown };
+        const plugin = (loaded.default ?? loaded) as { facets?: { editor?: { keywords?: readonly string[] } } };
+        plugin.facets?.editor?.keywords?.forEach(keyword => keywords.add(keyword));
+      }
+      return `export default ${JSON.stringify([...keywords])};`;
+    },
+  };
+}
+
+const workerPlugins = () => [compilerSources(), compilerLibraries(), packageTypes(), editorKeywords()];
 
 function listFiles(directory: string, prefix = ""): string[] {
   if (!existsSync(directory)) return [];

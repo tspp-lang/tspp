@@ -30,6 +30,12 @@ declare module "virtual:tspp-package-types" {
   export default files;
 }
 
+declare module "virtual:tspp-editor-keywords" {
+  /** Word-like lexical tokens contributed by the same feature capsules used by VS Code. */
+  const keywords: readonly string[];
+  export default keywords;
+}
+
 declare module "monaco-editor/languages/definitions/typescript/typescript.js" {
   import type { languages } from "monaco-editor";
   export const conf: languages.LanguageConfiguration;

@@ -1,19 +1,17 @@
 import { conf, language as typescript } from "monaco-editor/languages/definitions/typescript/typescript.js";
+import pluginKeywords from "virtual:tspp-editor-keywords";
 import * as monaco from "./monaco";
 
 export const languageId = "tspp";
 
-/** TS++ declaration, contract and computation keywords (see the VS Code grammars in packages/vscode-extension/syntaxes). */
-const tsppKeywords = ["data", "newtype", "match", "mltt", "macro", "requires", "ensures", "invariant", "predicate", "assert", "assume", "use"];
-
-/** monaco's TypeScript Monarch grammar plus the TS++ keywords and universe names. */
+/** Monaco's TypeScript grammar plus lexical metadata owned by the feature capsules. */
 export function registerTsppLanguage() {
   monaco.languages.register({ id: languageId, extensions: [".tspp"], aliases: ["TS++"] });
   monaco.languages.setLanguageConfiguration(languageId, conf);
   monaco.languages.setMonarchTokensProvider(languageId, {
     ...typescript,
     tokenPostfix: ".tspp",
-    keywords: [...typescript.keywords, ...tsppKeywords],
+    keywords: [...new Set([...typescript.keywords, ...pluginKeywords])],
     tokenizer: {
       ...typescript.tokenizer,
       common: [[/\b(?:Prop|Type\d*)\b/, "type"], ...typescript.tokenizer.common],

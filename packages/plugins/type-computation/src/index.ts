@@ -82,6 +82,7 @@ export const typeComputationPlugin = definePlugin({
             },
         },
         editor: {
+            keywords: ["let", "in", "match", "infer"],
             grammars: ["./editor/type-computation.tmLanguage.json"],
         },
     },

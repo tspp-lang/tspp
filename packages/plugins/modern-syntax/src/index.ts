@@ -212,6 +212,7 @@ export const modernSyntaxPlugin = definePlugin({
             },
         },
         editor: {
+            keywords: ["let", "in", "do", "use", "def"],
             grammars: ["./editor/modern-syntax.tmLanguage.json"],
         },
     },

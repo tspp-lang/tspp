@@ -62,6 +62,7 @@ export const nominalTypesPlugin = definePlugin({
             },
         },
         editor: {
+            keywords: ["newtype", "data", "match"],
             grammars: ["./editor/nominal-types.tmLanguage.json"],
         },
     },
