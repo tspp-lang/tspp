@@ -256,4 +256,81 @@ describe('TS++ examples editor smoke test', () => {
             }
         }
     }, 120_000);
+
+    it('does not leak projection or synthesized-checker any types into feature-owned declarations', async () => {
+        const targets = new Map<string, number[]>();
+        const addMatches = (filePath: string, expression: RegExp, capture = 1, skipExpectedErrors = false) => {
+            const text = fs.readFileSync(filePath, 'utf8');
+            const offsets = targets.get(filePath) ?? [];
+            for (let match; (match = expression.exec(text));) {
+                if (skipExpectedErrors && text.slice(Math.max(0, match.index - 160), match.index).includes('@ts-expect-error')) {
+                    continue;
+                }
+                offsets.push(match.index + match[0].indexOf(match[capture]));
+            }
+            if (offsets.length) targets.set(filePath, offsets);
+        };
+
+        const dependentRoot = path.join(examplesRoot, '05-dependent-types');
+        for (const filePath of collectTsppFiles(path.join(dependentRoot, 'src'))) {
+            addMatches(filePath, /\btype\s+([A-Za-z_$][\w$]*)\s*:/gu);
+        }
+        for (const packageName of ['03-nominal-types', '04-newtype-consumer']) {
+            const sourceRoot = path.join(examplesRoot, packageName, 'src');
+            for (const filePath of collectTsppFiles(sourceRoot)) {
+                addMatches(
+                    filePath,
+                    /\bconst\s+([A-Za-z_$][\w$]*)[^=\r\n]*=\s*match\b/gu,
+                    1,
+                    /*skipExpectedErrors*/ true,
+                );
+            }
+        }
+        const consumerFile = path.join(examplesRoot, '04-newtype-consumer', 'src', 'index.tspp');
+        const consumerText = fs.readFileSync(consumerFile, 'utf8');
+        targets.get(consumerFile)!.push(consumerText.indexOf('None'));
+        const formalFile = path.join(examplesRoot, '02-formal-verification', 'src', '10-logic-library.tspp');
+        addMatches(formalFile, /\b([A-Za-z_$][\w$]*)\s*=>/gu);
+
+        const servers = new Map<string, TestLspServer>();
+        try {
+            for (const [filePath, offsets] of targets) {
+                expect(offsets.length, path.relative(examplesRoot, filePath)).toBeGreaterThan(0);
+                const packageRoot = examplePackages.find(example => filePath.startsWith(example.root + path.sep))!.root;
+                let server = servers.get(packageRoot);
+                if (!server) {
+                    server = await createServer({
+                        rootUri: URI.file(packageRoot).toString(),
+                        publishDiagnostics: () => undefined,
+                        initializationOptionsOverrides: {
+                            tsserver: {
+                                path: path.join(repoRoot, 'packages', 'compiler', 'built', 'local', 'tsserver.js'),
+                                useSyntaxServer: 'never',
+                            },
+                        },
+                    });
+                    servers.set(packageRoot, server);
+                }
+                const document = toDocument(filePath);
+                server.didOpenTextDocument({ textDocument: document });
+                for (const offset of offsets) {
+                    const hover = await server.hover({
+                        textDocument: { uri: document.uri },
+                        position: positionAt(document.text, offset),
+                    });
+                    const location = `${path.relative(examplesRoot, filePath)}:${positionAt(document.text, offset).line + 1}`;
+                    expect(hover, `${location} should have feature-owned hover information`).toBeDefined();
+                    const rendered = JSON.stringify(hover!.contents);
+                    expect(rendered, `${location} should not expose an implementation fallback`).not.toMatch(/\bany\b|\(Missing\)/);
+                }
+                server.didCloseTextDocument({ textDocument: { uri: document.uri } });
+            }
+        }
+        finally {
+            for (const server of servers.values()) {
+                server.closeAllForTesting();
+                server.shutdown();
+            }
+        }
+    }, 120_000);
 });
