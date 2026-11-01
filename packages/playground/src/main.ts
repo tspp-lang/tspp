@@ -41,16 +41,7 @@ const editor = monaco.editor.create(element("editor"), {
   scrollBeyondLastLine: false,
   fixedOverflowWidgets: true,
 });
-const outputs = createOutputController(client, (fileName, offset) => {
-  openFile(fileName);
-  const model = models.get(fileName);
-  if (model && offset !== undefined) {
-    const position = model.getPositionAt(offset);
-    editor.setPosition(position);
-    editor.revealPositionInCenter(position);
-    editor.focus();
-  }
-});
+const outputs = createOutputController(client);
 dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
 const { version, features: definitions } = await client.init({
@@ -98,6 +89,7 @@ function loadProject(state: SharedState) {
   outputs.markStale();
   renderTabs();
   openFile(state.active);
+  void outputs.showJavaScript();
 }
 
 function openFile(path: string) {

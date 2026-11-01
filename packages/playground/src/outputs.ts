@@ -16,20 +16,17 @@ const element = <T extends HTMLElement>(id: string) => document.getElementById(i
 export interface OutputController {
   setFile(fileName: string): void;
   markStale(): void;
+  showJavaScript(): Promise<void>;
   dispose(): void;
 }
 
 /** Owns lazily-loaded compiler artifacts and the explicitly-invoked runtime worker. */
-export function createOutputController(
-  client: LanguageClient,
-  openSource: (fileName: string, offset?: number) => void,
-): OutputController {
+export function createOutputController(client: LanguageClient): OutputController {
   const editorColumn = element("editor-column");
   const outputTabs = element("output-tabs");
   const outputItems = element<HTMLSelectElement>("output-items");
   const outputStatus = element("outputs-status");
   const outputEmpty = element("output-empty");
-  const goToSource = element<HTMLButtonElement>("go-to-output-source");
   const runButton = element<HTMLButtonElement>("run-javascript");
   const runStatus = element("run-status");
   const runOutput = element("run-output");
@@ -94,7 +91,6 @@ export function createOutputController(
     artifactEditor.setModel(null);
     outputEmpty.classList.remove("loading");
     outputEmpty.hidden = !!item;
-    goToSource.disabled = !item?.fileName;
     if (!item) {
       const label = categories.find(definition => definition.id === category)?.label;
       outputEmpty.textContent = !category
@@ -111,9 +107,6 @@ export function createOutputController(
   }
 
   outputItems.onchange = () => showItem(itemsForCategory().find(item => item.id === outputItems.value));
-  goToSource.onclick = () => {
-    if (current?.fileName) openSource(current.fileName, current.span?.start);
-  };
 
   async function loadCategory(nextCategory: OutputCategory): Promise<void> {
     category = nextCategory;
@@ -128,7 +121,6 @@ export function createOutputController(
     outputModel = undefined;
     artifactEditor.setModel(null);
     outputItems.hidden = true;
-    goToSource.disabled = true;
     outputEmpty.hidden = false;
     outputEmpty.classList.add("loading");
     const label = categories.find(item => item.id === nextCategory)!.label;
@@ -266,6 +258,7 @@ export function createOutputController(
   return {
     setFile,
     markStale,
+    showJavaScript: () => loadCategory("javascript"),
     dispose() {
       stopRuntime();
       artifactEditor.dispose();
