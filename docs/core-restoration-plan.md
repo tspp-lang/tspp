@@ -99,6 +99,7 @@ manifest: {
 |---|---|---|---|
 | 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法 | dependent-types、formal-verification |
 | 语法扩展 | 表达式、语句、声明、类型、后缀类型、类成员等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点或 `ExtensionExpression` | 全部语法类插件 |
+| 表达式改写 | 括号表达式与调用实参解析完成后（`parseParenthesizedExpression`、`parseArgumentExpression`） | 插件用解析器自己的 factory 把表达式改写成普通 TS 语法；被改名的标识符按新名字输出（emitter 中一处调用点）。**已实现** | operator-sections |
 | 扩展节点检查 | checker | 对 `ExtensionExpression` 返回类型，插件可调用公共 checker API | modern-syntax、dependent-types、nominal-types |
 | 附加诊断 | checker 结束一个源文件时 | 插件遍历自己拥有的节点并报告诊断（穷尽性、静态成员契约、使用限制等） | nominal-types、static-interface-members |
 | 扩展节点降级 | `transformers/ts.ts` 之前 | 把扩展节点变成普通 TS AST | modern-syntax、dependent-types |
@@ -147,6 +148,14 @@ manifest: {
 5. 用一个最简单的插件（operator-sections）走通全链路，验证插槽够用。
 
 完成标准：新插槽可用；旧原语仍在，迁移可以逐个进行。
+
+**完成记录（2026-11-01）**
+
+- `plugins/registry.ts`、`plugins/analysis.ts`（连同 `taggedUnion.ts`）移到 `compiler/tspp/`。
+- SDK API 版本升到 2，一次完成的破坏性变更：compiler facet 增加 `context.ts`（宿主编译器的公共 API，类型取自 npm 上的 `typescript@6.0.3`）；清单增加 `provides`，上下文增加 `context.provide` 与 `context.dependencies.get`，宿主拒绝两个插件提供同一 API；删除 `conflicts`；`editor.keywords` 只保留次要词，编辑器关键词由 `getTSPPEditorKeywords` 从 `syntax.keywords` 派生。
+- `packages/plugins/eslint.boundaries.mjs`：插件只能 `import type` 其他插件包，不能导入运行时值或进入其他插件的源码。
+- 第 3 步改为"随第一个消费者实现插槽"：按规则 6，插槽必须有立即使用它的插件，所以每个插槽在迁移对应插件时实现并登记到上表。
+- operator-sections 走通全链路（也即阶段 2 第 1 步）：核心里的占位符收集与脱糖、`tsppHole`/`tsppOperatorParam` 字段删除，换成"表达式改写"插槽；插件用 `context.ts` 自己完成改写。
 
 ### 阶段 2：逐个迁移插件
 
