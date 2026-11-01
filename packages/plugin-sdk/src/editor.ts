@@ -1,11 +1,22 @@
+import type { TSPPPlugin } from "./index";
+
 /** Static editor metadata. Hosts merge these declarations at package time. */
 export interface TSPPEditorContribution {
-    /** Word-like lexical tokens shared by lightweight editor hosts such as Monaco. */
+    /**
+     * Additional word-like tokens for lightweight editor hosts such as Monaco, such as `in` after `let`. The words that
+     * start syntax come from the manifest's `syntax.keywords`; see `getTSPPEditorKeywords`.
+     */
     readonly keywords?: readonly string[];
     readonly commands?: readonly { readonly id: string; readonly title: string; }[];
     readonly grammars?: readonly string[];
     readonly snippets?: readonly string[];
     readonly configuration?: Readonly<Record<string, unknown>>;
+}
+
+/** The words an editor highlights as keywords for this plugin: its syntax keywords plus `editor.keywords`. */
+export function getTSPPEditorKeywords(plugin: TSPPPlugin): string[] {
+    const words = (plugin.manifest.syntax?.keywords ?? []).map(entry => entry.keyword).filter(word => /^[A-Za-z][\w$]*$/.test(word));
+    return [...new Set([...words, ...(plugin.facets.editor?.keywords ?? [])])];
 }
 
 export interface TSPPTextSpan {

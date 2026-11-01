@@ -84,7 +84,7 @@ function normalizeFileName(fileName) {
 async function run() {
   const ts = require(workerData.compilerPath);
   ts.registerTSPPCompilerPlugin({
-    manifest: { id: "macros", version: "0.0.1", apiVersion: 1 },
+    manifest: { id: "macros", version: "0.0.1", apiVersion: 2 },
     facets: { compiler: { activate: context => context.compiler.registerCompileTimeMacros() } },
   });
   const host = ts.createCompilerHost(workerData.options, true);

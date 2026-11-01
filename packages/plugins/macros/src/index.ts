@@ -20,7 +20,7 @@ export const macrosPlugin = definePlugin({
         return context.compiler.registerCompileTimeMacros();
       },
     },
-    editor: { keywords: ["macro", "with"], grammars: ["./editor/macros.tmLanguage.json"] },
+    editor: { grammars: ["./editor/macros.tmLanguage.json"] },
   },
 });
 

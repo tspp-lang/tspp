@@ -3,6 +3,8 @@ import { build, transform } from "esbuild";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
+import type { TSPPPlugin } from "@tspp/plugin-sdk";
+import { getTSPPEditorKeywords } from "@tspp/plugin-sdk/editor";
 import { defineConfig, type Plugin } from "vite";
 
 const require = createRequire(import.meta.url);
@@ -157,8 +159,7 @@ function editorKeywords(): Plugin {
       const keywords = new Set<string>();
       for (const packageName of declarationPackages) {
         const loaded = require(packageName) as { default?: unknown };
-        const plugin = (loaded.default ?? loaded) as { facets?: { editor?: { keywords?: readonly string[] } } };
-        plugin.facets?.editor?.keywords?.forEach(keyword => keywords.add(keyword));
+        getTSPPEditorKeywords((loaded.default ?? loaded) as TSPPPlugin).forEach(keyword => keywords.add(keyword));
       }
       return `export default ${JSON.stringify([...keywords])};`;
     },

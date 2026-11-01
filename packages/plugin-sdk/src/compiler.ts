@@ -1,4 +1,4 @@
-import type { TSPPPluginDisposer, TSPPPluginLogger } from "./index";
+import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger } from "./index";
 
 /** Opaque compiler values prevent plugins from depending on compiler internals. */
 export type TSPPSyntaxNode = object;
@@ -108,9 +108,26 @@ export interface TSPPPreprocessedFunctionRequest {
     readonly declarationStart: number;
 }
 
-/** Turns expressions containing a placeholder identifier into inferred arrow functions. */
-export interface TSPPPlaceholderExpressionSyntax {
-    readonly placeholder: string;
+/** Where an expression being rewritten was parsed, and the factory for nodes that should count as parsed source. */
+export interface TSPPExpressionRewriteContext {
+    /** True for the inner expression of `( ... )`; the replacement must then be a parenthesized expression. */
+    readonly parenthesized: boolean;
+    /** The source range the replacement covers, including the parentheses when `parenthesized` is true. */
+    readonly pos: number;
+    readonly end: number;
+    /** The parser's own factory. Nodes it creates and `ts.setTextRange` places behave like parsed source. */
+    readonly factory: import("typescript-upstream").NodeFactory;
+}
+
+/**
+ * Rewrites a just-parsed parenthesized expression or call argument into other ordinary TypeScript syntax. An identifier
+ * whose text the rewrite changes is emitted with its new text.
+ */
+export interface TSPPExpressionRewriter {
+    rewrite(
+        expression: import("typescript-upstream").Expression,
+        context: TSPPExpressionRewriteContext,
+    ): import("typescript-upstream").Expression | undefined;
 }
 
 export interface TSPPExtensionExpression {
@@ -503,7 +520,7 @@ export interface TSPPCompilerPluginAPI {
     registerInterfaceMemberContract(contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
-    registerPlaceholderExpressionSyntax(syntax: TSPPPlaceholderExpressionSyntax): TSPPPluginDisposer;
+    registerExpressionRewriter(rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
     /** Enables the compiler's isolated compile-time macro pipeline for this feature capsule. */
     registerCompileTimeMacros(): TSPPPluginDisposer;
 }
@@ -523,15 +540,23 @@ export interface TSPPCompilerHostAPI {
     registerInterfaceMemberContract(pluginId: string, contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
-    registerPlaceholderExpressionSyntax(pluginId: string, syntax: TSPPPlaceholderExpressionSyntax): TSPPPluginDisposer;
+    registerExpressionRewriter(pluginId: string, rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
     registerCompileTimeMacros(pluginId: string): TSPPPluginDisposer;
 }
+
+/** The public TypeScript API of the host compiler. Plugins use it instead of importing their own `typescript`. */
+export type TSPPTypeScript = typeof import("typescript-upstream");
 
 export interface TSPPCompilerPluginContext {
     readonly compilerVersion: string;
     readonly pluginId: string;
     readonly logger: TSPPPluginLogger;
+    /** The host compiler's public API, so plugins share its parser, checker, factory, and syntax kinds. */
+    readonly ts: TSPPTypeScript;
     readonly compiler: TSPPCompilerPluginAPI;
+    readonly dependencies: TSPPPluginDependencies;
+    /** Publishes an API declared in the manifest's `provides` for plugins that depend on this one. */
+    provide(name: string, api: unknown): void;
     onDispose(disposer: TSPPPluginDisposer): void;
 }
 

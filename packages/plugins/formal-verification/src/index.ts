@@ -110,7 +110,7 @@ export const formalVerificationPlugin = definePlugin({
             },
         },
         editor: {
-            keywords: ["assert", "assume", "with", "requires", "ensures", "invariant", "predicate", "numberModel"],
+            keywords: ["requires", "ensures", "invariant", "predicate", "numberModel"],
             commands: [{ id: "tspp.showSmtSource", title: "TS++: Show SMT Source" }],
             grammars: ["./editor/verification.tmLanguage.json"],
         },

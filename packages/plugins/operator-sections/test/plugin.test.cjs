@@ -5,22 +5,20 @@ const { operatorSectionsPlugin } = require("../dist");
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 
-test("registers and disposes placeholder expression syntax", () => {
+test("registers and disposes its expression rewriter", () => {
   let registration;
   let disposed = false;
   const compiler = {
-    registerPlaceholderExpressionSyntax(pluginId, syntax) {
-      registration = { pluginId, syntax };
+    registerExpressionRewriter(pluginId, rewriter) {
+      registration = { pluginId, rewriter };
       return () => { disposed = true; };
     },
   };
-  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts: require("typescript-upstream") });
   host.register(operatorSectionsPlugin);
   host.activateAll();
-  assert.deepEqual(registration, {
-    pluginId: "operator-sections",
-    syntax: { placeholder: "_" },
-  });
+  assert.equal(registration.pluginId, "operator-sections");
+  assert.equal(typeof registration.rewriter.rewrite, "function");
   host.dispose();
   assert.equal(disposed, true);
 });

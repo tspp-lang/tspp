@@ -1,16 +1,19 @@
 import {
     TSPP_PLUGIN_API_VERSION,
     TSPPPlugin,
+    TSPPPluginDependencies,
     TSPPPluginDisposer,
     TSPPPluginLogger,
     TSPPPluginManifest,
 } from "./index";
-import type { TSPPCompilerHostAPI, TSPPCompilerPluginContext } from "./compiler";
+import type { TSPPCompilerHostAPI, TSPPCompilerPluginContext, TSPPTypeScript } from "./compiler";
 import type { TSPPLanguageServiceHostAPI, TSPPLanguageServicePluginContext } from "./language-service";
 
 export interface TSPPPluginHostEnvironment {
     readonly compilerVersion: string;
     readonly logger: TSPPPluginLogger;
+    /** The host compiler's public API, handed to every compiler facet as `context.ts`. */
+    readonly ts: TSPPTypeScript;
     readonly compiler: TSPPCompilerHostAPI;
     readonly languageService?: TSPPLanguageServiceHostAPI;
 }
@@ -25,6 +28,7 @@ type HostState = "collecting" | "active" | "disposed";
 export class TSPPPluginHost {
     private readonly registrations = new Map<string, PluginRegistration>();
     private readonly activationOrder: PluginRegistration[] = [];
+    private readonly providedAPIs = new Map<string, unknown>();
     private state: HostState = "collecting";
 
     public constructor(private readonly environment: TSPPPluginHostEnvironment) {}
@@ -131,6 +135,16 @@ export class TSPPPluginHost {
             compilerVersion: this.environment.compilerVersion,
             pluginId,
             logger: prefixLogger(this.environment.logger, pluginId),
+            ts: this.environment.ts,
+            dependencies: this.createDependencies(registration),
+            provide: (name, api) => {
+                if (!registration.plugin.manifest.provides?.includes(name)) {
+                    throw new Error(`TSPP plugin '${pluginId}' must declare '${name}' in provides before providing it.`);
+                }
+                if (this.providedAPIs.has(name)) throw new Error(`TSPP plugin '${pluginId}' already provided '${name}'.`);
+                this.providedAPIs.set(name, api);
+                registration.disposers.push(() => this.providedAPIs.delete(name));
+            },
             compiler: {
                 expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
                 declarationSyntaxKinds: this.environment.compiler.declarationSyntaxKinds,
@@ -150,11 +164,27 @@ export class TSPPPluginHost {
                     this.environment.compiler.registerInterfaceMemberContract(pluginId, contract),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
-                registerPlaceholderExpressionSyntax: syntax =>
-                    this.environment.compiler.registerPlaceholderExpressionSyntax(pluginId, syntax),
+                registerExpressionRewriter: rewriter => this.environment.compiler.registerExpressionRewriter(pluginId, rewriter),
                 registerCompileTimeMacros: () => this.environment.compiler.registerCompileTimeMacros(pluginId),
             },
             onDispose: disposer => registration.disposers.push(disposer),
+        };
+    }
+
+    private createDependencies(registration: PluginRegistration): TSPPPluginDependencies {
+        const manifest = registration.plugin.manifest;
+        const declared = new Set([...(manifest.requires ?? []), ...(manifest.optionalDependencies ?? [])]);
+        return {
+            get: <T>(name: string): T | undefined => {
+                const provider = Array.from(this.registrations.values())
+                    .find(candidate => candidate.plugin.manifest.provides?.includes(name));
+                if (!provider) return undefined;
+                const providerId = provider.plugin.manifest.id;
+                if (!declared.has(providerId)) {
+                    throw new Error(`TSPP plugin '${manifest.id}' uses '${name}' from '${providerId}' without declaring the dependency.`);
+                }
+                return this.providedAPIs.get(name) as T | undefined;
+            },
         };
     }
 
@@ -210,7 +240,7 @@ function validateManifest(manifest: TSPPPluginManifest): void {
     const relationships = [
         ["requires", manifest.requires],
         ["optionalDependencies", manifest.optionalDependencies],
-        ["conflicts", manifest.conflicts],
+        ["provides", manifest.provides],
     ] as const;
     for (const [name, values] of relationships) {
         if (!values) continue;
@@ -253,13 +283,10 @@ function validateRelationships(
     for (const dependency of manifest.requires ?? []) {
         if (!registrations.has(dependency)) throw new Error(`TSPP plugin '${manifest.id}' requires missing plugin '${dependency}'.`);
     }
-    for (const conflict of manifest.conflicts ?? []) {
-        if (registrations.has(conflict)) throw new Error(`TSPP plugin '${manifest.id}' conflicts with '${conflict}'.`);
-    }
     for (const other of registrations.values()) {
-        if (other.plugin.manifest.conflicts?.includes(manifest.id)) {
-            throw new Error(`TSPP plugin '${other.plugin.manifest.id}' conflicts with '${manifest.id}'.`);
-        }
+        if (other === registration) continue;
+        const shared = manifest.provides?.find(name => other.plugin.manifest.provides?.includes(name));
+        if (shared) throw new Error(`TSPP plugins '${manifest.id}' and '${other.plugin.manifest.id}' both provide '${shared}'.`);
     }
 }
 

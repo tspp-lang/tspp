@@ -69,6 +69,9 @@
     "test": "pnpm build && node --test test/*.test.cjs",
     "typecheck": "node ../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
+  "dependencies": {
+    "typescript-upstream": "npm:typescript@6.0.3"
+  },
   "devDependencies": {
     "eslint": "^10.10.0",
     "globals": "^17.12.0",

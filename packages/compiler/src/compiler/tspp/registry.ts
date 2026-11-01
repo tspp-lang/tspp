@@ -6,17 +6,18 @@ import type {
     TSPPCompilerHostAPI,
     TSPPDeclarationSyntax,
     TSPPDeepReadonlyBindingSyntax,
+    TSPPExpressionRewriter,
     TSPPExpressionSyntax,
     TSPPFunctionBodySyntax,
     TSPPInterfaceMemberContract,
     TSPPKindAnnotationSyntax,
-    TSPPPlaceholderExpressionSyntax,
     TSPPPostfixTypeSyntax,
     TSPPPreprocessedTypeAlias,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
     TSPPTrailingClosureBindingSyntax,
     TSPPTypeKind,
+    TSPPTypeScript,
     TSPPTypeSyntax,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
@@ -25,11 +26,15 @@ import type {
     TSPPQuickInfoProvider,
 } from "@tspp/plugin-sdk/language-service";
 
+import * as ts from "../_namespaces/ts.js";
 import { version } from "../corePublic.js";
 import type {
     Block,
     Expression,
     ExtensionExpression,
+    Identifier,
+    Node,
+    NodeFactory,
     Statement,
     VariableDeclaration,
     VariableStatement,
@@ -63,7 +68,7 @@ const kindSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPK
 const kindAnnotations = new WeakMap<object, TSPPTypeKind>();
 const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
-const placeholderExpressionSyntaxes = new Map<string, TSPPPlaceholderExpressionSyntax>();
+const expressionRewriters = new Map<string, TSPPExpressionRewriter>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const compileTimeMacroPlugins = new Set<string>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
@@ -377,15 +382,10 @@ const compilerAPI: TSPPCompilerHostAPI = {
         sourcePreprocessors.set(key, preprocessor);
         return () => sourcePreprocessors.delete(key);
     },
-    registerPlaceholderExpressionSyntax(pluginId, syntax) {
-        if (!syntax.placeholder || syntax.placeholder !== syntax.placeholder.trim()) {
-            throw new Error(`TSPP placeholder syntax from '${pluginId}' must use a non-empty identifier.`);
-        }
-        if (placeholderExpressionSyntaxes.size && !placeholderExpressionSyntaxes.has(pluginId)) {
-            throw new Error("Only one TSPP placeholder expression syntax can be active at a time.");
-        }
-        placeholderExpressionSyntaxes.set(pluginId, syntax);
-        return () => placeholderExpressionSyntaxes.delete(pluginId);
+    registerExpressionRewriter(pluginId, rewriter) {
+        if (expressionRewriters.has(pluginId)) throw new Error(`TSPP plugin '${pluginId}' already registered an expression rewriter.`);
+        expressionRewriters.set(pluginId, rewriter);
+        return () => expressionRewriters.delete(pluginId);
     },
     registerCompileTimeMacros(pluginId) {
         if (compileTimeMacroPlugins.size && !compileTimeMacroPlugins.has(pluginId)) {
@@ -417,6 +417,8 @@ export function initializeTSPPCompilerPlugins(compilerVersion: string): void {
     pluginHost = new TSPPPluginHost({
         compilerVersion,
         logger: silentLogger,
+        // Plugins see the same public API that `typescript.js` exports.
+        ts: ts as unknown as TSPPTypeScript,
         compiler: compilerAPI,
         languageService: languageServiceAPI,
     });
@@ -460,7 +462,7 @@ export interface TSPPPluginSummary {
     readonly displayName?: string;
     readonly requires?: readonly string[];
     readonly optionalDependencies?: readonly string[];
-    readonly conflicts?: readonly string[];
+    readonly provides?: readonly string[];
     readonly capabilities?: readonly string[];
 }
 
@@ -497,9 +499,34 @@ export function hasInterfaceMemberContract(modifier: "static"): boolean {
     return [...interfaceMemberContracts.values()].some(contract => contract.modifier === modifier);
 }
 
-/** @internal */
-export function getPlaceholderExpressionSyntax(): { readonly placeholder: string; } | undefined {
-    return placeholderExpressionSyntaxes.values().next().value;
+/**
+ * Whether an expression rewriter renamed this parsed identifier, so that the emitter writes its new text instead of
+ * the source text at its position. Only possible while a rewriter is active; escaped source spellings are kept.
+ * @internal
+ */
+export function isTSPPRewrittenIdentifier(node: Node): boolean {
+    if (!expressionRewriters.size || node.kind !== SyntaxKind.Identifier) return false;
+    const text = ts.getSourceFileOfNode(node).text;
+    const source = text.slice(ts.skipTrivia(text, node.pos), node.end);
+    return !source.includes("\\") && source !== ts.idText(node as Identifier);
+}
+
+/**
+ * Offers a just-parsed expression to the active expression rewriters; the first replacement wins.
+ * @internal
+ */
+export function rewriteTSPPExpression(
+    expression: Expression,
+    factory: NodeFactory,
+    parenthesized: boolean,
+    pos: number,
+    end: number,
+): Expression | undefined {
+    for (const rewriter of expressionRewriters.values()) {
+        const rewritten = rewriter.rewrite(expression as any, { factory: factory as any, parenthesized, pos, end });
+        if (rewritten) return rewritten as unknown as Expression;
+    }
+    return undefined;
 }
 
 /** @internal */

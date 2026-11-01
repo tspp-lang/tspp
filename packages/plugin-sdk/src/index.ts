@@ -4,7 +4,7 @@ import type { TSPPLanguageServicePlugin } from "./language-service";
 import type { TSPPLSPPlugin } from "./lsp";
 
 /** The plugin contract version understood by this host generation. */
-export const TSPP_PLUGIN_API_VERSION = 1 as const;
+export const TSPP_PLUGIN_API_VERSION = 2 as const;
 
 export interface TSPPPluginManifest {
     /** Stable, repository-wide identity such as `modern-syntax`. */
@@ -18,8 +18,11 @@ export interface TSPPPluginManifest {
     readonly requires?: readonly string[];
     /** Plugin ids that are ordered first when present, but are not required. */
     readonly optionalDependencies?: readonly string[];
-    /** Plugin ids that cannot coexist with this capsule. */
-    readonly conflicts?: readonly string[];
+    /**
+     * Names of the APIs this plugin publishes with `context.provide`. At most one installed plugin may provide each
+     * name, which is also how two plugins that cannot coexist (for example two solvers) exclude each other.
+     */
+    readonly provides?: readonly string[];
     /** Stable, human-readable capabilities exposed for tooling and diagnostics. */
     readonly capabilities?: readonly string[];
     /** The syntax this plugin claims. Repository checks compare it across plugins; the host trusts it as written. */
@@ -61,6 +64,15 @@ export interface TSPPPluginLogger {
 }
 
 export type TSPPPluginDisposer = () => void;
+
+/** The APIs of the plugins this plugin declared in `requires` or `optionalDependencies`. */
+export interface TSPPPluginDependencies {
+    /**
+     * Returns the API a declared dependency published under `name`, or undefined when that dependency is optional and
+     * not installed. Types come from the provider package's `./api` subpath, imported with `import type` only.
+     */
+    get<T>(name: string): T | undefined;
+}
 
 /** A complete feature capsule. Each runtime loads only the facet it owns. */
 export interface TSPPPlugin {

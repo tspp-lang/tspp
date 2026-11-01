@@ -1,5 +1,7 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 
+import { createOperatorSectionRewriter } from "./sections";
+
 export const operatorSectionsPlugin = definePlugin({
     manifest: {
         id: "operator-sections",
@@ -15,7 +17,7 @@ export const operatorSectionsPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
-                return context.compiler.registerPlaceholderExpressionSyntax({ placeholder: "_" });
+                return context.compiler.registerExpressionRewriter(createOperatorSectionRewriter(context.ts));
             },
         },
         editor: {

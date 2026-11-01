@@ -61,9 +61,9 @@ test("the host rejects duplicate ids and incompatible APIs", () => {
   host.register(plugin("test/duplicate"));
   assert.throws(() => host.register(plugin("test/duplicate")), /Duplicate TSPP plugin id/);
   assert.throws(() => host.register({
-    manifest: { id: "test/future", version: "0.0.1", apiVersion: 2 },
+    manifest: { id: "test/future", version: "0.0.1", apiVersion: TSPP_PLUGIN_API_VERSION + 1 },
     facets: {},
-  }), /requires API 2/);
+  }), /requires API \d+; host API is/);
 });
 
 test("features discovered after activation can register their compiler facet", () => {
@@ -111,9 +111,31 @@ test("missing, cyclic, and conflicting dependency graphs are rejected", () => {
   assert.throws(() => cyclic.activateAll(), /Cyclic TSPP plugin dependency/);
 
   const conflict = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
-  conflict.register(plugin("test/a", undefined, { conflicts: ["test/b"] }));
-  conflict.register(plugin("test/b"));
-  assert.throws(() => conflict.activateAll(), /conflicts with/);
+  conflict.register(plugin("test/a", undefined, { provides: ["test/solver"] }));
+  conflict.register(plugin("test/b", undefined, { provides: ["test/solver"] }));
+  assert.throws(() => conflict.activateAll(), /both provide 'test\/solver'/);
+});
+
+test("plugins reach the APIs of their declared dependencies", () => {
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts: { version: "test" } });
+  const seen = [];
+  host.register(plugin("test/provider", context => context.provide("test/api", { answer: 42 }), { provides: ["test/api"] }));
+  host.register(plugin("test/consumer", context => {
+    seen.push(context.ts.version, context.dependencies.get("test/api").answer, context.dependencies.get("test/absent"));
+  }, { requires: ["test/provider"] }));
+  host.activateAll();
+  assert.deepEqual(seen, ["test", 42, undefined]);
+});
+
+test("plugins cannot provide undeclared APIs or use undeclared dependencies", () => {
+  const undeclaredProvide = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  undeclaredProvide.register(plugin("test/provider", context => context.provide("test/api", {})));
+  assert.throws(() => undeclaredProvide.activateAll(), /must declare 'test\/api' in provides/);
+
+  const undeclaredUse = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  undeclaredUse.register(plugin("test/provider", context => context.provide("test/api", {}), { provides: ["test/api"] }));
+  undeclaredUse.register(plugin("test/consumer", context => context.dependencies.get("test/api")));
+  assert.throws(() => undeclaredUse.activateAll(), /without declaring the dependency/);
 });
 
 test("late plugins can require already active capsules", () => {

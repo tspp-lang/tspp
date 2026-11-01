@@ -206,7 +206,7 @@ export const dependentTypesPlugin = definePlugin({
             },
         },
         editor: {
-            keywords: ["mltt", "reify"],
+            keywords: ["mltt"],
             commands: [{ id: "tspp.showMlttNormalForms", title: "TS++: Show MLTT Normal Forms" }],
             grammars: ["./editor/dependent-types.tmLanguage.json"],
         },

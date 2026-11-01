@@ -3681,7 +3681,7 @@ declare namespace ts {
         readonly displayName?: string;
         readonly requires?: readonly string[];
         readonly optionalDependencies?: readonly string[];
-        readonly conflicts?: readonly string[];
+        readonly provides?: readonly string[];
         readonly capabilities?: readonly string[];
     }
     type Path = string & {

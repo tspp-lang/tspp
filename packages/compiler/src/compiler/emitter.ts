@@ -447,6 +447,7 @@ import {
     getTypeKindAnnotation,
     getTypeUniverseLevel,
     isExtensionTypeConstructor,
+    isTSPPRewrittenIdentifier,
 } from "./tspp/registry.js";
 import { getTaggedUnionData } from "./tspp/taggedUnion.js";
 
@@ -5743,7 +5744,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
         const sourceFile = currentSourceFile; // const needed for control flow
         const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node)
-            && !(node as Identifier).tsppHole && !(node as Identifier).tsppOperatorParam;
+            && !isTSPPRewrittenIdentifier(node); // TSPP-SLOT(expression-rewrite)
         if (isMemberName(node)) {
             if (!canUseSourceFile || getSourceFileOfNode(node) !== getOriginalNode(sourceFile)) {
                 return idText(node);

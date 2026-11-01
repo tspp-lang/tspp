@@ -18,6 +18,11 @@ Plugin packages should use `definePlugin` for contextual typing, import
 compiler contracts from `@tspp/plugin-sdk/compiler`, and never import compiler
 internals or other plugin implementations.
 
-Manifests may declare `requires`, `optionalDependencies`, `conflicts`, and
-human-readable `capabilities`. The host validates the graph before activation,
-orders dependencies first, and rejects incompatible feature sets explicitly.
+Manifests may declare `requires`, `optionalDependencies`, `provides`, `syntax`,
+and human-readable `capabilities`. The host validates the graph before
+activation, orders dependencies first, and rejects two plugins that provide the
+same API. A provider publishes its API with `context.provide(name, api)`; a
+plugin that declared the provider as a dependency reads it with
+`context.dependencies.get(name)` and imports its types from the provider's
+`./api` subpath with `import type` only. Compiler facets receive the host
+compiler's public API as `context.ts`.

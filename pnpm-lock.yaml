@@ -685,6 +685,10 @@ importers:
         version: 8.3.5(@types/node@26.6.6)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1)
 
   packages/plugin-sdk:
+    dependencies:
+      typescript-upstream:
+        specifier: npm:typescript@6.0.3
+        version: typescript@6.0.3
     devDependencies:
       eslint:
         specifier: ^10.10.0
@@ -891,6 +895,9 @@ importers:
       typescript-eslint:
         specifier: ^8.70.0
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
+      typescript-upstream:
+        specifier: npm:typescript@6.0.3
+        version: typescript@6.0.3
 
   packages/plugins/static-interface-members:
     dependencies:
