@@ -152,4 +152,101 @@ describe('TS++ examples editor smoke test', () => {
             server.shutdown();
         }
     }, 60_000);
+
+    it('keeps feature-owned hover text at the TS++ source level', async () => {
+        const cases = [
+            {
+                packageName: '01-modern-syntax',
+                fileName: 'src/index.tspp',
+                targets: [
+                    { search: 'use left', offset: 4, includes: ['left', 'number'] },
+                    { search: 'withValue(20)', fromEnd: true, includes: ['withValue', 'number'] },
+                ],
+            },
+            {
+                packageName: '06-type-computation',
+                fileName: 'src/01-let-bindings.tspp',
+                targets: [
+                    { search: 'let Raw', offset: 4, includes: ['Raw', 'raw: T'] },
+                    { search: 'wrapped: Raw', includes: ['wrapped', 'Raw'] },
+                ],
+            },
+            {
+                packageName: '06-type-computation',
+                fileName: 'src/02-type-match.tspp',
+                targets: [
+                    { search: 'match T', includes: ['keyword', 'match'] },
+                    { search: 'match T', offset: 6, includes: ['T', 'Classify'] },
+                    { search: 'infer Head', offset: 6, includes: ['Head'] },
+                    { search: 'infer Tail', offset: 6, includes: ['Tail'] },
+                ],
+            },
+            {
+                packageName: '06-type-computation',
+                fileName: 'src/03-type-lambdas.tspp',
+                targets: [{ search: 'Identity =', includes: ['Identity', '<T', '=>>'] }],
+            },
+            {
+                packageName: '03-nominal-types',
+                fileName: 'src/02-composed-patterns.tspp',
+                targets: [
+                    { search: 'Either<', includes: ['data Either', 'Left', 'Right'] },
+                    { search: 'Left(value', includes: ['data constructor', 'Left', 'Either'] },
+                    { search: 'Left(1)', includes: ['Left', 'number', 'Either<number, string>'] },
+                ],
+            },
+            {
+                packageName: '07-higher-kinded-types',
+                fileName: 'src/index.tspp',
+                targets: [
+                    { search: ': Type0', offset: 2, includes: ['Type0', 'Type1'] },
+                    { search: 'Kind: Type1', includes: ['Kind', 'IdentityAtOne', 'Type1'] },
+                ],
+            },
+        ] as const;
+
+        const servers = new Map<string, TestLspServer>();
+        try {
+            for (const testCase of cases) {
+                const root = path.join(examplesRoot, testCase.packageName);
+                let server = servers.get(root);
+                if (!server) {
+                    server = await createServer({
+                        rootUri: URI.file(root).toString(),
+                        publishDiagnostics: () => undefined,
+                        initializationOptionsOverrides: {
+                            tsserver: {
+                                path: path.join(repoRoot, 'packages', 'compiler', 'built', 'local', 'tsserver.js'),
+                                useSyntaxServer: 'never',
+                            },
+                        },
+                    });
+                    servers.set(root, server);
+                }
+                const filePath = path.join(root, ...testCase.fileName.split('/'));
+                const document = toDocument(filePath);
+                server.didOpenTextDocument({ textDocument: document });
+                for (const target of testCase.targets) {
+                    const start = 'fromEnd' in target && target.fromEnd
+                        ? document.text.lastIndexOf(target.search)
+                        : document.text.indexOf(target.search);
+                    expect(start, `${testCase.fileName}: ${target.search}`).toBeGreaterThanOrEqual(0);
+                    const hover = await server.hover({
+                        textDocument: { uri: document.uri },
+                        position: positionAt(document.text, start + ('offset' in target ? target.offset : 0)),
+                    });
+                    const rendered = JSON.stringify(hover?.contents);
+                    for (const expected of target.includes) expect(rendered).toContain(expected);
+                    expect(rendered).not.toMatch(/\bany\b|\(Missing\)|__@nominal@/);
+                }
+                server.didCloseTextDocument({ textDocument: { uri: document.uri } });
+            }
+        }
+        finally {
+            for (const server of servers.values()) {
+                server.closeAllForTesting();
+                server.shutdown();
+            }
+        }
+    }, 120_000);
 });
