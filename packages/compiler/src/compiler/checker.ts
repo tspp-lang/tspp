@@ -13681,7 +13681,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         if (parentSymbol === unknownSymbol) return false;
         const resolved = parentSymbol.flags & SymbolFlags.Alias ? resolveAlias(parentSymbol) : parentSymbol;
         for (const declaration of resolved.declarations ?? emptyArray) {
-            const typeParameters = (declaration as { readonly typeParameters?: NodeArray<TypeParameterDeclaration>; }).typeParameters;
+            // An alias of an anonymous type constructor takes its arguments through the constructor's parameters.
+            const typeParameters = (declaration as { readonly typeParameters?: NodeArray<TypeParameterDeclaration>; }).typeParameters
+                ?? (isTypeAliasDeclaration(declaration) && isExtensionTypeConstructor(declaration.type)
+                    ? (declaration.type as FunctionTypeNode).typeParameters
+                    : undefined);
             const parameter = typeParameters?.[argumentIndex];
             if (parameter && getTypeKindAnnotation(parameter)?.kind === "function") return true;
         }
