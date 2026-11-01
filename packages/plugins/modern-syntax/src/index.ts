@@ -211,6 +211,45 @@ export const modernSyntaxPlugin = definePlugin({
                 return context.compiler.registerExpressionSyntax(expressionSyntax);
             },
         },
+        languageService: {
+            activate(context) {
+                return context.languageService.registerQuickInfoProvider(request => {
+                    const token = request.token;
+                    if (!token) return undefined;
+                    if (["let", "in", "do", "use", "def"].includes(token.text)) {
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: `(TS++ keyword) ${token.text}`,
+                            documentation: modernKeywordDocumentation[token.text],
+                        };
+                    }
+                    const statement = trailingClosureStatementAt(request.sourceText, token.start);
+                    if (!statement) return undefined;
+                    const match = /\buse\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^<;]+?))?\s*<-\s*([A-Za-z_$][\w$]*)/.exec(statement);
+                    if (!match) return undefined;
+                    const [, binding, annotation, callee] = match;
+                    if (token.text === binding) {
+                        const inferred = annotation?.trim()
+                            ?? usefulType(request.semanticType)
+                            ?? inferContinuationParameter(request.sourceText, callee);
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: `(const) ${binding}: ${inferred ?? "unknown"}`,
+                            documentation: "A value supplied by the trailing continuation parameter.",
+                        };
+                    }
+                    if (token.text === callee && !usefulDisplay(request.upstream?.display)) {
+                        const declaration = functionDeclaration(request.sourceText, callee);
+                        if (declaration) {
+                            return { start: token.start, length: token.length, display: declaration };
+                        }
+                    }
+                    return undefined;
+                });
+            },
+        },
         editor: {
             keywords: ["let", "in", "do", "use", "def"],
             grammars: ["./editor/modern-syntax.tmLanguage.json"],
@@ -219,3 +258,47 @@ export const modernSyntaxPlugin = definePlugin({
 });
 
 export default modernSyntaxPlugin;
+
+const modernKeywordDocumentation: Readonly<Record<string, string>> = {
+    let: "Introduces a lexical binding inside an expression.",
+    in: "Separates expression-local bindings from their result expression.",
+    do: "Starts a completion-valued block whose final expression is returned.",
+    use: "Binds the value supplied to a trailing continuation.",
+    def: "Declares a deeply readonly binding with const-context inference.",
+};
+
+function trailingClosureStatementAt(sourceText: string, position: number): string | undefined {
+    const start = Math.max(sourceText.lastIndexOf(";", position - 1), sourceText.lastIndexOf("{", position - 1)) + 1;
+    const end = sourceText.indexOf(";", position);
+    if (end < 0) return undefined;
+    const statement = sourceText.slice(start, end + 1);
+    return /\buse\b/.test(statement) ? statement : undefined;
+}
+
+function usefulType(type: string | undefined): string | undefined {
+    return type && type !== "any" && type !== "unknown" ? type : undefined;
+}
+
+function usefulDisplay(display: string | undefined): boolean {
+    return !!display && !/\bany\b|\(Missing\)/.test(display);
+}
+
+function inferContinuationParameter(sourceText: string, functionName: string): string | undefined {
+    const declaration = functionDeclarationSource(sourceText, functionName);
+    if (!declaration) return undefined;
+    const matches = [...declaration.matchAll(/\(\s*[A-Za-z_$][\w$]*\s*:\s*([^,)]+)\s*\)\s*=>/g)];
+    return matches.length ? matches[matches.length - 1][1].trim() : undefined;
+}
+
+function functionDeclaration(sourceText: string, functionName: string): string | undefined {
+    const declaration = functionDeclarationSource(sourceText, functionName);
+    return declaration && `(function) ${declaration.replace(/\s+/g, " ").trim()}`;
+}
+
+function functionDeclarationSource(sourceText: string, functionName: string): string | undefined {
+    const escaped = functionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match = new RegExp(`\\bfunction\\s+${escaped}\\b`).exec(sourceText);
+    if (!match) return undefined;
+    const body = sourceText.indexOf("{", match.index);
+    return body < 0 ? undefined : sourceText.slice(match.index, body).trim();
+}
