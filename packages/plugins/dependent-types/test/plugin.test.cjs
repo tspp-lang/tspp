@@ -117,6 +117,17 @@ test("analyzer reports kind mismatches and ill-typed core terms", async () => {
   assert.match(diagnostics[1].message, /Expected Nat/);
 });
 
+test("analyzer reports malformed binder signatures as syntax errors", async () => {
+  // The projection turns these into `any` so the compiler stays quiet; the analyzer is where they surface.
+  const diagnostics = await dependentTypesAnalyzer.analyze(input(`
+    export type MissingColon: Type1 = {A Type0} -> A;
+    export type MissingDomain: Type1 = (x: ) -> x;
+  `));
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [19101, 19101]);
+  assert.match(diagnostics[0].message, /Expected an identifier, found '\{'/);
+  assert.match(diagnostics[1].message, /Expected a type before '\)'/);
+});
+
 test("parses and normalizes all built-in eliminators", () => {
   const trueResult = parseDependentType(
     "If<True, Ann<Lam<(ignored: Bool) -> Type0>, (ignored: Bool) -> Type1>, string, number>",
