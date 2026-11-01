@@ -887,6 +887,7 @@ export function emitFiles(
             inlineSourceMap: compilerOptions.inlineSourceMap,
             inlineSources: compilerOptions.inlineSources,
             extendedDiagnostics: compilerOptions.extendedDiagnostics,
+            tsppJavaScriptEmit: true,
         };
 
         // Create a printer to print the nodes
@@ -1284,6 +1285,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
 
     var extendedDiagnostics = !!printerOptions.extendedDiagnostics;
     var tsppCompatibilityDeclaration = !!printerOptions.tsppCompatibilityDeclaration;
+    var tsppJavaScriptEmit = !!printerOptions.tsppJavaScriptEmit;
     var compatibilityKindedTypeParameterNames = new Set<string>();
     var compatibilityTypeParameterNames = new Set<string>();
     var compatibilityGenericTypeNames = new Set(["Array", "ReadonlyArray", "Promise", "Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]);
@@ -3684,7 +3686,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitSignatureHead(node: SignatureDeclaration) {
         emitTypeParameters(node, node.typeParameters);
         emitParameters(node, node.parameters);
-        const restoredWithClause = !tsppCompatibilityDeclaration && isFunctionDeclaration(node) && node.name && currentSourceFile
+        // Contracts are erased from JavaScript; only declaration surfaces restore the authored clause.
+        const restoredWithClause = !tsppCompatibilityDeclaration && !tsppJavaScriptEmit && isFunctionDeclaration(node) && node.name && currentSourceFile
             ? getPreprocessedFunctionWithClause(currentSourceFile.fileName, idText(node.name), node.pos)
             : undefined;
         if (restoredWithClause) {

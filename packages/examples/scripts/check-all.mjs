@@ -91,12 +91,16 @@ for (const example of packages) {
 
         const emittedEntry = join(runtimeDirectory, relative(example.sourceRoot, example.entry)).replace(/\.(?:tspp|ts)$/, ".js");
         if (!existsSync(emittedEntry)) throw new Error(`${example.directory} did not emit its entry point: ${emittedEntry}`);
-        if (/^\s*(?:import|export)\b/m.test(readFileSync(emittedEntry, "utf8"))) {
+        // Run every emitted module so feature syntax leaking into any JavaScript output is caught.
+        const emittedModules = listFiles(runtimeDirectory).filter(file => extname(file) === ".js");
+        if (emittedModules.some(file => /^\s*(?:import|export)\b/m.test(readFileSync(file, "utf8")))) {
             writeFileSync(join(runtimeDirectory, "package.json"), JSON.stringify({ type: "module" }));
         }
         if (richDeclarationExamples.has(example.directory)) verifyFeatureRichDeclarations(example.directory, runtimeDirectory);
-        console.log(`[examples] running ${example.directory}/${relative(runtimeDirectory, emittedEntry)}`);
-        run(process.execPath, [emittedEntry], example.root);
+        for (const emittedModule of emittedModules) {
+            console.log(`[examples] running ${example.directory}/${relative(runtimeDirectory, emittedModule)}`);
+            run(process.execPath, [emittedModule], example.root);
+        }
     }
     finally {
         rmSync(runtimeDirectory, { recursive: true, force: true });

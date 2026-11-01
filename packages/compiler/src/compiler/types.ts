@@ -10044,6 +10044,7 @@ export interface PrinterOptions {
     /** @internal */ preserveSourceNewlines?: boolean;
     /** @internal */ terminateUnterminatedLiterals?: boolean;
     /** @internal */ tsppCompatibilityDeclaration?: boolean;
+    /** @internal */ tsppJavaScriptEmit?: boolean;
 }
 
 /** @internal */
