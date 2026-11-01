@@ -42777,7 +42777,12 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             getTypeNode: node => (node as TypeAliasDeclaration).type,
             getTypeFromTypeNode: node => getTypeFromTypeNode(node as TypeNode),
             getDeclaredType: node => getDeclaredTypeOfSymbol(getSymbolOfDeclaration(node as Declaration)),
-            createNominalType: (_node, underlyingType) => {
+            createNominalType: (node, underlyingType) => {
+                // The brand would be absorbed by these types, so the result could not stay nominal.
+                if ((underlyingType as Type).flags & (TypeFlags.Any | TypeFlags.Unknown | TypeFlags.Never)) {
+                    const declaration = node as Node as Node & { readonly type?: TypeNode; };
+                    error(declaration.type ?? declaration, Diagnostics.A_nominal_type_cannot_use_any_unknown_or_never_as_its_underlying_type);
+                }
                 const brand = createSymbol(
                     SymbolFlags.Property,
                     `__@tsppNominal@${getSymbolId(symbol)}` as __String,
@@ -48975,6 +48980,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             checkSourceElement(node.type);
             registerForUnusedIdentifiersCheck(node);
         }
+        // Plugin-declared types report their own diagnostics while being built, even if nothing references them.
+        if (getExtensionDeclarationSyntax(node)?.getDeclaredType) getDeclaredTypeOfSymbol(getSymbolOfDeclaration(node));
     }
 
     function computeEnumMemberValues(node: EnumDeclaration) {

@@ -8608,6 +8608,10 @@
         "category": "Error",
         "code": 18074
     },
+    "A nominal type cannot use 'any', 'unknown', or 'never' as its underlying type.": {
+        "category": "Error",
+        "code": 18075
+    },
     "The 'macro' modifier can only appear on a function declaration.": {
         "category": "Error",
         "code": 18078
