@@ -44,6 +44,62 @@ header h1 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 
 header h1 img { width: 24px; height: 24px; border-radius: 4px; object-fit: contain; }
 #status { color: var(--muted); font-size: 12px; }
 .spacer { flex: 1; }
+
+#activity-bar {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+  font-size: 12px;
+}
+#activity-bar[hidden] { display: none; }
+#activity-title { font-weight: 600; }
+#activity-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity-indicator {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid color-mix(in srgb, var(--accent) 22%, var(--border));
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: activity-spin 0.8s linear infinite;
+}
+.activity-progress {
+  flex: 1;
+  max-width: 220px;
+  height: 4px;
+  margin-left: auto;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg));
+}
+.activity-progress i {
+  display: block;
+  width: 32%;
+  height: 100%;
+  background: var(--accent);
+  animation: activity-progress 1.25s ease-in-out infinite;
+}
+#activity-bar[data-kind="smt"] .activity-progress i { width: 24%; animation-duration: 1.8s; }
+#activity-bar[data-kind="run"] .activity-indicator {
+  border: 0;
+  background: var(--accent);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 17%, transparent);
+  animation: activity-pulse 1.2s ease-in-out infinite;
+}
+#activity-action { margin-left: 2px; padding: 3px 9px; }
+@keyframes activity-spin { to { transform: rotate(360deg); } }
+@keyframes activity-progress { from { transform: translateX(-110%); } to { transform: translateX(320%); } }
+@keyframes activity-pulse { 50% { box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent) 3%, transparent); } }
 select, button {
   font: inherit;
   color: inherit;
@@ -247,6 +303,9 @@ aside h2 {
 @media (max-width: 760px) {
   header { flex-wrap: wrap; padding: 8px 16px; }
   .spacer { display: none; }
+  #activity-bar { flex-wrap: wrap; }
+  #activity-detail { flex: 1; }
+  .activity-progress { order: 2; flex-basis: 100%; max-width: none; }
   #examples { flex: 1 1 200px; min-width: 0; }
   main { flex-direction: column; }
   #editor-column { min-height: 70vh; grid-template-rows: minmax(0, 1fr) 140px; }

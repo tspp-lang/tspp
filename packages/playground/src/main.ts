@@ -1,5 +1,6 @@
 import "./style.css";
 import examples from "virtual:tspp-examples";
+import { createActivityController, type ActivityHandle } from "./activity";
 import { startLanguageWorker } from "./client";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import * as monaco from "./monaco";
@@ -23,10 +24,18 @@ const featureList = element("features");
 const problemList = element("problems");
 const problemCount = element("problem-count");
 
-let compilerStatus = "Loading compiler…";
+const activity = createActivityController();
+const bootActivity = activity.start("boot", "Starting TS++ Playground", "Loading the compiler and language service…");
+let solverActivity: ActivityHandle | undefined;
 const client = startLanguageWorker(event => {
   if (event.event === "analysisSettled") void check();
-  else status.textContent = event.busy ? "Z3 is verifying contracts…" : compilerStatus;
+  else if (event.busy && !solverActivity) {
+    solverActivity = activity.start("smt", "Solving SMT constraints", "Z3 is verifying program contracts…");
+  }
+  else if (!event.busy) {
+    solverActivity?.finish();
+    solverActivity = undefined;
+  }
 });
 registerTsppLanguage();
 registerProviders(client);
@@ -41,14 +50,15 @@ const editor = monaco.editor.create(element("editor"), {
   scrollBeyondLastLine: false,
   fixedOverflowWidgets: true,
 });
-const outputs = createOutputController(client);
+const outputs = createOutputController(client, activity);
 dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
 const { version, features: definitions } = await client.init({
   workerUrl: new URL("z3/z3.worker.js", document.baseURI).href,
   wasmUrl: new URL("z3/z3-built.wasm", document.baseURI).href,
 });
-compilerStatus = status.textContent = `TypeScript ${version} base`;
+status.textContent = `TypeScript ${version} base`;
+bootActivity.finish();
 
 // ---- project ---------------------------------------------------------------------------
 const models = new Map<string, monaco.editor.ITextModel>();

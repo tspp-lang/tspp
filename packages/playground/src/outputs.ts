@@ -1,4 +1,5 @@
 import type { LanguageClient } from "./client";
+import type { ActivityController, ActivityHandle, ActivityKind } from "./activity";
 import * as monaco from "./monaco";
 import type { OutputCategory, OutputItem, OutputSnapshot } from "./protocol";
 import { languageId } from "./tsppLanguage";
@@ -21,7 +22,7 @@ export interface OutputController {
 }
 
 /** Owns lazily-loaded compiler artifacts and the explicitly-invoked runtime worker. */
-export function createOutputController(client: LanguageClient): OutputController {
+export function createOutputController(client: LanguageClient, activity: ActivityController): OutputController {
   const editorColumn = element("editor-column");
   const outputTabs = element("output-tabs");
   const outputItems = element<HTMLSelectElement>("output-items");
@@ -37,6 +38,7 @@ export function createOutputController(client: LanguageClient): OutputController
   let requestGeneration = 0;
   let fileName = "";
   let runtime: Worker | undefined;
+  let runtimeActivity: ActivityHandle | undefined;
 
   const artifactEditor = monaco.editor.create(element("output-editor"), {
     model: null,
@@ -127,6 +129,15 @@ export function createOutputController(client: LanguageClient): OutputController
     outputEmpty.textContent = `Generating ${label}…`;
     outputStatus.textContent = `Loading ${label}…`;
     renderTabs(nextCategory);
+    const kind: ActivityKind = nextCategory === "macro" ? "macro" : nextCategory === "smt" ? "smt" : "artifact";
+    const titles: Record<OutputCategory, string> = {
+      javascript: "Generating JavaScript",
+      dts: "Generating TypeScript declarations",
+      dtspp: "Generating TS++ declarations",
+      macro: "Expanding compile-time macros",
+      smt: "Generating SMT-LIB2",
+    };
+    const task = activity.start(kind, titles[nextCategory], fileName.replace(/^\//, ""));
     try {
       const snapshot = await client.outputs(fileName, nextCategory);
       if (generation !== requestGeneration) return;
@@ -143,6 +154,9 @@ export function createOutputController(client: LanguageClient): OutputController
       outputEmpty.textContent = `Generation failed: ${(error as Error).message}`;
       outputStatus.textContent = "Generation failed";
       renderTabs();
+    }
+    finally {
+      task.finish();
     }
   }
 
@@ -174,6 +188,8 @@ export function createOutputController(client: LanguageClient): OutputController
   function stopRuntime(message = "Stopped"): void {
     runtime?.terminate();
     runtime = undefined;
+    runtimeActivity?.finish();
+    runtimeActivity = undefined;
     runButton.textContent = "▶ Run";
     runStatus.textContent = message;
   }
@@ -200,6 +216,9 @@ export function createOutputController(client: LanguageClient): OutputController
     runButton.textContent = "Preparing…";
     runStatus.textContent = "Generating JavaScript…";
     let snapshot = loaded.get("javascript");
+    const preparation = snapshot
+      ? undefined
+      : activity.start("artifact", "Generating JavaScript", fileName.replace(/^\//, ""));
     try {
       snapshot ??= await client.outputs(fileName, "javascript");
       loaded.set("javascript", snapshot);
@@ -210,6 +229,9 @@ export function createOutputController(client: LanguageClient): OutputController
       runButton.textContent = "▶ Run";
       runStatus.textContent = `JavaScript generation failed: ${(error as Error).message}`;
       return;
+    }
+    finally {
+      preparation?.finish();
     }
     const javascript = current?.category === "javascript"
       ? current
@@ -225,6 +247,12 @@ export function createOutputController(client: LanguageClient): OutputController
     runButton.disabled = false;
     runButton.textContent = "■ Stop";
     runtime = new Worker(new URL("./runtimeWorker.ts", import.meta.url), { type: "module" });
+    runtimeActivity = activity.start(
+      "run",
+      "Running JavaScript",
+      javascript.label,
+      { label: "■ Stop", run: () => stopRuntime() },
+    );
     runtime.onmessage = (event: MessageEvent<{ type: string; text?: string; level?: string }>) => {
       if (event.data.type === "output") appendRuntimeLine(event.data.text ?? "", event.data.level);
       else if (event.data.type === "complete") stopRuntime("Exited successfully");

@@ -21,6 +21,13 @@
       <input id="share-link" type="text" readonly hidden aria-label="Share link" />
       <button id="share" type="button">Share</button>
     </header>
+    <div id="activity-bar" data-kind="boot" role="status" aria-live="polite">
+      <span class="activity-indicator" aria-hidden="true"></span>
+      <strong id="activity-title">Starting TS++ Playground</strong>
+      <span id="activity-detail">Loading the compiler and language service…</span>
+      <span class="activity-progress" aria-hidden="true"><i></i></span>
+      <button id="activity-action" type="button" hidden></button>
+    </div>
     <main>
       <div id="editor-column">
         <div id="editor-workspace">
