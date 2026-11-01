@@ -91,8 +91,49 @@ export const higherKindedTypesPlugin = definePlugin({
                 };
             },
         },
+        languageService: {
+            activate(context) {
+                return context.languageService.registerQuickInfoProvider(request => {
+                    const token = request.token;
+                    if (!token) return undefined;
+                    const universe = /^Type(\d*)$/.exec(token.text);
+                    if (universe) {
+                        const level = universe[1] ? Number(universe[1]) : 0;
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: `type Type${level}: Type${level + 1}`,
+                            documentation: `The universe whose inhabitants have level ${level}.`,
+                        };
+                    }
+                    const owner = kindParameterOwner(request.sourceText, token.start, token.text);
+                    if (owner) {
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: `(type parameter) ${token.text} in ${owner}`,
+                        };
+                    }
+                    return undefined;
+                });
+            },
+        },
         editor: { grammars: ["./editor/higher-kinded-types.tmLanguage.json"] },
     },
 });
 
 export default higherKindedTypesPlugin;
+
+function kindParameterOwner(sourceText: string, position: number, name: string): string | undefined {
+    const expression = /\btype\s+([A-Za-z_$][\w$]*)\s*<([^;>{}]*)>\s*(?::\s*([^=]+))?=/g;
+    let match: RegExpExecArray | null;
+    while ((match = expression.exec(sourceText))) {
+        if (position < match.index || position > expression.lastIndex) continue;
+        const parameter = match[2].split(",").map(value => value.trim())
+            .find(value => value.split(/\s*:/)[0] === name);
+        if (!parameter) continue;
+        const resultKind = match[3]?.trim();
+        return `type ${match[1]}<${match[2].trim()}>${resultKind ? `: ${resultKind}` : ""}`;
+    }
+    return undefined;
+}
