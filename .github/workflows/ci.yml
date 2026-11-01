@@ -49,6 +49,7 @@ jobs:
           node-version: 22.22.0
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:plugin-sdk
+      - run: pnpm build:compiler
       - run: pnpm test:compiler -- --light=true
 
   products:
