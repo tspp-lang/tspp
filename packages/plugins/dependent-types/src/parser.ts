@@ -222,6 +222,8 @@ class Parser {
         const cases: MlttTypeMatchCase[] = [];
         let defaultCase: MlttTerm | undefined;
         while (!this.at("}")) {
+            // Arms match in source order, so an arm after `_` could never be selected.
+            if (defaultCase) this.fail("The '_' default arm must be the last arm of a type match.");
             if (this.at("_")) {
                 this.take();
                 this.expect(":");
