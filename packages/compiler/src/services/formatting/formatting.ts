@@ -463,6 +463,21 @@ function formatNodeLines(node: Node | undefined, sourceFile: SourceFile, formatC
     return formatSpan(span, sourceFile, formatContext, requestKind);
 }
 
+/** Whether a node's children are synthesized or out of source order, as in lowered plugin syntax. */
+function hasUnformattableChildren(node: Node): boolean {
+    let end = node.pos;
+    const isUnordered = (range: TextRange) => {
+        if (range.pos < 0 || range.pos < end) return true;
+        end = range.end;
+        return false;
+    };
+    return !!forEachChild(
+        node,
+        child => isUnordered(child) || undefined,
+        children => isUnordered(children) || children.some(child => child.pos < 0) || undefined,
+    );
+}
+
 function formatSpan(originalRange: TextRange, sourceFile: SourceFile, formatContext: FormatContext, requestKind: FormattingRequestKind): TextChange[] {
     // find the smallest node that fully wraps the range and compute the initial indentation for the node
     const enclosingNode = findEnclosingNode(originalRange, sourceFile);
@@ -848,6 +863,12 @@ function formatSpanWorker(
             }
 
             if (child.getFullWidth() === 0) {
+                return inheritedIndentation;
+            }
+
+            // Plugin syntax lowers to synthesized or reordered nodes that the rules cannot walk, so it keeps its layout.
+            if (hasUnformattableChildren(child)) {
+                formattingScanner.skipToEndOf(child);
                 return inheritedIndentation;
             }
 

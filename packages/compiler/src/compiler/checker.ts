@@ -963,6 +963,7 @@ import {
     pathIsRelative,
     PatternAmbientModule,
     PlusToken,
+    positionIsSynthesized,
     PostfixUnaryExpression,
     PredicateSemantics,
     PrefixUnaryExpression,
@@ -1748,7 +1749,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return location ? getSymbolsInScope(location, meaning) : [];
         },
         getSymbolAtLocation: nodeIn => {
-            const node = getCheckableParseTreeNode(nodeIn);
+            const node = getParseTreeNode(nodeIn);
             // set ignoreErrors: true because any lookups invoked by the API shouldn't cause any new errors
             return node ? getSymbolAtLocation(node, /*ignoreErrors*/ true) : undefined;
         },
@@ -1768,7 +1769,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return getMergedSymbol(symbol.exportSymbol || symbol);
         },
         getTypeAtLocation: nodeIn => {
-            const node = getCheckableParseTreeNode(nodeIn);
+            const node = getParseTreeNode(nodeIn);
             return node ? getTypeOfNode(node) : errorType;
         },
         getTypeOfAssignmentPattern: nodeIn => {
@@ -45542,7 +45543,9 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     function checkUnusedInferTypeParameter(node: InferTypeNode, addDiagnostic: AddUnusedDiagnostic): void {
         const { typeParameter } = node;
         if (isTypeParameterUnused(typeParameter)) {
-            addDiagnostic(node, UnusedKind.Parameter, createDiagnosticForNode(node, Diagnostics._0_is_declared_but_its_value_is_never_read, idText(typeParameter.name)));
+            // A type-level `let` binding lowers to an `infer` with no source text of its own; report on its name.
+            const errorNode = node.end > node.pos ? node : typeParameter.name;
+            addDiagnostic(node, UnusedKind.Parameter, createDiagnosticForNode(errorNode, Diagnostics._0_is_declared_but_its_value_is_never_read, idText(typeParameter.name)));
         }
     }
 
@@ -45630,7 +45633,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
             if (local.declarations) {
                 for (const declaration of local.declarations) {
-                    if (isValidUnusedLocalDeclaration(declaration)) {
+                    // Macro output has no source text to edit, so an unused generated declaration is not actionable.
+                    if (isValidUnusedLocalDeclaration(declaration) || positionIsSynthesized(declaration.pos)) {
                         continue;
                     }
 
@@ -51442,9 +51446,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     : undefined;
                 return objectType && getPropertyOfType(objectType, escapeLeadingUnderscores((node as StringLiteral | NumericLiteral).text));
 
+            case SyntaxKind.EqualsGreaterThanToken:
+                // Plugin syntax also places `=>` in kind annotations and match arms, which declare nothing.
+                return isFunctionLike(node.parent) ? getSymbolOfNode(node.parent) : undefined;
             case SyntaxKind.DefaultKeyword:
             case SyntaxKind.FunctionKeyword:
-            case SyntaxKind.EqualsGreaterThanToken:
             case SyntaxKind.ClassKeyword:
                 return getSymbolOfNode(node.parent);
             case SyntaxKind.ImportType:
@@ -51517,11 +51523,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
      * match pattern bindings). They have no text identity, so checking them as expressions would resolve nothing
      * and queue diagnostics that cannot be reported.
      */
-    function getCheckableParseTreeNode(nodeIn: Node | undefined): Node | undefined {
-        const node = getParseTreeNode(nodeIn);
-        return node && !(node.kind === SyntaxKind.Identifier && (node as Identifier).escapedText === undefined) ? node : undefined;
-    }
-
     function getTypeOfNode(node: Node): Type {
         if (isSourceFile(node) && !isExternalModule(node)) {
             return errorType;

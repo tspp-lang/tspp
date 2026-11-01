@@ -72,6 +72,7 @@ import {
     endsWith,
     EntityName,
     equateValues,
+    escapeLeadingUnderscores,
     ExportDeclaration,
     Extension,
     extensionFromPath,
@@ -182,6 +183,7 @@ import {
     isJsxText,
     isLabelName,
     isLiteralComputedPropertyDeclarationName,
+    isLiteralKind,
     isMacroInvocationStatement,
     isNamedExports,
     isNamedTupleMember,
@@ -201,6 +203,7 @@ import {
     isSourceFile,
     isStringOrNumericLiteralLike,
     isTagName,
+    isTemplateLiteralKind,
     isTextWhiteSpaceLike,
     isThisTypeParameter,
     isTransientSymbol,
@@ -224,6 +227,7 @@ import {
     LineAndCharacter,
     lineBreakPart,
     LinkedEditingInfo,
+    LiteralLikeNode,
     LiteralType,
     map,
     MapCode,
@@ -234,6 +238,7 @@ import {
     maybeSetLocalizedDiagnosticMessages,
     ModifierFlags,
     ModuleDeclaration,
+    Mutable,
     NavigateToItem,
     NavigationBarItem,
     NavigationTree,
@@ -565,12 +570,21 @@ function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node
             Debug.fail(`Scanner did not advance while synthesizing ${Debug.formatSyntaxKind(parent.kind)} children`);
         }
         if (textPos <= end) {
+            const node = createNode(token, pos, textPos, parent);
             if (token === SyntaxKind.Identifier) {
                 if (!hasTabstop(parent) && !allowIdentifiers && !endsWith(getSourceFileOfNode(parent).fileName, Extension.Tspp)) {
                     Debug.fail(`Did not expect ${Debug.formatSyntaxKind(parent.kind)} to have an Identifier in its trivia`);
                 }
             }
-            nodes.push(createNode(token, pos, textPos, parent));
+            if (token === SyntaxKind.Identifier || isLiteralKind(token) || isTemplateLiteralKind(token)) {
+                // Plugin syntax leaves names and literals such as keywords, pattern bindings, and match arm results
+                // outside the parse tree. They keep their text for services that read it, and the Synthesized flag
+                // keeps the checker from resolving or typing them as parse tree nodes.
+                if (token === SyntaxKind.Identifier) (node as Mutable<Identifier>).escapedText = escapeLeadingUnderscores(scanner.getTokenValue());
+                else (node as Mutable<LiteralLikeNode>).text = scanner.getTokenValue();
+                (node as Mutable<Node>).flags |= NodeFlags.Synthesized;
+            }
+            nodes.push(node);
         }
         pos = textPos;
         if (token === SyntaxKind.EndOfFileToken) {
@@ -2350,7 +2364,8 @@ export function createLanguageService(
 
     /** The generated parameter for a match pattern binding scanned beside the tree, if `node` is one. */
     function getTaggedUnionMatchBindingDeclaration(node: Node): ParameterDeclaration | undefined {
-        if (node.kind !== SyntaxKind.Identifier || (node as Identifier).escapedText !== undefined) return undefined;
+        // Pattern bindings are names outside the parse tree, which the services mark as synthesized.
+        if (node.kind !== SyntaxKind.Identifier || !(node.flags & NodeFlags.Synthesized)) return undefined;
         for (let current = node.parent as Node | undefined; current; current = current.parent) {
             const match = getTaggedUnionMatchData(current);
             if (!match) continue;

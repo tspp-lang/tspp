@@ -53,6 +53,7 @@ import {
     length,
     map,
     Node,
+    NodeFlags,
     ObjectBindingPattern,
     ParameterDeclaration,
     probablyUsesSemicolons,
@@ -315,6 +316,8 @@ function canPrefix(token: Identifier): boolean {
 
 function tryDeleteDeclaration(sourceFile: SourceFile, token: Node, changes: textChanges.ChangeTracker, checker: TypeChecker, sourceFiles: readonly SourceFile[], program: Program, cancellationToken: CancellationToken, isFixAll: boolean) {
     if (token.parent.kind === SyntaxKind.TypeParameter && isExtensionTypeConstructor(token.parent.parent)) return;
+    // A name inside lowered plugin syntax, such as a type-level `let` binding, has no declaration text to delete.
+    if (token.flags & NodeFlags.Synthesized || token.parent.kind === SyntaxKind.TypeParameter && token.parent.end === token.parent.pos) return;
     tryDeleteDeclarationWorker(token, changes, sourceFile, checker, sourceFiles, program, cancellationToken, isFixAll);
     if (isIdentifier(token)) {
         FindAllReferences.Core.eachSymbolReferenceInFile(token, checker, sourceFile, (ref: Node) => {
