@@ -90,6 +90,39 @@ function packageTypes(): Plugin {
           files[`/node_modules/${packageName}/dist/${file}`] = readFileSync(join(root, "dist", file), "utf8");
         }
       }
+      const examplePackages = readdirSync(examplesRoot).filter(name => /^\d\d-/.test(name)).flatMap(directory => {
+        const root = join(examplesRoot, directory);
+        const manifestPath = join(root, "package.json");
+        if (!existsSync(manifestPath)) return [];
+        const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+          name?: string;
+          dependencies?: Record<string, string>;
+          tsppTypes?: string;
+          types?: string;
+          exports?: Record<string, unknown>;
+        };
+        return manifest.name ? [{ root, manifest }] : [];
+      });
+      const exampleNames = new Set(examplePackages.map(({ manifest }) => manifest.name!));
+      const importedExamples = new Set(examplePackages.flatMap(({ manifest }) =>
+        Object.keys(manifest.dependencies ?? {}).filter(name => exampleNames.has(name))
+      ));
+      for (const { root, manifest } of examplePackages.filter(({ manifest }) => importedExamples.has(manifest.name!))) {
+        const declaredEntry = manifest.tsppTypes ?? manifest.types;
+        const match = declaredEntry?.match(/^\.\/dist\/(.+)\.d\.(?:tspp|ts)$/);
+        if (!match) throw new Error(`${manifest.name} must map its declaration entry to a source file for the playground.`);
+        const sourceEntry = `./src/${match[1]}.tspp`;
+        const browserManifest = {
+          ...manifest,
+          tsppTypes: sourceEntry,
+          types: sourceEntry,
+          exports: { ".": { "tspp-types": sourceEntry, types: sourceEntry, default: sourceEntry } },
+        };
+        files[`/node_modules/${manifest.name}/package.json`] = JSON.stringify(browserManifest);
+        for (const file of listFiles(join(root, "src")).filter(file => /\.(tspp|ts|json)$/.test(file))) {
+          files[`/node_modules/${manifest.name}/src/${file}`] = readFileSync(join(root, "src", file), "utf8");
+        }
+      }
       return `export default ${JSON.stringify(files)};`;
     },
   };
