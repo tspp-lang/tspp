@@ -23,10 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 22.22.0
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:features
       - run: pnpm build:compiler
@@ -37,10 +40,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 22.22.0
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:compiler -- --light=true
 
@@ -49,10 +55,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 22.22.0
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test:language-server
@@ -63,10 +72,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 22.22.0
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:plugin-sdk
       - run: pnpm build:plugins
@@ -76,10 +88,15 @@ jobs:
     name: Windows launcher smoke test
     runs-on: windows-latest
     steps:
+      - name: Enable long paths for Git
+        run: git config --global core.longpaths true
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 22.22.0
-      - run: corepack enable
       - run: pnpm install --frozen-lockfile
       - run: pnpm build:vscode:dev
