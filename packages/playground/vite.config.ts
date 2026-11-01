@@ -16,6 +16,7 @@ const monacoRoot = join(dirname(require.resolve("monaco-editor")), "..", "..");
 const browserPackages = [
   "@tspp/plugin-sdk",
   "@tspp/plugin-sdk/compiler",
+  "@tspp/plugin-sdk/editor",
   "@tspp/plugin-sdk/host",
   "@tspp/plugin-sdk/language-service",
   "@tspp/plugin-dependent-types",
