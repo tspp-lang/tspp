@@ -3,15 +3,25 @@ import { verificationProgramSemantics, type Z3Answer, type Z3Query } from "./sol
 
 const workerSource = String.raw`
 const { parentPort, workerData } = require("node:worker_threads");
+// z3-solver's eval_smtlib2_string passes the text on the Emscripten stack, which is reclaimed
+// before the async solver thread reads it; keep the text on the heap until evaluation finishes.
+async function evaluateOnHeap(em, context, text) {
+  const bytes = new TextEncoder().encode(text);
+  const pointer = em._malloc(bytes.length + 1);
+  em.HEAPU8.set(bytes, pointer);
+  em.HEAPU8[pointer + bytes.length] = 0;
+  try { return await em.async_call(em._async_Z3_eval_smtlib2_string, context, pointer); }
+  finally { em._free(pointer); }
+}
 async function main() {
   const z3 = require(workerData.z3Path);
-  const { Z3 } = await z3.init();
+  const { Z3, em } = await z3.init();
   const config = Z3.mk_config();
   const answers = [];
   try {
     for (const query of workerData.queries) {
       const context = Z3.mk_context(config);
-      const evaluate = text => Z3.eval_smtlib2_string(context, text);
+      const evaluate = text => evaluateOnHeap(em, context, text);
       try {
         const loaded = await evaluate("(set-option :timeout 10000)\n" + workerData.programSemantics + "\n" + (query.script || "") + "\n(assert (not " + query.goal + "))");
         const error = loaded.match(/\(error [^\n]*/);
