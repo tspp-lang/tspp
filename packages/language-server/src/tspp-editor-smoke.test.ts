@@ -122,7 +122,7 @@ describe('TS++ examples editor smoke test', () => {
     }, 60_000);
 
     it('keeps operator-section placeholder hover contextual instead of any', async () => {
-        const example = exampleSources.find(source => source.name.endsWith(path.join('11-operator-sections', 'src', 'index.tspp')))!;
+        const example = exampleSources.find(source => source.name.endsWith(path.join('11-operator-sections', 'src', '01-basics.tspp')))!;
         const server = await createServer({
             rootUri: URI.file(example.root).toString(),
             publishDiagnostics: () => undefined,
@@ -157,7 +157,7 @@ describe('TS++ examples editor smoke test', () => {
         const cases = [
             {
                 packageName: '01-modern-syntax',
-                fileName: 'src/index.tspp',
+                fileName: 'src/01-basics.tspp',
                 targets: [
                     { search: 'use left', offset: 4, includes: ['left', 'number'] },
                     { search: 'withValue(20)', fromEnd: true, includes: ['withValue', 'number'] },
@@ -188,7 +188,7 @@ describe('TS++ examples editor smoke test', () => {
             },
             {
                 packageName: '03-nominal-types',
-                fileName: 'src/index.tspp',
+                fileName: 'src/01-basics.tspp',
                 targets: [{ search: 'newtype Box<T>', offset: 12, includes: ['type parameter', 'T'] }],
             },
             {
@@ -204,7 +204,7 @@ describe('TS++ examples editor smoke test', () => {
             },
             {
                 packageName: '07-higher-kinded-types',
-                fileName: 'src/index.tspp',
+                fileName: 'src/01-basics.tspp',
                 targets: [
                     { search: ': Type0', offset: 2, includes: ['Type0', 'Type1'] },
                     { search: 'Kind: Type1', includes: ['Kind', 'IdentityAtOne', 'Type1'] },
@@ -286,7 +286,7 @@ describe('TS++ examples editor smoke test', () => {
                 );
             }
         }
-        const consumerFile = path.join(examplesRoot, '04-newtype-consumer', 'src', 'index.tspp');
+        const consumerFile = path.join(examplesRoot, '04-newtype-consumer', 'src', '01-consumer.tspp');
         const consumerText = fs.readFileSync(consumerFile, 'utf8');
         targets.get(consumerFile)!.push(consumerText.indexOf('None'));
         const formalFile = path.join(examplesRoot, '02-formal-verification', 'src', '10-logic-library.tspp');
