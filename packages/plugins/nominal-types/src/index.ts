@@ -61,6 +61,47 @@ export const nominalTypesPlugin = definePlugin({
                 };
             },
         },
+        languageService: {
+            activate(context) {
+                return context.languageService.registerQuickInfoProvider(request => {
+                    const token = request.token;
+                    if (!token) return undefined;
+                    if (["newtype", "data", "match"].includes(token.text)) {
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: `(TS++ keyword) ${token.text}`,
+                            documentation: nominalKeywordDocumentation[token.text],
+                        };
+                    }
+
+                    const newtype = findNewtype(request.sourceText, token.text);
+                    if (newtype) {
+                        const called = /^\s*\(/.test(request.sourceText.slice(token.start + token.length));
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: called
+                                ? `(newtype constructor) ${newtype.name}(value: ${newtype.underlying}): ${newtype.name}`
+                                : `newtype ${newtype.name}${newtype.parameters} = ${newtype.underlying}`,
+                        };
+                    }
+
+                    for (const declaration of findDataDeclarations(request.sourceText)) {
+                        if (token.text === declaration.name) {
+                            return quickInfo(token, declaration.display);
+                        }
+                        const variant = declaration.variants.find(candidate => candidate.name === token.text);
+                        if (!variant) continue;
+                        return quickInfo(
+                            token,
+                            formatVariantQuickInfo(declaration, variant, instantiationAt(request.sourceText, token.start, declaration)),
+                        );
+                    }
+                    return undefined;
+                });
+            },
+        },
         editor: {
             keywords: ["newtype", "data", "match"],
             grammars: ["./editor/nominal-types.tmLanguage.json"],
@@ -69,3 +110,127 @@ export const nominalTypesPlugin = definePlugin({
 });
 
 export default nominalTypesPlugin;
+
+const nominalKeywordDocumentation: Readonly<Record<string, string>> = {
+    newtype: "Declares an erased nominal type with a checked constructor.",
+    data: "Declares a nominal algebraic data type and its runtime constructors.",
+    match: "Exhaustively matches a value by data constructor.",
+};
+
+interface SourceToken {
+    readonly start: number;
+    readonly length: number;
+}
+
+interface SourceVariant {
+    readonly name: string;
+    readonly fields: readonly { readonly name: string; readonly type: string; }[];
+}
+
+interface SourceDataDeclaration {
+    readonly name: string;
+    readonly parameters: readonly string[];
+    readonly variants: readonly SourceVariant[];
+    readonly display: string;
+}
+
+function quickInfo(token: SourceToken, display: string) {
+    return { start: token.start, length: token.length, display };
+}
+
+function findNewtype(sourceText: string, name: string): {
+    readonly name: string;
+    readonly parameters: string;
+    readonly underlying: string;
+} | undefined {
+    const escaped = escapeRegExp(name);
+    const match = new RegExp(`\\bnewtype\\s+${escaped}(\\s*<[^;=]+>)?\\s*=\\s*([^;]+)\\s*;`).exec(sourceText);
+    return match ? { name, parameters: match[1]?.replace(/\s+/g, " ") ?? "", underlying: match[2].trim() } : undefined;
+}
+
+function findDataDeclarations(sourceText: string): readonly SourceDataDeclaration[] {
+    const declarations: SourceDataDeclaration[] = [];
+    const expression = /\bdata\s+([A-Za-z_$][\w$]*)(\s*<([^;=]+)>)?\s*=\s*([\s\S]*?)\s*;/g;
+    let match: RegExpExecArray | null;
+    while ((match = expression.exec(sourceText))) {
+        const parameters = match[3]?.split(",").map(parameter => parameter.trim().split(/\s*:/)[0]) ?? [];
+        const variants = splitTopLevel(match[4], "|").map(parseVariant).filter((value): value is SourceVariant => !!value);
+        declarations.push({
+            name: match[1],
+            parameters,
+            variants,
+            display: `data ${match[1]}${match[2]?.replace(/\s+/g, " ") ?? ""} = ${normalizeSource(match[4])}`,
+        });
+    }
+    return declarations;
+}
+
+function parseVariant(source: string): SourceVariant | undefined {
+    const match = /^\s*([A-Za-z_$][\w$]*)(?:\s*\(([\s\S]*)\))?\s*$/.exec(source);
+    if (!match) return undefined;
+    const fields = match[2]
+        ? splitTopLevel(match[2], ",").map(field => {
+            const separator = field.indexOf(":");
+            return separator < 0 ? undefined : {
+                name: field.slice(0, separator).trim(),
+                type: field.slice(separator + 1).trim(),
+            };
+        }).filter((value): value is { readonly name: string; readonly type: string; } => !!value)
+        : [];
+    return { name: match[1], fields };
+}
+
+function formatVariantQuickInfo(
+    declaration: SourceDataDeclaration,
+    variant: SourceVariant,
+    argumentsAtUse: readonly string[] | undefined,
+): string {
+    const substitutions = new Map<string, string>();
+    declaration.parameters.forEach((parameter, index) => {
+        const argument = argumentsAtUse?.[index];
+        if (argument) substitutions.set(parameter, argument);
+    });
+    const resultArguments = declaration.parameters.map(parameter => substitutions.get(parameter) ?? parameter);
+    const result = `${declaration.name}${resultArguments.length ? `<${resultArguments.join(", ")}>` : ""}`;
+    const fields = variant.fields.map(field => `${field.name}: ${substitutions.get(field.type) ?? field.type}`).join(", ");
+    const parameters = argumentsAtUse ? "" : declaration.parameters.length ? `<${declaration.parameters.join(", ")}>` : "";
+    return `(data constructor) ${variant.name}${parameters}${fields ? `(${fields})` : ""}: ${result}`;
+}
+
+function instantiationAt(
+    sourceText: string,
+    position: number,
+    declaration: SourceDataDeclaration,
+): readonly string[] | undefined {
+    const start = Math.max(sourceText.lastIndexOf(";", position - 1), sourceText.lastIndexOf("\n", position - 1)) + 1;
+    const end = sourceText.indexOf(";", position);
+    const statement = sourceText.slice(start, end < 0 ? sourceText.length : end);
+    const escaped = escapeRegExp(declaration.name);
+    const match = new RegExp(`:\\s*${escaped}\\s*<([^>]+)>`).exec(statement);
+    return match?.[1].split(",").map(argument => argument.trim());
+}
+
+function splitTopLevel(source: string, separator: string): string[] {
+    const parts: string[] = [];
+    let start = 0;
+    let depth = 0;
+    for (let index = 0; index < source.length; index++) {
+        const character = source[index];
+        if ("(<[{".includes(character)) depth++;
+        else if (")>]}".includes(character)) depth--;
+        else if (character === separator && depth === 0) {
+            parts.push(source.slice(start, index));
+            start = index + 1;
+        }
+    }
+    parts.push(source.slice(start));
+    return parts;
+}
+
+function normalizeSource(source: string): string {
+    return source.replace(/\s+/g, " ").trim();
+}
+
+function escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
