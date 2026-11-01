@@ -120,8 +120,7 @@ export const expressionSyntaxKinds: {
     whileKeyword: SyntaxKind.WhileKeyword,
 };
 
-/** @internal */
-export const declarationSyntaxKinds: {
+const declarationSyntaxKinds: {
     readonly identifier: SyntaxKind;
     readonly equalsToken: SyntaxKind;
     readonly barToken: SyntaxKind;
@@ -827,11 +826,6 @@ export function hasExtensionDeclarationValueUseRestrictions(): boolean {
         if (syntaxes.some(syntax => syntax.valueUse === "call-only")) return true;
     }
     return false;
-}
-
-/** Exposed for architecture tests and diagnostics. @internal */
-export function getRegisteredExpressionPluginIds(): readonly string[] {
-    return [...expressionSyntaxByPluginId.keys()];
 }
 
 /** @internal */

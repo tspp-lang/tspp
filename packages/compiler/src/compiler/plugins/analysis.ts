@@ -1,16 +1,23 @@
 import type {
-    TSPPAnalysisDiagnostic,
     TSPPAnalysisArtifact,
+    TSPPAnalysisDiagnostic,
     TSPPAnalysisNode,
     TSPPProgramAnalysisInput,
 } from "@tspp/plugin-sdk/compiler";
 
 import { forEachChild } from "../parser.js";
-import { skipTrivia } from "../scanner.js";
 import { normalizePath } from "../path.js";
-import type { Node, Program, SourceFile } from "../types.js";
+import { skipTrivia } from "../scanner.js";
+import type {
+    Node,
+    Program,
+    SourceFile,
+} from "../types.js";
 import { SyntaxKind } from "../types.js";
-import { getOriginalTSPPSource, getRegisteredTSPPProgramAnalyzers } from "./registry.js";
+import {
+    getOriginalTSPPSource,
+    getRegisteredTSPPProgramAnalyzers,
+} from "./registry.js";
 
 const analysisArtifacts = new WeakMap<Program, readonly TSPPAnalysisArtifact[]>();
 const analysisResults = new WeakMap<Program, Promise<readonly TSPPAnalysisDiagnostic[]>>();
@@ -76,7 +83,7 @@ export async function runTSPPProgramAnalyzers(program: Program): Promise<readonl
     }
 }
 
-/** Returns artifacts from the most recent analyzer run for this program. @internal */
+/** Returns artifacts from the most recent analyzer run for this program. @internal @knipignore */
 export function getTSPPAnalysisArtifacts(program: Program, fileName?: string): readonly any[] {
     const artifacts = analysisArtifacts.get(program) ?? [];
     if (fileName === undefined) return artifacts;

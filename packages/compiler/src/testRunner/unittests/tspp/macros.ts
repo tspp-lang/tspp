@@ -9,8 +9,7 @@ describe("unittests:: tspp:: macros", () => {
         manifest: { id: "macros", version: "0.0.1-test", apiVersion: 1 },
         facets: {
             compiler: {
-                activate: (context: { compiler: { registerCompileTimeMacros(): () => void; }; }) =>
-                    context.compiler.registerCompileTimeMacros(),
+                activate: (context: { compiler: { registerCompileTimeMacros(): () => void; }; }) => context.compiler.registerCompileTimeMacros(),
             },
         },
     });

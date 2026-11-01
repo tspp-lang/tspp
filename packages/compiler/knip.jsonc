@@ -33,7 +33,6 @@
         "@tspp/plugin-sdk",
         "c8",
         "dprint",
-        "eslint",
         "mocha-fivemat-progress-reporter",
         "monocart-coverage-reports"
     ],

@@ -311,7 +311,10 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { getExtensionDeclarationSyntax, hasInterfaceMemberContract } from "./plugins/registry.js";
+import {
+    getExtensionDeclarationSyntax,
+    hasInterfaceMemberContract,
+} from "./plugins/registry.js";
 import { getTaggedUnionSyntheticDeclarations } from "./plugins/taggedUnion.js";
 
 /** @internal */
