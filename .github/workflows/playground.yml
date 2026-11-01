@@ -29,6 +29,8 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+      - name: Generate compiler diagnostics
+        run: pnpm --filter ts-plus-plus exec hereby generate-diagnostics
       - name: Build plugin runtime
         run: |
           pnpm build:plugin-sdk
