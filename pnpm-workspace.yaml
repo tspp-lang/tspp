@@ -6,5 +6,6 @@ packages:
 allowBuilds:
   dprint: true
   esbuild: true
+  lefthook: false
 
 nodeLinker: hoisted

@@ -3,14 +3,15 @@
   "private": true,
   "devDependencies": {
     "@tspp/plugin-dependent-types": "workspace:*",
-    "@tspp/plugin-modern-syntax": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-higher-kinded-types": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
+    "@tspp/plugin-modern-syntax": "workspace:*",
     "@tspp/plugin-operator-sections": "workspace:*",
+    "@tspp/plugin-sdk": "workspace:*",
     "@tspp/plugin-static-interface-members": "workspace:*",
     "@tspp/plugin-type-computation": "workspace:*",
-    "@tspp/plugin-sdk": "workspace:*",
+    "lefthook": "^2.2.2",
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*"
   },
@@ -40,6 +41,7 @@
     "lint:packages": "pnpm --filter @tspp/plugin-sdk --filter \"./packages/plugins/**\" --filter tspp-vscode --filter tspp-playground --filter \"./packages/examples/**\" lint",
     "knip": "pnpm --filter ts-plus-plus knip",
     "format": "pnpm --filter ts-plus-plus format",
+    "prepare": "node scripts/install-lefthook.mjs",
     "clean": "pnpm --filter @tspp/plugin-sdk clean && pnpm --filter \"./packages/plugins/**\" clean && pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"
   },
   "packageManager": "pnpm@12.4.2",

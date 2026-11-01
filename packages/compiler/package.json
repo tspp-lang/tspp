@@ -109,8 +109,7 @@
         "gulp": "hereby",
         "lint": "hereby lint",
         "knip": "hereby knip",
-        "format": "dprint fmt",
-        "setup-hooks": "node scripts/link-hooks.mjs"
+        "format": "dprint fmt"
     },
     "browser": {
         "fs": false,

@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: false
+  commands:
+    dprint:
+      glob: 'packages/compiler/**/*.{ts,tsx,js,jsx,mjs,cjs,json,jsonc,yml,yaml}'
+      run: pnpm format
+      stage_fixed: true
+    lint:
+      glob: '*.{ts,tsx,js,jsx,mjs,cjs}'
+      run: pnpm lint
+    knip:
+      glob: 'packages/compiler/**'
+      run: pnpm knip
+
+post-checkout:
+  commands:
+    generate-diagnostics:
+      run: pnpm --filter ts-plus-plus exec hereby generate-diagnostics || true
