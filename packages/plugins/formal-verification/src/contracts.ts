@@ -74,6 +74,15 @@ export function restoreContractFunctionWithClause(request: TSPPPreprocessedFunct
             : closest, undefined)?.clause;
 }
 
+/**
+ * Macro functions keep their `with` clause for the compiler, which checks and applies it. Temporary: the macros
+ * plugin moves its configuration into `macro(...)` (docs/core-restoration-plan.md), after which `with` belongs to
+ * contracts alone and this check goes away.
+ */
+function isMacroWithClause(prefix: string): boolean {
+    return /\bmacro\s+function\b[^{]*$/.test(prefix);
+}
+
 export function maskContractClauses(fileName: string, sourceText: string, maskDirectives = true): string {
     if (!fileName.endsWith(".tspp")) return sourceText;
     const characters = [...sourceText];
@@ -84,6 +93,7 @@ export function maskContractClauses(fileName: string, sourceText: string, maskDi
         while (previous >= 0 && /\s/.test(sourceText[previous])) previous--;
         if (sourceText[previous] !== ")") continue;
         const prefix = sourceText.slice(Math.max(0, match.index - 500), match.index);
+        if (isMacroWithClause(prefix)) continue;
         if (!/\b(function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)|while\s*\([^)]*\))\s*$/.test(prefix)) continue;
         const open = sourceText.indexOf("{", match.index);
         const close = matchingBrace(sourceText, open);
@@ -162,8 +172,7 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
     const pattern = /\bwith\s*\{/g;
     for (let match; (match = pattern.exec(sourceText));) {
         const prefix = sourceText.slice(Math.max(0, match.index - 500), match.index);
-        // Macro functions keep their `with` clause for the compiler, which checks it.
-        const owner = /\bmacro\s+function\b[^{]*$/.test(prefix)
+        const owner = isMacroWithClause(prefix)
             ? undefined
             : withClauseOwners.find(candidate => candidate.pattern.test(prefix));
         if (!owner) continue;
