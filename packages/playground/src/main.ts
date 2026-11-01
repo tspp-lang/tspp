@@ -1,6 +1,4 @@
-import "./style.css";
 import examples from "virtual:tspp-examples";
-import { createActivityController, type ActivityHandle } from "./activity";
 import { startLanguageWorker } from "./client";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import * as monaco from "./monaco";
@@ -23,18 +21,15 @@ const tabBar = element("tabs");
 const featureList = element("features");
 const problemList = element("problems");
 const problemCount = element("problem-count");
+const analysisStatus = element("analysis-status");
+const bootOverlay = element("boot-overlay");
+const bootDetail = element("boot-detail");
 
-const activity = createActivityController();
-const bootActivity = activity.start("boot", "Starting TS++ Playground", "Loading the compiler and language service…");
-let solverActivity: ActivityHandle | undefined;
 const client = startLanguageWorker(event => {
   if (event.event === "analysisSettled") void check();
-  else if (event.busy && !solverActivity) {
-    solverActivity = activity.start("smt", "Solving SMT constraints", "Z3 is verifying program contracts…");
-  }
-  else if (!event.busy) {
-    solverActivity?.finish();
-    solverActivity = undefined;
+  else {
+    analysisStatus.hidden = !event.busy;
+    analysisStatus.closest("section")?.setAttribute("aria-busy", String(event.busy));
   }
 });
 registerTsppLanguage();
@@ -50,15 +45,26 @@ const editor = monaco.editor.create(element("editor"), {
   scrollBeyondLastLine: false,
   fixedOverflowWidgets: true,
 });
-const outputs = createOutputController(client, activity);
+const outputs = createOutputController(client);
 dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
-const { version, features: definitions } = await client.init({
-  workerUrl: new URL("z3/z3.worker.js", document.baseURI).href,
-  wasmUrl: new URL("z3/z3-built.wasm", document.baseURI).href,
-});
+let initialization: Awaited<ReturnType<typeof client.init>>;
+try {
+  initialization = await client.init({
+    workerUrl: new URL("z3/z3.worker.js", document.baseURI).href,
+    wasmUrl: new URL("z3/z3-built.wasm", document.baseURI).href,
+  });
+}
+catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  status.textContent = "Compiler failed to load";
+  bootOverlay.classList.add("failed");
+  bootDetail.textContent = `Could not start the compiler: ${message}`;
+  throw error;
+}
+const { version, features: definitions } = initialization;
 status.textContent = `TypeScript ${version} base`;
-bootActivity.finish();
+bootOverlay.hidden = true;
 
 // ---- project ---------------------------------------------------------------------------
 const models = new Map<string, monaco.editor.ITextModel>();

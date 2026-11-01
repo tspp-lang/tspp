@@ -19,7 +19,7 @@ interface PendingRequest {
   readonly reject: (error: Error) => void;
 }
 
-export function createBrowserZ3Solver(location: Z3Location): Z3Solver {
+export function createBrowserZ3Solver(location: Z3Location, onBusy?: (busy: boolean) => void): Z3Solver {
   let worker: Promise<Worker> | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   let nextId = 1;
@@ -62,9 +62,10 @@ export function createBrowserZ3Solver(location: Z3Location): Z3Solver {
   }
 
   async function run(queries: readonly Z3Query[]): Promise<readonly Z3Answer[]> {
-    const z3 = await start();
-    const id = nextId++;
+    onBusy?.(true);
     try {
+      const z3 = await start();
+      const id = nextId++;
       return await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`Z3 did not answer within ${queryTimeoutMs / 1000}s.`)), queryTimeoutMs);
         pending.set(id, {
@@ -77,6 +78,9 @@ export function createBrowserZ3Solver(location: Z3Location): Z3Solver {
     catch (error) {
       restart();
       throw error;
+    }
+    finally {
+      onBusy?.(false);
     }
   }
 

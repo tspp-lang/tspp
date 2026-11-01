@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TS++ Playground</title>
     <link rel="icon" href="./tspp.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./src/style.css" />
     <!-- Z3 runs with threads, which need cross-origin isolation (SharedArrayBuffer).
          GitHub Pages cannot send COOP/COEP headers, so coi-serviceworker (MIT, Guido
          Zuidhof) adds them; it does nothing when the server already sends them. -->
@@ -21,14 +22,14 @@
       <input id="share-link" type="text" readonly hidden aria-label="Share link" />
       <button id="share" type="button">Share</button>
     </header>
-    <div id="activity-bar" data-kind="boot" role="status" aria-live="polite">
-      <span class="activity-indicator" aria-hidden="true"></span>
-      <strong id="activity-title">Starting TS++ Playground</strong>
-      <span id="activity-detail">Loading the compiler and language service…</span>
-      <span class="activity-progress" aria-hidden="true"><i></i></span>
-      <button id="activity-action" type="button" hidden></button>
-    </div>
     <main>
+      <div id="boot-overlay" role="status" aria-live="polite">
+        <div class="boot-card">
+          <span class="boot-spinner" aria-hidden="true"></span>
+          <strong>Starting TS++ Playground</strong>
+          <span id="boot-detail">Loading the compiler and language service…</span>
+        </div>
+      </div>
       <div id="editor-column">
         <div id="editor-workspace">
           <div id="source-pane">
@@ -68,7 +69,7 @@
           <div id="features" class="scroll"></div>
         </section>
         <section>
-          <h2>Problems<span id="problem-count"></span></h2>
+          <h2>Problems<span id="problem-count"></span><span id="analysis-status" class="local-status" hidden>Verifying contracts…</span></h2>
           <div class="scroll"><ul id="problems"></ul></div>
         </section>
       </aside>

@@ -274,7 +274,7 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
 
 const api: WorkerApi = {
   init(z3) {
-    formalVerification.configureZ3Solver(createBrowserZ3Solver(z3));
+    formalVerification.configureZ3Solver(createBrowserZ3Solver(z3, busy => post({ event: "solver", busy })));
     return { version: ts.version, features: featureDefinitions };
   },
 
