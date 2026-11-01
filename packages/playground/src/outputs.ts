@@ -155,7 +155,9 @@ export function createOutputController(
   }
 
   function updateRunButton(): void {
-    runButton.disabled = !loaded.get("javascript")?.items.length;
+    // JavaScript is generated lazily when Run is pressed. Its artifact tab does
+    // not need to have been opened first.
+    runButton.disabled = false;
   }
 
   function setFile(nextFileName: string): void {
@@ -192,17 +194,43 @@ export function createOutputController(
     runOutput.scrollTop = runOutput.scrollHeight;
   }
 
-  function runJavaScript(): void {
+  function emittedJavaScriptForActiveFile(items: readonly OutputItem[]): OutputItem | undefined {
+    const expected = fileName.replace(/^\//, "").replace(/\.(?:tspp|ts)$/, ".js");
+    return items.find(item => item.label.replace(/^\//, "") === expected) ?? items[0];
+  }
+
+  async function runJavaScript(): Promise<void> {
     if (runtime) {
       stopRuntime();
       return;
     }
+    runButton.disabled = true;
+    runButton.textContent = "Preparing…";
+    runStatus.textContent = "Generating JavaScript…";
+    let snapshot = loaded.get("javascript");
+    try {
+      snapshot ??= await client.outputs(fileName, "javascript");
+      loaded.set("javascript", snapshot);
+      renderTabs();
+    }
+    catch (error) {
+      runButton.disabled = false;
+      runButton.textContent = "▶ Run";
+      runStatus.textContent = `JavaScript generation failed: ${(error as Error).message}`;
+      return;
+    }
     const javascript = current?.category === "javascript"
       ? current
-      : loaded.get("javascript")?.items[0];
-    if (!javascript) return;
+      : emittedJavaScriptForActiveFile(snapshot.items);
+    if (!javascript) {
+      runButton.disabled = false;
+      runButton.textContent = "▶ Run";
+      runStatus.textContent = "No JavaScript was emitted for this file.";
+      return;
+    }
     runOutput.replaceChildren();
     runStatus.textContent = "Running…";
+    runButton.disabled = false;
     runButton.textContent = "■ Stop";
     runtime = new Worker(new URL("./runtimeWorker.ts", import.meta.url), { type: "module" });
     runtime.onmessage = (event: MessageEvent<{ type: string; text?: string; level?: string }>) => {
@@ -220,7 +248,7 @@ export function createOutputController(
     runtime.postMessage({ code: javascript.content });
   }
 
-  runButton.onclick = runJavaScript;
+  runButton.onclick = () => void runJavaScript();
   element<HTMLButtonElement>("clear-run-output").onclick = () => runOutput.replaceChildren();
   element<HTMLButtonElement>("collapse-outputs").onclick = () => {
     editorColumn.classList.add("outputs-collapsed");
