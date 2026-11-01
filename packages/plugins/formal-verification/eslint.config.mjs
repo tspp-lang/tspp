@@ -1,5 +1,6 @@
 import globals from "globals";
 import tseslint from "typescript-eslint";
+import { pluginBoundaryRules } from "../eslint.boundaries.mjs";
 
 export default [
   {
@@ -12,6 +13,7 @@ export default [
       "@typescript-eslint": tseslint.plugin,
     },
     rules: {
+      ...pluginBoundaryRules,
       "max-lines": [
         "error",
         {
