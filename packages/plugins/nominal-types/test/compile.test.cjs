@@ -1,7 +1,6 @@
 // End-to-end behavior ported from the legacy-monolith compiler tests (unittests/tspp/newtypeData.ts).
-// Not ported: feature-flag gating and its quick fixes, kind annotations on newtype/data declarations (kinds are
-// declared on `type` aliases now), the legacy runtime shapes (variants also carry `_values` and newtype
-// constructors are erased), and wording-only checks for malformed variant fields, which are still rejected.
+// Not ported: feature-flag gating and its quick fixes, and the legacy runtime shapes (variants also carry `_values`
+// and newtype constructors are erased).
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService } = require("../../test-support/compile.cjs");
@@ -155,6 +154,17 @@ const typeChecks = [
     declare const v: StringOrNumber;
     const s: string | number = v;
     const bad: StringOrNumber = "x";`],
+  ["newtype and data parameters accept kind annotations", 3, `
+    interface List<T> { head: T }
+    newtype Boxed<F: Type => Type> = F<number>;
+    data Wrap<F: Type => Type> = Wrap(value: F<string>);
+    declare const boxed: Boxed<List>;
+    declare const wrapped: Wrap<List>;
+    const n: number = boxed.head;
+    const s: string = wrapped.value.head;
+    const badBoxed: string = boxed.head;
+    type BadNewtype = Boxed<number>;
+    type BadData = Wrap<string>;`, /not assignable|has kind 'Type', but kind 'Type => Type' was expected/],
   ["a newtype cannot erase its brand with any, unknown, or never", 3, `
     newtype AnyValue = any;
     newtype UnknownValue = unknown;
@@ -189,11 +199,19 @@ test("match reports missing, duplicate, and unknown variants", () => {
   `;
   const messages = arms => messagesOf(`${declarations}\nconst selected = ${arms};`).join("\n");
   assert.match(messages("match result { Ok(value) => value }"), /Non-exhaustive.*Err/);
+  // Only the pattern errors are reported, not comparisons from the lowered tag tests.
   const invalid = messages("match result { Ok(value) => value, Ok(other) => other, Missing => 0, _ => 0 }");
-  assert.match(invalid, /Duplicate match branch.*Ok/);
-  assert.match(invalid, /Pattern 'Missing' does not belong to data type 'Result<number>'/);
+  assert.deepEqual(invalid.split("\n").sort(), ["Duplicate match branch for pattern 'Ok'.", "Pattern 'Missing' does not belong to data type 'Result<number>'."]);
   assert.match(messages("match envelope { Empty => 0, Wrapped(Ok(value)) => value }"), /Non-exhaustive.*Wrapped/);
   assert.match(messages("match envelope { Wrapped(Missing(value)) => value, Wrapped(_) => 0, Empty => 0 }"), /Pattern 'Missing' does not belong/);
+});
+
+test("explains that a bare variant field is a field name, not a type", () => {
+  const hint = /Variant fields need a name, as in 'Some\(value: T\)'; a bare name is a field name, not a type\./;
+  assert.match(messagesOf("data Maybe<T> = None | Some(T);").join("\n"), hint);
+  assert.match(messagesOf("data Maybe<T> = None | Some(T[], other: number);").join("\n"), /as in 'Some\(value: Type\)'/);
+  // A named field without its colon keeps the ordinary diagnostic.
+  assert.deepEqual(messagesOf("data Maybe = None | Some(value number);"), ["':' expected."]);
 });
 
 test("guards alone do not make a match exhaustive", () => {

@@ -23,6 +23,14 @@ test("infers let-in types and lowers the bindings into a returned block", () => 
   assert.match(js, /return x \+ y;/);
 });
 
+test("requires every let-in binding to be initialized", () => {
+  const { messages } = compile(`
+    const unread = let x in 1;
+    const read = let a = 1, b: number in a + b;
+  `);
+  assert.equal(messages.filter(message => message === "'let' declarations must be initialized.").length, 2, messages.join("\n"));
+});
+
 test("infers a do expression from its completion value", () => {
   const result = compile(`
     declare function takesString(s: string): void;

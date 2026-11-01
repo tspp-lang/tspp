@@ -100,7 +100,8 @@ export const modernSyntaxPlugin = definePlugin({
                     check: (node, checker, checkMode) => {
                         const parts = getParts(node);
                         if (parts.kind === "do") return checker.checkCompletionBlock(parts.block, checkMode);
-                        checker.checkVariableDeclarationList(parts.declarations);
+                        // `let x in body` would parse as a declaration list, but the body could only read `undefined`.
+                        checker.checkVariableDeclarationList(parts.declarations, { requireInitializers: true });
                         return checker.checkExpression(parts.body, checkMode);
                     },
                     transform: (node, transformer) => {

@@ -8245,6 +8245,7 @@ namespace Parser {
             parseTypeParameters,
             parseType,
             parseSemicolon,
+            parseErrorAtCurrentToken: message => void parseErrorAtCurrentToken(Diagnostics._0, message),
             finishTaggedUnionDeclaration,
             finishTypeAliasDeclaration: (name, typeParameters, type, pos) =>
                 withJSDoc(

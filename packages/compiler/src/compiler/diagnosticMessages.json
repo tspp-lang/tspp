@@ -8643,5 +8643,9 @@
     "The 'timeout' property must match '{ type: \"fixed\"; value: number; unit: \"ms\" | \"s\"; } | { type: \"benchmark\"; multiplier: number; }'.": {
         "category": "Error",
         "code": 18085
+    },
+    "{0}": {
+        "category": "Error",
+        "code": 18086
     }
 }

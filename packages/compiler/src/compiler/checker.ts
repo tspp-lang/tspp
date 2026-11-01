@@ -42481,14 +42481,17 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 const wildcard = arm.patterns.find(pattern => pattern.variant === "_");
                 if (hasWildcard) {
                     error(node, Diagnostics.A_branch_after_the_wildcard_pattern_is_unreachable);
+                    invalid.value = true;
                     continue;
                 }
                 if (wildcard) {
                     if (arm.patterns.length > 1) {
                         error(node, Diagnostics.The_wildcard_pattern_cannot_be_combined_with_other_patterns);
+                        invalid.value = true;
                     }
                     if (wildcard.elements.length > 0) {
                         error(node, Diagnostics.The_wildcard_pattern_cannot_contain_nested_patterns);
+                        invalid.value = true;
                     }
                     if (!arm.guard) hasWildcard = true;
                     continue;
@@ -42498,6 +42501,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     arm.patterns.some(pattern => pattern.elements.length > 0)
                 ) {
                     error(node, Diagnostics.Or_patterns_support_only_variants_without_fields);
+                    invalid.value = true;
                 }
                 const seenInArm = new Set<string>();
                 for (const pattern of arm.patterns) {
@@ -42509,10 +42513,12 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                             pattern.variant,
                             typeToString(matchedType),
                         );
+                        invalid.value = true;
                         continue;
                     }
                     if (covered.has(pattern.variant) || seenInArm.has(pattern.variant)) {
                         error(node, Diagnostics.Duplicate_match_branch_for_pattern_0, pattern.variant);
+                        invalid.value = true;
                         continue;
                     }
                     seenInArm.add(pattern.variant);
@@ -42536,6 +42542,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     error(node, Diagnostics.Non_exhaustive_match_Missing_patterns_Colon_0, missing.join(", "));
                 }
             }
+            // The lowered tag tests of an invalid match only restate its errors as comparison and narrowing noise.
             if (invalid.value) return errorType;
         }
         return checkExpression(node.extensionChildren[1] as Expression, checkMode);
@@ -42743,7 +42750,16 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
         const pluginChecker: TSPPExpressionChecker = {
             checkExpression: (expression, mode) => checkExpression(expression as Expression, mode as CheckMode | undefined),
-            checkVariableDeclarationList: declarations => checkVariableDeclarationList(declarations as VariableDeclarationList),
+            checkVariableDeclarationList: (declarations, options) => {
+                const list = declarations as VariableDeclarationList;
+                if (options?.requireInitializers) {
+                    const keyword = list.flags & NodeFlags.Const ? "const" : list.flags & NodeFlags.Let ? "let" : "var";
+                    for (const declaration of list.declarations) {
+                        if (!declaration.initializer) error(declaration.name, Diagnostics._0_declarations_must_be_initialized, keyword);
+                    }
+                }
+                checkVariableDeclarationList(list);
+            },
             checkTaggedUnionMatch: (expression, mode) => checkTaggedUnionMatchExpression(expression as ExtensionExpression, mode as CheckMode | undefined),
             checkCompletionBlock: (block, mode) => {
                 const completionBlock = block as Block;

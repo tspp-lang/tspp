@@ -278,7 +278,11 @@ export interface TSPPExpressionParser {
 
 export interface TSPPExpressionChecker {
     checkExpression(node: TSPPExpression, checkMode: number | undefined): TSPPType;
-    checkVariableDeclarationList(node: TSPPVariableDeclarationList): void;
+    /** `requireInitializers` reports each binding without an initializer, which the list syntax alone allows. */
+    checkVariableDeclarationList(
+        node: TSPPVariableDeclarationList,
+        options?: { readonly requireInitializers?: boolean; },
+    ): void;
     checkTaggedUnionMatch(node: TSPPExtensionExpression, checkMode: number | undefined): TSPPType;
     checkCompletionBlock(block: TSPPBlock, checkMode: number | undefined): TSPPType;
     /** Creates an opaque runtime descriptor type that retains its represented static type. */
@@ -395,6 +399,8 @@ export interface TSPPDeclarationParser {
     parseTypeParameters(): TSPPTypeParameterList | undefined;
     parseType(): TSPPTypeNode;
     parseSemicolon(): boolean;
+    /** Reports a plugin-authored syntax error at the current token. */
+    parseErrorAtCurrentToken(message: string): void;
     finishTaggedUnionDeclaration(
         name: TSPPIdentifier,
         typeParameters: TSPPTypeParameterList | undefined,

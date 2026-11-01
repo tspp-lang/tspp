@@ -25,11 +25,29 @@ export function createDataDeclarationSyntax(
 
             const variants: TSPPTaggedUnionVariant[] = [];
             do {
+                const variantText = parser.tokenText();
                 const variantName = parser.parseIdentifier();
                 const fields: TSPPTaggedUnionField[] = [];
                 if (parser.token() === kinds.openParenToken) {
                     parser.nextToken();
                     while (parser.token() !== kinds.closeParenToken) {
+                        // `Some(T)` reads `T` as a field name, so explain the `name: Type` form instead of `':' expected`.
+                        const unnamed = parser.lookAhead(() => {
+                            const text = parser.tokenText();
+                            parser.nextToken();
+                            if (parser.token() === kinds.commaToken || parser.token() === kinds.closeParenToken) return text;
+                            // A type continues here; anything else (`value number`) only misses the colon.
+                            return ["<", "[", ".", "|", "&"].includes(parser.tokenText()) ? "Type" : undefined;
+                        });
+                        if (unnamed !== undefined) {
+                            parser.parseErrorAtCurrentToken(
+                                `Variant fields need a name, as in '${variantText}(value: ${unnamed})'; a bare name is a field name, not a type.`,
+                            );
+                            parser.parseType();
+                            if (parser.token() !== kinds.commaToken) break;
+                            parser.nextToken();
+                            continue;
+                        }
                         const fieldName = parser.parseIdentifier();
                         parser.parseExpected(kinds.colonToken);
                         fields.push({ name: fieldName, type: parser.parseType() });
