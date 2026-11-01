@@ -420,6 +420,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     expressionSyntaxKinds,
+    getPlaceholderExpressionSyntax,
     isStartOfExtensionDeclaration,
     projectTSPPSource,
     registerDeepReadonlyBinding,
@@ -7136,13 +7137,80 @@ namespace Parser {
         return parseIdentifier(Diagnostics.Expression_expected);
     }
 
+    function collectPlaceholderHoles(node: Node, placeholder: string, holes: Identifier[]): void {
+        if (node.kind === SyntaxKind.Identifier && idText(node as Identifier) === placeholder) {
+            holes.push(node as Identifier);
+            return;
+        }
+        switch (node.kind) {
+            case SyntaxKind.ArrowFunction:
+            case SyntaxKind.FunctionExpression:
+            case SyntaxKind.FunctionDeclaration:
+            case SyntaxKind.ClassExpression:
+            case SyntaxKind.ClassDeclaration:
+            case SyntaxKind.MethodDeclaration:
+            case SyntaxKind.GetAccessor:
+            case SyntaxKind.SetAccessor:
+            case SyntaxKind.PropertyAssignment:
+            case SyntaxKind.ShorthandPropertyAssignment:
+            case SyntaxKind.Parameter:
+            case SyntaxKind.VariableDeclaration:
+            case SyntaxKind.BindingElement:
+                return;
+            case SyntaxKind.PropertyAccessExpression:
+                collectPlaceholderHoles((node as PropertyAccessExpression).expression, placeholder, holes);
+                return;
+        }
+        forEachChild(node, child => collectPlaceholderHoles(child, placeholder, holes));
+    }
+
+    function tryDesugarPlaceholderExpression(expression: Expression, pos: number, hasJSDoc: boolean): ParenthesizedExpression | undefined {
+        const syntax = getPlaceholderExpressionSyntax();
+        if (!syntax) return undefined;
+        const holes: Identifier[] = [];
+        collectPlaceholderHoles(expression, syntax.placeholder, holes);
+        if (!holes.length) return undefined;
+        const parameters = holes.map((hole, index) => {
+            const identifier = factoryCreateIdentifier(`__p${index}`, /*originalKeywordKind*/ undefined);
+            const mutableIdentifier = identifier as Mutable<Identifier>;
+            mutableIdentifier.pos = hole.pos;
+            mutableIdentifier.end = hole.end;
+            mutableIdentifier.tsppOperatorParam = true;
+            (hole as Mutable<Identifier>).escapedText = identifier.escapedText;
+            (hole as Mutable<Identifier>).tsppHole = true;
+            const parameter = factory.createParameterDeclaration(
+                /*modifiers*/ undefined,
+                /*dotDotDotToken*/ undefined,
+                identifier,
+                /*questionToken*/ undefined,
+                /*type*/ undefined,
+                /*initializer*/ undefined,
+            );
+            const mutableParameter = parameter as Mutable<ParameterDeclaration>;
+            mutableParameter.pos = hole.pos;
+            mutableParameter.end = hole.end;
+            return parameter;
+        });
+        const arrow = factory.createArrowFunction(
+            /*modifiers*/ undefined,
+            /*typeParameters*/ undefined,
+            createNodeArray(parameters, pos, pos),
+            /*type*/ undefined,
+            finishNode(factoryCreateToken(SyntaxKind.EqualsGreaterThanToken), pos, pos),
+            expression,
+        );
+        finishNode(arrow, pos);
+        return withJSDoc(finishNode(factoryCreateParenthesizedExpression(arrow), pos), hasJSDoc);
+    }
+
     function parseParenthesizedExpression(): ParenthesizedExpression {
         const pos = getNodePos();
         const hasJSDoc = hasPrecedingJSDocComment();
         parseExpected(SyntaxKind.OpenParenToken);
         const expression = allowInAnd(parseExpression);
         parseExpected(SyntaxKind.CloseParenToken);
-        return withJSDoc(finishNode(factoryCreateParenthesizedExpression(expression), pos), hasJSDoc);
+        return tryDesugarPlaceholderExpression(expression, pos, hasJSDoc)
+            ?? withJSDoc(finishNode(factoryCreateParenthesizedExpression(expression), pos), hasJSDoc);
     }
 
     function parseSpreadElement(): Expression {
@@ -7159,7 +7227,11 @@ namespace Parser {
     }
 
     function parseArgumentExpression(): Expression {
-        return doOutsideOfContext(disallowInAndDecoratorContext, parseArgumentOrArrayLiteralElement);
+        const pos = getNodePos();
+        const hasJSDoc = hasPrecedingJSDocComment();
+        const expression = doOutsideOfContext(disallowInAndDecoratorContext, parseArgumentOrArrayLiteralElement);
+        if (expression.kind === SyntaxKind.ParenthesizedExpression) return expression;
+        return tryDesugarPlaceholderExpression(expression, pos, hasJSDoc) ?? expression;
     }
 
     function parseArrayLiteralExpression(): ArrayLiteralExpression {

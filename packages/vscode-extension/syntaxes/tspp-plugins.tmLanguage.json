@@ -113,6 +113,18 @@
       "name": "keyword.control.match.tspp"
     },
     {
+      "name": "variable.language.placeholder.tspp",
+      "match": "(?<![._$[:alnum:]])_(?![_$[:alnum:]])"
+    },
+    {
+      "name": "meta.embedded.inline.tspp-operator keyword.operator.comparison.ts",
+      "match": "===|!==|==|!=|<=|>="
+    },
+    {
+      "name": "keyword.operator.comparison.ts",
+      "match": "(?<=\\b_\\s*)[<>](?=\\s*[^>])|(?<=[^<]\\s*)[<>](?=\\s*_\\b)"
+    },
+    {
       "match": "\\bstatic\\b",
       "name": "storage.modifier.static.tspp"
     },

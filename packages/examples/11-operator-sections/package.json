@@ -1,0 +1,16 @@
+{
+  "name": "@tspp/example-operator-sections",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tspp --project tsconfig.json --pretty false",
+    "build": "tspp --project tsconfig.json --pretty false --noEmit false",
+    "start": "node dist/index.js",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "@tspp/plugin-operator-sections": "workspace:*",
+    "eslint": "^10.10.0",
+    "ts-plus-plus": "workspace:*"
+  }
+}

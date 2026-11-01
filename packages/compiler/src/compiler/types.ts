@@ -1722,6 +1722,8 @@ export interface Identifier extends PrimaryExpression, Declaration, JSDocContain
      * Text of identifier, but if the identifier begins with two underscores, this will begin with three.
      */
     readonly escapedText: __String;
+    /** @internal */ readonly tsppHole?: boolean;
+    /** @internal */ readonly tsppOperatorParam?: boolean;
 }
 
 // Transient identifier node (marked by id === -1)

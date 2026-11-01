@@ -5713,7 +5713,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             return getTextOfNode(node.textSourceNode, includeTrivia);
         }
         const sourceFile = currentSourceFile; // const needed for control flow
-        const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node);
+        const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node)
+            && !(node as Identifier).tsppHole && !(node as Identifier).tsppOperatorParam;
         if (isMemberName(node)) {
             if (!canUseSourceFile || getSourceFileOfNode(node) !== getOriginalNode(sourceFile)) {
                 return idText(node);

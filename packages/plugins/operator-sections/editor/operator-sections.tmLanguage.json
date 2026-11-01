@@ -1,0 +1,19 @@
+{
+  "name": "TS++ Operator Sections",
+  "scopeName": "tspp.plugin.operator-sections",
+  "injectionSelector": "L:source.tspp -comment -string",
+  "patterns": [
+    {
+      "name": "variable.language.placeholder.tspp",
+      "match": "(?<![._$[:alnum:]])_(?![_$[:alnum:]])"
+    },
+    {
+      "name": "meta.embedded.inline.tspp-operator keyword.operator.comparison.ts",
+      "match": "===|!==|==|!=|<=|>="
+    },
+    {
+      "name": "keyword.operator.comparison.ts",
+      "match": "(?<=\\b_\\s*)[<>](?=\\s*[^>])|(?<=[^<]\\s*)[<>](?=\\s*_\\b)"
+    }
+  ]
+}

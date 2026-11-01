@@ -181,6 +181,9 @@ importers:
       '@tspp/plugin-modern-syntax':
         specifier: workspace:*
         version: link:packages/plugins/modern-syntax
+      '@tspp/plugin-operator-sections':
+        specifier: workspace:*
+        version: link:packages/plugins/operator-sections
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:packages/plugin-sdk
@@ -476,6 +479,18 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
+  packages/examples/11-operator-sections:
+    devDependencies:
+      '@tspp/plugin-operator-sections':
+        specifier: workspace:*
+        version: link:../../plugins/operator-sections
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/language-server:
     devDependencies:
       '@eslint/js':
@@ -613,6 +628,9 @@ importers:
       '@tspp/plugin-nominal-types':
         specifier: workspace:*
         version: link:../plugins/nominal-types
+      '@tspp/plugin-operator-sections':
+        specifier: workspace:*
+        version: link:../plugins/operator-sections
       '@tspp/plugin-sdk':
         specifier: workspace:*
         version: link:../plugin-sdk
@@ -622,6 +640,12 @@ importers:
       '@tspp/plugin-type-computation':
         specifier: workspace:*
         version: link:../plugins/type-computation
+      lz-string:
+        specifier: ^1.5.0
+        version: 1.5.0
+      monaco-editor:
+        specifier: ^0.57.0
+        version: 0.57.0
       ts-plus-plus:
         specifier: workspace:*
         version: link:../compiler
@@ -804,6 +828,28 @@ importers:
         specifier: ^8.70.0
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
 
+  packages/plugins/operator-sections:
+    dependencies:
+      '@tspp/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../plugin-sdk
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      globals:
+        specifier: ^17.12.0
+        version: 17.13.0
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.70.0
+        version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
+
   packages/plugins/static-interface-members:
     dependencies:
       '@tspp/plugin-sdk':
@@ -865,6 +911,9 @@ importers:
       '@tspp/plugin-nominal-types':
         specifier: workspace:*
         version: link:../plugins/nominal-types
+      '@tspp/plugin-operator-sections':
+        specifier: workspace:*
+        version: link:../plugins/operator-sections
       '@tspp/plugin-static-interface-members':
         specifier: workspace:*
         version: link:../plugins/static-interface-members
@@ -1808,6 +1857,9 @@ packages:
   '@types/source-map-support@0.5.10':
     resolution: {integrity: sha512-tgVP2H469x9zq34Z0m/fgPewGhg/MLClalNOiPIzQlXrSS2YrKu/xCdSCKnEDwkFha51VKEKB6A9wW26/ZNwzA==}
 
+  '@types/trusted-types@2.0.7':
+    resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
+
   '@types/which@3.0.4':
     resolution: {integrity: sha512-liyfuo/106JdlgSchJzXEQCVArk0CvevqPote8F8HgWgJ3dRCcTHgJIsLDuee0kxk/mhbInzIZk3QWSZJ8R+2w==}
 
@@ -2244,6 +2296,9 @@ packages:
   diff@8.0.4:
     resolution: {integrity: sha512-DPi0FmjiSU5EvQV0++GFDOJ9ASQUVFh5kD+OzOnYdi7n3Wpm9hWWGfB/O2blfHcMVTL5WkQXSnRiK9makhrcnw==}
     engines: {node: '>=0.3.1'}
+
+  dompurify@3.4.15:
+    resolution: {integrity: sha512-EUBjM+B+lkDE41iE82DDSCfkoPGfXx8IxFxPMjNzm/Uk4xDet77rTN9wqlxlVg71kK7XGuUMv6wUxJUwwv+Xyw==}
 
   dprint@0.49.1:
     resolution: {integrity: sha512-pO9XH79SyXybj2Vhc9ITZMEI8cJkdlQQRoD8oEfPH6Jjpp/7WX5kIgECVd3DBOjjAdCSiW6R47v3gJBx/qZVkw==}
@@ -2793,6 +2848,10 @@ packages:
     resolution: {integrity: sha512-U4N8FgzmWxc8k1VH8Kr6lQg18U7Fjvby6wXHVRX/ZZ7IwWbRMgrRbP0Wrb5q5NVinryp4SQampHKdvtecItxUg==}
     engines: {node: 20 || >=22}
 
+  lz-string@1.5.0:
+    resolution: {integrity: sha512-h5bgJWpxJNswbU7qCrV0tIKQCaS3blPDrqKWx+QxzuzL1zGUzij9XCWLrSLsJPu5t+eWA/ycetzYAO5IOMcWAQ==}
+    hasBin: true
+
   lz-utils@2.1.1:
     resolution: {integrity: sha512-d3Thjos0PSJQAoyMj6vipSSrtrRHS7DImqUNR8x9NW3+zQIftPIbMJAWhi5nPdg5Q9zHz6lxtN8kp/VdMlhi/Q==}
 
@@ -2805,6 +2864,11 @@ packages:
   make-dir@4.0.0:
     resolution: {integrity: sha512-hXdUTZYIVOt1Ex//jAQi+wTZZpUpwBj/0QsOzqegb3rGMMeJiSEu5xLHnYfBrRV4RH2+OCSOO95Is/7x1WJ4bw==}
     engines: {node: '>=10'}
+
+  marked@14.0.0:
+    resolution: {integrity: sha512-uIj4+faQ+MgHgwUW1l2PsPglZLOLOT1uErt06dAPtx2kjteLAkbsd/0FiYg/MGS+i7ZKLb7w2WClxHkzOOuryQ==}
+    engines: {node: '>= 18'}
+    hasBin: true
 
   math-intrinsics@1.1.0:
     resolution: {integrity: sha512-/IXtbwEk5HTPyEwyKX6hGkYXxM9nbj64B+ilVJnC/R6B0pH5G4V3b0pVbL7DBj4tkhBAppbQUlf6F6Xl9LHu1g==}
@@ -2847,6 +2911,9 @@ packages:
     resolution: {integrity: sha512-VZlYo/WE8t1tstuRmqgeyBgCbJc/lEdopaa+axcKzTBJ+UIdlAB9XnmvTCAH4pwR4ElNInaedhEBmZD8iCSVEg==}
     engines: {node: '>= 14.0.0'}
     hasBin: true
+
+  monaco-editor@0.57.0:
+    resolution: {integrity: sha512-5BkI9KGoqrNvBGUe15/QlZq3OooZ8WLg1AxTpaqHRCP3HNpzPPZKE2EDz8M7c+VRmCeUw1Brp4cx/PWm3kI/5A==}
 
   monocart-coverage-reports@2.13.2:
     resolution: {integrity: sha512-G6m6BO3wzidg9UrK2JRMW+err7OxB+iFn0kWkprQyHTUtvbv9vM8u0SrgHW1rWpOQXC4eB+nvat/xa7mLDE/9w==}
@@ -4214,6 +4281,9 @@ snapshots:
     dependencies:
       source-map: 0.6.1
 
+  '@types/trusted-types@2.0.7':
+    optional: true
+
   '@types/which@3.0.4': {}
 
   '@typescript-eslint/eslint-plugin@8.56.1(@typescript-eslint/parser@8.56.1(eslint@10.0.2(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3))(eslint@10.0.2(jiti@2.7.0)(supports-color@8.1.1))(supports-color@8.1.1)(typescript@5.9.3)':
@@ -4902,6 +4972,10 @@ snapshots:
 
   diff@8.0.4: {}
 
+  dompurify@3.4.15:
+    optionalDependencies:
+      '@types/trusted-types': 2.0.7
+
   dprint@0.49.1:
     optionalDependencies:
       '@dprint/darwin-arm64': 0.49.1
@@ -5522,6 +5596,8 @@ snapshots:
 
   lru-cache@11.5.3: {}
 
+  lz-string@1.5.0: {}
+
   lz-utils@2.1.1: {}
 
   magic-string@0.30.21:
@@ -5537,6 +5613,8 @@ snapshots:
   make-dir@4.0.0:
     dependencies:
       semver: 7.8.5
+
+  marked@14.0.0: {}
 
   math-intrinsics@1.1.0: {}
 
@@ -5589,6 +5667,11 @@ snapshots:
       yargs: 16.2.2
       yargs-parser: 20.2.9
       yargs-unparser: 2.0.0
+
+  monaco-editor@0.57.0:
+    dependencies:
+      dompurify: 3.4.15
+      marked: 14.0.0
 
   monocart-coverage-reports@2.13.2:
     dependencies:

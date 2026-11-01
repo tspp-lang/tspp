@@ -10,6 +10,7 @@ import type {
     TSPPFunctionBodySyntax,
     TSPPInterfaceMemberContract,
     TSPPKindAnnotationSyntax,
+    TSPPPlaceholderExpressionSyntax,
     TSPPPostfixTypeSyntax,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
@@ -60,6 +61,7 @@ const kindSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPK
 const kindAnnotations = new WeakMap<object, TSPPTypeKind>();
 const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
+const placeholderExpressionSyntaxes = new Map<string, TSPPPlaceholderExpressionSyntax>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const compileTimeMacroPlugins = new Set<string>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
@@ -374,6 +376,16 @@ const compilerAPI: TSPPCompilerHostAPI = {
         sourcePreprocessors.set(key, preprocessor);
         return () => sourcePreprocessors.delete(key);
     },
+    registerPlaceholderExpressionSyntax(pluginId, syntax) {
+        if (!syntax.placeholder || syntax.placeholder !== syntax.placeholder.trim()) {
+            throw new Error(`TSPP placeholder syntax from '${pluginId}' must use a non-empty identifier.`);
+        }
+        if (placeholderExpressionSyntaxes.size && !placeholderExpressionSyntaxes.has(pluginId)) {
+            throw new Error("Only one TSPP placeholder expression syntax can be active at a time.");
+        }
+        placeholderExpressionSyntaxes.set(pluginId, syntax);
+        return () => placeholderExpressionSyntaxes.delete(pluginId);
+    },
     registerCompileTimeMacros(pluginId) {
         if (compileTimeMacroPlugins.size && !compileTimeMacroPlugins.has(pluginId)) {
             throw new Error(`Compile-time macros are already owned by TSPP plugin '${[...compileTimeMacroPlugins][0]}'.`);
@@ -477,6 +489,11 @@ export function getTSPPQuickInfo(
 /** @internal */
 export function hasInterfaceMemberContract(modifier: "static"): boolean {
     return [...interfaceMemberContracts.values()].some(contract => contract.modifier === modifier);
+}
+
+/** @internal */
+export function getPlaceholderExpressionSyntax(): TSPPPlaceholderExpressionSyntax | undefined {
+    return placeholderExpressionSyntaxes.values().next().value;
 }
 
 /** @internal */

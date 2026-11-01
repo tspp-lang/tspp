@@ -1,22 +1,43 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TS++ Playground</title>
+    <link rel="icon" href="./avatar.png" type="image/png" />
     <link rel="icon" href="./tspp.svg" type="image/svg+xml" />
+    <!-- Z3 runs with threads, which need cross-origin isolation (SharedArrayBuffer).
+         GitHub Pages cannot send COOP/COEP headers, so coi-serviceworker (MIT, Guido
+         Zuidhof) adds them; it does nothing when the server already sends them. -->
     <script src="./coi-serviceworker.js"></script>
   </head>
   <body>
+    <header>
+      <h1><img src="./avatar.png" alt="TS++" />TS++ Playground</h1>
+      <span id="status">Loading compiler…</span>
+      <span class="spacer"></span>
+      <select id="examples" aria-label="Examples">
+        <option value="">Examples…</option>
+      </select>
+      <input id="share-link" type="text" readonly hidden aria-label="Share link" />
+      <button id="share" type="button">Share</button>
+    </header>
     <main>
-      <header><h1>TS++ Playground</h1><span id="status">starting…</span></header>
-      <section id="features" class="features" aria-label="Feature capsules"></section>
-      <section class="workspace">
-        <label>TS++ source<textarea id="source" spellcheck="false"></textarea></label>
-        <label>Projected TypeScript<textarea id="projected" readonly></textarea></label>
-      </section>
-      <section><h2>Diagnostics</h2><pre id="diagnostics">Waiting for compiler…</pre></section>
+      <div id="editor-column">
+        <nav id="tabs" hidden></nav>
+        <div id="editor"></div>
+      </div>
+      <aside>
+        <section>
+          <h2>Features</h2>
+          <div id="features" class="scroll"></div>
+        </section>
+        <section>
+          <h2>Problems<span id="problem-count"></span></h2>
+          <div class="scroll"><ul id="problems"></ul></div>
+        </section>
+      </aside>
     </main>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>

@@ -1,0 +1,8 @@
+const addOne: (value: number) => number = (_ + 1);
+const add: (left: number, right: number) => number = (_ + _);
+const readName: (value: { name: string }) => string = (_.name);
+
+const numbers = [1, 2, 3];
+const doubled = numbers.map(_ * 2);
+
+console.log(addOne(41), add(20, 22), readName({ name: "TS++" }), doubled);

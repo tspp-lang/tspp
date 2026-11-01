@@ -242,7 +242,10 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
                 if (typeNode) {
                     // Note that the codefix will never fire with an existing `@type` tag, so there is no need to merge tags
                     const typeTag = factory.createJSDocTypeTag(/*tagName*/ undefined, factory.createJSDocTypeExpression(typeNode), /*comment*/ undefined);
-                    changes.addJSDocTags(sourceFile, cast(parent.parent.parent, isExpressionStatement), [typeTag]);
+                    const target = parent.parent?.parent && isExpressionStatement(parent.parent.parent)
+                        ? parent.parent.parent
+                        : undefined;
+                    if (target) changes.addJSDocTags(sourceFile, target, [typeTag]);
                 }
                 importAdder.writeFixes(changes);
                 return parent;

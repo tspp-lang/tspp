@@ -1,5 +1,5 @@
 import { build, transform } from "esbuild";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
@@ -9,6 +9,8 @@ const compilerSource = resolve(import.meta.dirname, "../compiler/src");
 const compilerEntry = join(compilerSource, "typescript/typescript.ts");
 const normalizedCompilerSource = compilerSource.replaceAll("\\", "/");
 const z3Build = dirname(require.resolve("z3-solver"));
+const examplesRoot = resolve(import.meta.dirname, "../examples");
+const monacoRoot = join(dirname(require.resolve("monaco-editor")), "..", "..");
 const browserPackages = [
   "@tspp/plugin-sdk",
   "@tspp/plugin-sdk/compiler",
@@ -20,9 +22,13 @@ const browserPackages = [
   "@tspp/plugin-macros",
   "@tspp/plugin-modern-syntax",
   "@tspp/plugin-nominal-types",
+  "@tspp/plugin-operator-sections",
   "@tspp/plugin-static-interface-members",
   "@tspp/plugin-type-computation",
 ];
+const declarationPackages = [...new Set(browserPackages.filter(name => name.startsWith("@tspp/")).map(name =>
+  name.split("/").slice(0, 2).join("/")
+))];
 const isolationHeaders = {
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
@@ -68,7 +74,73 @@ function compilerLibraries(): Plugin {
   };
 }
 
-const workerPlugins = () => [compilerSources(), compilerLibraries()];
+function packageTypes(): Plugin {
+  const id = "virtual:tspp-package-types";
+  return {
+    name: "tspp:package-types",
+    resolveId(source) { return source === id ? `\0${id}` : undefined; },
+    load(source) {
+      if (source !== `\0${id}`) return undefined;
+      const files: Record<string, string> = {};
+      for (const packageName of declarationPackages) {
+        const root = dirname(dirname(require.resolve(packageName)));
+        const packagePath = join(root, "package.json");
+        files[`/node_modules/${packageName}/package.json`] = readFileSync(packagePath, "utf8");
+        for (const file of listFiles(join(root, "dist")).filter(file => file.endsWith(".d.ts"))) {
+          files[`/node_modules/${packageName}/dist/${file}`] = readFileSync(join(root, "dist", file), "utf8");
+        }
+      }
+      return `export default ${JSON.stringify(files)};`;
+    },
+  };
+}
+
+const workerPlugins = () => [compilerSources(), compilerLibraries(), packageTypes()];
+
+function listFiles(directory: string, prefix = ""): string[] {
+  if (!existsSync(directory)) return [];
+  return readdirSync(directory, { withFileTypes: true }).sort((left, right) => left.name.localeCompare(right.name)).flatMap(entry =>
+    entry.isDirectory()
+      ? listFiles(join(directory, entry.name), `${prefix}${entry.name}/`)
+      : [`${prefix}${entry.name}`]
+  );
+}
+
+function exampleFeature(packageName: string): string | undefined {
+  const names: Record<string, string> = {
+    "@tspp/plugin-dependent-types": "type-system/dependent-types",
+    "@tspp/plugin-formal-verification": "formal-verification/z3",
+  };
+  return names[packageName] ?? packageName.match(/^@tspp\/plugin-(.+)$/)?.[1];
+}
+
+function examplesPlugin(): Plugin {
+  const id = "virtual:tspp-examples";
+  return {
+    name: "tspp:examples",
+    resolveId(source) { return source === id ? `\0${id}` : undefined; },
+    load(source) {
+      if (source !== `\0${id}`) return undefined;
+      const projects = readdirSync(examplesRoot).filter(name => /^\d\d-/.test(name)).sort().flatMap(project => {
+        const directory = join(examplesRoot, project);
+        const configPath = join(directory, "tsconfig.json");
+        if (!existsSync(configPath)) return [];
+        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+          compilerOptions?: { plugins?: { name?: string; tspp?: boolean }[] };
+        };
+        const features = (config.compilerOptions?.plugins ?? [])
+          .filter(plugin => plugin.tspp && plugin.name)
+          .map(plugin => exampleFeature(plugin.name!))
+          .filter((feature): feature is string => !!feature);
+        const sources = listFiles(join(directory, "src")).filter(file => /\.(tspp|ts)$/.test(file) && !/\.d\.(tspp|ts)$/.test(file));
+        if (!sources.length) return [];
+        const files = Object.fromEntries(sources.map(file => [`/src/${file}`, readFileSync(join(directory, "src", file), "utf8")]));
+        return [{ id: project, features, entry: `/src/${sources[0]}`, files }];
+      });
+      return `export default ${JSON.stringify(projects)};`;
+    },
+  };
+}
 
 function z3Runtime(): Plugin {
   const workerEntry = join(import.meta.dirname, "src", "z3", "z3Worker.cjs");
@@ -125,10 +197,13 @@ function z3Runtime(): Plugin {
 
 export default defineConfig({
   base: "./",
-  resolve: { alias: { "ts-plus-plus/source": compilerEntry } },
+  resolve: { alias: [
+    { find: "ts-plus-plus/source", replacement: compilerEntry },
+    { find: /^monaco-editor\/(.*\.css)$/, replacement: `${monacoRoot}/esm/vs/$1` },
+  ] },
   optimizeDeps: { include: browserPackages },
   oxc: { exclude: [/packages[\\/]compiler[\\/]src[\\/]/] },
-  plugins: [...workerPlugins(), z3Runtime()],
+  plugins: [...workerPlugins(), examplesPlugin(), z3Runtime()],
   worker: { format: "es", plugins: workerPlugins },
   server: { port: 5173, strictPort: true, headers: isolationHeaders },
   preview: { headers: isolationHeaders },

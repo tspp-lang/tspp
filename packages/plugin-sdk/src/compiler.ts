@@ -81,6 +81,11 @@ export interface TSPPSourcePreprocessor {
     preprocess(fileName: string, sourceText: string): string;
 }
 
+/** Turns expressions containing a placeholder identifier into inferred arrow functions. */
+export interface TSPPPlaceholderExpressionSyntax {
+    readonly placeholder: string;
+}
+
 export interface TSPPExtensionExpression {
     readonly pluginId: string;
     readonly extensionChildren: readonly TSPPSyntaxNode[];
@@ -463,6 +468,7 @@ export interface TSPPCompilerPluginAPI {
     registerInterfaceMemberContract(contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
+    registerPlaceholderExpressionSyntax(syntax: TSPPPlaceholderExpressionSyntax): TSPPPluginDisposer;
     /** Enables the compiler's isolated compile-time macro pipeline for this feature capsule. */
     registerCompileTimeMacros(): TSPPPluginDisposer;
 }
@@ -482,6 +488,7 @@ export interface TSPPCompilerHostAPI {
     registerInterfaceMemberContract(pluginId: string, contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
+    registerPlaceholderExpressionSyntax(pluginId: string, syntax: TSPPPlaceholderExpressionSyntax): TSPPPluginDisposer;
     registerCompileTimeMacros(pluginId: string): TSPPPluginDisposer;
 }
 

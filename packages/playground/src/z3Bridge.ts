@@ -4,7 +4,7 @@ import type { Z3Answer, Z3Query, Z3Solver } from "@tspp/plugin-formal-verificati
 const queryTimeoutMs = 120_000;
 const formalVerificationExports = "verificationProgramSemantics" in formalVerificationNamespace
   ? formalVerificationNamespace
-  : formalVerificationNamespace.default as unknown;
+  : (formalVerificationNamespace as unknown as { default: typeof formalVerificationNamespace }).default;
 const verificationProgramSemantics = (formalVerificationExports as {
   readonly verificationProgramSemantics: string;
 }).verificationProgramSemantics;

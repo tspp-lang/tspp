@@ -52,6 +52,11 @@ function documentRange(document: lsp.TextDocumentItem): lsp.Range {
     return lsp.Range.create(0, 0, lines.length - 1, lines.at(-1)?.length ?? 0);
 }
 
+function positionAt(text: string, offset: number): lsp.Position {
+    const before = text.slice(0, offset).split(/\r?\n/);
+    return lsp.Position.create(before.length - 1, before.at(-1)?.length ?? 0);
+}
+
 describe('TS++ examples editor smoke test', () => {
     const exampleFiles = collectExampleFiles();
 
@@ -111,6 +116,37 @@ describe('TS++ examples editor smoke test', () => {
             }
         }
         finally {
+            server.closeAllForTesting();
+            server.shutdown();
+        }
+    }, 60_000);
+
+    it('keeps operator-section placeholder hover contextual instead of any', async () => {
+        const example = exampleSources.find(source => source.name.endsWith(path.join('11-operator-sections', 'src', 'index.tspp')))!;
+        const server = await createServer({
+            rootUri: URI.file(example.root).toString(),
+            initializationOptionsOverrides: {
+                tsserver: {
+                    path: path.join(repoRoot, 'packages', 'compiler', 'built', 'local', 'tsserver.js'),
+                    useSyntaxServer: 'never',
+                },
+            },
+        });
+        try {
+            const document = toDocument(example.filePath);
+            server.didOpenTextDocument({ textDocument: document });
+            const placeholder = document.text.indexOf('_');
+            expect(placeholder).toBeGreaterThanOrEqual(0);
+            const hover = await server.hover({
+                textDocument: { uri: document.uri },
+                position: positionAt(document.text, placeholder),
+            });
+            const rendered = JSON.stringify(hover?.contents);
+            expect(rendered).toContain('number');
+            expect(rendered).not.toMatch(/\bany\b/);
+        }
+        finally {
+            server.didCloseTextDocument({ textDocument: { uri: URI.file(example.filePath).toString() } });
             server.closeAllForTesting();
             server.shutdown();
         }
