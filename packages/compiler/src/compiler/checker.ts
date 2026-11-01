@@ -21508,6 +21508,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function getMappedHigherKindedTarget(type: Type, mapper: TypeMapper): Type {
+        // A curried application `F<A><B>` targets the deferred `F<A>`, which shares F's symbol but must be re-applied.
+        if (higherKindedApplications.has(type)) return instantiateType(type, mapper);
         const mapped = getMappedType(type, mapper);
         if (mapped !== type || !type.symbol) return mapped;
         switch (mapper.kind) {

@@ -7,6 +7,7 @@ import type {
     TSPPPostfixTypeParser,
     TSPPStatementParser,
     TSPPTaggedUnionVariant,
+    TSPPTypeKind,
     TSPPTypeParser,
 } from "@tspp/plugin-sdk/compiler";
 import {
@@ -420,6 +421,8 @@ import * as performance from "./_namespaces/ts.performance.js";
 import {
     expressionSyntaxKinds,
     getPlaceholderExpressionSyntax,
+    getTypeKindAnnotation,
+    isExtensionTypeConstructor,
     isStartOfExtensionDeclaration,
     projectTSPPSource,
     registerDeepReadonlyBinding,
@@ -5045,17 +5048,22 @@ namespace Parser {
     }
 
     function createExtensionTypeParser(_pluginId: string): TSPPTypeParser {
+        // Lowered conditionals keep their children in source order so that position lookups reach the names inside
+        // authored types. Later arms check a clone of the scrutinee, which keeps the scrutinee's own range.
         const createNonDistributiveConditional = (
             checkType: TypeNode,
             pattern: TypeNode,
             trueType: TypeNode,
             falseType: TypeNode,
         ) => factory.createConditionalTypeNode(
-            factory.createTupleTypeNode(factory.createNodeArray([checkType])),
-            factory.createTupleTypeNode(factory.createNodeArray([pattern])),
+            createSingletonTuple(checkType),
+            createSingletonTuple(pattern),
             trueType,
             falseType,
         );
+        const createSingletonTuple = (type: TypeNode) => setTextRange(factory.createTupleTypeNode(setTextRange(factory.createNodeArray([type]), type)), type);
+        // An empty range would make a name "missing" to the checker, so only the `never` fallback gets one.
+        const createEmptyNever = (pos: number) => setTextRange(factory.createKeywordTypeNode(SyntaxKind.NeverKeyword), { pos, end: pos });
 
         return {
             kinds: typeSyntaxKinds,
@@ -5071,8 +5079,9 @@ namespace Parser {
             parseType,
             parseTypeMatchPattern: () => {
                 if (token() === SyntaxKind.Identifier && scanner.getTokenValue() === "_") {
+                    const wildcardPos = getNodePos();
                     nextToken();
-                    return factory.createKeywordTypeNode(SyntaxKind.UnknownKeyword);
+                    return finishNode(factory.createKeywordTypeNode(SyntaxKind.UnknownKeyword), wildcardPos);
                 }
                 return parseType();
             },
@@ -5080,50 +5089,45 @@ namespace Parser {
                 const name = nameIn as Identifier;
                 const value = valueIn as TypeNode;
                 const body = bodyIn as TypeNode;
-                const parameter = factory.createTypeParameterDeclaration(
-                    /*modifiers*/ undefined,
-                    name,
-                    /*constraint*/ undefined,
-                    /*defaultType*/ undefined,
+                if (isExtensionTypeConstructor(value)) {
+                    // An `infer` variable cannot be applied, so bind a type constructor as the redex
+                    // `(<Name: kind> =>> body)<value>`, which gives `Name<...>` in the body the constructor's kind.
+                    const kindedParameter = finishNode(
+                        factory.createTypeParameterDeclaration(/*modifiers*/ undefined, name, /*constraint*/ undefined, /*defaultType*/ undefined),
+                        name.pos,
+                    );
+                    setTypeKindAnnotation(kindedParameter, getTypeConstructorKind(value as FunctionTypeNode));
+                    const constructor = createTypeConstructorNode(createNodeArray([kindedParameter], name.pos), body, pos);
+                    return createTypeApplicationNode(constructor, [value], pos);
+                }
+                const parameter = setTextRange(
+                    factory.createTypeParameterDeclaration(/*modifiers*/ undefined, name, /*constraint*/ undefined, /*defaultType*/ undefined),
+                    { pos: value.end, end: value.end },
                 );
-                const infer = factory.createInferTypeNode(parameter);
-                return finishNode(
-                    createNonDistributiveConditional(
-                        value,
-                        infer,
-                        body,
-                        factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
-                    ),
-                    pos,
-                );
+                const infer = setTextRange(factory.createInferTypeNode(parameter), parameter);
+                return finishNode(createNonDistributiveConditional(value, infer, body, createEmptyNever(body.end)), pos);
             },
             finishOrderedTypeMatch: (scrutineeIn, armsIn, pos) => {
                 const scrutinee = scrutineeIn as TypeNode;
                 const arms = armsIn;
-                let result: TypeNode = factory.createKeywordTypeNode(SyntaxKind.NeverKeyword);
+                const lastArm = arms[arms.length - 1];
+                let result: TypeNode = createEmptyNever(lastArm ? (lastArm.result as TypeNode).end : pos);
                 for (let index = arms.length - 1; index >= 0; index--) {
                     const arm = arms[index];
+                    const pattern = arm.pattern as TypeNode;
+                    const end = result.end;
                     result = createNonDistributiveConditional(
                         index === 0 ? scrutinee : getSynthesizedDeepClone(scrutinee),
-                        arm.pattern as TypeNode,
+                        pattern,
                         arm.result as TypeNode,
                         result,
                     );
+                    // Each later arm's conditional spans its arms, keeping the outer conditional's children in order.
+                    if (index > 0) setTextRange(result, { pos: pattern.pos, end });
                 }
                 return finishNode(result, pos);
             },
-            finishTypeConstructor: (typeParametersIn, bodyIn, pos) => {
-                const node = finishNode(
-                    factory.createFunctionTypeNode(
-                        typeParametersIn as NodeArray<TypeParameterDeclaration>,
-                        factory.createNodeArray([]),
-                        bodyIn as TypeNode,
-                    ),
-                    pos,
-                );
-                registerTypeConstructor(node);
-                return node;
-            },
+            finishTypeConstructor: (typeParametersIn, bodyIn, pos) => createTypeConstructorNode(typeParametersIn as NodeArray<TypeParameterDeclaration>, bodyIn as TypeNode, pos),
             finishTypeUniverse: (level, pos) => {
                 const text = level === 0 ? "Type0" : `Type${level}`;
                 const node = finishNode(factory.createTypeReferenceNode(text, /*typeArguments*/ undefined), pos);
@@ -5139,30 +5143,46 @@ namespace Parser {
             token,
             getNodePos,
             parseTypeArguments: parseTypeArgumentsOfTypeReference,
-            finishTypeApplication: (targetIn, typeArgumentsIn, pos) => {
-                const target = targetIn as TypeNode;
-                const typeArguments = typeArgumentsIn as readonly TypeNode[];
-                const parameters = [target, ...typeArguments].map((type, index) =>
-                    factory.createParameterDeclaration(
-                        /*modifiers*/ undefined,
-                        /*dotDotDotToken*/ undefined,
-                        index === 0 ? "__tsppTarget" : `__tsppArgument${index - 1}`,
-                        /*questionToken*/ undefined,
-                        type,
-                        /*initializer*/ undefined,
-                    )
-                );
-                const node = finishNode(
-                    factory.createFunctionTypeNode(
-                        /*typeParameters*/ undefined,
-                        factory.createNodeArray(parameters),
-                        factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
-                    ),
-                    pos,
-                );
-                registerTypeApplication(node, target, typeArguments);
-                return node;
-            },
+            finishTypeApplication: (targetIn, typeArgumentsIn, pos) => createTypeApplicationNode(targetIn as TypeNode, typeArgumentsIn as readonly TypeNode[], pos),
+        };
+    }
+
+    function createTypeConstructorNode(typeParameters: NodeArray<TypeParameterDeclaration>, body: TypeNode, pos: number): FunctionTypeNode {
+        const node = finishNode(factory.createFunctionTypeNode(typeParameters, factory.createNodeArray([]), body), pos);
+        registerTypeConstructor(node);
+        return node;
+    }
+
+    function createTypeApplicationNode(target: TypeNode, typeArguments: readonly TypeNode[], pos: number): FunctionTypeNode {
+        const parameters = [target, ...typeArguments].map((type, index) =>
+            factory.createParameterDeclaration(
+                /*modifiers*/ undefined,
+                /*dotDotDotToken*/ undefined,
+                index === 0 ? "__tsppTarget" : `__tsppArgument${index - 1}`,
+                /*questionToken*/ undefined,
+                type,
+                /*initializer*/ undefined,
+            )
+        );
+        const node = finishNode(
+            factory.createFunctionTypeNode(
+                /*typeParameters*/ undefined,
+                factory.createNodeArray(parameters),
+                factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
+            ),
+            pos,
+        );
+        registerTypeApplication(node, target, typeArguments);
+        return node;
+    }
+
+    /** The kind of a type constructor, read from its parameters' kind annotations; parameters default to `Type0`. */
+    function getTypeConstructorKind(node: FunctionTypeNode): TSPPTypeKind {
+        const ordinary: TSPPTypeKind = { kind: "type", level: 0 };
+        return {
+            kind: "function",
+            parameters: map(node.typeParameters, parameter => getTypeKindAnnotation(parameter) ?? ordinary) ?? [],
+            result: isExtensionTypeConstructor(node.type) ? getTypeConstructorKind(node.type as FunctionTypeNode) : ordinary,
         };
     }
 

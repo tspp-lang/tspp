@@ -1,7 +1,6 @@
 // End-to-end behavior ported from the legacy-monolith compiler tests (unittests/tspp/typeComputation.ts).
 // Not ported: feature-flag gating (plugins are enabled per project now), `=>` match separators (this plugin's
-// syntax is `Pattern: Result`), `match mltt` and `TypeMatch<...>` (owned by the dependent-types kernel or removed),
-// and applying a type lambda bound with `let` (the binding lowers to an `infer` variable that is not a constructor).
+// syntax is `Pattern: Result`), and `match mltt` and `TypeMatch<...>` (owned by the dependent-types kernel or removed).
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, createLanguageService } = require("../../test-support/compile.cjs");
@@ -58,6 +57,18 @@ test("match selects the first literal arm in order", () => assertOnlyErrors(`
   const b: Name<2> = "two";
   const c: Name<7> = "many";
   const bad: Name<1> = "two";
+`, 1));
+
+test("later match arms still infer after an arm with let bindings", () => assertOnlyErrors(`
+  type Transform<C, M: Type => Type> = match C {
+    [infer L, infer R]: let A = M<L> in let B = M<R> in [A, B],
+    { value: infer V }: { value: M<V> },
+    infer Other: M<Other>,
+  };
+  type Wrap = <T> =>> { wrapped: T };
+  const object: Transform<{ value: 1 }, Wrap> = { value: { wrapped: 1 } };
+  const scalar: Transform<"s", Wrap> = { wrapped: "s" };
+  const bad: Transform<"s", Wrap> = { wrapped: 1 };
 `, 1));
 
 test("match keeps structural assignability", () => assertOnlyErrors(`
@@ -172,6 +183,46 @@ test("type lambdas curry", () => assertOnlyErrors(`
   const ok: Step1<string> = [1, "two"];
   const bad: Step1<string> = ["two", 1];
 `, 2));
+
+test("a curried higher-kinded parameter applies one argument at a time", () => assertOnlyErrors(`
+  type Apply2<F: Type => Type => Type> = F<number><string>;
+  type R = Apply2<<A> =>> <B> =>> { a: A; b: B }>;
+  const ok: R = { a: 1, b: "x" };
+  const bad: R = { a: "x", b: 1 };
+`, 2));
+
+test("a let-bound type lambda can be applied in the body", () => assertOnlyErrors(`
+  type One = let F = <T> =>> { value: T } in F<number>;
+  type Curried = let P = <A> =>> <B> =>> { a: A; b: B } in P<number><string>;
+  const one: One = { value: 1 };
+  const curried: Curried = { a: 1, b: "x" };
+  const badOne: One = { value: "x" };
+  const badCurried: Curried = { a: "x", b: "y" };
+`, 2));
+
+test("a let-bound type lambda can be passed as a higher-kinded argument", () => assertOnlyErrors(`
+  type Apply<F: Type => Type, X> = F<X>;
+  type R = let F = <T> =>> { value: T } in Apply<F, string>;
+  const ok: R = { value: "x" };
+  const bad: R = { value: 1 };
+`, 1));
+
+test("a let-bound type lambda checks its arity and can be shadowed", () => {
+  assertOnlyErrors(`type R = let F = <T> =>> { value: T } in F<number, string>;`, 1, /must be applied to 1 type argument/);
+  assertOnlyErrors(`
+    type R = let F = <T> =>> { value: T } in let F = number in F;
+    const ok: R = 1;
+    const bad: R = "x";
+  `, 1);
+});
+
+test("an unused let binding is reported on its name", () => {
+  const source = "type T = let Unused = number in string;";
+  const { program } = createProgram(source, { noUnusedParameters: true });
+  const [diagnostic, ...rest] = program.getSemanticDiagnostics();
+  assert.deepEqual(rest, []);
+  assert.equal(source.slice(diagnostic.start, diagnostic.start + diagnostic.length), "Unused");
+});
 
 test("type lambdas instantiate object literal bodies", () => assertOnlyErrors(`
   type Box = <T> =>> { readonly value: T };
