@@ -6078,6 +6078,7 @@ export function getResolutionDiagnostic(options: CompilerOptions, { extension }:
     switch (extension) {
         case Extension.Ts:
         case Extension.Tspp:
+        case ".d.tspp":
         case Extension.Dts:
         case Extension.Mts:
         case Extension.Dmts:

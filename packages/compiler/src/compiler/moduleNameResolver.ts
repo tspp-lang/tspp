@@ -2193,13 +2193,16 @@ function tryAddingExtensions(candidate: string, extensions: Extensions, original
         case Extension.Dts:
         case Extension.Js:
             return extensions & Extensions.TypeScript && (tryExtension(Extension.Ts, originalExtension === Extension.Ts || originalExtension === Extension.Dts) || tryExtension(Extension.Tsx, originalExtension === Extension.Ts || originalExtension === Extension.Dts))
+                // A TS++ source reaches the TS++ file or declarations behind an emitted `.js` path, as `.ts` files do.
+                || state.isTsppSource && originalExtension === Extension.Js && (extensions & Extensions.TypeScript && tryExtension(Extension.Tspp) || extensions & Extensions.Declaration && tryExtension(".d.tspp"))
                 || extensions & Extensions.Declaration && tryExtension(Extension.Dts, originalExtension === Extension.Ts || originalExtension === Extension.Dts)
                 || extensions & Extensions.JavaScript && (tryExtension(Extension.Js) || tryExtension(Extension.Jsx))
                 || state.isConfigLookup && tryExtension(Extension.Json)
                 || undefined;
         case "":
             return extensions & Extensions.TypeScript && (tryExtension(Extension.Ts) || tryExtension(Extension.Tsx) || state.isTsppSource && tryExtension(Extension.Tspp))
-                || extensions & Extensions.Declaration && tryExtension(Extension.Dts)
+                // Built TS++ output carries both declaration forms; TS++ sources need the one that keeps plugin types.
+                || extensions & Extensions.Declaration && (state.isTsppSource && tryExtension(".d.tspp") || tryExtension(Extension.Dts))
                 || extensions & Extensions.JavaScript && (tryExtension(Extension.Js) || tryExtension(Extension.Jsx))
                 || state.isConfigLookup && tryExtension(Extension.Json)
                 || undefined;
