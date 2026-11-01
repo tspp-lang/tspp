@@ -127,6 +127,18 @@ test("plugins reach the APIs of their declared dependencies", () => {
   assert.deepEqual(seen, ["test", 42, undefined]);
 });
 
+test("an optional provider registered later is visible to a dependent that reads it lazily", () => {
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  host.activateAll();
+  let read;
+  host.registerAndActivate(plugin("test/consumer", context => { read = () => context.dependencies.get("test/api"); }, {
+    optionalDependencies: ["test/provider"],
+  }));
+  assert.equal(read(), undefined);
+  host.registerAndActivate(plugin("test/provider", context => context.provide("test/api", "late"), { provides: ["test/api"] }));
+  assert.equal(read(), "late");
+});
+
 test("plugins cannot provide undeclared APIs or use undeclared dependencies", () => {
   const undeclaredProvide = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
   undeclaredProvide.register(plugin("test/provider", context => context.provide("test/api", {})));

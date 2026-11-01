@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { formalVerificationAnalyzer } = require("../dist");
+const { createFormalVerificationAnalyzer, formalVerificationAnalyzer } = require("../dist");
 const { restoreContractFunctionWithClause } = require("../dist/contracts");
 const { restoreRefinementTypeAlias } = require("../dist/refinements");
 const { clearPreparedVerificationSources, prepareVerificationSource } = require("../dist/source-cache");
@@ -274,7 +274,9 @@ test("encodes recursive data constructors and switch paths", async () => {
       case "End": return 0n;
     }
   }`;
-  const diagnostics = await formalVerificationAnalyzer.analyze({
+  // Data types reach the verifier through the nominal-types ADT API.
+  const { nominalTypesADTAPI } = require("../../nominal-types/dist");
+  const diagnostics = await createFormalVerificationAnalyzer({ getNominalTypes: () => nominalTypesADTAPI }).analyze({
     currentDirectory: process.cwd(), rootFileNames: ["data.tspp"], syntaxKinds: {},
     sourceFiles: [{ fileName: "data.tspp", text: source, root: {} }],
   });

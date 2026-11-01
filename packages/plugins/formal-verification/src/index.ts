@@ -1,7 +1,10 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type {
     TSPPAnalysisDiagnostic,
     TSPPAnalysisArtifact,
+    TSPPProgramAnalysisInput,
+    TSPPProgramAnalysisOutput,
     TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
 import { maskContractClauses, restoreContractFunctionWithClause, type PendingProof } from "./contracts";
@@ -11,52 +14,67 @@ import { collectLogicLibrary } from "./logic";
 import { clearPreparedVerificationSources } from "./source-cache";
 import { restoreRefinementTypeAlias } from "./refinements";
 
-export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
-    id: "proof-points",
-    async analyze(input) {
-        const diagnostics: TSPPAnalysisDiagnostic[] = [];
-        const queries: { proof: PendingProof; }[] = [];
-        let logic;
-        try { logic = collectLogicLibrary(input.sourceFiles.map(sourceFile => sourceFile.text)); }
-        catch (error) {
-            diagnostics.push({
-                fileName: input.sourceFiles[0]?.fileName ?? "<program>", start: 0, length: 0,
-                code: 19004, category: "error", source: "TS++ verification",
-                message: error instanceof Error ? error.message : String(error),
-            });
-            return diagnostics;
-        }
-        for (const sourceFile of input.sourceFiles) {
-            for (const proof of collectProgramProofs(sourceFile, diagnostics, logic)) queries.push({ proof });
-        }
-        const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
-        const artifacts: TSPPAnalysisArtifact[] = [];
-        answers.forEach((answer, index) => {
-            const proof = queries[index].proof;
-            const status = answer.status === "unsat" ? "proved" : answer.status === "sat" ? "failed" : answer.status;
-            artifacts.push({
-                kind: "formal-verification/smt",
-                fileName: proof.fileName, start: proof.start, length: proof.length,
-                name: proof.name, language: "smt2", status,
-                content: `; ${proof.name}: ${status}\n${renderZ3Query(proof.query)}\n`,
-            });
-            if (answer.status === "unsat") return;
-            diagnostics.push({
-                fileName: proof.fileName,
-                start: proof.start,
-                length: proof.length,
-                code: 19002,
-                category: "error",
-                source: "TS++ verification",
-                message: answer.status === "sat"
-                    ? `${proof.name} could not be proved. Counterexample: ${answer.output?.replace(/[()\s]/g, "") ? answer.output.trim() : "the condition is false"}`
-                    : `${proof.name} verification ${answer.status}: ${answer.message ?? "the solver returned no result"}`,
-            });
+export interface FormalVerificationAnalyzerOptions {
+    /**
+     * Returns the nominal-types ADT API, which lets proofs model `data` declarations, or undefined when nominal-types
+     * is not installed. Called per analysis because nominal-types may be registered after this plugin.
+     */
+    readonly getNominalTypes?: () => NominalTypesADTAPI | undefined;
+}
+
+export function createFormalVerificationAnalyzer(options: FormalVerificationAnalyzerOptions = {}): TSPPProgramAnalyzer {
+    return {
+        id: "proof-points",
+        analyze: input => analyze(input, options),
+    };
+}
+
+export const formalVerificationAnalyzer = createFormalVerificationAnalyzer();
+
+async function analyze(input: TSPPProgramAnalysisInput, options: FormalVerificationAnalyzerOptions): Promise<TSPPProgramAnalysisOutput> {
+    const diagnostics: TSPPAnalysisDiagnostic[] = [];
+    const queries: { proof: PendingProof; }[] = [];
+    const nominalTypes = options.getNominalTypes?.();
+    let logic;
+    try { logic = collectLogicLibrary(input.sourceFiles.map(sourceFile => sourceFile.text)); }
+    catch (error) {
+        diagnostics.push({
+            fileName: input.sourceFiles[0]?.fileName ?? "<program>", start: 0, length: 0,
+            code: 19004, category: "error", source: "TS++ verification",
+            message: error instanceof Error ? error.message : String(error),
         });
-        Object.defineProperty(diagnostics, "artifacts", { value: artifacts });
         return diagnostics;
-    },
-};
+    }
+    for (const sourceFile of input.sourceFiles) {
+        for (const proof of collectProgramProofs(sourceFile, diagnostics, logic, nominalTypes)) queries.push({ proof });
+    }
+    const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
+    const artifacts: TSPPAnalysisArtifact[] = [];
+    answers.forEach((answer, index) => {
+        const proof = queries[index].proof;
+        const status = answer.status === "unsat" ? "proved" : answer.status === "sat" ? "failed" : answer.status;
+        artifacts.push({
+            kind: "formal-verification/smt",
+            fileName: proof.fileName, start: proof.start, length: proof.length,
+            name: proof.name, language: "smt2", status,
+            content: `; ${proof.name}: ${status}\n${renderZ3Query(proof.query)}\n`,
+        });
+        if (answer.status === "unsat") return;
+        diagnostics.push({
+            fileName: proof.fileName,
+            start: proof.start,
+            length: proof.length,
+            code: 19002,
+            category: "error",
+            source: "TS++ verification",
+            message: answer.status === "sat"
+                ? `${proof.name} could not be proved. Counterexample: ${answer.output?.replace(/[()\s]/g, "") ? answer.output.trim() : "the condition is false"}`
+                : `${proof.name} verification ${answer.status}: ${answer.message ?? "the solver returned no result"}`,
+        });
+    });
+    Object.defineProperty(diagnostics, "artifacts", { value: artifacts });
+    return diagnostics;
+}
 
 export const formalVerificationPlugin = definePlugin({
     manifest: {
@@ -85,7 +103,9 @@ export const formalVerificationPlugin = definePlugin({
                     restoreFunctionWithClause: restoreContractFunctionWithClause,
                     restoreTypeAliasDeclaration: restoreRefinementTypeAlias,
                 });
-                const disposeAnalysis = context.compiler.registerProgramAnalyzer(formalVerificationAnalyzer);
+                const disposeAnalysis = context.compiler.registerProgramAnalyzer(createFormalVerificationAnalyzer({
+                    getNominalTypes: () => context.dependencies.get<NominalTypesADTAPI>("nominal-types/adt"),
+                }));
                 return () => {
                     disposeAnalysis();
                     disposeProjection();

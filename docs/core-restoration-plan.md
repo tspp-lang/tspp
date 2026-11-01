@@ -88,7 +88,7 @@ manifest: {
 | higher-kinded-types 与 type-computation 共用 checker 中的类型构造器与 kind 机制；只加载 type-computation 时它的 27 个测试有 8 个失败 | 互相依赖 | 合并：type-computation 吸收 higher-kinded-types。**已完成** |
 | nominal-types 的 `match` 与 dependent-types 的 `match mltt` | 关键词冲突 | dependent-types 改用 `typecase`，删除 nominal-types 里的 `"mltt"` 排除。**已完成** |
 | macros 与 formal-verification 都使用 `function ... with { ... }` | 关键词冲突 + 隐性干扰（#34） | `with` 归 formal-verification；宏的配置改为 `macro({ timeout: ... }) function`。迁移前 formal-verification 暂时用 `isMacroWithClause` 跳过宏函数，迁移后删除 |
-| formal-verification 用正则读 nominal-types 的 `data` 并假设 `_tag` | 未建模的单向依赖 | nominal-types 通过 `provides` 发布 ADT 描述，formal-verification 声明 `requires` 并改用 API |
+| formal-verification 用正则读 nominal-types 的 `data` 并假设 `_tag` | 未建模的单向依赖 | nominal-types 通过 `provides` 发布 `nominal-types/adt`（`@tspp/plugin-nominal-types/api`），formal-verification 经 `optionalDependencies` 取用：没装 nominal-types 时没有 `data` 语法，也就无需建模，所以用可选依赖而不是 `requires`。**已完成** |
 | nominal-types 的测试加载 higher-kinded-types（"data 类型构造器作高阶参数"的用例） | 未声明的测试依赖 | 两个跨插件用例移到 `integration/test/cross-plugin.test.cjs`。**已完成** |
 
 ## 目标插槽清单

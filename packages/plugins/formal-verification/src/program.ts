@@ -1,4 +1,5 @@
 import ts from "typescript";
+import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import { matchingBrace, reportWithClauseIssues, parseProperties } from "./contracts";
@@ -81,7 +82,7 @@ function lowerStructuredResult(node: ts.Expression, state: State, context: Conte
     if (ts.isParenthesizedExpression(node)) return lowerStructuredResult(node.expression, state, context);
     if (ts.isIdentifier(node)) {
         const constructor = context.constructors.get(node.text);
-        if (constructor) return { "result._tag": { smt: `"${constructor.tag}"`, sort: "String" } };
+        if (constructor) return { [`result.${constructor.tagProperty}`]: { smt: `"${constructor.tag}"`, sort: "String" } };
         // Returning a record parameter returns each of its fields.
         const prefix = `${node.text}.`;
         const fields = Object.keys({ ...state.variables, ...state.values }).filter(key => key.startsWith(prefix));
@@ -102,7 +103,7 @@ function lowerStructuredResult(node: ts.Expression, state: State, context: Conte
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return undefined;
     const constructor = context.constructors.get(node.expression.text);
     if (!constructor || constructor.fields.length !== node.arguments.length) return undefined;
-    const result: Record<string, Term> = { "result._tag": { smt: `"${constructor.tag}"`, sort: "String" } };
+    const result: Record<string, Term> = { [`result.${constructor.tagProperty}`]: { smt: `"${constructor.tag}"`, sort: "String" } };
     constructor.fields.forEach((field, index) => {
         try { result[`result.${field}`] = lowerExpression(node.arguments[index], state, context); }
         catch { /* Recursive fields need no scalar SMT binding until selected. */ }
@@ -423,9 +424,10 @@ function executeWhile(node: ts.WhileStatement, state: State, context: Context): 
 
 export function collectProgramProofs(
     source: TSPPAnalysisSourceFile, diagnostics: TSPPAnalysisDiagnostic[], logic: LogicLibrary,
+    nominalTypes: NominalTypesADTAPI | undefined,
 ): PendingProof[] {
     reportWithClauseIssues(source.fileName, source.text, diagnostics);
-    const prepared = prepareVerificationSource(source);
+    const prepared = prepareVerificationSource(source, nominalTypes);
     const { sourceFile, refinements, records, constructors } = prepared;
     const functions = new Map(prepared.functions);
     for (const statement of sourceFile.statements) {

@@ -1,4 +1,5 @@
 import ts from "typescript";
+import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { Sort } from "./expression";
 import { matchingBrace, parseProperties } from "./contracts";
 import type { RefinementModel } from "./refinements";
@@ -86,27 +87,36 @@ export function collectRecordTypes(sourceFile: ts.SourceFile): Map<string, Reado
     return records;
 }
 
+/** A data variant's constructor, as nominal-types describes it. */
+export interface DataConstructor {
+    readonly tagProperty: string;
+    readonly tag: string;
+    readonly fields: readonly string[];
+}
+
+/**
+ * Models the `data` declarations of a source file through the nominal-types ADT API. Without nominal-types installed
+ * there is no `data` syntax, so there is nothing to model.
+ */
 export function collectDataTypes(
-    sourceText: string, records: Map<string, ReadonlyMap<string, Sort>>,
-): Map<string, { readonly tag: string; readonly fields: readonly string[]; }> {
-    const constructors = new Map<string, { readonly tag: string; readonly fields: readonly string[]; }>();
-    const declaration = /\bdata\s+([A-Za-z_$][\w$]*)\s*=\s*([^;]+);/g;
-    for (let match; (match = declaration.exec(sourceText));) {
-        const fields = new Map<string, Sort>([["_tag", "String"]]);
-        for (const variantText of match[2].split("|")) {
-            const variant = /^\s*([A-Za-z_$][\w$]*)(?:\s*\((.*)\))?\s*$/.exec(variantText);
-            if (!variant) continue;
-            const names: string[] = [];
-            const fieldPattern = /([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)/g;
-            for (let field; (field = fieldPattern.exec(variant[2] ?? ""));) {
-                names.push(field[1]);
-                const sort = field[2] === "bigint" ? "Int" : field[2] === "number" ? "Real"
-                    : field[2] === "boolean" ? "Bool" : field[2] === "string" ? "String" : undefined;
-                if (sort) fields.set(field[1], sort);
+    nominalTypes: NominalTypesADTAPI | undefined, sourceText: string, records: Map<string, ReadonlyMap<string, Sort>>,
+): Map<string, DataConstructor> {
+    const constructors = new Map<string, DataConstructor>();
+    for (const dataType of nominalTypes?.getDataTypes(sourceText) ?? []) {
+        const fields = new Map<string, Sort>([[nominalTypes!.tagProperty, "String"]]);
+        for (const variant of dataType.variants) {
+            for (const field of variant.fields) {
+                const sort = field.type === "bigint" ? "Int" : field.type === "number" ? "Real"
+                    : field.type === "boolean" ? "Bool" : field.type === "string" ? "String" : undefined;
+                if (sort) fields.set(field.name, sort);
             }
-            constructors.set(variant[1], { tag: variant[1], fields: names });
+            constructors.set(variant.name, {
+                tagProperty: nominalTypes!.tagProperty,
+                tag: nominalTypes!.tagOf(variant),
+                fields: variant.fields.map(field => field.name),
+            });
         }
-        records.set(match[1], fields);
+        records.set(dataType.name, fields);
     }
     return constructors;
 }

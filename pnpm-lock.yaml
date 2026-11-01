@@ -728,6 +728,9 @@ importers:
         specifier: 5.2.0
         version: 5.2.0
     devDependencies:
+      '@tspp/plugin-nominal-types':
+        specifier: workspace:*
+        version: link:../nominal-types
       '@types/node':
         specifier: ^24.10.1
         version: 24.19.2

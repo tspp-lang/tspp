@@ -1,5 +1,9 @@
 const assert = require("node:assert/strict");
-const { formalVerificationAnalyzer } = require("../dist");
+const { createFormalVerificationAnalyzer } = require("../dist");
+// nominal-types is an optional dependency; with it, proofs can model `data` declarations.
+const { nominalTypesADTAPI } = require("../../nominal-types/dist");
+
+const formalVerificationAnalyzer = createFormalVerificationAnalyzer({ getNominalTypes: () => nominalTypesADTAPI });
 
 /** Analyzes one source file and returns its diagnostic messages. */
 async function analyzeSource(text, fileName = "case.tspp") {

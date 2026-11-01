@@ -69,7 +69,9 @@ export type TSPPPluginDisposer = () => void;
 export interface TSPPPluginDependencies {
     /**
      * Returns the API a declared dependency published under `name`, or undefined when that dependency is optional and
-     * not installed. Types come from the provider package's `./api` subpath, imported with `import type` only.
+     * not installed. Types come from the provider package's `./api` subpath, imported with `import type` only. Hosts
+     * may register an optional dependency after this plugin activates, so read optional APIs when they are needed
+     * rather than once during activation.
      */
     get<T>(name: string): T | undefined;
 }

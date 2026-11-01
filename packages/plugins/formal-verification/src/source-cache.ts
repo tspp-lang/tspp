@@ -1,8 +1,9 @@
 import ts from "typescript";
+import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { maskContractClauses } from "./contracts";
 import {
-    collectDataTypes, collectRecordTypes, parseFunctionModels, type FunctionModel,
+    collectDataTypes, collectRecordTypes, parseFunctionModels, type DataConstructor, type FunctionModel,
 } from "./models";
 import { collectRefinements, type RefinementModel } from "./refinements";
 import type { Sort } from "./expression";
@@ -12,11 +13,12 @@ export interface PreparedVerificationSource {
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly refinements: ReadonlyMap<string, RefinementModel>;
     readonly records: ReadonlyMap<string, ReadonlyMap<string, Sort>>;
-    readonly constructors: ReadonlyMap<string, { readonly tag: string; readonly fields: readonly string[]; }>;
+    readonly constructors: ReadonlyMap<string, DataConstructor>;
 }
 
 interface CacheEntry {
     readonly text: string;
+    readonly nominalTypes: NominalTypesADTAPI | undefined;
     readonly prepared: PreparedVerificationSource;
 }
 
@@ -24,9 +26,11 @@ const preparedSources = new Map<string, CacheEntry>();
 const maximumPreparedSources = 64;
 
 /** Reuses parsing and source-level model discovery while a file's contents stay unchanged. */
-export function prepareVerificationSource(source: TSPPAnalysisSourceFile): PreparedVerificationSource {
+export function prepareVerificationSource(
+    source: TSPPAnalysisSourceFile, nominalTypes: NominalTypesADTAPI | undefined,
+): PreparedVerificationSource {
     const cached = preparedSources.get(source.fileName);
-    if (cached?.text === source.text) {
+    if (cached?.text === source.text && cached.nominalTypes === nominalTypes) {
         preparedSources.delete(source.fileName);
         preparedSources.set(source.fileName, cached);
         return cached.prepared;
@@ -37,10 +41,10 @@ export function prepareVerificationSource(source: TSPPAnalysisSourceFile): Prepa
     const functions = parseFunctionModels(source.text);
     const refinements = collectRefinements(source.text);
     const records = collectRecordTypes(sourceFile);
-    const constructors = collectDataTypes(source.text, records);
+    const constructors = collectDataTypes(nominalTypes, source.text, records);
     const prepared = { sourceFile, functions, refinements, records, constructors };
     preparedSources.delete(source.fileName);
-    preparedSources.set(source.fileName, { text: source.text, prepared });
+    preparedSources.set(source.fileName, { text: source.text, nominalTypes, prepared });
     if (preparedSources.size > maximumPreparedSources) preparedSources.delete(preparedSources.keys().next().value!);
     return prepared;
 }

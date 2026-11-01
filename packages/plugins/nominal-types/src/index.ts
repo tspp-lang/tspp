@@ -1,5 +1,6 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import type { TSPPDeclarationSyntax } from "@tspp/plugin-sdk/compiler";
+import { nominalTypesADTAPI, nominalTypesADTAPIName } from "./adt";
 import { createDataDeclarationSyntax } from "./data";
 import { createValueMatchSyntax } from "./match";
 
@@ -11,6 +12,7 @@ export const nominalTypesPlugin = definePlugin({
         version: "0.0.1",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Nominal types",
+        provides: [nominalTypesADTAPIName],
         syntax: {
             keywords: [
                 { keyword: "newtype", position: "declaration" },
@@ -22,6 +24,7 @@ export const nominalTypesPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
+                context.provide(nominalTypesADTAPIName, nominalTypesADTAPI);
                 const kinds = context.compiler.declarationSyntaxKinds;
                 const syntax: TSPPDeclarationSyntax = {
                     startTokens: [kinds.identifier],
@@ -293,3 +296,5 @@ function normalizeSource(source: string): string {
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+export { nominalTypesADTAPI };
+export type * from "./api";

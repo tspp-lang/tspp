@@ -4,7 +4,7 @@ import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import type { PendingProof } from "./contracts";
 import type { RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
-import type { Clause, FunctionModel } from "./models";
+import type { Clause, DataConstructor, FunctionModel } from "./models";
 
 export interface State {
     readonly variables: Record<string, Sort>;
@@ -26,7 +26,7 @@ export interface Context {
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly refinements: ReadonlyMap<string, RefinementModel>;
     readonly records: ReadonlyMap<string, ReadonlyMap<string, Sort>>;
-    readonly constructors: ReadonlyMap<string, { readonly tag: string; readonly fields: readonly string[]; }>;
+    readonly constructors: ReadonlyMap<string, DataConstructor>;
     readonly logic: LogicLibrary;
     readonly proofs: PendingProof[];
     readonly diagnostics: TSPPAnalysisDiagnostic[];
