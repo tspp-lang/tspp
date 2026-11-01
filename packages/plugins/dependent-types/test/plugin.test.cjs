@@ -5,6 +5,7 @@ const {
   dependentTypesAnalyzer,
   parseDependentType,
   projectDependentTypes,
+  restoreDependentTypeAlias,
 } = require("../dist");
 const mltt = require("../dist/core/index.js");
 
@@ -53,6 +54,31 @@ test("projects erased binders and partial inference through ordinary TypeScript"
   assert.equal(projected.length, source.length);
   assert.match(projected, /type Select\s+= <A,B>\(left:A,right:B\)=>B/);
   assert.doesNotMatch(projected, /auto/);
+});
+
+test("restores authored dependent aliases for feature-rich declarations", () => {
+  const source = `
+    export type UniverseZero: Type1 = Type0;
+    export type ElementOrSelf: Type1 = (A: Type0) -> match mltt A {
+      Array<infer Element>: Element,
+      _: A
+    };
+  `;
+  assert.deepEqual(restoreDependentTypeAlias({
+    fileName: "types.tspp",
+    sourceText: source,
+    name: "UniverseZero",
+    declarationStart: source.indexOf("type UniverseZero"),
+  }), { annotation: "Type1", type: "Type0" });
+  assert.deepEqual(restoreDependentTypeAlias({
+    fileName: "types.tspp",
+    sourceText: source,
+    name: "ElementOrSelf",
+    declarationStart: source.indexOf("type ElementOrSelf"),
+  }), {
+    annotation: "Type1",
+    type: "(A: Type0) -> match mltt A {\n      Array<infer Element>: Element,\n      _: A\n    }",
+  });
 });
 
 test("analyzer accepts valid aliases and resolves earlier aliases", async () => {

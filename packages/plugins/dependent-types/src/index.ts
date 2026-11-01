@@ -22,6 +22,7 @@ import {
     inferDependentTypeUniverse,
     parseDependentType,
     projectDependentTypes,
+    restoreDependentTypeAlias,
 } from "./syntax";
 
 export const dependentTypesAnalyzer: TSPPProgramAnalyzer = {
@@ -160,6 +161,7 @@ export const dependentTypesPlugin = definePlugin({
                 const disposeProjection = context.compiler.registerSourcePreprocessor({
                     id: "mltt-projection",
                     preprocess: projectDependentTypes,
+                    restoreTypeAliasDeclaration: restoreDependentTypeAlias,
                 });
                 const disposeAnalysis = context.compiler.registerProgramAnalyzer(dependentTypesAnalyzer);
                 return () => {
@@ -248,6 +250,7 @@ export {
     inferDependentTypeUniverse,
     parseDependentType,
     projectDependentTypes,
+    restoreDependentTypeAlias,
 } from "./syntax";
 
 export default dependentTypesPlugin;

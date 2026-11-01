@@ -1,3 +1,8 @@
+import type {
+    TSPPPreprocessedTypeAlias,
+    TSPPPreprocessedTypeAliasRequest,
+} from "@tspp/plugin-sdk/compiler";
+
 import {
     checkMlttType,
     inferMlttType,
@@ -71,6 +76,20 @@ export function projectDependentTypes(fileName: string, source: string): string 
     }
     projectPartialInference(source, characters);
     return characters.join("");
+}
+
+export function restoreDependentTypeAlias(
+    request: TSPPPreprocessedTypeAliasRequest,
+): TSPPPreprocessedTypeAlias | undefined {
+    if (!request.fileName.endsWith(".tspp") && !request.fileName.endsWith(".d.tspp")) return undefined;
+    const candidates = collectDependentTypeAliases(request.sourceText)
+        .filter(alias => alias.name === request.name);
+    const alias = candidates.reduce<DependentTypeAlias | undefined>((closest, candidate) =>
+        !closest
+            || Math.abs(candidate.nameStart - request.declarationStart) < Math.abs(closest.nameStart - request.declarationStart)
+            ? candidate
+            : closest, undefined);
+    return alias && { annotation: alias.annotation, type: alias.expression };
 }
 
 function projectPartialInference(source: string, characters: string[]): void {

@@ -12,6 +12,7 @@ import type {
     TSPPKindAnnotationSyntax,
     TSPPPlaceholderExpressionSyntax,
     TSPPPostfixTypeSyntax,
+    TSPPPreprocessedTypeAlias,
     TSPPProgramAnalyzer,
     TSPPSourcePreprocessor,
     TSPPTrailingClosureBindingSyntax,
@@ -847,6 +848,26 @@ export function projectTSPPSource(fileName: string, sourceText: string): string 
 export function getOriginalTSPPSource(fileName: string, projected: string): string {
     const entry = projectedSources.get(fileName);
     return entry?.projected === projected ? entry.original : projected;
+}
+
+/** Restores plugin-owned type syntax for feature-rich declaration emit. @internal */
+export function getPreprocessedTypeAliasDeclaration(
+    fileName: string,
+    name: string,
+    declarationStart: number,
+): TSPPPreprocessedTypeAlias | undefined {
+    const entry = projectedSources.get(fileName);
+    if (!entry) return undefined;
+    for (const preprocessor of sourcePreprocessors.values()) {
+        const restored = preprocessor.restoreTypeAliasDeclaration?.({
+            fileName,
+            sourceText: entry.original,
+            name,
+            declarationStart,
+        });
+        if (restored) return restored;
+    }
+    return undefined;
 }
 
 // Initialize an empty process-level host. Project configuration supplies the

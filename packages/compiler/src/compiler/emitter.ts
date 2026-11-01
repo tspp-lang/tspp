@@ -440,6 +440,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
+    getPreprocessedTypeAliasDeclaration,
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
@@ -3985,6 +3986,9 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         writeSpace();
         emit(node.name);
         emitTypeParameters(node, node.typeParameters);
+        const restored = !tsppCompatibilityDeclaration && currentSourceFile
+            ? getPreprocessedTypeAliasDeclaration(currentSourceFile.fileName, idText(node.name), node.pos)
+            : undefined;
         const kind = getTypeKindAnnotation(node);
         const syntheticTypeParameterCount = tsppCompatibilityDeclaration && !node.typeParameters?.length
             ? kind?.kind === "function" ? kind.parameters.length
@@ -3992,7 +3996,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
                 : 0
             : 0;
         if (syntheticTypeParameterCount) emitCompatibilitySyntheticTypeParameters(syntheticTypeParameterCount);
-        if (kind && !tsppCompatibilityDeclaration) {
+        if (restored?.annotation) {
+            writePunctuation(":");
+            writeSpace();
+            write(restored.annotation);
+        }
+        else if (kind && !tsppCompatibilityDeclaration) {
             writePunctuation(":");
             writeSpace();
             emitTSPPTypeKind(kind);
@@ -4000,7 +4009,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         writeSpace();
         writePunctuation("=");
         writeSpace();
-        if (syntheticTypeParameterCount) writeKeyword("unknown");
+        if (restored) write(restored.type);
+        else if (syntheticTypeParameterCount) writeKeyword("unknown");
         else emit(node.type);
         writeTrailingSemicolon();
         compatibilityKindedTypeParameterNames = previousKindedNames;

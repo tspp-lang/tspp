@@ -79,6 +79,24 @@ export interface TSPPSourcePreprocessor {
     readonly id: string;
     /** Must return text with exactly the same UTF-16 length and line breaks. */
     preprocess(fileName: string, sourceText: string): string;
+    /**
+     * Restores a type alias owned by this preprocessor for feature-rich
+     * `.d.tspp` output. Compatibility `.d.ts` output continues to use the
+     * projected syntax seen by TypeScript.
+     */
+    restoreTypeAliasDeclaration?(request: TSPPPreprocessedTypeAliasRequest): TSPPPreprocessedTypeAlias | undefined;
+}
+
+export interface TSPPPreprocessedTypeAliasRequest {
+    readonly fileName: string;
+    readonly sourceText: string;
+    readonly name: string;
+    readonly declarationStart: number;
+}
+
+export interface TSPPPreprocessedTypeAlias {
+    readonly annotation?: string;
+    readonly type: string;
 }
 
 /** Turns expressions containing a placeholder identifier into inferred arrow functions. */
