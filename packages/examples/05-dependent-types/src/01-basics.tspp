@@ -10,6 +10,7 @@ export const inferredIdentity = identity("inferred");
 export const explicitIdentity = identity<number>(42);
 
 export type SelectRight: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
-export declare const selectRight: SelectRight;
+const selectRightImplementation = <A, B>(_left: A, right: B): B => right;
+export const selectRight: SelectRight = selectRightImplementation;
 export const selected = selectRight(1, "right");
 export const partiallyExplicit = selectRight<auto, string>(1, "right");
