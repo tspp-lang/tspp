@@ -146,6 +146,13 @@ test("parses ordered type matching with generic captures", () => {
   assert.equal(term.cases[0].result.kind, "variable");
 });
 
+test("requires the '_' default arm to close a type match", () => {
+  // Ported from the legacy-monolith compiler tests: arms match in source order, so `_` must come last.
+  assert.throws(() => parseDependentType("match mltt number { string: boolean }"), /must end with an '_' default arm/);
+  assert.throws(() => parseDependentType("match mltt number { _: never, string: number }"), /default arm must be the last arm/);
+  assert.throws(() => parseDependentType("match mltt number { { value: infer U }: U, _: never }"));
+});
+
 test("checks aliases annotated by terms as well as universes", async () => {
   const diagnostics = await dependentTypesAnalyzer.analyze(input(`
     export type One: Nat = Succ<Zero>;
