@@ -173,6 +173,16 @@ export const dependentTypesPlugin = definePlugin({
         languageService: {
             activate(context) {
                 return context.languageService.registerQuickInfoProvider(request => {
+                    const alias = collectDependentTypeAliases(request.sourceText)
+                        .find(candidate => candidate.nameStart <= request.position && request.position <= candidate.nameEnd);
+                    if (alias) {
+                        return {
+                            start: alias.nameStart,
+                            length: alias.nameEnd - alias.nameStart,
+                            display: `type ${alias.name}: ${alias.annotation} = ${alias.expression}`,
+                            documentation: "A Martin-Löf dependent type alias checked by the TS++ dependent-types plugin.",
+                        };
+                    }
                     const match = wordAt(request.sourceText, request.position);
                     if (!match) return undefined;
                     const documentation = dependentTypeDocumentation(match.text);

@@ -124,6 +124,7 @@ import {
     getSourceFileOfNode,
     getSourceMapper,
     getTokenPosOfNode,
+    getTSPPQuickInfo,
     getTouchingPropertyName,
     getTouchingToken,
     GoToDefinition,
@@ -361,7 +362,6 @@ import {
 } from "./_namespaces/ts.refactor.js";
 import * as classifier from "./classifier.js";
 import * as classifier2020 from "./classifier2020.js";
-import { getTSPPQuickInfo } from "../compiler/plugins/registry.js";
 
 /** The version of the language service API */
 export const servicesVersion = "0.8";
@@ -2402,7 +2402,11 @@ export function createLanguageService(
             cancellationToken,
             checker => checker.typeToString(checker.getTypeAtLocation(nodeForQuickInfo), getContainerNode(nodeForQuickInfo)),
         );
-        const contribution = getTSPPQuickInfo(fileName, sourceFile.text, position, {
+        const snapshot = host.getScriptSnapshot(fileName);
+        // Plugin providers describe authored TS++ syntax, not the length-preserving TypeScript
+        // projection stored in the SourceFile (which may deliberately contain `any` fallbacks).
+        const authoredSourceText = snapshot?.getText(0, snapshot.getLength()) ?? sourceFile.text;
+        const contribution = getTSPPQuickInfo(fileName, authoredSourceText, position, {
             token: {
                 start: tokenStart,
                 length: nodeForQuickInfo.getEnd() - tokenStart,

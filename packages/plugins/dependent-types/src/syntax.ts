@@ -9,6 +9,8 @@ import { projectMlttTermToTypeScript } from "./projection";
 
 export interface DependentTypeAlias {
     readonly name: string;
+    readonly nameStart: number;
+    readonly nameEnd: number;
     readonly annotation: string;
     readonly annotationLevel?: number;
     readonly annotationStart: number;
@@ -30,6 +32,8 @@ export function collectDependentTypeAliases(source: string): DependentTypeAlias[
         const expressionStart = rawExpressionStart + leadingWhitespace;
         aliases.push({
             name: match[1],
+            nameStart: match.index + match[0].indexOf(match[1]),
+            nameEnd: match.index + match[0].indexOf(match[1]) + match[1].length,
             annotation: match[2].trim(),
             annotationLevel: parseUniverseAnnotation(match[2]),
             annotationStart: match.index + match[0].indexOf(":"),
