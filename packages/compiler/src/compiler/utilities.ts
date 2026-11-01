@@ -607,7 +607,7 @@ import {
     WriteFileCallbackData,
     YieldExpression,
 } from "./_namespaces/ts.js";
-import { hasInterfaceMemberContract } from "./plugins/registry.js";
+import { hasInterfaceMemberContract } from "./tspp/registry.js";
 
 /** @internal */
 export const resolvingEmptyArray: never[] = [];

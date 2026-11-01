@@ -447,8 +447,8 @@ import {
     getTypeKindAnnotation,
     getTypeUniverseLevel,
     isExtensionTypeConstructor,
-} from "./plugins/registry.js";
-import { getTaggedUnionData } from "./plugins/taggedUnion.js";
+} from "./tspp/registry.js";
+import { getTaggedUnionData } from "./tspp/taggedUnion.js";
 
 const brackets = createBracketsMap();
 

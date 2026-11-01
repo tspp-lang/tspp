@@ -224,12 +224,12 @@ import {
     getSelectedExtensionExpression,
     getTrailingClosureBinding,
     hasExtensionDeclarationCallTransforms,
-} from "../plugins/registry.js";
+} from "../tspp/registry.js";
 import {
     getTaggedUnionData,
     getTaggedUnionMatchData,
     type TaggedUnionMatchData,
-} from "../plugins/taggedUnion.js";
+} from "../tspp/taggedUnion.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.

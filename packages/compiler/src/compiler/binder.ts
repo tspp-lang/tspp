@@ -314,8 +314,8 @@ import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
     hasInterfaceMemberContract,
-} from "./plugins/registry.js";
-import { getTaggedUnionSyntheticDeclarations } from "./plugins/taggedUnion.js";
+} from "./tspp/registry.js";
+import { getTaggedUnionSyntheticDeclarations } from "./tspp/taggedUnion.js";
 
 /** @internal */
 export const enum ModuleInstanceState {

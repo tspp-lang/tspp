@@ -1173,14 +1173,14 @@ import {
     isDeepReadonlyBinding,
     isExtensionTypeConstructor,
     setSelectedExtensionExpression,
-} from "./plugins/registry.js";
+} from "./tspp/registry.js";
 import {
     getTaggedUnionData,
     getTaggedUnionMatchData,
     getTaggedUnionVariantData,
     type TaggedUnionMatchPattern,
     type TaggedUnionVariant,
-} from "./plugins/taggedUnion.js";
+} from "./tspp/taggedUnion.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;

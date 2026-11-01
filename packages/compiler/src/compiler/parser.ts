@@ -440,12 +440,12 @@ import {
     tryParsePostfixType,
     tryParseTrailingClosureBinding,
     typeSyntaxKinds,
-} from "./plugins/registry.js";
+} from "./tspp/registry.js";
 import {
     setTaggedUnionData,
     setTaggedUnionMatchData,
     type TaggedUnionMatchPattern,
-} from "./plugins/taggedUnion.js";
+} from "./tspp/taggedUnion.js";
 
 const enum SignatureFlags {
     None = 0,

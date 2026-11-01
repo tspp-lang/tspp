@@ -96,7 +96,7 @@ import * as performance from "./performance.js";
 import {
     hasTSPPProgramAnalyzers,
     runTSPPProgramAnalyzers,
-} from "./plugins/analysis.js";
+} from "./tspp/analysis.js";
 
 interface Statistic {
     name: string;

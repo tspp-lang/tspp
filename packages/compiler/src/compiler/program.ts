@@ -350,7 +350,7 @@ import {
     MacroWorkerResult,
     runMacroExpansionWorker,
 } from "./macroWorker.js";
-import { hasCompileTimeMacros } from "./plugins/registry.js";
+import { hasCompileTimeMacros } from "./tspp/registry.js";
 
 export function findConfigFile(searchPath: string, fileExists: (fileName: string) => boolean, configName = "tsconfig.json"): string | undefined {
     return forEachAncestorDirectory(searchPath, ancestor => {
