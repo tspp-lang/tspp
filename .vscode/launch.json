@@ -8,6 +8,14 @@
             "program": "${workspaceFolder}/scripts/launch-editor.mjs",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal"
+        },
+        {
+            "name": "TS++: Playground",
+            "type": "pwa-chrome",
+            "request": "launch",
+            "url": "http://localhost:5173/",
+            "webRoot": "${workspaceFolder}/packages/playground",
+            "preLaunchTask": "pnpm: playground:dev"
         }
     ]
 }
