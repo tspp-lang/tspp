@@ -1,13 +1,13 @@
 import ts from "typescript";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
-import { matchingBrace, parseProperties } from "./contracts";
+import { matchingBrace, reportWithClauseIssues, parseProperties } from "./contracts";
 import type { PendingProof } from "./contracts";
 import type { RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import { collectTopLevelProofVariables, isMacroFunction } from "./proof-scope";
 import {
-    fieldsFromType, refinementFromType, sortFromType, type Clause, type FunctionModel,
+    fieldsFromType, participatesInVerification, refinementFromType, sortFromType, type Clause, type FunctionModel,
 } from "./models";
 import { prepareVerificationSource } from "./source-cache";
 import {
@@ -424,6 +424,7 @@ function executeWhile(node: ts.WhileStatement, state: State, context: Context): 
 export function collectProgramProofs(
     source: TSPPAnalysisSourceFile, diagnostics: TSPPAnalysisDiagnostic[], logic: LogicLibrary,
 ): PendingProof[] {
+    reportWithClauseIssues(source.fileName, source.text, diagnostics);
     const prepared = prepareVerificationSource(source);
     const { sourceFile, refinements, records, constructors } = prepared;
     const functions = new Map(prepared.functions);
@@ -477,6 +478,8 @@ export function collectProgramProofs(
         const context: Context = { ...base, currentFunction: model };
         const usesNumber = statement.parameters.some(parameter => parameter.type?.kind === ts.SyntaxKind.NumberKeyword)
             || statement.type?.kind === ts.SyntaxKind.NumberKeyword;
+        // Ordinary number code is left alone; any proof obligation inside it is reported as unverified coverage.
+        if (usesNumber && !model.numberModel && !participatesInVerification(statement, model)) continue;
         if (usesNumber && !model.numberModel) {
             diagnostic(context, statement.name, new Error("A number proof requires numberModel: 'mathematical-real' or 'safe-integer'."));
             rejected.add(statement);
@@ -503,9 +506,13 @@ export function collectProgramProofs(
             }
         }
     }
+    const participants = new Set(sourceFile.statements.filter(ts.isFunctionDeclaration).flatMap(statement => {
+        const model = statement.name && functions.get(statement.name.text);
+        return model && participatesInVerification(statement, model) ? [model.name] : [];
+    }));
     const visitCalls = (node: ts.Node): void => {
         if (ts.isFunctionLike(node)) return;
-        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && functions.has(node.expression.text)) {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && participants.has(node.expression.text)) {
             try { lowerCall(node, topLevelState, base as Context); } catch (error) { diagnostic(base as Context, node, error); }
         }
         ts.forEachChild(node, visitCalls);

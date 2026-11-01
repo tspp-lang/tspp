@@ -24,6 +24,45 @@ const cases = [
     rejects: /This return is outside the code the verifier can analyze, so it is not verified\./,
   },
   {
+    name: "misspelled postcondition key",
+    source: `function typo(value: bigint) with { ensure: result > value; }: bigint { return value; }`,
+    rejects: /The 'with' property 'ensure' is not supported on a function\./,
+  },
+  {
+    name: "duplicate postcondition key",
+    source: `function twice(value: bigint) with { ensures: result >= value; ensures: result === value; }: bigint { return value; }`,
+    rejects: /The 'with' property 'ensures' may only be specified once\./,
+  },
+  {
+    name: "duplicate loop invariant key",
+    source: `function count(limit: bigint) with { requires: limit >= 0n; ensures: result === limit; }: bigint {
+    let current = 0n;
+    while (current < limit) with { invariant: current >= 0n; invariant: current <= limit; } { current += 1n; }
+    return current;
+}`,
+    rejects: /The 'with' property 'invariant' may only be specified once\./,
+  },
+  {
+    name: "contract key on a loop",
+    source: `function loop(limit: bigint) with { requires: limit >= 0n; }: bigint {
+    let current = 0n;
+    while (current < limit) with { invariant: current <= limit; ensures: true; } { current += 1n; }
+    return current;
+}`,
+    rejects: /The 'with' property 'ensures' is not supported on a loop\./,
+  },
+  {
+    name: "duplicate refinement predicate",
+    source: `type Positive = bigint with { predicate: value > 0n; predicate: value > 1n; };`,
+    rejects: /The 'with' property 'predicate' may only be specified once\./,
+  },
+  {
+    name: "guarded call from ordinary number code",
+    source: `function positive(value: bigint) with { requires: value > 0n; }: bigint { return value; }
+function scale(factor: number): number { positive(-1n); return factor; }`,
+    rejects: /The call to 'positive' is outside the code the verifier can analyze/,
+  },
+  {
     name: "safe-integer division",
     source: `function half(value: number) with { numberModel: "safe-integer"; requires: value === 5; ensures: result === 2; }: number { return value / 2; }`,
     rejects: /safe-integer exact division could not be proved\./,
@@ -147,6 +186,16 @@ function px(p: Point) with { requires: p.x === 1n; ensures: result === 1n; }: bi
     name: "field assignment",
     source: `type Point = { x: bigint };
 function setx(p: Point) with { ensures: result === 5n; }: bigint { p.x = 5n; return p.x; }`,
+  },
+  {
+    name: "ordinary number functions and top-level calls beside verified code",
+    source: `function scale(shape: { size: number }, factor: number): number { return shape.size * factor; }
+const scaled = scale({ size: 2 }, 3);
+function absolute(value: bigint) with { ensures: result >= 0n; }: bigint { if (value < 0n) return -value; return value; }`,
+  },
+  {
+    name: "macro with clause left to the compiler",
+    source: `macro function first([target], context) with { timeout: { type: "fixed", value: 1, unit: "s" }; } { return target; }`,
   },
   {
     name: "call uses callee return refinement",

@@ -1,4 +1,4 @@
-import type { TSPPPreprocessedFunctionRequest } from "@tspp/plugin-sdk/compiler";
+import type { TSPPAnalysisDiagnostic, TSPPPreprocessedFunctionRequest } from "@tspp/plugin-sdk/compiler";
 
 import type { Z3Query } from "./solver";
 import { maskRefinementClauses } from "./refinements";
@@ -142,4 +142,71 @@ export function parseProperties(text: string, absoluteStart: number): { name: st
         }
     }
     return properties;
+}
+
+const withClauseOwners = [
+    { pattern: /\bwhile\s*\([^)]*\)\s*$/, owner: "a loop", properties: ["invariant"] },
+    { pattern: /\bfunction\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*$/, owner: "a function", properties: ["requires", "ensures", "numberModel"] },
+    { pattern: /\btype\s+[A-Za-z_$][\w$]*\s*=\s*(?:bigint|number|boolean)\s+$/, owner: "a refinement type", properties: ["predicate", "numberModel"] },
+] as const;
+
+/**
+ * Reports repeated and unrecognized properties in contract `with` clauses. Both would otherwise be dropped or merged
+ * silently, and a misspelled `ensures` would leave the function without the postcondition its author wrote.
+ */
+export function reportWithClauseIssues(fileName: string, sourceText: string, diagnostics: TSPPAnalysisDiagnostic[]): void {
+    if (!fileName.endsWith(".tspp")) return;
+    const report = (start: number, length: number, message: string) => diagnostics.push({
+        fileName, start, length, code: 19005, category: "error", source: "TS++ verification", message,
+    });
+    const pattern = /\bwith\s*\{/g;
+    for (let match; (match = pattern.exec(sourceText));) {
+        const prefix = sourceText.slice(Math.max(0, match.index - 500), match.index);
+        // Macro functions keep their `with` clause for the compiler, which checks it.
+        const owner = /\bmacro\s+function\b[^{]*$/.test(prefix)
+            ? undefined
+            : withClauseOwners.find(candidate => candidate.pattern.test(prefix));
+        if (!owner) continue;
+        const open = sourceText.indexOf("{", match.index);
+        const close = matchingBrace(sourceText, open);
+        if (close < 0) continue;
+        const seen = new Set<string>();
+        for (const entry of topLevelEntries(sourceText, open + 1, close)) {
+            const key = /^\s*([A-Za-z_$][\w$]*)\s*:/.exec(entry.text);
+            if (!key) continue;
+            const name = key[1];
+            const start = entry.start + key[0].indexOf(name);
+            if (!(owner.properties as readonly string[]).includes(name)) {
+                report(start, name.length, `The 'with' property '${name}' is not supported on ${owner.owner}.`);
+            }
+            else if (seen.has(name)) {
+                report(start, name.length, `The 'with' property '${name}' may only be specified once.`);
+            }
+            seen.add(name);
+        }
+        pattern.lastIndex = close + 1;
+    }
+}
+
+function topLevelEntries(text: string, start: number, end: number): { text: string; start: number; }[] {
+    const entries: { text: string; start: number; }[] = [];
+    let depth = 0;
+    let quote = "";
+    let entryStart = start;
+    for (let index = start; index <= end; index++) {
+        const char = index === end ? ";" : text[index];
+        if (quote) {
+            if (char === "\\") index++;
+            else if (char === quote) quote = "";
+            continue;
+        }
+        if (char === '"' || char === "'" || char === "`") quote = char;
+        else if ("([{".includes(char)) depth++;
+        else if (")]}".includes(char)) depth--;
+        else if (char === ";" && depth === 0) {
+            entries.push({ text: text.slice(entryStart, index), start: entryStart });
+            entryStart = index + 1;
+        }
+    }
+    return entries;
 }

@@ -138,3 +138,16 @@ export function parseFunctionModels(sourceText: string): Map<string, FunctionMod
     }
     return models;
 }
+
+/**
+ * Whether a function takes part in verification: it states a contract, a number model, or a refinement, or its body
+ * contains a proof directive. Other functions stay callable from verified code but are not checked themselves.
+ */
+export function participatesInVerification(statement: ts.FunctionDeclaration, model: FunctionModel): boolean {
+    if (model.requires.length || model.ensures.length || model.numberModel || model.returnRefinement) return true;
+    if (Object.keys(model.parameterRefinements ?? {}).length) return true;
+    const hasDirective = (node: ts.Node): boolean =>
+        ts.isLabeledStatement(node) && (node.label.text === "assert" || node.label.text === "assume")
+        || !ts.isFunctionLike(node) && !!ts.forEachChild(node, hasDirective);
+    return !!statement.body && !!ts.forEachChild(statement.body, hasDirective);
+}
