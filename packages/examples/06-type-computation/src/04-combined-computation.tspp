@@ -2,7 +2,7 @@ export {};
 
 // The three forms compose: match selects a shape, let names an intermediate
 // result, and a type lambda supplies a reusable transformation.
-type Transform<Container, Mapper: Type => Type> = match Container {
+export type Transform<Container, Mapper: Type => Type> = match Container {
     [infer Left, infer Right]:
         let NextLeft = Mapper<Left> in
         let NextRight = Mapper<Right> in

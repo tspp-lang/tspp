@@ -23,4 +23,5 @@ test("registers type-position syntax as one capsule", () => {
   host.activateAll();
   assert.equal(registration.pluginId, "type-computation");
   assert.deepEqual(registration.syntax.startTokens, [2, 1, 5]);
+  assert.equal(registration.syntax.preserveDeclarationText, true);
 });

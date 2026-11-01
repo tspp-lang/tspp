@@ -1,6 +1,8 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const { formalVerificationAnalyzer } = require("../dist");
+const { restoreContractFunctionWithClause } = require("../dist/contracts");
+const { restoreRefinementTypeAlias } = require("../dist/refinements");
 const { clearPreparedVerificationSources, prepareVerificationSource } = require("../dist/source-cache");
 
 const labeled = (text, start = 0) => ({ kind: 256, start, end: start + text.length, text, children: [] });
@@ -21,6 +23,26 @@ test("reuses prepared source models until the source text changes", () => {
   const first = prepareVerificationSource(source);
   assert.strictEqual(prepareVerificationSource(source), first);
   assert.notStrictEqual(prepareVerificationSource({ ...source, text: "assert: false;" }), first);
+});
+
+test("restores contracts and refinements for feature-rich declarations", () => {
+  const source = `type Positive = bigint with { predicate: value > 0n; };
+  function widen(value: Positive) with {
+    requires: value > 0n;
+    ensures: result >= value;
+  }: bigint { return value; }`;
+  assert.deepEqual(restoreRefinementTypeAlias({
+    fileName: "proof.tspp",
+    sourceText: source,
+    name: "Positive",
+    declarationStart: source.indexOf("type Positive"),
+  }), { type: "bigint with { predicate: value > 0n; }" });
+  assert.equal(restoreContractFunctionWithClause({
+    fileName: "proof.tspp",
+    sourceText: source,
+    name: "widen",
+    declarationStart: source.indexOf("function widen"),
+  }), "with {\n    requires: value > 0n;\n    ensures: result >= value;\n  }");
 });
 
 test("proves and rejects arithmetic assertions through Z3", async () => {

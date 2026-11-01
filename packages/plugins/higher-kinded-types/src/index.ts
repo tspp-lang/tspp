@@ -63,6 +63,7 @@ export const higherKindedTypesPlugin = definePlugin({
                 };
                 const universeSyntax: TSPPTypeSyntax = {
                     startTokens: [kinds.identifier],
+                    preserveDeclarationText: true,
                     isStart: parser => parser.token() === kinds.identifier && /^Type(?:0|[1-9]\d*)?$/u.test(parser.tokenText()),
                     parse: parser => {
                         const pos = parser.getNodePos();

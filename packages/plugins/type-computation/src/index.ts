@@ -16,6 +16,7 @@ export const typeComputationPlugin = definePlugin({
                 const kinds = context.compiler.typeSyntaxKinds;
                 const syntax: TSPPTypeSyntax = {
                     startTokens: [kinds.letKeyword, kinds.identifier, kinds.lessThanToken],
+                    preserveDeclarationText: true,
                     isStart: parser => {
                         if (parser.token() === kinds.letKeyword) {
                             return parser.lookAhead(() => {

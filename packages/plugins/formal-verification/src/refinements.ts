@@ -1,3 +1,8 @@
+import type {
+    TSPPPreprocessedTypeAlias,
+    TSPPPreprocessedTypeAliasRequest,
+} from "@tspp/plugin-sdk/compiler";
+
 import type { Sort } from "./expression";
 
 function matchingBrace(text: string, open: number): number {
@@ -50,4 +55,27 @@ export function maskRefinementClauses(sourceText: string, characters: string[]):
         }
         pattern.lastIndex = close + 1;
     }
+}
+
+export function restoreRefinementTypeAlias(
+    request: TSPPPreprocessedTypeAliasRequest,
+): TSPPPreprocessedTypeAlias | undefined {
+    if (!request.fileName.endsWith(".tspp")) return undefined;
+    const pattern = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
+    const candidates: { readonly start: number; readonly type: string; }[] = [];
+    for (let match; (match = pattern.exec(request.sourceText));) {
+        if (match[1] !== request.name) continue;
+        const open = request.sourceText.indexOf("{", match.index);
+        const close = matchingBrace(request.sourceText, open);
+        if (close < 0) continue;
+        const typeStart = match.index + match[0].indexOf(match[2]);
+        candidates.push({ start: match.index, type: request.sourceText.slice(typeStart, close + 1) });
+        pattern.lastIndex = close + 1;
+    }
+    const closest = candidates.reduce<(typeof candidates)[number] | undefined>((current, candidate) =>
+        !current
+            || Math.abs(candidate.start - request.declarationStart) < Math.abs(current.start - request.declarationStart)
+            ? candidate
+            : current, undefined);
+    return closest && { type: closest.type };
 }

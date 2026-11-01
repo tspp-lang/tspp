@@ -4,11 +4,12 @@ import type {
     TSPPAnalysisArtifact,
     TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
-import { maskContractClauses, type PendingProof } from "./contracts";
+import { maskContractClauses, restoreContractFunctionWithClause, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
 import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
 import { clearPreparedVerificationSources } from "./source-cache";
+import { restoreRefinementTypeAlias } from "./refinements";
 
 export const formalVerificationAnalyzer: TSPPProgramAnalyzer = {
     id: "proof-points",
@@ -72,6 +73,8 @@ export const formalVerificationPlugin = definePlugin({
                 const disposeProjection = context.compiler.registerSourcePreprocessor({
                     id: "contract-projection",
                     preprocess: maskContractClauses,
+                    restoreFunctionWithClause: restoreContractFunctionWithClause,
+                    restoreTypeAliasDeclaration: restoreRefinementTypeAlias,
                 });
                 const disposeAnalysis = context.compiler.registerProgramAnalyzer(formalVerificationAnalyzer);
                 return () => {

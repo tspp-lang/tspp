@@ -54,6 +54,7 @@ const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
 const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
 const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
 const typeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTypeSyntax; }[]>();
+const typeSyntaxByNode = new WeakMap<object, TSPPTypeSyntax>();
 const postfixTypeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPPostfixTypeSyntax; }[]>();
 const typeConstructors = new WeakSet<object>();
 const typeUniverseLevels = new WeakMap<object, number>();
@@ -530,7 +531,23 @@ export function tryParseExtensionType(
     if (!candidates) return undefined;
     for (const { pluginId, syntax } of candidates) {
         const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) return syntax.parse(parser);
+        if (syntax.isStart(parser)) {
+            const node = syntax.parse(parser);
+            typeSyntaxByNode.set(node, syntax);
+            return node;
+        }
+    }
+    return undefined;
+}
+
+/** Returns the authored range of extension type syntax that should survive rich declaration emit. @internal */
+export function getPreservedExtensionTypeRange(node: object): { readonly pos: number; readonly end: number; } | undefined {
+    let current: { readonly pos?: number; readonly end?: number; readonly original?: object; } | undefined = node;
+    while (current) {
+        if (typeSyntaxByNode.get(current)?.preserveDeclarationText && current.pos !== undefined && current.end !== undefined) {
+            return { pos: current.pos, end: current.end };
+        }
+        current = current.original;
     }
     return undefined;
 }
@@ -860,6 +877,26 @@ export function getPreprocessedTypeAliasDeclaration(
     if (!entry) return undefined;
     for (const preprocessor of sourcePreprocessors.values()) {
         const restored = preprocessor.restoreTypeAliasDeclaration?.({
+            fileName,
+            sourceText: entry.original,
+            name,
+            declarationStart,
+        });
+        if (restored) return restored;
+    }
+    return undefined;
+}
+
+/** Restores a plugin-owned function clause for feature-rich declaration emit. @internal */
+export function getPreprocessedFunctionWithClause(
+    fileName: string,
+    name: string,
+    declarationStart: number,
+): string | undefined {
+    const entry = projectedSources.get(fileName);
+    if (!entry) return undefined;
+    for (const preprocessor of sourcePreprocessors.values()) {
+        const restored = preprocessor.restoreFunctionWithClause?.({
             fileName,
             sourceText: entry.original,
             name,

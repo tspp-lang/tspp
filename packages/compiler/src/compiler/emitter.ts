@@ -440,7 +440,9 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
+    getPreprocessedFunctionWithClause,
     getPreprocessedTypeAliasDeclaration,
+    getPreservedExtensionTypeRange,
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
@@ -1628,6 +1630,13 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             Debug.assertNode(node, isEmptyStatement);
             return emitEmptyStatement(/*isEmbeddedStatement*/ true);
         }
+        if (hint === EmitHint.Unspecified && !tsppCompatibilityDeclaration && currentSourceFile) {
+            const range = getPreservedExtensionTypeRange(node);
+            if (range && range.pos >= 0 && range.end <= currentSourceFile.text.length) {
+                write(currentSourceFile.text.slice(range.pos, range.end).trimStart());
+                return;
+            }
+        }
         if (hint === EmitHint.Unspecified) {
             switch (node.kind) {
                 // Pseudo-literals
@@ -2291,7 +2300,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
 
     function emitTSPPTypeKind(kind: TSPPTypeKind): void {
         if (kind.kind === "type") {
-            writeKeyword(kind.level === 0 ? "Type" : `Type${kind.level}`);
+            writeKeyword(`Type${kind.level}`);
             return;
         }
         if (kind.parameters.length !== 1) writePunctuation("(");
@@ -2447,7 +2456,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         const universeLevel = getTypeUniverseLevel(node);
         if (universeLevel !== undefined) {
             if (tsppCompatibilityDeclaration) writeKeyword("unknown");
-            else writeKeyword(universeLevel === 0 ? "Type" : `Type${universeLevel}`);
+            else writeKeyword(`Type${universeLevel}`);
             return;
         }
         if (tsppCompatibilityDeclaration && isUnsupportedCompatibilityTypeReference(node)) {
@@ -3675,7 +3684,14 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitSignatureHead(node: SignatureDeclaration) {
         emitTypeParameters(node, node.typeParameters);
         emitParameters(node, node.parameters);
-        if (isFunctionDeclaration(node) && node.withClause) {
+        const restoredWithClause = !tsppCompatibilityDeclaration && isFunctionDeclaration(node) && node.name && currentSourceFile
+            ? getPreprocessedFunctionWithClause(currentSourceFile.fileName, idText(node.name), node.pos)
+            : undefined;
+        if (restoredWithClause) {
+            writeSpace();
+            write(restoredWithClause);
+        }
+        else if (isFunctionDeclaration(node) && node.withClause) {
             writeSpace();
             emit(node.withClause);
         }

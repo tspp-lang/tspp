@@ -83,6 +83,7 @@ test("parses unary and multi-parameter function kinds", () => {
     finishTypeUniverse(level, pos) { finished = { level, pos }; return finished; },
   };
   assert.equal(universeSyntax.isStart(universeParser), true);
+  assert.equal(universeSyntax.preserveDeclarationText, true);
   assert.deepEqual(universeSyntax.parse(universeParser), { level: 12, pos: 41 });
 
   const target = { target: true };

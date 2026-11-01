@@ -85,6 +85,8 @@ export interface TSPPSourcePreprocessor {
      * projected syntax seen by TypeScript.
      */
     restoreTypeAliasDeclaration?(request: TSPPPreprocessedTypeAliasRequest): TSPPPreprocessedTypeAlias | undefined;
+    /** Restores a preprocessed function `with` clause for `.d.tspp` output. */
+    restoreFunctionWithClause?(request: TSPPPreprocessedFunctionRequest): string | undefined;
 }
 
 export interface TSPPPreprocessedTypeAliasRequest {
@@ -97,6 +99,13 @@ export interface TSPPPreprocessedTypeAliasRequest {
 export interface TSPPPreprocessedTypeAlias {
     readonly annotation?: string;
     readonly type: string;
+}
+
+export interface TSPPPreprocessedFunctionRequest {
+    readonly fileName: string;
+    readonly sourceText: string;
+    readonly name: string;
+    readonly declarationStart: number;
 }
 
 /** Turns expressions containing a placeholder identifier into inferred arrow functions. */
@@ -229,6 +238,8 @@ export interface TSPPTypeParser {
 /** Plugin-owned syntax in a type position, lowered through generic type operations. */
 export interface TSPPTypeSyntax {
     readonly startTokens: readonly TSPPSyntaxKind[];
+    /** Preserve the authored spelling in feature-rich `.d.tspp` declarations. */
+    readonly preserveDeclarationText?: boolean;
     isStart(parser: TSPPTypeParser): boolean;
     parse(parser: TSPPTypeParser): TSPPTypeNode;
 }
