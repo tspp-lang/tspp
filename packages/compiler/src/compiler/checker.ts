@@ -1748,7 +1748,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return location ? getSymbolsInScope(location, meaning) : [];
         },
         getSymbolAtLocation: nodeIn => {
-            const node = getParseTreeNode(nodeIn);
+            const node = getCheckableParseTreeNode(nodeIn);
             // set ignoreErrors: true because any lookups invoked by the API shouldn't cause any new errors
             return node ? getSymbolAtLocation(node, /*ignoreErrors*/ true) : undefined;
         },
@@ -1768,7 +1768,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return getMergedSymbol(symbol.exportSymbol || symbol);
         },
         getTypeAtLocation: nodeIn => {
-            const node = getParseTreeNode(nodeIn);
+            const node = getCheckableParseTreeNode(nodeIn);
             return node ? getTypeOfNode(node) : errorType;
         },
         getTypeOfAssignmentPattern: nodeIn => {
@@ -3295,6 +3295,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         nameNotFoundMessage: DiagnosticMessage,
     ) {
         const name = isString(nameArg) ? nameArg : (nameArg as Identifier).escapedText;
+        // Identifiers the language service scans beside TS++ extension syntax have no name to report.
+        if (name === undefined) return;
         addLazyDiagnostic(() => {
             if (
                 !errorLocation ||
@@ -51479,6 +51481,16 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         else {
             return resolveEntityName(node, SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace | SymbolFlags.Alias, /*ignoreErrors*/ true);
         }
+    }
+
+    /**
+     * In .tspp files the language service scans identifiers that extension syntax keeps beside the tree (such as
+     * match pattern bindings). They have no text identity, so checking them as expressions would resolve nothing
+     * and queue diagnostics that cannot be reported.
+     */
+    function getCheckableParseTreeNode(nodeIn: Node | undefined): Node | undefined {
+        const node = getParseTreeNode(nodeIn);
+        return node && !(node.kind === SyntaxKind.Identifier && (node as Identifier).escapedText === undefined) ? node : undefined;
     }
 
     function getTypeOfNode(node: Node): Type {

@@ -2,6 +2,7 @@ import type {
     Expression,
     FunctionDeclaration,
     Identifier,
+    ParameterDeclaration,
     Statement,
     TypeAliasDeclaration,
     TypeNode,
@@ -38,6 +39,8 @@ export interface TaggedUnionMatchBinding {
     readonly kind: "binding";
     readonly name: string;
     readonly node: Identifier;
+    /** The generated parameter that carries the bound field in the checker tree, when the arm uses it. */
+    readonly declaration?: ParameterDeclaration;
 }
 
 /** @internal */
@@ -118,4 +121,3 @@ export function getTaggedUnionMatchData(node: object): TaggedUnionMatchData | un
     }
     return undefined;
 }
-

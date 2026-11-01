@@ -6198,10 +6198,20 @@ namespace Parser {
                 factory.createExtensionExpression(pluginId, [getSynthesizedDeepClone(scrutinee), checkerBody]),
                 pos,
             );
+            // Pattern bindings are not tree nodes; link each to the parameter that types it in the checker tree.
+            const boundParameter = (armIndex: number, name: string) => {
+                const result = checkerArms[armIndex].result;
+                if (result.kind !== SyntaxKind.CallExpression) return undefined;
+                const callee = (result as CallExpression).expression;
+                if (callee.kind !== SyntaxKind.ParenthesizedExpression) return undefined;
+                const arrow = (callee as ParenthesizedExpression).expression;
+                if (arrow.kind !== SyntaxKind.ArrowFunction) return undefined;
+                return (arrow as ArrowFunction).parameters.find(parameter => isIdentifierNode(parameter.name) && idText(parameter.name) === name);
+            };
             setTaggedUnionMatchData(matchExpression, {
                 scrutinee,
                 temporaryName,
-                arms: arms.map(arm => ({
+                arms: arms.map((arm, armIndex) => ({
                     patterns: arm.patterns.map(function convert(pattern): TaggedUnionMatchPattern {
                         return {
                             kind: "constructor",
@@ -6210,7 +6220,7 @@ namespace Parser {
                             elements: pattern.elements.map(element =>
                                 isParsedPattern(element)
                                     ? convert(element)
-                                    : { kind: "binding", name: idText(element), node: element }
+                                    : { kind: "binding", name: idText(element), node: element, declaration: boundParameter(armIndex, idText(element)) }
                             ),
                         };
                     }),
