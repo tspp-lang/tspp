@@ -29,15 +29,15 @@ const packages = exampleNames.map(directory => {
     return { directory, name: manifest.name };
 });
 
-const packageManager = process.env.npm_execpath;
-if (!packageManager) {
-    throw new Error("The example check must be launched through pnpm.");
-}
-const packageManagerCommand = packageManager.endsWith(".exe") ? packageManager : process.execPath;
-const packageManagerPrefix = packageManager.endsWith(".exe") ? [] : [packageManager];
 for (const example of packages) {
     console.log(`\n[examples] compiling ${example.directory} (${example.name})`);
-    const result = spawnSync(packageManagerCommand, [...packageManagerPrefix, "--filter", example.name, "check"], {
+    const windows = process.platform === "win32";
+    const result = spawnSync(windows ? (process.env.ComSpec ?? "cmd.exe") : "pnpm", [
+        ...(windows ? ["/d", "/s", "/c", "pnpm"] : []),
+        "--filter",
+        example.name,
+        "check",
+    ], {
         cwd: join(examplesRoot, "../.."),
         stdio: "inherit",
     });

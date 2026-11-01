@@ -125,6 +125,7 @@ describe('TS++ examples editor smoke test', () => {
         const example = exampleSources.find(source => source.name.endsWith(path.join('11-operator-sections', 'src', 'index.tspp')))!;
         const server = await createServer({
             rootUri: URI.file(example.root).toString(),
+            publishDiagnostics: () => undefined,
             initializationOptionsOverrides: {
                 tsserver: {
                     path: path.join(repoRoot, 'packages', 'compiler', 'built', 'local', 'tsserver.js'),

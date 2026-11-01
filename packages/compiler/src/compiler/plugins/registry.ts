@@ -492,7 +492,7 @@ export function hasInterfaceMemberContract(modifier: "static"): boolean {
 }
 
 /** @internal */
-export function getPlaceholderExpressionSyntax(): TSPPPlaceholderExpressionSyntax | undefined {
+export function getPlaceholderExpressionSyntax(): { readonly placeholder: string; } | undefined {
     return placeholderExpressionSyntaxes.values().next().value;
 }
 
