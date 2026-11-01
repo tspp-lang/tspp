@@ -34,5 +34,7 @@ export function decodeState(hash: string): SharedState | undefined {
   if (!paths.length) return undefined;
   const features = (params.get("features") ?? "").split(",").map(name => name.trim()).filter(Boolean);
   const file = params.get("file");
-  return { files: files as ProjectFiles, features, active: file && paths.includes(file) ? file : paths[0] };
+  const sources = paths.filter(path => /\.(tspp|ts)$/.test(path));
+  if (!sources.length) return undefined;
+  return { files: files as ProjectFiles, features, active: file && sources.includes(file) ? file : sources[0] };
 }

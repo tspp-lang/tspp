@@ -99,12 +99,12 @@ function readFile(path: string): string | undefined {
 
 /** Resolves a relative module specifier against the importing file, POSIX style. */
 function resolvePath(containingFile: string, specifier: string): string {
-  const parts = containingFile.split("/").slice(0, -1);
-  for (const part of specifier.split("/")) {
+  const parts = containingFile.replaceAll("\\", "/").split("/").filter(Boolean).slice(0, -1);
+  for (const part of specifier.replaceAll("\\", "/").split("/")) {
     if (part === "..") parts.pop();
     else if (part !== ".") parts.push(part);
   }
-  return parts.join("/");
+  return "/" + parts.join("/");
 }
 
 /**

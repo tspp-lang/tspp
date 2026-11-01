@@ -50,18 +50,28 @@ compilerStatus = status.textContent = `TypeScript ${version} base`;
 
 // ---- project ---------------------------------------------------------------------------
 const models = new Map<string, monaco.editor.ITextModel>();
+const resources = new Map<string, string>();
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
 const selected = new Set<string>();
 let active = "";
 
 const currentFeatures = () => effectiveFeatures(definitions, selected);
-const projectFiles = (): ProjectFiles => Object.fromEntries([...models].map(([path, model]) => [path, model.getValue()]));
+const isEditorFile = (path: string) => /\.(tspp|ts)$/.test(path);
+const projectFiles = (): ProjectFiles => Object.fromEntries([
+  ...resources,
+  ...[...models].map(([path, model]) => [path, model.getValue()] as const),
+]);
 
 function loadProject(state: SharedState) {
   for (const model of models.values()) model.dispose();
   models.clear();
+  resources.clear();
   viewStates.clear();
   for (const [path, text] of Object.entries(state.files)) {
+    if (!isEditorFile(path)) {
+      resources.set(path, text);
+      continue;
+    }
     const model = monaco.editor.createModel(text, /\.(tspp|ts)$/.test(path) ? languageId : "plaintext", monaco.Uri.file(path));
     model.onDidChangeContent(() => {
       void client.editFile(path, model.getValue());
@@ -134,7 +144,7 @@ exampleSelect.onchange = () => {
 function syncExampleSelect() {
   const files = projectFiles();
   const matching = examples.find(example =>
-    Object.keys(example.files).length === models.size && Object.entries(example.files).every(([path, text]) => files[path] === text)
+    Object.keys(example.files).length === Object.keys(files).length && Object.entries(example.files).every(([path, text]) => files[path] === text)
   );
   exampleSelect.value = matching?.id ?? "";
 }

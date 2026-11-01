@@ -183,9 +183,15 @@ function examplesPlugin(): Plugin {
           .filter(plugin => plugin.tspp && plugin.name)
           .map(plugin => exampleFeature(plugin.name!))
           .filter((feature): feature is string => !!feature);
-        const sources = listFiles(join(directory, "src")).filter(file => /\.(tspp|ts)$/.test(file) && !/\.d\.(tspp|ts)$/.test(file));
+        const sourceRoot = join(directory, "src");
+        const sources = listFiles(sourceRoot).filter(file => /\.(tspp|ts)$/.test(file) && !/\.d\.(tspp|ts)$/.test(file));
         if (!sources.length) return [];
-        const files = Object.fromEntries(sources.map(file => [`/src/${file}`, readFileSync(join(directory, "src", file), "utf8")]));
+        const resources = listFiles(sourceRoot).filter(file => file.endsWith(".json"));
+        const files = Object.fromEntries([
+          ["/package.json", readFileSync(join(directory, "package.json"), "utf8")],
+          ...sources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),
+          ...resources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),
+        ]);
         return [{ id: project, features, entry: `/src/${sources[0]}`, files }];
       });
       return `export default ${JSON.stringify(projects)};`;

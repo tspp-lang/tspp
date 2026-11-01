@@ -17,7 +17,7 @@ declare module "virtual:tspp-examples" {
     readonly features: readonly string[];
     /** The file opened first. */
     readonly entry: string;
-    /** File contents keyed by project-relative absolute path, e.g. `/src/01-basics.tspp`. */
+    /** Source and hidden resource contents keyed by project-relative absolute path. */
     readonly files: Readonly<Record<string, string>>;
   }
   const examples: readonly ExampleProject[];
