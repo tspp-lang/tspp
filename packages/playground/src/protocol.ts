@@ -98,7 +98,7 @@ export interface WorkerApi {
   setProject(files: ProjectFiles, features: readonly string[]): void;
   editFile(fileName: string, text: string): void;
   diagnostics(fileName: string): Promise<DiagnosticInfo[]>;
-  outputs(fileName: string): Promise<OutputSnapshot>;
+  outputs(fileName: string, category: OutputCategory): Promise<OutputSnapshot>;
   quickInfo(fileName: string, offset: number): QuickInfo | undefined;
   completions(fileName: string, offset: number, triggerCharacter: string | undefined): { entries: CompletionEntry[]; isIncomplete: boolean } | undefined;
   completionDetails(fileName: string, offset: number, name: string, source: string | undefined, data: unknown): CompletionDetails | undefined;

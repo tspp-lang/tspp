@@ -158,6 +158,19 @@ main { flex: 1; display: flex; min-height: 0; }
   text-align: center;
   line-height: 1.5;
 }
+#output-empty.loading::before {
+  content: "";
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 8px;
+  vertical-align: -2px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: output-spin 0.75s linear infinite;
+}
+@keyframes output-spin { to { transform: rotate(360deg); } }
 
 #run-pane {
   display: flex;

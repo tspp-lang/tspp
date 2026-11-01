@@ -105,6 +105,7 @@ function openFile(path: string) {
   if (!model) return;
   if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
   active = path;
+  outputs.setFile(path);
   editor.setModel(model);
   const viewState = viewStates.get(path);
   if (viewState) editor.restoreViewState(viewState);
@@ -167,6 +168,7 @@ const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selec
   if (checked) selected.add(name);
   else selected.delete(name);
   refreshFeatures();
+  outputs.markStale();
   void client.setProject(projectFiles(), currentFeatures());
   scheduleCheck();
 });
@@ -199,7 +201,6 @@ async function check() {
   if (generation !== checkGeneration || model.isDisposed()) return;
   setDiagnosticMarkers(model, diagnostics);
   renderProblems(model, diagnostics.filter(d => d.category !== "suggestion"));
-  await outputs.refresh(active);
 }
 
 function renderProblems(model: monaco.editor.ITextModel, problems: readonly DiagnosticInfo[]) {
