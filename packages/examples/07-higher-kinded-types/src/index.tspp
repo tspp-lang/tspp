@@ -59,7 +59,4 @@ void namedPair;
 void mapping;
 void checkedLabels;
 void box;
-void wrongUniverseLevel;
-void universeCannotContainItself;
 void parenthesizedNumbers;
-void missingConstructorKind;
