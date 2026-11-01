@@ -70,6 +70,25 @@ export interface Location {
   readonly span: Span;
 }
 
+export type OutputCategory = "javascript" | "dts" | "dtspp" | "macro" | "smt";
+
+/** One read-only compiler or plugin artifact shown beside the source editor. */
+export interface OutputItem {
+  readonly id: string;
+  readonly category: OutputCategory;
+  readonly label: string;
+  readonly language: "javascript" | "typescript" | "tspp" | "plaintext";
+  readonly content: string;
+  readonly fileName?: string;
+  readonly span?: Span;
+  readonly status?: "proved" | "failed" | "unknown" | "error";
+}
+
+export interface OutputSnapshot {
+  readonly items: readonly OutputItem[];
+  readonly diagnostics: readonly DiagnosticInfo[];
+}
+
 /** Project files keyed by absolute path, e.g. `/src/index.tspp`. */
 export type ProjectFiles = Readonly<Record<string, string>>;
 
@@ -79,6 +98,7 @@ export interface WorkerApi {
   setProject(files: ProjectFiles, features: readonly string[]): void;
   editFile(fileName: string, text: string): void;
   diagnostics(fileName: string): Promise<DiagnosticInfo[]>;
+  outputs(fileName: string): Promise<OutputSnapshot>;
   quickInfo(fileName: string, offset: number): QuickInfo | undefined;
   completions(fileName: string, offset: number, triggerCharacter: string | undefined): { entries: CompletionEntry[]; isIncomplete: boolean } | undefined;
   completionDetails(fileName: string, offset: number, name: string, source: string | undefined, data: unknown): CompletionDetails | undefined;

@@ -23,8 +23,38 @@
     </header>
     <main>
       <div id="editor-column">
-        <nav id="tabs" hidden></nav>
-        <div id="editor"></div>
+        <div id="editor-workspace">
+          <div id="source-pane">
+            <nav id="tabs" hidden></nav>
+            <div id="editor"></div>
+          </div>
+          <section id="outputs-pane" aria-label="Compiler outputs">
+            <div class="pane-header">
+              <h2>Outputs</h2>
+              <span id="outputs-status">Not generated</span>
+              <button id="collapse-outputs" class="icon-button" type="button" aria-label="Collapse outputs">›</button>
+            </div>
+            <nav id="output-tabs" aria-label="Output type"></nav>
+            <div id="output-toolbar">
+              <select id="output-items" aria-label="Output item"></select>
+              <button id="go-to-output-source" class="icon-button" type="button" title="Go to source" aria-label="Go to source" disabled>↩</button>
+            </div>
+            <div id="output-editor"></div>
+            <div id="output-empty">Open a source file to inspect its compiler outputs.</div>
+          </section>
+          <button id="expand-outputs" class="collapsed-pane-button" type="button" aria-label="Expand outputs">‹<span>Outputs</span></button>
+        </div>
+        <section id="run-pane" aria-label="JavaScript execution result">
+          <div class="pane-header">
+            <h2>Run</h2>
+            <span id="run-status">JavaScript output runs only when requested.</span>
+            <button id="run-javascript" type="button">▶ Run</button>
+            <button id="clear-run-output" class="icon-button" type="button" aria-label="Clear output">⌫</button>
+            <button id="collapse-run" class="icon-button" type="button" aria-label="Collapse run output">⌄</button>
+          </div>
+          <pre id="run-output">Press Run to execute the selected JavaScript output.</pre>
+        </section>
+        <button id="expand-run" class="collapsed-run-button" type="button" aria-label="Expand run output">⌃ <span>Run output</span></button>
       </div>
       <aside>
         <section>

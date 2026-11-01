@@ -16,7 +16,7 @@ import operatorSectionsModule from "@tspp/plugin-operator-sections";
 import staticInterfaceMembersModule from "@tspp/plugin-static-interface-members";
 import typeComputationModule from "@tspp/plugin-type-computation";
 import libs from "virtual:tspp-libs";
-import type { CompletionEntry, DiagnosticInfo, Location, QuickInfo, Request, Response, SignatureHelp, Span, WorkerApi, WorkerEvent } from "../protocol";
+import type { CompletionEntry, DiagnosticInfo, Location, OutputItem, OutputSnapshot, QuickInfo, Request, Response, SignatureHelp, Span, WorkerApi, WorkerEvent } from "../protocol";
 import { createBrowserZ3Solver } from "../z3Bridge";
 
 interface AnalysisDiagnostic {
@@ -81,7 +81,9 @@ function createOptions(): ts.CompilerOptions {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
-    noEmit: true,
+    declaration: true,
+    noEmit: false,
+    noEmitOnError: false,
     skipLibCheck: true,
     allowNonTsExtensions: true,
   };
@@ -202,6 +204,66 @@ function tagToString(tag: ts.JSDocTagInfo): string {
   return `*@${tag.name}*${body ? ` — ${body}` : ""}`;
 }
 
+function outputCategory(fileName: string): Pick<OutputItem, "category" | "language"> | undefined {
+  if (fileName.endsWith(".d.tspp")) return { category: "dtspp", language: "tspp" };
+  if (fileName.endsWith(".d.ts")) return { category: "dts", language: "typescript" };
+  if (/\.(?:c|m)?js$/.test(fileName)) return { category: "javascript", language: "javascript" };
+  return undefined;
+}
+
+function expandedSource(program: ts.Program, fileName: string): OutputItem | undefined {
+  const source = files.get(fileName)?.text;
+  const expansions = [...program.getMacroExpansions?.(fileName) ?? []];
+  if (source === undefined || !expansions.length) return undefined;
+  let content = source;
+  for (const expansion of expansions.sort((left, right) => right.start - left.start)) {
+    content = content.slice(0, expansion.start) + expansion.text + content.slice(expansion.start + expansion.length);
+  }
+  return {
+    id: `macro:${fileName}`,
+    category: "macro",
+    label: fileName.slice(fileName.lastIndexOf("/") + 1),
+    language: "tspp",
+    content,
+    fileName,
+  };
+}
+
+async function createOutputs(fileName: string): Promise<OutputSnapshot> {
+  const program = languageService().getProgram();
+  if (!program) return { items: [], diagnostics: [] };
+  const items: OutputItem[] = [];
+  const emit = program.emit(undefined, (outputName, content) => {
+    const type = outputCategory(outputName);
+    if (!type) return;
+    items.push({
+      id: `${type.category}:${outputName}`,
+      ...type,
+      label: outputName.replace(/^\//, ""),
+      content,
+    });
+  });
+  const macro = expandedSource(program, fileName);
+  if (macro) items.push(macro);
+  await tspp.runTSPPProgramAnalyzers(program);
+  for (const artifact of tspp.getTSPPAnalysisArtifacts(program, fileName)) {
+    if (artifact.kind !== "formal-verification/smt") continue;
+    items.push({
+      id: `smt:${artifact.fileName}:${artifact.start}:${artifact.name}`,
+      category: "smt",
+      label: artifact.name,
+      language: "plaintext",
+      content: artifact.content,
+      fileName: artifact.fileName,
+      span: { start: artifact.start, length: artifact.length },
+      status: artifact.status,
+    });
+  }
+  const diagnostics = [...emit.diagnostics, ...program.getOptionsDiagnostics(), ...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics()]
+    .map(toDiagnostic);
+  return { items, diagnostics };
+}
+
 const api: WorkerApi = {
   init(z3) {
     formalVerification.configureZ3Solver(createBrowserZ3Solver(z3));
@@ -257,6 +319,10 @@ const api: WorkerApi = {
       })));
     }
     return diagnostics.map(toDiagnostic);
+  },
+
+  outputs(fileName) {
+    return createOutputs(fileName);
   },
 
   quickInfo(fileName, offset) {

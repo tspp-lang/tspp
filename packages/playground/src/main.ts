@@ -3,6 +3,7 @@ import examples from "virtual:tspp-examples";
 import { startLanguageWorker } from "./client";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import * as monaco from "./monaco";
+import { createOutputController } from "./outputs";
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeState, encodeState, type SharedState } from "./share";
@@ -40,6 +41,16 @@ const editor = monaco.editor.create(element("editor"), {
   scrollBeyondLastLine: false,
   fixedOverflowWidgets: true,
 });
+const outputs = createOutputController(client, (fileName, offset) => {
+  openFile(fileName);
+  const model = models.get(fileName);
+  if (model && offset !== undefined) {
+    const position = model.getPositionAt(offset);
+    editor.setPosition(position);
+    editor.revealPositionInCenter(position);
+    editor.focus();
+  }
+});
 dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
 const { version, features: definitions } = await client.init({
@@ -75,6 +86,7 @@ function loadProject(state: SharedState) {
     const model = monaco.editor.createModel(text, /\.(tspp|ts)$/.test(path) ? languageId : "plaintext", monaco.Uri.file(path));
     model.onDidChangeContent(() => {
       void client.editFile(path, model.getValue());
+      outputs.markStale();
       scheduleCheck();
     });
     models.set(path, model);
@@ -83,6 +95,7 @@ function loadProject(state: SharedState) {
   state.features.forEach(name => selected.add(name));
   refreshFeatures();
   void client.setProject(projectFiles(), currentFeatures());
+  outputs.markStale();
   renderTabs();
   openFile(state.active);
 }
@@ -186,6 +199,7 @@ async function check() {
   if (generation !== checkGeneration || model.isDisposed()) return;
   setDiagnosticMarkers(model, diagnostics);
   renderProblems(model, diagnostics.filter(d => d.category !== "suggestion"));
+  await outputs.refresh(active);
 }
 
 function renderProblems(model: monaco.editor.ITextModel, problems: readonly DiagnosticInfo[]) {
