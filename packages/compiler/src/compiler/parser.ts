@@ -2222,6 +2222,20 @@ namespace Parser {
         return inContext(NodeFlags.AwaitContext);
     }
 
+    /**
+     * Runs a plugin's attempt to parse its syntax. A plugin that throws on malformed input reports its message as a
+     * syntax error, and the ordinary grammar continues from the current token instead of the whole file failing.
+     */
+    function tryParsePluginSyntax<T>(parse: () => T | undefined): T | undefined {
+        try {
+            return parse();
+        }
+        catch (error) {
+            parseErrorAtCurrentToken(Diagnostics._0, error instanceof Error ? error.message : String(error));
+            return undefined;
+        }
+    }
+
     function parseErrorAtCurrentToken(message: DiagnosticMessage, ...args: DiagnosticArguments): DiagnosticWithDetachedLocation | undefined {
         return parseErrorAt(scanner.getTokenStart(), scanner.getTokenEnd(), message, ...args);
     }
@@ -4034,7 +4048,7 @@ namespace Parser {
         const pos = getNodePos();
         const modifiers = parseModifiers(/*allowDecorators*/ false, /*permitConstAsModifier*/ true);
         const name = parseIdentifier();
-        const kind = tryParseKindAnnotation(token(), createExtensionKindAnnotationParser);
+        const kind = tryParsePluginSyntax(() => tryParseKindAnnotation(token(), createExtensionKindAnnotationParser));
         let constraint: TypeNode | undefined;
         let expression: Expression | undefined;
         if (parseOptional(SyntaxKind.ExtendsKeyword)) {
@@ -4824,7 +4838,7 @@ namespace Parser {
                     }
                     break;
                 default: {
-                    const extensionType = tryParsePostfixType(token(), type, createExtensionPostfixTypeParser);
+                    const extensionType = tryParsePluginSyntax(() => tryParsePostfixType(token(), type, createExtensionPostfixTypeParser));
                     if (extensionType) {
                         type = extensionType as TypeNode;
                         break;
@@ -5028,7 +5042,7 @@ namespace Parser {
         if (contextFlags & NodeFlags.TypeExcludesFlags) {
             return doOutsideOfContext(NodeFlags.TypeExcludesFlags, parseType);
         }
-        const extensionType = tryParseExtensionType(token(), createExtensionTypeParser);
+        const extensionType = tryParsePluginSyntax(() => tryParseExtensionType(token(), createExtensionTypeParser));
         if (extensionType) return extensionType as TypeNode;
         if (isStartOfFunctionTypeOrConstructorType()) {
             return parseFunctionOrConstructorType();
@@ -5773,7 +5787,7 @@ namespace Parser {
             return parseFunctionBlock(isAsync ? SignatureFlags.Await : SignatureFlags.None);
         }
 
-        const extensionExpression = tryParseExtensionExpression(token(), createExtensionParser);
+        const extensionExpression = tryParsePluginSyntax(() => tryParseExtensionExpression(token(), createExtensionParser));
         if (extensionExpression) return extensionExpression;
 
         if (
@@ -5977,7 +5991,7 @@ namespace Parser {
      *      2) UpdateExpression[?Yield] ** ExponentiationExpression[?Yield]
      */
     function parseUnaryExpressionOrHigher(): UnaryExpression | BinaryExpression {
-        const extensionExpression = tryParseExtensionExpression(token(), createExtensionParser);
+        const extensionExpression = tryParsePluginSyntax(() => tryParseExtensionExpression(token(), createExtensionParser));
         if (extensionExpression) return extensionExpression as UnaryExpression;
 
         /**
@@ -7431,7 +7445,7 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(isGenerator | isAsync);
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
-        const body = tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(isGenerator | isAsync))
+        const body = tryParsePluginSyntax(() => tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(isGenerator | isAsync)))
             ?? parseFunctionBlock(isGenerator | isAsync);
 
         setDecoratorContext(savedDecoratorContext);
@@ -8036,19 +8050,21 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
-        const extensionStatement = tryParseTrailingClosureBinding(token(), createExtensionStatementParser);
+        const extensionStatement = tryParsePluginSyntax(() => tryParseTrailingClosureBinding(token(), createExtensionStatementParser));
         if (extensionStatement) return extensionStatement;
-        const deepReadonlyBinding = tryParseDeepReadonlyBinding(token(), createDeepReadonlyBindingParser);
+        const deepReadonlyBinding = tryParsePluginSyntax(() => tryParseDeepReadonlyBinding(token(), createDeepReadonlyBindingParser));
         if (deepReadonlyBinding) return deepReadonlyBinding;
-        const extensionDeclaration = tryParseExtensionDeclaration(
-            token(),
-            pluginId =>
-                createExtensionDeclarationParser(
-                    pluginId,
-                    /*modifiers*/ undefined,
-                    getNodePos(),
-                    hasPrecedingJSDocComment(),
-                ),
+        const extensionDeclaration = tryParsePluginSyntax(() =>
+            tryParseExtensionDeclaration(
+                token(),
+                pluginId =>
+                    createExtensionDeclarationParser(
+                        pluginId,
+                        /*modifiers*/ undefined,
+                        getNodePos(),
+                        hasPrecedingJSDocComment(),
+                    ),
+            )
         );
         if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
@@ -8323,9 +8339,11 @@ namespace Parser {
     }
 
     function parseDeclarationWorker(pos: number, hasJSDoc: boolean, modifiersIn: NodeArray<ModifierLike> | undefined): Statement {
-        const extensionDeclaration = tryParseExtensionDeclaration(
-            token(),
-            pluginId => createExtensionDeclarationParser(pluginId, modifiersIn, pos, hasJSDoc),
+        const extensionDeclaration = tryParsePluginSyntax(() =>
+            tryParseExtensionDeclaration(
+                token(),
+                pluginId => createExtensionDeclarationParser(pluginId, modifiersIn, pos, hasJSDoc),
+            )
         );
         if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
@@ -8393,7 +8411,7 @@ namespace Parser {
     }
 
     function parseFunctionBlockOrSemicolon(flags: SignatureFlags, diagnosticMessage?: DiagnosticMessage): Block | undefined {
-        const extensionBody = tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(flags));
+        const extensionBody = tryParsePluginSyntax(() => tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(flags)));
         if (extensionBody) return extensionBody;
         if (token() !== SyntaxKind.OpenBraceToken) {
             if (flags & SignatureFlags.Type) {
@@ -9105,7 +9123,7 @@ namespace Parser {
         }
         const name = parseIdentifier();
         const typeParameters = parseTypeParameters();
-        const kind = tryParseKindAnnotation(token(), createExtensionKindAnnotationParser);
+        const kind = tryParsePluginSyntax(() => tryParseKindAnnotation(token(), createExtensionKindAnnotationParser));
         parseExpected(SyntaxKind.EqualsToken);
         const type = token() === SyntaxKind.IntrinsicKeyword && tryParse(parseKeywordAndNoDot) || parseType();
         parseSemicolon();
