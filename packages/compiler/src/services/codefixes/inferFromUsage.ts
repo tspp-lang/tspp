@@ -13,7 +13,6 @@ import {
     CallExpression,
     CancellationToken,
     CaseOrDefaultClause,
-    cast,
     createMultiMap,
     createSymbolTable,
     Debug,
@@ -279,8 +278,9 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
             }
             // falls through
         case Diagnostics.Rest_parameter_0_implicitly_has_an_any_type.code:
-            if (markSeen(containingFunction)) {
-                const param = cast(parent, isParameter);
+            // TS++ operator-section placeholders are implicit parameters with no declaration to annotate.
+            if (isParameter(parent) && markSeen(containingFunction)) {
+                const param = parent;
                 annotateParameters(changes, importAdder, sourceFile, param, containingFunction, program, host, cancellationToken);
                 declaration = param;
             }
