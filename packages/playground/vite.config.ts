@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { build, transform } from "esbuild";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -7,6 +8,7 @@ import { defineConfig, type Plugin } from "vite";
 const require = createRequire(import.meta.url);
 const compilerSource = resolve(import.meta.dirname, "../compiler/src");
 const compilerEntry = join(compilerSource, "typescript/typescript.ts");
+const diagnosticMessages = join(compilerSource, "compiler/diagnosticMessages.json");
 const normalizedCompilerSource = compilerSource.replaceAll("\\", "/");
 const z3Build = dirname(require.resolve("z3-solver"));
 const examplesRoot = resolve(import.meta.dirname, "../examples");
@@ -34,10 +36,26 @@ const isolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
 };
 
+/**
+ * Regenerates diagnosticInformationMap.generated.ts, which is not tracked: a copy left
+ * from an older checkout lacks newer messages, and the compiler then fails on them at
+ * runtime. The generator only writes files whose content changed.
+ */
+function generateDiagnostics() {
+  execFileSync(process.execPath, [join(compilerSource, "../scripts/processDiagnosticMessages.mjs"), diagnosticMessages], { stdio: "ignore" });
+}
+
 function compilerSources(): Plugin {
   return {
     name: "tspp:compiler-sources",
     enforce: "pre",
+    buildStart: generateDiagnostics,
+    configureServer(server) {
+      server.watcher.add(diagnosticMessages);
+      server.watcher.on("change", file => {
+        if (resolve(file) === diagnosticMessages) generateDiagnostics();
+      });
+    },
     async transform(code, id) {
       const file = id.split("?")[0].replace(/^\/@fs\//, "").replaceAll("\\", "/");
       if (!file.startsWith(normalizedCompilerSource) || !file.endsWith(".ts")) return undefined;
