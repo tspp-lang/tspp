@@ -842,6 +842,24 @@ describe('diagnostics', () => {
         expect(deprecatedDiagnostic!.tags).toStrictEqual([lsp.DiagnosticTag.Deprecated]);
     });
 
+    it('leaves unreachable-code fading to editor hosts', async () => {
+        const doc = {
+            uri: uri('unreachable.ts'),
+            languageId: 'typescript',
+            version: 1,
+            text: `
+        function run(): void {
+          return;
+          console.log('unreachable');
+        }
+      `,
+        };
+        await openDocumentAndWaitForDiagnostics(server, doc);
+        const unreachable = diagnostics.get(doc.uri)?.diagnostics.find(diagnostic => diagnostic.code === 7027);
+        expect(unreachable).toBeDefined();
+        expect(unreachable!.tags).toStrictEqual([]);
+    });
+
     it('multiple files test', async () => {
         const doc = {
             uri: uri('multipleFileDiagnosticsBar.ts'),

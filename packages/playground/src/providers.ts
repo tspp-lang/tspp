@@ -1,4 +1,5 @@
 /** Monaco providers for the tspp language, each a thin translation of one worker call. */
+import { getCodeDecorationSpans } from "@tspp/plugin-sdk/editor";
 import type { LanguageClient } from "./client";
 import * as monaco from "./monaco";
 import type { CompletionEntry, DiagnosticInfo, Span } from "./protocol";
@@ -156,9 +157,22 @@ export function setDiagnosticMarkers(model: monaco.editor.ITextModel, diagnostic
     code: String(d.code),
     source: "ts++",
     tags: [
-      ...d.unnecessary ? [monaco.MarkerTag.Unnecessary] : [],
+      ...d.unnecessary && d.code !== 7027 ? [monaco.MarkerTag.Unnecessary] : [],
       ...d.deprecated ? [monaco.MarkerTag.Deprecated] : [],
     ],
   }));
   monaco.editor.setModelMarkers(model, languageId, markers);
+
+  const key = model.uri.toString();
+  const oldDecorations = unreachableDecorations.get(key) ?? [];
+  const decorations = diagnostics
+    .filter(diagnostic => diagnostic.code === 7027 && diagnostic.span)
+    .flatMap(diagnostic => getCodeDecorationSpans(model.getValue(), diagnostic.span!))
+    .map(span => ({
+      range: toRange(model, span),
+      options: { inlineClassName: "unreachable-code" },
+    }));
+  unreachableDecorations.set(key, model.deltaDecorations(oldDecorations, decorations));
 }
+
+const unreachableDecorations = new Map<string, string[]>();

@@ -914,6 +914,9 @@ importers:
       '@tspp/plugin-operator-sections':
         specifier: workspace:*
         version: link:../plugins/operator-sections
+      '@tspp/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
       '@tspp/plugin-static-interface-members':
         specifier: workspace:*
         version: link:../plugins/static-interface-members

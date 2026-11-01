@@ -81,7 +81,9 @@ export function toDiagnostic(diagnostic: ts.server.protocol.Diagnostic, client: 
 
 function getDiagnosticTags(diagnostic: ts.server.protocol.Diagnostic): lsp.DiagnosticTag[] {
     const tags: lsp.DiagnosticTag[] = [];
-    if (diagnostic.reportsUnnecessary) {
+    // TS7027 spans consecutive statements and therefore includes comments
+    // between them. Editor hosts decorate its code-only ranges themselves.
+    if (diagnostic.reportsUnnecessary && diagnostic.code !== 7027) {
         tags.push(lsp.DiagnosticTag.Unnecessary);
     }
     if (diagnostic.reportsDeprecated) {

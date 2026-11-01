@@ -30,6 +30,8 @@
 html, body { height: 100%; margin: 0; }
 body { display: flex; flex-direction: column; background: var(--bg); color: var(--text); }
 
+.monaco-editor .unreachable-code { opacity: 0.667; }
+
 header {
   display: flex;
   align-items: center;

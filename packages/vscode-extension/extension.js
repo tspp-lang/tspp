@@ -1,6 +1,7 @@
 const path = require("node:path");
 const vscode = require("vscode");
 const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
+const { getCodeDecorationSpans } = require("@tspp/plugin-sdk/editor");
 
 let languageClient;
 const activatedAnalysisPlugins = new Set();
@@ -23,6 +24,7 @@ function resolveSdkPath(context) {
 }
 
 async function activate(context) {
+  const unreachableDecoration = vscode.window.createTextEditorDecorationType({ opacity: "0.667" });
   const serverModule = require.resolve("tspp-language-server");
   const serverOptions = {
     run: { module: serverModule, transport: TransportKind.stdio },
@@ -51,6 +53,37 @@ async function activate(context) {
   );
 
   await languageClient.start();
+
+  function updateUnreachableDecorations(editor) {
+    if (!editor || editor.document.languageId !== "tspp") return;
+    const document = editor.document;
+    const ranges = vscode.languages.getDiagnostics(document.uri)
+      .filter(diagnostic => Number(diagnostic.code) === 7027)
+      .flatMap(diagnostic => getCodeDecorationSpans(document.getText(), {
+        start: document.offsetAt(diagnostic.range.start),
+        length: document.offsetAt(diagnostic.range.end) - document.offsetAt(diagnostic.range.start),
+      }))
+      .map(span => new vscode.Range(
+        document.positionAt(span.start),
+        document.positionAt(span.start + span.length),
+      ));
+    editor.setDecorations(unreachableDecoration, ranges);
+  }
+
+  function updateVisibleUnreachableDecorations(uri) {
+    for (const editor of vscode.window.visibleTextEditors) {
+      if (!uri || editor.document.uri.toString() === uri.toString()) updateUnreachableDecorations(editor);
+    }
+  }
+
+  context.subscriptions.push(
+    unreachableDecoration,
+    vscode.languages.onDidChangeDiagnostics(event => {
+      for (const uri of event.uris) updateVisibleUnreachableDecorations(uri);
+    }),
+    vscode.window.onDidChangeVisibleTextEditors(() => updateVisibleUnreachableDecorations()),
+  );
+  updateVisibleUnreachableDecorations();
 
   const expansionCache = new Map();
   const programCache = new Map();
