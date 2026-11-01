@@ -23,7 +23,6 @@ const browserPackages = [
   "@tspp/plugin-sdk/language-service",
   "@tspp/plugin-dependent-types",
   "@tspp/plugin-formal-verification",
-  "@tspp/plugin-higher-kinded-types",
   "@tspp/plugin-macros",
   "@tspp/plugin-modern-syntax",
   "@tspp/plugin-nominal-types",

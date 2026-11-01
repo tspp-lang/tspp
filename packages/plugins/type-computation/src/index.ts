@@ -1,6 +1,8 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import type { TSPPTypeMatchArm, TSPPTypeSyntax } from "@tspp/plugin-sdk/compiler";
 
+import { kindParameterOwner, registerHigherKindedTypes, universeQuickInfo } from "./kinds";
+
 const pluginId = "type-computation";
 
 export const typeComputationPlugin = definePlugin({
@@ -8,12 +10,15 @@ export const typeComputationPlugin = definePlugin({
         id: pluginId,
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
-        displayName: "Type computation",
+        displayName: "Type computation and higher-kinded types",
         syntax: {
             keywords: [
                 { keyword: "let", position: "type" },
                 { keyword: "match", position: "type" },
                 { keyword: "<", position: "type" },
+                { keyword: ":", position: "type-parameter" },
+                { keyword: "Type", position: "type" },
+                { keyword: "<", position: "postfix-type" },
             ],
         },
     },
@@ -86,7 +91,12 @@ export const typeComputationPlugin = definePlugin({
                         return parser.finishTypeConstructor(parameters, parser.parseType(), pos);
                     },
                 };
-                return context.compiler.registerTypeSyntax(syntax);
+                const disposeTypeSyntax = context.compiler.registerTypeSyntax(syntax);
+                const disposeKinds = registerHigherKindedTypes(context.compiler);
+                return () => {
+                    disposeKinds();
+                    disposeTypeSyntax();
+                };
             },
         },
         languageService: {
@@ -94,6 +104,8 @@ export const typeComputationPlugin = definePlugin({
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
                     if (!token) return undefined;
+                    const universe = universeQuickInfo(token);
+                    if (universe) return universe;
                     if (["let", "in", "match", "infer"].includes(token.text)) {
                         return {
                             start: token.start,
@@ -126,13 +138,15 @@ export const typeComputationPlugin = definePlugin({
                     if (owner && !usefulDisplay(request.upstream?.display)) {
                         return quickInfo(token, `(type parameter) ${token.text} in ${owner}`);
                     }
+                    const kindOwner = kindParameterOwner(request.sourceText, token.start, token.text);
+                    if (kindOwner) return quickInfo(token, `(type parameter) ${token.text} in ${kindOwner}`);
                     return undefined;
                 });
             },
         },
         editor: {
             keywords: ["in", "infer"],
-            grammars: ["./editor/type-computation.tmLanguage.json"],
+            grammars: ["./editor/type-computation.tmLanguage.json", "./editor/higher-kinded-types.tmLanguage.json"],
         },
     },
 });

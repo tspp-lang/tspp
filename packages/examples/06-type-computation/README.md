@@ -8,7 +8,7 @@ and organized as four independent chapters:
 3. `03-type-lambdas.tspp` — anonymous constructors, currying, and composition;
 4. `04-combined-computation.tspp` — all three forms used together.
 
-The higher-kinded-types capsule is enabled explicitly for chapters 3 and 4,
-where a type lambda is passed through a kind-checked type parameter. The
+Chapters 3 and 4 also pass a type lambda through a kind-checked type
+parameter; kinds belong to the same type-computation plugin. The
 example deliberately uses structural TypeScript types so it does not silently
 depend on the nominal-types capsule. Run `pnpm check` from this directory.

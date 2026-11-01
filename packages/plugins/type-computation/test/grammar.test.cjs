@@ -11,6 +11,7 @@ const samples = new Map([
   ["in", "type Y = let X = number in X;"],
   ["match", "type Name<T> = match T { 1: \"one\", _: \"many\" };"],
   ["infer", "type E<T> = match T { Array<infer U>: U, _: never };"],
+  ["Type", "type Apply<F: Type => Type, A> = F<A>;"],
 ]);
 
 test("highlights every declared editor keyword in context", () => {

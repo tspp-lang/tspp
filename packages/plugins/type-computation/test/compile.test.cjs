@@ -5,9 +5,8 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, createLanguageService } = require("../../test-support/compile.cjs");
 const { typeComputationPlugin } = require("../dist");
-const { higherKindedTypesPlugin } = require("../../higher-kinded-types/dist");
 
-usePlugins(typeComputationPlugin, higherKindedTypesPlugin);
+usePlugins(typeComputationPlugin);
 
 const messagesOf = source => diagnosticMessages(createProgram(source).program);
 

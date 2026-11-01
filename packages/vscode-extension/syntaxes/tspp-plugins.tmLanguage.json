@@ -45,14 +45,6 @@
       "name": "support.type.smt-sort.tspp"
     },
     {
-      "match": "\\bType(?:0|[1-9][0-9]*)?\\b",
-      "name": "storage.type.kind.tspp"
-    },
-    {
-      "match": "=>",
-      "name": "keyword.operator.kind.tspp"
-    },
-    {
       "match": "^(\\s*)(?:(export)(\\s+))?(?:(default)(\\s+))?(?:(declare)(\\s+))?(?:(async)(\\s+))?(macro)(\\s+)(?=function\\b)",
       "captures": {
         "2": {
@@ -135,6 +127,14 @@
     {
       "match": "=>>",
       "name": "keyword.operator.type-constructor.tspp"
+    },
+    {
+      "match": "\\bType(?:0|[1-9][0-9]*)?\\b",
+      "name": "storage.type.kind.tspp"
+    },
+    {
+      "match": "=>",
+      "name": "keyword.operator.kind.tspp"
     }
   ]
 }

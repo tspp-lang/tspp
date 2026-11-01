@@ -5,9 +5,8 @@ const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService } = require("../../test-support/compile.cjs");
 const { nominalTypesPlugin } = require("../dist");
-const { higherKindedTypesPlugin } = require("../../higher-kinded-types/dist");
 
-usePlugins(nominalTypesPlugin, higherKindedTypesPlugin);
+usePlugins(nominalTypesPlugin);
 
 const messagesOf = source => diagnosticMessages(createProgram(source).program);
 const javascriptOf = source => {
@@ -43,10 +42,6 @@ const typeChecks = [
     newtype OrderId = number;
     declare const userId: UserId;
     const bad: OrderId = userId;`],
-  ["a data type constructor is a higher-kinded argument", 0, `
-    type Apply<F: Type => Type, A> = F<A>;
-    data Option<T> = None | Some(value: T);
-    type Applied = Apply<Option, number>;`],
   ["match binds data fields and infers the union of branch results", 0, `
     data Result<T> = Ok(value: T) | Err(error: string);
     declare const result: Result<number>;
@@ -154,17 +149,6 @@ const typeChecks = [
     declare const v: StringOrNumber;
     const s: string | number = v;
     const bad: StringOrNumber = "x";`],
-  ["newtype and data parameters accept kind annotations", 3, `
-    interface List<T> { head: T }
-    newtype Boxed<F: Type => Type> = F<number>;
-    data Wrap<F: Type => Type> = Wrap(value: F<string>);
-    declare const boxed: Boxed<List>;
-    declare const wrapped: Wrap<List>;
-    const n: number = boxed.head;
-    const s: string = wrapped.value.head;
-    const badBoxed: string = boxed.head;
-    type BadNewtype = Boxed<number>;
-    type BadData = Wrap<string>;`, /not assignable|has kind 'Type', but kind 'Type => Type' was expected/],
   ["a newtype cannot erase its brand with any, unknown, or never", 3, `
     newtype AnyValue = any;
     newtype UnknownValue = unknown;

@@ -17,12 +17,7 @@ const knownKeywordConflicts = {
   "with @ function-clause": ["formal-verification", "macros"],
 };
 
-const knownUndeclaredTestDependencies = {
-  // Phase 2 step 8: type-computation absorbs higher-kinded-types.
-  "type-computation": ["higher-kinded-types"],
-  // Its "data type constructor as a higher-kinded argument" cases; they move with the merged plugin in phase 2 step 8.
-  "nominal-types": ["higher-kinded-types"],
-};
+const knownUndeclaredTestDependencies = {};
 
 // Plugin ids are not always the package directory name (`formal-verification/z3`), so map both ways.
 const shortName = id => id.split("/")[0].replace(/^type-system$/, "dependent-types");

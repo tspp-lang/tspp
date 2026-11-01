@@ -5,10 +5,6 @@
       {
         "name": "@tspp/plugin-type-computation",
         "tspp": true
-      },
-      {
-        "name": "@tspp/plugin-higher-kinded-types",
-        "tspp": true
       }
     ],
     "strict": true,

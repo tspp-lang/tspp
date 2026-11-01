@@ -32,7 +32,6 @@
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
-    "@tspp/plugin-higher-kinded-types": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
     "@tspp/plugin-nominal-types": "workspace:*",
     "@tspp/plugin-operator-sections": "workspace:*",
