@@ -104,16 +104,15 @@ function loadProject(state: SharedState) {
   void client.setProject(projectFiles(), currentFeatures());
   outputs.markStale();
   renderTabs();
-  openFile(state.active);
-  void outputs.showJavaScript();
+  openFile(state.active, true);
 }
 
-function openFile(path: string) {
+function openFile(path: string, refreshOutput = false) {
   const model = models.get(path);
   if (!model) return;
   if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
   active = path;
-  outputs.setFile(path);
+  outputs.setFile(path, refreshOutput);
   editor.setModel(model);
   const viewState = viewStates.get(path);
   if (viewState) editor.restoreViewState(viewState);

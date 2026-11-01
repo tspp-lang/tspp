@@ -14,9 +14,8 @@ const categories: readonly { id: OutputCategory; label: string }[] = [
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 export interface OutputController {
-  setFile(fileName: string): void;
+  setFile(fileName: string, force?: boolean): void;
   markStale(): void;
-  showJavaScript(): Promise<void>;
   dispose(): void;
 }
 
@@ -31,7 +30,7 @@ export function createOutputController(client: LanguageClient): OutputController
   const runStatus = element("run-status");
   const runOutput = element("run-output");
   const loaded = new Map<OutputCategory, OutputSnapshot>();
-  let category: OutputCategory | undefined;
+  let category: OutputCategory = "javascript";
   let current: OutputItem | undefined;
   let outputModel: monaco.editor.ITextModel | undefined;
   let requestGeneration = 0;
@@ -62,7 +61,7 @@ export function createOutputController(client: LanguageClient): OutputController
   }
 
   function itemsForCategory(): readonly OutputItem[] {
-    return category ? loaded.get(category)?.items ?? [] : [];
+    return loaded.get(category)?.items ?? [];
   }
 
   function renderTabs(loading?: OutputCategory): void {
@@ -80,7 +79,7 @@ export function createOutputController(client: LanguageClient): OutputController
     outputItems.replaceChildren(...items.map(item => new Option(item.label, item.id)));
     outputItems.disabled = items.length < 2;
     outputItems.hidden = items.length === 0;
-    showItem(items.find(item => item.id === preferredId) ?? items[0]);
+    showItem(items.find(item => item.id === preferredId) ?? outputForActiveFile(items) ?? items[0]);
     renderTabs();
   }
 
@@ -93,11 +92,9 @@ export function createOutputController(client: LanguageClient): OutputController
     outputEmpty.hidden = !!item;
     if (!item) {
       const label = categories.find(definition => definition.id === category)?.label;
-      outputEmpty.textContent = !category
-        ? "Select an output type to generate it on demand."
-        : loaded.has(category)
-          ? "This artifact is not produced by the enabled features."
-          : `Select ${label} to generate or refresh it.`;
+      outputEmpty.textContent = loaded.has(category)
+        ? "This artifact is not produced by the enabled features."
+        : `Select ${label} to generate or refresh it.`;
       return;
     }
     outputItems.value = item.id;
@@ -152,23 +149,23 @@ export function createOutputController(client: LanguageClient): OutputController
     runButton.disabled = false;
   }
 
-  function setFile(nextFileName: string): void {
-    if (fileName === nextFileName) return;
+  function setFile(nextFileName: string, force = false): void {
+    if (fileName === nextFileName && !force) return;
     fileName = nextFileName;
-    category = undefined;
     markStale();
     outputStatus.textContent = "Load on demand";
     runStatus.textContent = "JavaScript output runs only when requested.";
+    void loadCategory(category);
   }
 
   function markStale(): void {
     requestGeneration++;
     loaded.clear();
     renderItems();
-    outputStatus.textContent = category ? "Out of date — select an output to refresh" : "Load on demand";
+    outputStatus.textContent = "Out of date — select an output to refresh";
     updateRunButton();
     if (runtime) stopRuntime("Source changed; run output is stale.");
-    else if (category) runStatus.textContent = "Source changed; run output is stale.";
+    else runStatus.textContent = "Source changed; run output is stale.";
   }
 
   function stopRuntime(message = "Stopped"): void {
@@ -188,9 +185,10 @@ export function createOutputController(client: LanguageClient): OutputController
     runOutput.scrollTop = runOutput.scrollHeight;
   }
 
-  function emittedJavaScriptForActiveFile(items: readonly OutputItem[]): OutputItem | undefined {
-    const expected = fileName.replace(/^\//, "").replace(/\.(?:tspp|ts)$/, ".js");
-    return items.find(item => item.label.replace(/^\//, "") === expected) ?? items[0];
+  function outputForActiveFile(items: readonly OutputItem[], outputCategory = category): OutputItem | undefined {
+    const suffix = outputCategory === "javascript" ? ".js" : outputCategory === "dts" ? ".d.ts" : outputCategory === "dtspp" ? ".d.tspp" : undefined;
+    const expected = suffix && fileName.replace(/^\//, "").replace(/\.(?:tspp|ts)$/, suffix);
+    return items.find(item => item.fileName === fileName || expected && item.label.replace(/^\//, "") === expected);
   }
 
   async function runJavaScript(): Promise<void> {
@@ -219,7 +217,7 @@ export function createOutputController(client: LanguageClient): OutputController
     }
     const javascript = current?.category === "javascript"
       ? current
-      : emittedJavaScriptForActiveFile(snapshot.items);
+      : outputForActiveFile(snapshot.items, "javascript");
     if (!javascript) {
       runButton.disabled = false;
       runButton.textContent = "▶ Run";
@@ -266,7 +264,6 @@ export function createOutputController(client: LanguageClient): OutputController
   return {
     setFile,
     markStale,
-    showJavaScript: () => loadCategory("javascript"),
     dispose() {
       stopRuntime();
       artifactEditor.dispose();
