@@ -36,7 +36,7 @@ const successfulScore = score(Finished(Success(42)));
 const failedScore = score(Finished(Failure(5)));
 const pointKeys: "x" | "y" = "x" satisfies keyof Point;
 
-if (false) {
+function compileTimeErrorExamples(): void {
     // @ts-expect-error Structurally similar values do not carry the variant brand.
     const forged: typeof Empty = { _tag: "Empty" as const };
     console.log(forged);

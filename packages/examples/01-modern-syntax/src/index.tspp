@@ -62,7 +62,7 @@ class Calculator {
   }
 }
 
-if (false) {
+function compileTimeErrorExamples(): void {
   // @ts-expect-error A do function completion must match its annotated return type.
   function invalidCompletion(): number do { "not a number"; }
   // @ts-expect-error A trailing-closure binding belongs directly in a completion block.

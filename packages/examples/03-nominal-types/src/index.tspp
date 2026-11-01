@@ -57,7 +57,7 @@ function length(values: List<number>): number {
   };
 }
 const listLength = length(list);
-if (false) {
+function compileTimeErrorExamples(): void {
   const unknownOption = null as unknown as Option<number>;
   // @ts-expect-error A non-exhaustive match omits None.
   const incomplete: number = match unknownOption {

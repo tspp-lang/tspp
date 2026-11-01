@@ -70,6 +70,8 @@ for (const example of packages) {
             runtimeDirectory,
             "--rootDir",
             "src",
+            "--allowUnreachableCode",
+            "false",
             "--declaration",
             "false",
             "--declarationMap",
