@@ -4,6 +4,23 @@ export interface TSPPQuickInfoRequest {
     readonly fileName: string;
     readonly sourceText: string;
     readonly position: number;
+    /** Source-level word under the cursor, when one exists. */
+    readonly token?: TSPPQuickInfoToken;
+    /** Best semantic type available before feature-specific formatting. */
+    readonly semanticType?: string;
+    /** Quick info produced by the underlying TypeScript language service. */
+    readonly upstream?: TSPPQuickInfoBase;
+}
+
+export interface TSPPQuickInfoToken {
+    readonly start: number;
+    readonly length: number;
+    readonly text: string;
+}
+
+export interface TSPPQuickInfoBase {
+    readonly display: string;
+    readonly kind: string;
 }
 
 export interface TSPPQuickInfo {

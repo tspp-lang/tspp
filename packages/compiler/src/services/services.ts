@@ -361,6 +361,7 @@ import {
 } from "./_namespaces/ts.refactor.js";
 import * as classifier from "./classifier.js";
 import * as classifier2020 from "./classifier2020.js";
+import { getTSPPQuickInfo } from "../compiler/plugins/registry.js";
 
 /** The version of the language service API */
 export const servicesVersion = "0.8";
@@ -2351,9 +2352,10 @@ export function createLanguageService(
         const typeChecker = program.getTypeChecker();
         const nodeForQuickInfo = getNodeForQuickInfo(node);
         const symbol = getSymbolAtLocationForQuickInfo(nodeForQuickInfo, typeChecker);
+        let upstream: QuickInfo | undefined;
         if (!symbol || typeChecker.isUnknownSymbol(symbol)) {
             const type = shouldGetType(sourceFile, nodeForQuickInfo, position) ? typeChecker.getTypeAtLocation(nodeForQuickInfo) : undefined;
-            return type && {
+            upstream = type && {
                 kind: ScriptElementKind.unknown,
                 kindModifiers: ScriptElementKindModifier.none,
                 textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
@@ -2362,36 +2364,65 @@ export function createLanguageService(
                 tags: type.symbol ? type.symbol.getJsDocTags(typeChecker) : undefined,
             };
         }
+        else {
+            const macroInvocation = findAncestor(nodeForQuickInfo, isMacroInvocationStatement);
+            const semanticMeaning = macroInvocation
+                ? macroInvocation.macro === nodeForQuickInfo || findAncestor(nodeForQuickInfo, ancestor => ancestor === macroInvocation.macro)
+                    ? SymbolFlags.Value
+                    : SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace
+                : undefined;
+            const { symbolKind, displayParts, documentation, tags, canIncreaseVerbosityLevel } = typeChecker.runWithCancellationToken(
+                cancellationToken,
+                typeChecker =>
+                    SymbolDisplay.getSymbolDisplayPartsDocumentationAndSymbolKind(
+                        typeChecker,
+                        symbol,
+                        sourceFile,
+                        getContainerNode(nodeForQuickInfo),
+                        nodeForQuickInfo,
+                        semanticMeaning,
+                        /*alias*/ undefined,
+                        maximumLength ?? defaultHoverMaximumTruncationLength,
+                        verbosityLevel,
+                    ),
+            );
+            upstream = {
+                kind: symbolKind,
+                kindModifiers: SymbolDisplay.getSymbolModifiers(typeChecker, symbol),
+                textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
+                displayParts,
+                documentation,
+                tags,
+                canIncreaseVerbosityLevel,
+            };
+        }
 
-        const macroInvocation = findAncestor(nodeForQuickInfo, isMacroInvocationStatement);
-        const semanticMeaning = macroInvocation
-            ? macroInvocation.macro === nodeForQuickInfo || findAncestor(nodeForQuickInfo, ancestor => ancestor === macroInvocation.macro)
-                ? SymbolFlags.Value
-                : SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace
-            : undefined;
-        const { symbolKind, displayParts, documentation, tags, canIncreaseVerbosityLevel } = typeChecker.runWithCancellationToken(
+        const tokenStart = nodeForQuickInfo.getStart(sourceFile);
+        const semanticType = typeChecker.runWithCancellationToken(
             cancellationToken,
-            typeChecker =>
-                SymbolDisplay.getSymbolDisplayPartsDocumentationAndSymbolKind(
-                    typeChecker,
-                    symbol,
-                    sourceFile,
-                    getContainerNode(nodeForQuickInfo),
-                    nodeForQuickInfo,
-                    semanticMeaning,
-                    /*alias*/ undefined,
-                    maximumLength ?? defaultHoverMaximumTruncationLength,
-                    verbosityLevel,
-                ),
+            checker => checker.typeToString(checker.getTypeAtLocation(nodeForQuickInfo), getContainerNode(nodeForQuickInfo)),
         );
+        const contribution = getTSPPQuickInfo(fileName, sourceFile.text, position, {
+            token: {
+                start: tokenStart,
+                length: nodeForQuickInfo.getEnd() - tokenStart,
+                text: nodeForQuickInfo.getText(sourceFile),
+            },
+            semanticType,
+            upstream: upstream && {
+                display: displayPartsToString(upstream.displayParts),
+                kind: upstream.kind,
+            },
+        });
+        if (!contribution) return upstream;
         return {
-            kind: symbolKind,
-            kindModifiers: SymbolDisplay.getSymbolModifiers(typeChecker, symbol),
-            textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
-            displayParts,
-            documentation,
-            tags,
-            canIncreaseVerbosityLevel,
+            kind: upstream?.kind ?? ScriptElementKind.unknown,
+            kindModifiers: upstream?.kindModifiers ?? ScriptElementKindModifier.none,
+            textSpan: { start: contribution.start, length: contribution.length },
+            displayParts: [{ text: contribution.display, kind: "text" }],
+            documentation: contribution.documentation
+                ? [{ text: contribution.documentation, kind: "text" }]
+                : undefined,
         };
     }
 

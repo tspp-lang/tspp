@@ -478,9 +478,14 @@ export function getTSPPQuickInfo(
     fileName: string,
     sourceText: string,
     position: number,
+    context?: {
+        readonly token?: { readonly start: number; readonly length: number; readonly text: string; };
+        readonly semanticType?: string;
+        readonly upstream?: { readonly display: string; readonly kind: string; };
+    },
 ): { readonly start: number; readonly length: number; readonly display: string; readonly documentation?: string; } | undefined {
     for (const provider of quickInfoProviders.values()) {
-        const result = provider({ fileName, sourceText, position });
+        const result = provider({ fileName, sourceText, position, ...context });
         if (result) return result;
     }
     return undefined;
