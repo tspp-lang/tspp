@@ -11,6 +11,13 @@ export const nominalTypesPlugin = definePlugin({
         version: "0.0.1",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Nominal types",
+        syntax: {
+            keywords: [
+                { keyword: "newtype", position: "declaration" },
+                { keyword: "data", position: "declaration" },
+                { keyword: "match", position: "expression" },
+            ],
+        },
     },
     facets: {
         compiler: {

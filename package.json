@@ -27,7 +27,9 @@
     "playground:dev": "pnpm --filter tspp-playground dev",
     "build:vscode:dev": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode",
     "test": "pnpm test:features && pnpm test:examples && pnpm test:compiler && pnpm test:language-server && pnpm test:vscode",
-    "test:features": "pnpm test:plugin-sdk && pnpm test:plugins",
+    "test:features": "pnpm test:plugin-sdk && pnpm test:plugins && pnpm test:plugins:together && pnpm test:core-parity",
+    "test:plugins:together": "node scripts/test-plugins-together.mjs",
+    "test:core-parity": "pnpm --filter @tspp/core-parity-tests test",
     "test:compiler": "pnpm --filter ts-plus-plus test",
     "test:eslint-rules": "pnpm --filter ts-plus-plus test:eslint-rules",
     "test:language-server": "pnpm --filter tspp-language-server test:commit",
@@ -40,6 +42,7 @@
     "lint:language-server": "pnpm --filter tspp-language-server lint",
     "lint:packages": "pnpm --filter @tspp/plugin-sdk --filter \"./packages/plugins/**\" --filter tspp-vscode --filter tspp-playground --filter \"./packages/examples/**\" lint",
     "knip": "pnpm --filter ts-plus-plus knip",
+    "core-diff": "node scripts/core-diff.mjs",
     "format": "pnpm --filter ts-plus-plus format",
     "prepare": "node scripts/install-lefthook.mjs",
     "clean": "pnpm --filter @tspp/plugin-sdk clean && pnpm --filter \"./packages/plugins/**\" clean && pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"

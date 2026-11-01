@@ -36,6 +36,20 @@ jobs:
       - run: pnpm test:features
       - run: pnpm test:examples
 
+  core-drift:
+    name: Core drift report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # The report diffs against the tspp-core-baseline tag.
+          fetch-depth: 0
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 22.22.0
+      # Reported only for now; docs/core-restoration-plan.md phase 3 turns it into a gate.
+      - run: node scripts/core-diff.mjs
+
   products:
     name: Build products
     runs-on: ubuntu-latest

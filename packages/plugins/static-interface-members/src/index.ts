@@ -8,6 +8,11 @@ export const staticInterfaceMembersPlugin = definePlugin({
         version: "0.0.1",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Static interface members",
+        syntax: {
+            keywords: [
+                { keyword: "static", position: "interface-member" },
+            ],
+        },
     },
     facets: {
         compiler: {

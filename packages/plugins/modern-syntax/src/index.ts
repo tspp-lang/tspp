@@ -31,6 +31,15 @@ export const modernSyntaxPlugin = definePlugin({
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Modern syntax",
+        syntax: {
+            keywords: [
+                { keyword: "let", position: "expression" },
+                { keyword: "do", position: "expression" },
+                { keyword: "do", position: "function-clause" },
+                { keyword: "use", position: "statement" },
+                { keyword: "def", position: "statement" },
+            ],
+        },
     },
     facets: {
         compiler: {

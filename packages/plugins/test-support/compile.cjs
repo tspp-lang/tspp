@@ -13,10 +13,29 @@ function loadCompiler() {
 
 const ts = loadCompiler();
 
+const registered = new Set();
+
 /** Registers each plugin's compiler facet for this test process; plugins stay active until it exits. */
 function usePlugins(...plugins) {
-  for (const plugin of plugins) ts.registerTSPPCompilerPlugin(plugin.default ?? plugin);
+  for (const exports of plugins) {
+    const plugin = exports.default ?? exports;
+    if (registered.has(plugin.manifest.id)) continue;
+    registered.add(plugin.manifest.id);
+    ts.registerTSPPCompilerPlugin(plugin);
+  }
   return ts;
+}
+
+// `TSPP_TEST_ALL_PLUGINS=1` runs a plugin's own tests with every feature plugin active, which catches plugins that
+// interfere through shared source text, registries, or output (scripts/test-plugins-together.mjs).
+if (process.env.TSPP_TEST_ALL_PLUGINS === "1") {
+  const pluginsDirectory = path.resolve(__dirname, "..");
+  for (const directory of fs.readdirSync(pluginsDirectory)) {
+    const distribution = path.join(pluginsDirectory, directory, "dist", "index.js");
+    if (!fs.existsSync(distribution)) continue;
+    const exports = require(distribution);
+    usePlugins(exports.default ?? Object.values(exports).find(value => value?.manifest));
+  }
 }
 
 const defaultOptions = {

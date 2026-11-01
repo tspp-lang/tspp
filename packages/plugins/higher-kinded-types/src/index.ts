@@ -48,6 +48,13 @@ export const higherKindedTypesPlugin = definePlugin({
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Higher-kinded types",
+        syntax: {
+            keywords: [
+                { keyword: ":", position: "type-parameter" },
+                { keyword: "Type", position: "type" },
+                { keyword: "<", position: "postfix-type" },
+            ],
+        },
     },
     facets: {
         compiler: {

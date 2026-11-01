@@ -336,6 +336,15 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1
 
+  packages/core-parity:
+    devDependencies:
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../compiler
+      typescript-upstream:
+        specifier: npm:typescript@6.0.3
+        version: typescript@6.0.3
+
   packages/examples/01-modern-syntax:
     dependencies:
       '@tspp/plugin-modern-syntax':

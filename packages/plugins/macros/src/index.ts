@@ -6,6 +6,13 @@ export const macrosPlugin = definePlugin({
     version: "0.0.1",
     apiVersion: TSPP_PLUGIN_API_VERSION,
     displayName: "Compile-time macros",
+    syntax: {
+      keywords: [
+        { keyword: "macro", position: "declaration" },
+        { keyword: "macro", position: "statement" },
+        { keyword: "with", position: "function-clause" },
+      ],
+    },
   },
   facets: {
     compiler: {

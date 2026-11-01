@@ -6,6 +6,11 @@ export const operatorSectionsPlugin = definePlugin({
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Operator sections",
+        syntax: {
+            keywords: [
+                { keyword: "_", position: "expression" },
+            ],
+        },
     },
     facets: {
         compiler: {

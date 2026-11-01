@@ -22,6 +22,35 @@ export interface TSPPPluginManifest {
     readonly conflicts?: readonly string[];
     /** Stable, human-readable capabilities exposed for tooling and diagnostics. */
     readonly capabilities?: readonly string[];
+    /** The syntax this plugin claims. Repository checks compare it across plugins; the host trusts it as written. */
+    readonly syntax?: TSPPSyntaxDeclaration;
+}
+
+/**
+ * Where a keyword or token starts plugin syntax. Two plugins may use the same word in different positions, such as
+ * `let` in an expression and `let` in a type, but never in the same one.
+ */
+export type TSPPSyntaxPosition =
+    | "expression"
+    | "statement"
+    | "declaration"
+    | "type"
+    | "postfix-type"
+    | "type-parameter"
+    | "type-alias-annotation"
+    | "function-clause"
+    | "loop-clause"
+    | "type-clause"
+    | "interface-member";
+
+export interface TSPPSyntaxKeyword {
+    /** The word or token that starts the syntax, such as `match` or `_`. */
+    readonly keyword: string;
+    readonly position: TSPPSyntaxPosition;
+}
+
+export interface TSPPSyntaxDeclaration {
+    readonly keywords: readonly TSPPSyntaxKeyword[];
 }
 
 export interface TSPPPluginLogger {

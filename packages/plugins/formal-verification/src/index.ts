@@ -66,6 +66,15 @@ export const formalVerificationPlugin = definePlugin({
         displayName: "Z3 formal verification",
         optionalDependencies: ["nominal-types"],
         capabilities: ["analysis-artifacts", "formal-contracts", "smt-libraries"],
+        syntax: {
+            keywords: [
+                { keyword: "with", position: "function-clause" },
+                { keyword: "with", position: "loop-clause" },
+                { keyword: "with", position: "type-clause" },
+                { keyword: "assert", position: "statement" },
+                { keyword: "assume", position: "statement" },
+            ],
+        },
     },
     facets: {
         compiler: {

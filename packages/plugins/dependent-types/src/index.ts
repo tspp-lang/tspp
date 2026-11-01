@@ -85,6 +85,13 @@ export const dependentTypesPlugin = definePlugin({
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Martin-Löf dependent types",
         capabilities: ["analysis-artifacts", "dependent-types", "runtime-type-reification"],
+        syntax: {
+            keywords: [
+                { keyword: "reify", position: "expression" },
+                { keyword: "match", position: "expression" },
+                { keyword: ":", position: "type-alias-annotation" },
+            ],
+        },
     },
     facets: {
         compiler: {
