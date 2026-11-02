@@ -13,6 +13,7 @@ import {
     CallExpression,
     CancellationToken,
     CaseOrDefaultClause,
+    cast,
     createMultiMap,
     createSymbolTable,
     Debug,
@@ -241,10 +242,7 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
                 if (typeNode) {
                     // Note that the codefix will never fire with an existing `@type` tag, so there is no need to merge tags
                     const typeTag = factory.createJSDocTypeTag(/*tagName*/ undefined, factory.createJSDocTypeExpression(typeNode), /*comment*/ undefined);
-                    const target = parent.parent?.parent && isExpressionStatement(parent.parent.parent)
-                        ? parent.parent.parent
-                        : undefined;
-                    if (target) changes.addJSDocTags(sourceFile, target, [typeTag]);
+                    if (parent.parent?.parent && isExpressionStatement(parent.parent.parent)) changes.addJSDocTags(sourceFile, cast(parent.parent.parent, isExpressionStatement), [typeTag]); // TSPP-SLOT(expression-rewrite)
                 }
                 importAdder.writeFixes(changes);
                 return parent;
@@ -278,9 +276,8 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
             }
             // falls through
         case Diagnostics.Rest_parameter_0_implicitly_has_an_any_type.code:
-            // TS++ operator-section placeholders are implicit parameters with no declaration to annotate.
-            if (isParameter(parent) && markSeen(containingFunction)) {
-                const param = parent;
+            if (isParameter(parent) && markSeen(containingFunction)) { // TSPP-SLOT(expression-rewrite): rewritten expressions may have parameters without a declaration
+                const param = cast(parent, isParameter);
                 annotateParameters(changes, importAdder, sourceFile, param, containingFunction, program, host, cancellationToken);
                 declaration = param;
             }

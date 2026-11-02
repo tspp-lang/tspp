@@ -657,9 +657,10 @@ export function transformDeclarations(context: TransformationContext): Transform
     }
 
     function shouldPrintWithInitializer(node: Node): node is CanHaveLiteralInitializer & { initializer: Expression; } {
-        if (!canHaveLiteralInitializer(node) || !node.initializer) return false;
-        const parseTreeNode = getParseTreeNode(node, canHaveLiteralInitializer);
-        return !!parseTreeNode && resolver.isLiteralConstDeclaration(parseTreeNode);
+        if (!getParseTreeNode(node, canHaveLiteralInitializer)) return false; // TSPP-SLOT(program-rebuild): generated declarations may have no parse tree node
+        return canHaveLiteralInitializer(node)
+            && !!node.initializer
+            && resolver.isLiteralConstDeclaration(getParseTreeNode(node) as CanHaveLiteralInitializer); // TODO: Make safea
     }
 
     function ensureNoInitializer(node: CanHaveLiteralInitializer) {

@@ -301,6 +301,11 @@ export function getTSPPProjectedSource(fileName: string, sourceText: string): st
 }
 
 /** @internal */
+export function hasTSPPQuickInfoProviders(): boolean {
+    return quickInfoProviders.size !== 0;
+}
+
+/** @internal */
 export function getTSPPQuickInfo(
     fileName: string,
     sourceText: string,

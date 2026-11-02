@@ -67,10 +67,8 @@ import {
     emptyArray,
     emptyOptions,
     EndOfFileToken,
-    endsWith,
     EntityName,
     equateValues,
-    escapeLeadingUnderscores,
     ExportDeclaration,
     Extension,
     extensionFromPath,
@@ -126,7 +124,6 @@ import {
     getTokenPosOfNode,
     getTouchingPropertyName,
     getTouchingToken,
-    getTSPPQuickInfo,
     GoToDefinition,
     HasInvalidatedResolutions,
     hasJSDocNodes,
@@ -180,7 +177,6 @@ import {
     isJsxText,
     isLabelName,
     isLiteralComputedPropertyDeclarationName,
-    isLiteralKind,
     isNamedExports,
     isNamedTupleMember,
     isNameOfModuleDeclaration,
@@ -199,7 +195,6 @@ import {
     isSourceFile,
     isStringOrNumericLiteralLike,
     isTagName,
-    isTemplateLiteralKind,
     isTextWhiteSpaceLike,
     isThisTypeParameter,
     isTransientSymbol,
@@ -223,7 +218,6 @@ import {
     LineAndCharacter,
     lineBreakPart,
     LinkedEditingInfo,
-    LiteralLikeNode,
     LiteralType,
     map,
     MapCode,
@@ -234,7 +228,6 @@ import {
     maybeSetLocalizedDiagnosticMessages,
     ModifierFlags,
     ModuleDeclaration,
-    Mutable,
     NavigateToItem,
     NavigationBarItem,
     NavigationTree,
@@ -355,7 +348,6 @@ import {
     UserPreferences,
     VariableDeclaration,
 } from "./_namespaces/ts.js";
-
 import * as NavigateTo from "./_namespaces/ts.NavigateTo.js";
 import * as NavigationBar from "./_namespaces/ts.NavigationBar.js";
 import {
@@ -365,6 +357,8 @@ import {
 } from "./_namespaces/ts.refactor.js";
 import * as classifier from "./classifier.js";
 import * as classifier2020 from "./classifier2020.js";
+import { addTSPPQuickInfo } from "./tspp/quickInfo.js"; // TSPP-SLOT(quick-info)
+import { createTSPPChildren } from "./tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
 
 /** The version of the language service API */
 export const servicesVersion = "0.8";
@@ -503,6 +497,8 @@ class NodeObject<TKind extends SyntaxKind> implements Node {
 }
 
 function createChildren(node: Node, sourceFile: SourceFileLike | undefined): readonly Node[] {
+    const tsppChildren = createTSPPChildren(node, sourceFile, createNode); // TSPP-SLOT(syntax-extension)
+    if (tsppChildren) return tsppChildren; // TSPP-SLOT(syntax-extension)
     const children: Node[] = [];
 
     if (isJSDocCommentContainingNode(node)) {
@@ -515,25 +511,13 @@ function createChildren(node: Node, sourceFile: SourceFileLike | undefined): rea
 
     scanner.setText((sourceFile || node.getSourceFile()).text);
     let pos = node.pos;
-    let hasSyntheticChildren = false;
     const processNode = (child: Node) => {
-        // Plugin transforms may attach factory-created nodes to an otherwise parsed
-        // source tree. They participate in binding and checking, but have no lexical
-        // range to expose through getChildren/getTokenAtPosition.
-        if (child.pos < 0 || child.end < 0) {
-            hasSyntheticChildren = true;
-            return;
-        }
-        addSyntheticNodes(children, pos, child.pos, node, hasSyntheticChildren);
+        addSyntheticNodes(children, pos, child.pos, node);
         children.push(child);
         pos = child.end;
     };
     const processNodes = (nodes: NodeArray<Node>) => {
-        if (nodes.pos < 0 || nodes.end < 0) {
-            hasSyntheticChildren = true;
-            return;
-        }
-        addSyntheticNodes(children, pos, nodes.pos, node, hasSyntheticChildren);
+        addSyntheticNodes(children, pos, nodes.pos, node);
         children.push(createSyntaxList(nodes, node));
         pos = nodes.end;
     };
@@ -544,36 +528,24 @@ function createChildren(node: Node, sourceFile: SourceFileLike | undefined): rea
     // Restoring the scanner position ensures that.
     pos = node.pos;
     node.forEachChild(processNode, processNodes);
-    addSyntheticNodes(children, pos, node.end, node, hasSyntheticChildren);
+    addSyntheticNodes(children, pos, node.end, node);
     scanner.setText(undefined);
     return children;
 }
 
-function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node, allowIdentifiers = false): void {
+function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node): void {
     scanner.resetTokenState(pos);
     while (pos < end) {
         const token = scanner.scan();
         const textPos = scanner.getTokenEnd();
-        if (textPos <= pos) {
-            if (token === SyntaxKind.EndOfFileToken) break;
-            Debug.fail(`Scanner did not advance while synthesizing ${Debug.formatSyntaxKind(parent.kind)} children`);
-        }
         if (textPos <= end) {
-            const node = createNode(token, pos, textPos, parent);
             if (token === SyntaxKind.Identifier) {
-                if (!hasTabstop(parent) && !allowIdentifiers && !endsWith(getSourceFileOfNode(parent).fileName, Extension.Tspp)) {
-                    Debug.fail(`Did not expect ${Debug.formatSyntaxKind(parent.kind)} to have an Identifier in its trivia`);
+                if (hasTabstop(parent)) {
+                    continue;
                 }
+                Debug.fail(`Did not expect ${Debug.formatSyntaxKind(parent.kind)} to have an Identifier in its trivia`);
             }
-            if (token === SyntaxKind.Identifier || isLiteralKind(token) || isTemplateLiteralKind(token)) {
-                // Plugin syntax leaves names and literals such as keywords, pattern bindings, and match arm results
-                // outside the parse tree. They keep their text for services that read it, and the Synthesized flag
-                // keeps the checker from resolving or typing them as parse tree nodes.
-                if (token === SyntaxKind.Identifier) (node as Mutable<Identifier>).escapedText = escapeLeadingUnderscores(scanner.getTokenValue());
-                else (node as Mutable<LiteralLikeNode>).text = scanner.getTokenValue();
-                (node as Mutable<Node>).flags |= NodeFlags.Synthesized;
-            }
-            nodes.push(node);
+            nodes.push(createNode(token, pos, textPos, parent));
         }
         pos = textPos;
         if (token === SyntaxKind.EndOfFileToken) {
@@ -586,17 +558,12 @@ function createSyntaxList(nodes: NodeArray<Node>, parent: Node): Node {
     const list = createNode(SyntaxKind.SyntaxList, nodes.pos, nodes.end, parent) as any as SyntaxList;
     const children: Node[] = [];
     let pos = nodes.pos;
-    let hasSyntheticChildren = false;
     for (const node of nodes) {
-        if (node.pos < 0 || node.end < 0) {
-            hasSyntheticChildren = true;
-            continue;
-        }
-        addSyntheticNodes(children, pos, node.pos, parent, hasSyntheticChildren);
+        addSyntheticNodes(children, pos, node.pos, parent);
         children.push(node);
         pos = node.end;
     }
-    addSyntheticNodes(children, pos, nodes.end, parent, hasSyntheticChildren);
+    addSyntheticNodes(children, pos, nodes.end, parent);
     list._children = children;
     return list;
 }
@@ -2087,10 +2054,7 @@ export function createLanguageService(
             const key = documentRegistry.getKeyForCompilationSettings(program.getCompilerOptions());
             forEach(program.getSourceFiles(), f => documentRegistry.releaseDocumentWithKey(f.resolvedPath, key, f.scriptKind, f.impliedNodeFormat));
             program = undefined!; // TODO: GH#18217
-            // A cache cleanup does not necessarily change the host's project version. Force
-            // the next semantic request to rebuild instead of taking the version fast path
-            // with no Program.
-            lastProjectVersion = undefined!;
+            lastProjectVersion = undefined!; // TSPP-SLOT(program-rebuild): a cache cleanup may keep the project version
         }
     }
 
@@ -2340,10 +2304,9 @@ export function createLanguageService(
         const typeChecker = program.getTypeChecker();
         const nodeForQuickInfo = getNodeForQuickInfo(node);
         const symbol = getSymbolAtLocationForQuickInfo(nodeForQuickInfo, typeChecker);
-        let upstream: QuickInfo | undefined;
         if (!symbol || typeChecker.isUnknownSymbol(symbol)) {
             const type = shouldGetType(sourceFile, nodeForQuickInfo, position) ? typeChecker.getTypeAtLocation(nodeForQuickInfo) : undefined;
-            upstream = type && {
+            return type && {
                 kind: ScriptElementKind.unknown,
                 kindModifiers: ScriptElementKindModifier.none,
                 textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
@@ -2352,67 +2315,30 @@ export function createLanguageService(
                 tags: type.symbol ? type.symbol.getJsDocTags(typeChecker) : undefined,
             };
         }
-        else {
-            const { symbolKind, displayParts, documentation, tags, canIncreaseVerbosityLevel } = typeChecker.runWithCancellationToken(
-                cancellationToken,
-                typeChecker =>
-                    SymbolDisplay.getSymbolDisplayPartsDocumentationAndSymbolKind(
-                        typeChecker,
-                        symbol,
-                        sourceFile,
-                        getContainerNode(nodeForQuickInfo),
-                        nodeForQuickInfo,
-                        /*semanticMeaning*/ undefined,
-                        /*alias*/ undefined,
-                        maximumLength ?? defaultHoverMaximumTruncationLength,
-                        verbosityLevel,
-                    ),
-            );
-            upstream = {
-                kind: symbolKind,
-                kindModifiers: SymbolDisplay.getSymbolModifiers(typeChecker, symbol),
-                textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
-                displayParts,
-                documentation,
-                tags,
-                canIncreaseVerbosityLevel,
-            };
-        }
 
-        const tokenStart = nodeForQuickInfo.getStart(sourceFile);
-        const semanticType = typeChecker.runWithCancellationToken(
+        const { symbolKind, displayParts, documentation, tags, canIncreaseVerbosityLevel } = typeChecker.runWithCancellationToken(
             cancellationToken,
-            checker =>
-                checker.typeToString(
-                    checker.getTypeAtLocation(nodeForQuickInfo),
+            typeChecker =>
+                SymbolDisplay.getSymbolDisplayPartsDocumentationAndSymbolKind(
+                    typeChecker,
+                    symbol,
+                    sourceFile,
                     getContainerNode(nodeForQuickInfo),
+                    nodeForQuickInfo,
+                    /*semanticMeaning*/ undefined,
+                    /*alias*/ undefined,
+                    maximumLength ?? defaultHoverMaximumTruncationLength,
+                    verbosityLevel,
                 ),
         );
-        const snapshot = host.getScriptSnapshot(fileName);
-        // Plugin providers describe authored TS++ syntax, not the length-preserving TypeScript
-        // projection stored in the SourceFile (which may deliberately contain `any` fallbacks).
-        const authoredSourceText = snapshot?.getText(0, snapshot.getLength()) ?? sourceFile.text;
-        const contribution = getTSPPQuickInfo(fileName, authoredSourceText, position, {
-            token: {
-                start: tokenStart,
-                length: nodeForQuickInfo.getEnd() - tokenStart,
-                text: nodeForQuickInfo.getText(sourceFile),
-            },
-            semanticType,
-            upstream: upstream && {
-                display: displayPartsToString(upstream.displayParts),
-                kind: upstream.kind,
-            },
-        });
-        if (!contribution) return upstream;
         return {
-            kind: upstream?.kind ?? ScriptElementKind.unknown,
-            kindModifiers: upstream?.kindModifiers ?? ScriptElementKindModifier.none,
-            textSpan: { start: contribution.start, length: contribution.length },
-            displayParts: [{ text: contribution.display, kind: "text" }],
-            documentation: contribution.documentation
-                ? [{ text: contribution.documentation, kind: "text" }]
-                : undefined,
+            kind: symbolKind,
+            kindModifiers: SymbolDisplay.getSymbolModifiers(typeChecker, symbol),
+            textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
+            displayParts,
+            documentation,
+            tags,
+            canIncreaseVerbosityLevel,
         };
     }
 
@@ -2678,26 +2604,24 @@ export function createLanguageService(
     function getSemanticClassifications(fileName: string, span: TextSpan, format?: SemanticClassificationFormat): ClassifiedSpan[] | ClassifiedSpan2020[] {
         synchronizeHostData();
 
-        const sourceFile = getValidSourceFile(fileName);
         const responseFormat = format || SemanticClassificationFormat.Original;
         if (responseFormat === SemanticClassificationFormat.TwentyTwenty) {
-            return classifier2020.getSemanticClassifications(program, cancellationToken, sourceFile, span);
+            return classifier2020.getSemanticClassifications(program, cancellationToken, getValidSourceFile(fileName), span);
         }
         else {
-            return classifier.getSemanticClassifications(program.getTypeChecker(), cancellationToken, sourceFile, program.getClassifiableNames(), span);
+            return classifier.getSemanticClassifications(program.getTypeChecker(), cancellationToken, getValidSourceFile(fileName), program.getClassifiableNames(), span);
         }
     }
 
     function getEncodedSemanticClassifications(fileName: string, span: TextSpan, format?: SemanticClassificationFormat): Classifications {
         synchronizeHostData();
 
-        const sourceFile = getValidSourceFile(fileName);
         const responseFormat = format || SemanticClassificationFormat.Original;
         if (responseFormat === SemanticClassificationFormat.Original) {
-            return classifier.getEncodedSemanticClassifications(program.getTypeChecker(), cancellationToken, sourceFile, program.getClassifiableNames(), span);
+            return classifier.getEncodedSemanticClassifications(program.getTypeChecker(), cancellationToken, getValidSourceFile(fileName), program.getClassifiableNames(), span);
         }
         else {
-            return classifier2020.getEncodedSemanticClassifications(program, cancellationToken, sourceFile, span);
+            return classifier2020.getEncodedSemanticClassifications(program, cancellationToken, getValidSourceFile(fileName), span);
         }
     }
 
@@ -3488,7 +3412,7 @@ export function createLanguageService(
         getCompletionEntryDetails,
         getCompletionEntrySymbol,
         getSignatureHelpItems,
-        getQuickInfoAtPosition,
+        getQuickInfoAtPosition: (fileName: string, position: number, maximumLength?: number, verbosityLevel?: number) => addTSPPQuickInfo(getQuickInfoAtPosition(fileName, position, maximumLength, verbosityLevel), fileName, position, host, program, getNodeForQuickInfo, cancellationToken), // TSPP-SLOT(quick-info)
         getDefinitionAtPosition,
         getDefinitionAndBoundSpan,
         getImplementationAtPosition,

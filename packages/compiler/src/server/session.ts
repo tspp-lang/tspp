@@ -1491,10 +1491,7 @@ export class Session<TMessage = string> implements EventSender {
         for (const p of projects) {
             p.getLanguageService(/*ensureSynchronized*/ false).cleanupSemanticCache();
             p.cleanupProgram();
-            // cleanupSemanticCache and cleanupProgram deliberately discard both copies of
-            // the Program. Ensure the next request updates the project graph before it asks
-            // the language service for semantic data or refactors.
-            p.markAsDirty();
+            p.markAsDirty(); // TSPP-SLOT(program-rebuild): the next request rebuilds the discarded program
         }
     }
 

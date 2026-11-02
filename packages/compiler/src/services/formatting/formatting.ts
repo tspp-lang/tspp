@@ -77,6 +77,7 @@ import {
     TriviaSyntaxKind,
     TypeReferenceNode,
 } from "../_namespaces/ts.js";
+import { hasUnformattableTSPPChildren } from "../tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
 
 /** @internal */
 export interface FormatContext {
@@ -461,21 +462,6 @@ function formatNodeLines(node: Node | undefined, sourceFile: SourceFile, formatC
     };
 
     return formatSpan(span, sourceFile, formatContext, requestKind);
-}
-
-/** Whether a node's children are synthesized or out of source order, as in lowered plugin syntax. */
-function hasUnformattableChildren(node: Node): boolean {
-    let end = node.pos;
-    const isUnordered = (range: TextRange) => {
-        if (range.pos < 0 || range.pos < end) return true;
-        end = range.end;
-        return false;
-    };
-    return !!forEachChild(
-        node,
-        child => isUnordered(child) || undefined,
-        children => isUnordered(children) || children.some(child => child.pos < 0) || undefined,
-    );
 }
 
 function formatSpan(originalRange: TextRange, sourceFile: SourceFile, formatContext: FormatContext, requestKind: FormattingRequestKind): TextChange[] {
@@ -866,8 +852,7 @@ function formatSpanWorker(
                 return inheritedIndentation;
             }
 
-            // Plugin syntax lowers to synthesized or reordered nodes that the rules cannot walk, so it keeps its layout.
-            if (hasUnformattableChildren(child)) {
+            if (hasUnformattableTSPPChildren(child)) { // TSPP-SLOT(syntax-extension): lowered plugin syntax keeps its layout
                 formattingScanner.skipToEndOf(child);
                 return inheritedIndentation;
             }

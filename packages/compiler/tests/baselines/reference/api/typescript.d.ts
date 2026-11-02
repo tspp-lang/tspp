@@ -2867,7 +2867,6 @@ declare namespace ts {
             private externalFiles;
             private missingFilesMap;
             private generatedFilesMap;
-            private tsppAnalysisProxyInstalled;
             private hasAddedorRemovedFiles;
             private hasAddedOrRemovedSymlinks;
             protected languageService: LanguageService;

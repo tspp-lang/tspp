@@ -47,13 +47,11 @@ import {
     isPrefixUnaryExpression,
     isPropertyAccessExpression,
     isSuperKeyword,
-    isTSPPSyntaxNode,
     isVariableDeclaration,
     isVariableDeclarationList,
     length,
     map,
     Node,
-    NodeFlags,
     ObjectBindingPattern,
     ParameterDeclaration,
     probablyUsesSemicolons,
@@ -67,6 +65,10 @@ import {
     VariableDeclaration,
     VariableDeclarationList,
 } from "../_namespaces/ts.js";
+import {
+    hasTSPPSyntaxTypeParameters,
+    isTSPPSyntaxDeclarationName,
+} from "../tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
 
 const fixName = "unusedIdentifier";
 const fixIdPrefix = "unusedIdentifier_prefix";
@@ -231,9 +233,8 @@ function createDeleteFix(changes: FileTextChanges[], diag: DiagnosticOrDiagnosti
 }
 
 function deleteTypeParameters(changes: textChanges.ChangeTracker, sourceFile: SourceFile, token: Node): void {
-    const declaration = cast(token.parent, isDeclarationWithTypeParameterChildren);
-    if (isTSPPSyntaxNode(declaration)) return; // TSPP-SLOT(syntax-extension)
-    changes.delete(sourceFile, Debug.checkDefined(declaration.typeParameters, "The type parameter to delete should exist"));
+    if (hasTSPPSyntaxTypeParameters(token.parent)) return; // TSPP-SLOT(syntax-extension)
+    changes.delete(sourceFile, Debug.checkDefined(cast(token.parent, isDeclarationWithTypeParameterChildren).typeParameters, "The type parameter to delete should exist"));
 }
 
 function isImport(token: Node) {
@@ -315,8 +316,7 @@ function canPrefix(token: Identifier): boolean {
 }
 
 function tryDeleteDeclaration(sourceFile: SourceFile, token: Node, changes: textChanges.ChangeTracker, checker: TypeChecker, sourceFiles: readonly SourceFile[], program: Program, cancellationToken: CancellationToken, isFixAll: boolean) {
-    // A name declared by plugin syntax, such as a type-level `let` binding, has no declaration text of its own to delete.
-    if (token.flags & NodeFlags.Synthesized || token.parent.kind === SyntaxKind.TypeParameter && (token.parent.end === token.parent.pos || isTSPPSyntaxNode(token.parent.parent))) return; // TSPP-SLOT(syntax-extension)
+    if (isTSPPSyntaxDeclarationName(token)) return; // TSPP-SLOT(syntax-extension)
     tryDeleteDeclarationWorker(token, changes, sourceFile, checker, sourceFiles, program, cancellationToken, isFixAll);
     if (isIdentifier(token)) {
         FindAllReferences.Core.eachSymbolReferenceInFile(token, checker, sourceFile, (ref: Node) => {

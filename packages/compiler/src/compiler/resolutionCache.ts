@@ -1384,17 +1384,14 @@ export function createResolutionCache(resolutionHost: ResolutionCacheHost, rootD
         Debug.checkDefined(resolution.files).delete(filePath);
         if (resolution.files!.size) return;
         resolution.files = undefined;
-        // A TS++ macro expansion can rebuild the Program before deferred watchers for the
-        // first pass have been installed. Removing that resolution must also cancel the
-        // deferred installation; there are no watcher reference counts to decrement yet.
-        const wasDeferred = nonRelativeExternalModuleResolutions.delete(resolution);
+        const wasDeferred = nonRelativeExternalModuleResolutions.delete(resolution); // TSPP-SLOT(program-rebuild): a rebuilt program can drop a resolution whose watchers are still deferred
         const resolved = getResolutionWithResolvedFileName(resolution);
         if (resolved && resolved.resolvedFileName) {
             const key = resolutionHost.toPath(resolved.resolvedFileName);
             const resolutions = resolvedFileToResolution.get(key);
             if (resolutions?.delete(resolution) && !resolutions.size) resolvedFileToResolution.delete(key);
         }
-        if (wasDeferred) return;
+        if (wasDeferred) return; // TSPP-SLOT(program-rebuild)
 
         const { failedLookupLocations, affectingLocations, alternateResult } = resolution;
         if (resolutionsWithFailedLookups.delete(resolution)) {
