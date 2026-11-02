@@ -2,9 +2,12 @@
 
 An isolated syntax capsule for nominal `newtype` aliases and algebraic `data`
 declarations. A newtype is assignable to its underlying type, while the
-underlying type and other newtypes are not assignable back to it. Constructor
-calls are erased to their argument, so the abstraction has no runtime
-allocation or call cost.
+underlying type and other newtypes are not assignable back to it. A newtype
+constructor lowers to an identity function and allocates nothing. It may only
+be called directly (or named in `typeof`, imports, and exports): any other
+value reference, such as `const make = UserId;`, reports TS18062, so the
+constructor stays an erasable abstraction that never escapes into runtime
+values.
 
 Data declarations create nominal tagged unions, nullary values, typed variant
 constructors, and value-level `match` expressions. Match scrutinees are

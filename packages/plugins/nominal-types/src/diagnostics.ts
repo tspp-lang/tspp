@@ -151,6 +151,44 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
         }
     }
 
+    /**
+     * Newtype constructors are erased abstractions: they may be called, named in `typeof`, imported, and exported, but a
+     * value reference anywhere else would let the constructor escape into runtime values (TS18062, as before the
+     * lowering moved out of the core).
+     */
+    function escapingConstructorReferences(sourceFile: TS.SourceFile, checker: TS.TypeChecker): TS.Identifier[] {
+        const found: TS.Identifier[] = [];
+        const visit = (node: TS.Node): void => {
+            // Types (including `typeof` queries), imports, and exports never use the constructor as a value.
+            if (node.pos < 0 || ts.isTypeNode(node) && !ts.isExpressionWithTypeArguments(node) || ts.isImportDeclaration(node) || ts.isImportEqualsDeclaration(node) || ts.isExportDeclaration(node)) return;
+            if (ts.isIdentifier(node)) {
+                if (isValueReference(node)) {
+                    let symbol = ts.isShorthandPropertyAssignment(node.parent) ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+                    if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+                    if (symbol?.declarations?.some(declarations.isNewtypeConstructor)) found.push(node);
+                }
+                return;
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(sourceFile);
+        return found;
+    }
+
+    function isValueReference(node: TS.Identifier): boolean {
+        const parent = node.parent;
+        if (ts.isCallExpression(parent) && parent.expression === node) return false;
+        if (ts.isPropertyAccessExpression(parent)) return parent.name !== node;
+        if (ts.isShorthandPropertyAssignment(parent)) return parent.name === node;
+        if (ts.isPropertyAssignment(parent) || ts.isBindingElement(parent) || ts.isPropertyDeclaration(parent) || ts.isMethodDeclaration(parent)
+            || ts.isPropertySignature(parent) || ts.isEnumMember(parent) || ts.isGetAccessor(parent) || ts.isSetAccessor(parent)) {
+            return (parent as TS.Node & { readonly name?: TS.Node; }).name !== node && (!ts.isBindingElement(parent) || parent.propertyName !== node);
+        }
+        if (ts.isLabeledStatement(parent) || ts.isBreakOrContinueStatement(parent) || ts.isJsxAttribute(parent)) return false;
+        const named = parent as TS.Node & { readonly name?: TS.Node; };
+        return named.name !== node || ts.isExportAssignment(parent);
+    }
+
     return {
         id: "nominal-types",
         getSemanticDiagnostics: (sourceFile, checker) => {
@@ -158,6 +196,9 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
             const error = (start: number, end: number, code: number, messageText: string) =>
                 diagnostics.push({ category: ts.DiagnosticCategory.Error, code, file: sourceFile, start, length: end - start, messageText });
             if (declarations.newtypeCount()) {
+                for (const reference of escapingConstructorReferences(sourceFile, checker)) {
+                    error(tokenStart(sourceFile, reference.pos), reference.end, 18062, `The extension value '${ts.idText(reference)}' can only be used as the target of a direct call.`);
+                }
                 const visit = (node: TS.Node): void => {
                     const underlying = declarations.newtypes.get(node);
                     if (underlying) {
@@ -182,7 +223,11 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
             if (!diagnostic.file || diagnostic.start === undefined) return true;
             const start = diagnostic.start;
             // Generated declarations are empty; an unused one, such as a brand's private member, has no source to delete.
-            if (unusedCodes.has(diagnostic.code) && (diagnostic.length === 0 || declarations.isCompanionName(diagnostic.file, start))) return false;
+            // Only this plugin's own declarations: other plugins lower to empty nodes too and may move such a diagnostic
+            // onto authored text (type-computation reports an unused `let` binding on its name).
+            if (unusedCodes.has(diagnostic.code) && (diagnostic.length === 0
+                ? declarations.isGeneratedDeclaration(diagnostic.file, start)
+                : declarations.isCompanionName(diagnostic.file, start))) return false;
             return !matchesIn(diagnostic.file).some(match =>
                 diagnostic.length === 0 && match.start <= start && start <= match.end
                 || match.patternRanges.some(range => range.start <= start && start < range.end));

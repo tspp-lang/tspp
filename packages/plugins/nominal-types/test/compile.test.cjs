@@ -343,3 +343,42 @@ test("hovering pattern bindings leaves later diagnostics working", () => {
   const info = createLanguageService("/main.tspp", source).getQuickInfoAtPosition("/main.tspp", source.indexOf("value) =>"));
   assert.equal(ts.displayPartsToString(info?.displayParts), "(parameter) value: number");
 });
+
+test("unused generated brand members are not reported, but other unused declarations are", () => {
+  // Brand members are empty generated declarations; the drop is limited to them, so other plugins' empty nodes
+  // keep their unused diagnostics (integration/test/cross-plugin.test.cjs covers `let` bindings).
+  const source = `
+    export newtype UserId = number;
+    export data Option<T> = None | Some(value: T);
+    const Unused = 1;
+  `;
+  const { program } = createProgram(source, { noUnusedLocals: true, noUnusedParameters: true });
+  const reported = program.getSemanticDiagnostics().map(diagnostic => [diagnostic.code, source.slice(diagnostic.start, diagnostic.start + diagnostic.length)]);
+  assert.ok(reported.every(([, text]) => text === "Unused"), JSON.stringify(reported));
+  assert.ok(reported.length > 0, "the unused authored constant is still reported");
+});
+
+test("newtype constructors can only be called directly", () => {
+  // Restores the core's former `valueUse: "call-only"` rule (TS18062): calls, `typeof`, imports, and exports are
+  // allowed; any other value reference would let the erased constructor escape into runtime values.
+  const { program } = createProgram({
+    "/lib.tspp": `export newtype UserId = string;\nexport newtype Box<T> = T;\nexport { UserId as Renamed };\n`,
+    "/main.tspp": `import { UserId, Box } from "./lib";
+      type Constructor = typeof UserId;
+      const ok: UserId = UserId("x");
+      const generic = Box<number>(1);
+      const escaped: Constructor = UserId;
+      const shorthand = { UserId };
+      const property = { key: UserId, UserId: 1 };
+      function shadowed(UserId: number) { return UserId; }
+      // @ts-expect-error -- the directive is used by the escaping reference
+      const suppressed: Constructor = Box;
+      export default Box;
+    `,
+  });
+  const diagnostics = program.getSemanticDiagnostics();
+  const lines = diagnostics.map(diagnostic => diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1);
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [18062, 18062, 18062, 18062], diagnosticMessages(program).join("\n"));
+  assert.deepEqual(lines, [5, 6, 7, 11]);
+  assert.match(diagnosticMessages(program)[0], /The extension value 'UserId' can only be used as the target of a direct call/);
+});

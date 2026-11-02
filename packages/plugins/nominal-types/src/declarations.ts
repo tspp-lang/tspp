@@ -14,8 +14,15 @@ export interface NominalDeclarations {
     /** Type aliases of `newtype` declarations with the node of their underlying type. */
     readonly newtypes: WeakMap<TS.Node, TS.TypeNode>;
     readonly newtypeCount: () => number;
+    /** Whether `declaration` is the constructor function a `newtype` lowers to. */
+    readonly isNewtypeConstructor: (declaration: TS.Node) => boolean;
     /** Whether `start` is where a generated companion of a declaration in `sourceFile` names itself. */
     readonly isCompanionName: (sourceFile: TS.SourceFile, start: number) => boolean;
+    /**
+     * Whether `start` is the empty range of a declaration generated inside a companion in `sourceFile`, such as a
+     * brand's private member, which has no source text and so no name to report on.
+     */
+    readonly isGeneratedDeclaration: (sourceFile: TS.SourceFile, start: number) => boolean;
 }
 
 interface ParsedVariant {
@@ -42,6 +49,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     /** Statements a declaration lowers to besides its type alias; feature-rich declaration output omits them. */
     const companions = new WeakSet<TS.Node>();
     const newtypes = new WeakMap<TS.Node, TS.TypeNode>();
+    const newtypeConstructors = new WeakSet<TS.Node>();
     let newtypeCount = 0;
 
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end: number): T => ts.setTextRange(node, { pos, end });
@@ -177,6 +185,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         newtypes.set(alias, underlying);
         newtypeCount++;
         companions.add(constructor);
+        newtypeConstructors.add(constructor);
         // Companions follow the alias in the statement list, so their nodes sit at the next token.
         const after = cursor.getTokenStart();
         return [markGenerated(ts, alias, keywordStart), ...[constructor, namespace].map(statement => markGenerated(ts, statement, after, name))];
@@ -366,24 +375,41 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             return `${exported ? "export " : ""}${declaration.render(sourceFile)}`;
         },
     };
-    const companionNames = new WeakMap<TS.SourceFile, ReadonlySet<number>>();
-    const isCompanionName = (sourceFile: TS.SourceFile, start: number) => {
-        let names = companionNames.get(sourceFile);
-        if (!names) {
-            const found = new Set<number>();
+    /** Per source file: where companions name themselves, and where declarations generated inside them sit. */
+    const companionPositions = new WeakMap<TS.SourceFile, { readonly names: ReadonlySet<number>; readonly empty: ReadonlySet<number>; }>();
+    const positionsIn = (sourceFile: TS.SourceFile) => {
+        let positions = companionPositions.get(sourceFile);
+        if (!positions) {
+            const names = new Set<number>();
+            const empty = new Set<number>();
+            const visitGenerated = (node: TS.Node): void => {
+                const generatedName = (node as TS.Node & { readonly name?: TS.Node; }).name;
+                if (node.pos >= 0 && node.pos === node.end && generatedName?.pos === -1) empty.add(node.pos);
+                ts.forEachChild(node, visitGenerated);
+            };
             const visit = (node: TS.Node): void => {
                 if (companions.has(node)) {
                     const named = node as TS.Node & { readonly name?: TS.Node; };
-                    if (named.name) found.add(skipTrivia(sourceFile.text, named.name.pos));
-                    if (ts.isVariableStatement(node)) for (const declaration of node.declarationList.declarations) found.add(skipTrivia(sourceFile.text, declaration.name.pos));
+                    if (named.name) names.add(skipTrivia(sourceFile.text, named.name.pos));
+                    if (ts.isVariableStatement(node)) for (const declaration of node.declarationList.declarations) names.add(skipTrivia(sourceFile.text, declaration.name.pos));
+                    ts.forEachChild(node, visitGenerated);
                     return;
                 }
                 ts.forEachChild(node, visit);
             };
             visit(sourceFile);
-            companionNames.set(sourceFile, names = found);
+            companionPositions.set(sourceFile, positions = { names, empty });
         }
-        return names.has(start);
+        return positions;
     };
-    return { extension, newtypes, newtypeCount: () => newtypeCount, isCompanionName };
+    const isCompanionName = (sourceFile: TS.SourceFile, start: number) => positionsIn(sourceFile).names.has(start);
+    const isGeneratedDeclaration = (sourceFile: TS.SourceFile, start: number) => positionsIn(sourceFile).empty.has(start);
+    return {
+        extension,
+        newtypes,
+        newtypeCount: () => newtypeCount,
+        isNewtypeConstructor: declaration => newtypeConstructors.has(declaration),
+        isCompanionName,
+        isGeneratedDeclaration,
+    };
 }
