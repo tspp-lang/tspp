@@ -1,7 +1,7 @@
 // Ordinary TypeScript types remain external terms at the MLTT boundary.
 type Box<T> = { value: T };
-export type BoxFamily :: Type1 = (A: Type0) -> Box<A>;
-export type UnionFamily :: Type1 = (A: Type0) -> A | undefined;
+export type BoxFamily: Type1 = (A: Type0) -> Box<A>;
+export type UnionFamily: Type1 = (A: Type0) -> A | undefined;
 
 // The capsule intentionally keeps user-defined inductive families, general
 // unification and arbitrary JavaScript evaluation outside the trusted kernel.

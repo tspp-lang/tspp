@@ -10,7 +10,6 @@
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*",
-    "@tspp/plugin-dependent-types": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-modern-syntax": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",

@@ -1,0 +1,288 @@
+import { maskNonCode } from "@tspp/plugin-sdk";
+import type { TSPPAnalysisArtifact, TSPPDiagnosticProvider, TSPPProgramAnalyzer, TSPPSourcePreprocessor, TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
+import type * as TS from "typescript-upstream";
+
+import {
+    checkMlttType,
+    inferMlttType,
+    MlttTypeError,
+    normalizeMlttTerm,
+    printMlttTerm,
+    type MlttExternal,
+    type MlttTerm,
+} from "./core";
+import { keywordTypes, lowerTermToTypeNode } from "./lower";
+import type { TypeSyntaxModel } from "./kinds";
+import { parseDependentTypeText, startsBuiltinTerm, TermParser, type TermLocation, type TermTokens } from "./term-parser";
+
+// Terms of the dependent type theory inside ordinary type syntax: the parts of an alias TypeScript has no spelling for.
+// The kernel in `core` checks them and works out what they compute; `lower` hands the result to TypeScript as a type.
+
+export function parseDependentType(text: string, aliases: ReadonlyMap<string, MlttTerm> = new Map()): MlttTerm {
+    return parseDependentTypeText(text, aliases);
+}
+
+export function inferDependentTypeUniverse(term: MlttTerm): number {
+    const inferred = normalizeMlttTerm(inferMlttType(term));
+    if (inferred.kind !== "universe") {
+        throw new Error("The right-hand side is a term, not a type.");
+    }
+    return inferred.level;
+}
+
+/** Tokens of the compiler's parser; `->` is two tokens there. */
+export function cursorTokens(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): TermTokens {
+    const kinds = ts.SyntaxKind;
+    const text = () => {
+        if (cursor.token() === kinds.EndOfFileToken) return undefined;
+        return cursor.tokenText();
+    };
+    const isArrow = () => cursor.token() === kinds.MinusToken && cursor.lookAhead(() => cursor.nextToken() === kinds.GreaterThanToken && !cursor.hasPrecedingLineBreak());
+    const current = () => isArrow() ? "->" : text();
+    const advance = () => {
+        if (isArrow()) cursor.nextToken();
+        cursor.nextToken();
+    };
+    return {
+        peek: (offset = 0) => {
+            if (offset === 0) return current();
+            return cursor.lookAhead(() => {
+                for (let index = 0; index < offset; index++) advance();
+                return current();
+            });
+        },
+        next: advance,
+        position: () => cursor.getTokenStart(),
+    };
+}
+
+const declaredNames = /\b(?:type|interface|class|enum|data|newtype)\s+([A-Za-z_$][\w$]*)/g;
+const namedImports = /\bimport\s+(?:type\s+)?(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\b/g;
+
+/** The names a file declares or imports itself; a type named `Pair` there is that type, not the built-in term. */
+export function fileDeclaredNames(model: TypeSyntaxModel, sourceText: string): ReadonlySet<string> {
+    const file = fileStateOf(model, sourceText);
+    if (file.declared) return file.declared;
+    const code = maskNonCode(sourceText);
+    const names = new Set<string>();
+    for (const match of code.matchAll(declaredNames)) names.add(match[1]);
+    for (const match of code.matchAll(namedImports)) {
+        if (match[1]) names.add(match[1]);
+        for (const part of match[2]?.split(",") ?? []) {
+            const name = part.trim().split(/\s+as\s+/).pop()?.replace(/^type\s+/, "");
+            if (name) names.add(name);
+        }
+    }
+    return file.declared = names;
+}
+
+function fileStateOf(model: TypeSyntaxModel, sourceText: string) {
+    if (model.file?.sourceText !== sourceText) model.file = { sourceText, aliases: new Map() };
+    return model.file;
+}
+
+/** Earlier aliases of the file being parsed, by name; a term refers to them by what they compute. */
+export function fileAliases(model: TypeSyntaxModel, sourceText: string): Map<string, MlttTerm> {
+    return fileStateOf(model, sourceText).aliases;
+}
+
+export function isTermStart(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor): boolean {
+    const kinds = ts.SyntaxKind;
+    if (cursor.token() === kinds.OpenParenToken || cursor.token() === kinds.OpenBraceToken) return isBinderStart(cursor, kinds);
+    if (cursor.token() !== kinds.Identifier) return false;
+    const name = cursor.tokenText();
+    if (!startsBuiltinTerm(name, "<")) return false;
+    if (fileDeclaredNames(model, cursor.getSourceText()).has(name)) return false;
+    return startsBuiltinTerm(name, cursor.lookAhead(() => (cursor.nextToken(), cursor.tokenText())));
+}
+
+/** `(name: ...) ->` or `{name: ...} ->`, which an object or function type cannot continue into. */
+function isBinderStart(cursor: TSPPSyntaxCursor, kinds: TSPPTypeScript["SyntaxKind"]): boolean {
+    return cursor.lookAhead(() => {
+        const open = cursor.token();
+        const close = open === kinds.OpenParenToken ? kinds.CloseParenToken : kinds.CloseBraceToken;
+        cursor.nextToken();
+        if (cursor.token() !== kinds.Identifier) return false;
+        cursor.nextToken();
+        if (cursor.token() !== kinds.ColonToken) return false;
+        let depth = 1;
+        while (depth > 0) {
+            cursor.nextToken();
+            if (cursor.token() === kinds.EndOfFileToken) return false;
+            if (cursor.token() === open) depth++;
+            else if (cursor.token() === close) depth--;
+        }
+        return cursor.nextToken() === kinds.MinusToken && cursor.nextToken() === kinds.GreaterThanToken;
+    });
+}
+
+/** Parses a term at the cursor and lowers it to the type node that stands for it. */
+export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor, start: number): TS.TypeNode {
+    const sourceText = cursor.getSourceText();
+    let term: MlttTerm | undefined;
+    try {
+        term = new TermParser(cursorTokens(ts, cursor), {
+            aliases: fileAliases(model, sourceText),
+            shadowed: fileDeclaredNames(model, sourceText),
+        }).parseOne();
+    }
+    catch (error) {
+        const message = (error instanceof Error ? error.message : String(error)).replace(/ \(offset \d+\)$/, "");
+        cursor.parseErrorAt(cursor.getTokenStart(), Math.max(cursor.getNodePos(), cursor.getTokenStart() + 1), message, diagnosticCodes.syntax);
+        skipToEndOfDeclaration(ts, cursor);
+    }
+    // Empty, like every generated node: the authored text is no node's, and parent nodes span it.
+    const node = term ? lowerTermToTypeNode(ts, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
+    if (term) model.terms.set(node, term);
+    model.authored.set(node, start);
+    model.authoredEnds.set(node, cursor.getNodePos());
+    model.used = true;
+    return node;
+}
+
+function skipToEndOfDeclaration(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): void {
+    const kinds = ts.SyntaxKind;
+    while (cursor.token() !== kinds.SemicolonToken && cursor.token() !== kinds.EndOfFileToken && !cursor.hasPrecedingLineBreak()) cursor.nextToken();
+}
+
+const diagnosticCodes = { syntax: 19101, typeError: 19102 } as const;
+/** TypeScript's own code for the same message. */
+const cannotFindName = 2304;
+const cannotFindNamespace = 2503;
+
+/** Whether a term is well typed, against an alias's annotation when it has one. Throws what the kernel objects to. */
+function checkTerm(term: MlttTerm, annotation: MlttTerm | undefined, name: string | undefined): void {
+    if (annotation?.kind === "universe") {
+        const level = inferDependentTypeUniverse(term);
+        if (level !== annotation.level) throw new Error(`Type '${name}' has kind Type${level}, not Type${annotation.level}.`);
+    }
+    else if (annotation) checkMlttType(term, annotation);
+    else inferMlttType(term);
+}
+
+function forEachTerm(ts: TSPPTypeScript, model: TypeSyntaxModel, sourceFile: TS.SourceFile, visitTerm: (node: TS.TypeNode, term: MlttTerm, alias: TS.TypeAliasDeclaration | undefined) => void): void {
+    const visit = (node: TS.Node): void => {
+        const term = model.terms.get(node);
+        if (!term) return void ts.forEachChild(node, visit);
+        const alias = ts.isTypeAliasDeclaration(node.parent) && node.parent.type === node ? node.parent : undefined;
+        visitTerm(node as TS.TypeNode, term, alias);
+    };
+    visit(sourceFile);
+}
+
+/** The kernel's verdict on every term of a file, reported like any other type error. */
+export function createTermDiagnostics(ts: TSPPTypeScript, model: TypeSyntaxModel): TSPPDiagnosticProvider {
+    return {
+        id: "terms",
+        getSemanticDiagnostics(sourceFile, checker) {
+            const diagnostics: TS.Diagnostic[] = [];
+            /** The TypeScript types a term names must exist; its generated references cannot say where they were written. */
+            const reportUnknownNames = (term: unknown, location: TS.Node): void => {
+                if (!term || typeof term !== "object") return;
+                const external = term as MlttExternal;
+                const written = external.kind === "external" ? external.identity as TermLocation | undefined : undefined;
+                if (written && !keywordTypes.has(external.key) && !checker.resolveName(external.key, location, ts.SymbolFlags.Type | ts.SymbolFlags.Namespace, /*excludeGlobals*/ false)) {
+                    diagnostics.push({
+                        category: ts.DiagnosticCategory.Error,
+                        code: cannotFindName,
+                        file: sourceFile,
+                        start: written.start,
+                        length: written.end - written.start,
+                        messageText: `Cannot find name '${external.key}'.`,
+                    });
+                }
+                for (const child of Object.values(term)) {
+                    if (Array.isArray(child)) child.forEach(item => reportUnknownNames(item, location));
+                    else reportUnknownNames(child, location);
+                }
+            };
+            forEachTerm(ts, model, sourceFile, (node, term, alias) => {
+                reportUnknownNames(term, alias ?? node);
+                try {
+                    const annotation = alias && model.termAnnotations.get(alias);
+                    checkTerm(term, annotation, alias && ts.idText(alias.name));
+                }
+                catch (error) {
+                    const start = model.authored.get(node) ?? node.pos;
+                    diagnostics.push({
+                        category: ts.DiagnosticCategory.Error,
+                        code: error instanceof MlttTypeError ? diagnosticCodes.typeError : diagnosticCodes.syntax,
+                        file: sourceFile,
+                        start,
+                        length: (model.authoredEnds.get(node) ?? node.end) - start,
+                        messageText: error instanceof Error ? error.message : String(error),
+                    });
+                }
+            });
+            return diagnostics;
+        },
+        // The checker's own report is about a generated reference with no text to point at; this provider reports the name.
+        filterDiagnostic: diagnostic => !(diagnostic.length === 0 && (diagnostic.code === cannotFindName || diagnostic.code === cannotFindNamespace)),
+    };
+}
+
+/** Publishes what each alias's term and type normalize to, for the editor's normal form view. */
+export function createNormalFormAnalyzer(ts: TSPPTypeScript, model: TypeSyntaxModel): TSPPProgramAnalyzer {
+    return {
+        id: "mltt-types",
+        async analyze(input) {
+            const artifacts: TSPPAnalysisArtifact[] = [];
+            for (const { fileName, text } of input.sourceFiles) {
+                if (!fileName.endsWith(".tspp")) continue;
+                const sourceFile = ts.createSourceFile(`${fileName}.normal-forms.tspp`, text, ts.ScriptTarget.Latest, /*setParentNodes*/ true, ts.ScriptKind.TS);
+                forEachTerm(ts, model, sourceFile, (node, term, alias) => {
+                    if (!alias) return;
+                    const name = ts.idText(alias.name);
+                    try {
+                        const normalType = normalizeMlttTerm(inferMlttType(term));
+                        const start = model.authored.get(node) ?? node.pos;
+                        artifacts.push({
+                            kind: "dependent-types/normal-form",
+                            fileName,
+                            start,
+                            length: Math.max(1, (model.authoredEnds.get(node) ?? node.end) - start),
+                            name: `${name} normal form`,
+                            language: "plaintext",
+                            status: "proved",
+                            content: `${name} : ${printMlttTerm(normalType)}\n${name} = ${printMlttTerm(normalizeMlttTerm(term))}\n`,
+                        });
+                    }
+                    catch {
+                        // The diagnostic provider has already reported why this term does not check.
+                    }
+                });
+            }
+            const diagnostics = [] as never[] & { artifacts?: readonly TSPPAnalysisArtifact[]; };
+            Object.defineProperty(diagnostics, "artifacts", { value: artifacts });
+            return diagnostics;
+        },
+    };
+}
+
+/** `select<auto, string>(...)` leaves a call's type arguments to inference, by erasing them before parsing. */
+export const partialInferencePreprocessor: TSPPSourcePreprocessor = {
+    id: "partial-inference",
+    claims: [{ keyword: "auto", position: "type" }],
+    preprocess(_fileName, source) {
+        const code = maskNonCode(source);
+        const characters = source.split("");
+        for (const match of code.matchAll(/<[^<>\r\n]*\bauto\b[^<>\r\n]*>(?=\s*\()/gu)) {
+            for (let index = match.index; index < match.index + match[0].length; index++) characters[index] = " ";
+        }
+        return characters.join("");
+    },
+};
+
+/** A type alias with a term body, as a hover shows it. */
+export function dependentAliasAt(sourceText: string, position: number): { readonly nameStart: number; readonly nameEnd: number; readonly display: string; } | undefined {
+    const code = maskNonCode(sourceText);
+    const pattern = /\btype\s+([A-Za-z_$][\w$]*)\s*:\s*([^=;]+?)\s*=(?!>)\s*([^;]+);/g;
+    for (const match of code.matchAll(pattern)) {
+        const nameStart = match.index + match[0].indexOf(match[1]);
+        const nameEnd = nameStart + match[1].length;
+        if (nameStart <= position && position <= nameEnd) {
+            return { nameStart, nameEnd, display: `type ${match[1]}: ${match[2]} = ${match[3].trim()}` };
+        }
+    }
+    return undefined;
+}

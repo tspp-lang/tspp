@@ -8,7 +8,6 @@
     "test": "node --test --test-concurrency=1 test/*.test.cjs"
   },
   "devDependencies": {
-    "@tspp/plugin-dependent-types": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
     "@tspp/plugin-modern-syntax": "workspace:*",

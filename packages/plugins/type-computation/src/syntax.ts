@@ -1,13 +1,17 @@
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { ordinaryKind, parseKind, type TypeKind, type TypeSyntaxModel } from "./kinds";
+import type { MlttTerm } from "./core";
+import { cursorTokens, fileAliases, fileDeclaredNames, isTermStart, parseTermType } from "./dependent";
+import { kindToTerm, ordinaryKind, parseKind, termToKind, type TypeKind, type TypeSyntaxModel } from "./kinds";
+import { builtinTermNames, TermParser } from "./term-parser";
 
 /**
  * Type-level `let X = A in B`, ordered `match T { P: R, ... }`, and type constructors `<T> =>> B` in type positions,
  * applications `F<A>` of an already parsed type, and kind annotations after type parameter and type alias names.
  * Everything lowers to ordinary type nodes: `let` and `match` to conditional types, and constructors and applications
- * to function type nodes that the checker extension interprets.
+ * to function type nodes that the checker extension interprets. Terms of the type theory, which start with a binder
+ * `(x: A) ->` or a built-in name such as `Nat`, lower through the kernel (`dependent`).
  */
 export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): readonly TSPPSyntaxExtension[] {
     const kinds = ts.SyntaxKind;
@@ -36,12 +40,13 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
 
     const typeSyntax: TSPPSyntaxExtension = {
         position: "type",
-        startTokens: [kinds.LetKeyword, kinds.Identifier, kinds.LessThanToken],
-        keywords: ["let", "match", "<", "Type"],
-        isStart: cursor => isLetStart(cursor) || isMatchStart(cursor) || isConstructorStart(cursor),
+        startTokens: [kinds.LetKeyword, kinds.Identifier, kinds.LessThanToken, kinds.OpenParenToken, kinds.OpenBraceToken],
+        keywords: ["let", "match", "<", "Type", "(", "{", ...builtinTermNames],
+        isStart: cursor => isLetStart(cursor) || isMatchStart(cursor) || isConstructorStart(cursor) || isTermStart(ts, model, cursor),
         parse: cursor => {
             const pos = cursor.getNodePos();
             const start = cursor.getTokenStart();
+            if (isTermStart(ts, model, cursor)) return parseTermType(ts, model, cursor, start);
             const node = cursor.token() === kinds.LetKeyword ? parseLet(cursor, pos)
                 : cursor.token() === kinds.Identifier ? parseMatch(cursor, pos)
                 : parseConstructor(cursor, pos);
@@ -70,17 +75,44 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
         parse: cursor => {
             const start = cursor.getTokenStart();
             cursor.parseExpected(kinds.ColonToken);
-            const kind = parseKind(ts, cursor);
+            const { kind, term } = parseAnnotation(cursor);
             const end = cursor.getNodePos();
             model.used = true;
             return declaration => {
                 model.declarationKinds.set(declaration, kind);
                 model.kindAnnotations.set(declaration, { start, end });
+                if (!ts.isTypeAliasDeclaration(declaration)) return;
+                model.termAnnotations.set(declaration, term);
+                const body = model.terms.get(declaration.type);
+                if (body) fileAliases(model, cursor.getSourceText()).set(ts.idText(declaration.name), body);
             };
         },
     });
 
     return [typeSyntax, applicationSyntax, annotation("type-parameter-annotation"), annotation("type-alias-annotation")];
+
+    /** A kind such as `(Type, Type) => Type`, or any other term that a declaration's values belong to. */
+    function parseAnnotation(cursor: TSPPSyntaxCursor): { readonly kind: TypeKind; readonly term: MlttTerm; } {
+        const isKind = cursor.lookAhead(() => {
+            try {
+                parseKind(ts, cursor);
+                return [kinds.EqualsToken, kinds.CommaToken, kinds.GreaterThanToken, kinds.ExtendsKeyword, kinds.SemicolonToken].includes(cursor.token());
+            }
+            catch {
+                return false;
+            }
+        });
+        if (isKind) {
+            const kind = parseKind(ts, cursor);
+            return { kind, term: kindToTerm(kind) };
+        }
+        const sourceText = cursor.getSourceText();
+        const term = new TermParser(cursorTokens(ts, cursor), {
+            aliases: fileAliases(model, sourceText),
+            shadowed: fileDeclaredNames(model, sourceText),
+        }).parseOne();
+        return { kind: termToKind(term), term };
+    }
 
     function parseLet(cursor: TSPPSyntaxCursor, pos: number): TS.TypeNode {
         cursor.nextToken();
@@ -187,13 +219,15 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
         };
     }
 
-    function createSingletonTuple(cursor: TSPPSyntaxCursor, type: TS.TypeNode) {
-        return ts.setTextRange(cursor.factory.createTupleTypeNode(ts.setTextRange(cursor.factory.createNodeArray([type]), type)), type);
+    /** `[type]`. Declaration output reads the line a tuple starts on, so a generated `type` borrows `located`'s position. */
+    function createSingletonTuple(cursor: TSPPSyntaxCursor, type: TS.TypeNode, located: TS.TypeNode) {
+        const range = type.pos >= 0 ? type : { pos: located.pos, end: located.pos };
+        return ts.setTextRange(cursor.factory.createTupleTypeNode(ts.setTextRange(cursor.factory.createNodeArray([type]), range)), range);
     }
 
     /** `[check] extends [pattern] ? whenTrue : whenFalse`, which does not distribute over unions. */
     function createNonDistributiveConditional(cursor: TSPPSyntaxCursor, check: TS.TypeNode, pattern: TS.TypeNode, whenTrue: TS.TypeNode, whenFalse: TS.TypeNode) {
-        return cursor.factory.createConditionalTypeNode(createSingletonTuple(cursor, check), createSingletonTuple(cursor, pattern), whenTrue, whenFalse);
+        return cursor.factory.createConditionalTypeNode(createSingletonTuple(cursor, check, pattern), createSingletonTuple(cursor, pattern, pattern), whenTrue, whenFalse);
     }
 
     /** An empty range would make a name "missing" to the checker, so only the `never` fallback gets one. */

@@ -28,7 +28,6 @@
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*",
-    "@tspp/plugin-dependent-types": "workspace:*",
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",

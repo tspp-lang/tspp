@@ -4,7 +4,6 @@ const path = require("node:path");
 const { usePlugins } = require("../../test-support/compile.cjs");
 
 const packageNames = [
-  "@tspp/plugin-dependent-types",
   "@tspp/plugin-formal-verification",
   "@tspp/plugin-macros",
   "@tspp/plugin-modern-syntax",

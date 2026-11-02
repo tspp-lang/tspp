@@ -19,7 +19,7 @@ const knownKeywordConflicts = {};
 const knownUndeclaredTestDependencies = {};
 
 // Plugin ids are not always the package directory name (`formal-verification/z3`), so map both ways.
-const shortName = id => id.split("/")[0].replace(/^type-system$/, "dependent-types");
+const shortName = id => id.split("/")[0];
 
 function assertMatchesKnown(actual, known, describe) {
   const actualKeys = Object.keys(actual).sort();

@@ -1,7 +1,7 @@
-export type UniverseZero :: Type1 = Type0;
-export type UniverseOne :: Type2 = Type1;
+export type UniverseZero: Type1 = Type0;
+export type UniverseOne: Type2 = Type1;
 
-export type PolymorphicIdentity :: Type1 =
+export type PolymorphicIdentity: Type1 =
   {A: Type0} -> (value: A) -> A;
 
 const ordinaryIdentity = <A>(value: A): A => value;
@@ -9,7 +9,7 @@ export const identity: PolymorphicIdentity = ordinaryIdentity;
 export const inferredIdentity = identity("inferred");
 export const explicitIdentity = identity<number>(42);
 
-export type SelectRight :: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
+export type SelectRight: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
 const selectRightImplementation = <A, B>(_left: A, right: B): B => right;
 export const selectRight: SelectRight = selectRightImplementation;
 export const selected = selectRight(1, "right");

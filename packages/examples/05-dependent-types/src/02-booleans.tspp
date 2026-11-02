@@ -1,13 +1,13 @@
-export type BooleanConsumer :: Type0 = (value: Bool) -> Bool;
+export type BooleanConsumer: Type0 = (value: Bool) -> Bool;
 
-export type TrueResult :: Type0 = If<
+export type TrueResult: Type0 = If<
   True,
   Ann<Lam<(ignored: Bool) -> Type0>, (ignored: Bool) -> Type1>,
   string,
   number
 >;
 
-export type FalseResult :: Type0 = If<
+export type FalseResult: Type0 = If<
   False,
   Ann<Lam<(ignored: Bool) -> Type0>, (ignored: Bool) -> Type1>,
   string,

@@ -3,6 +3,9 @@ import type * as TS from "typescript-upstream";
 
 import { createKindChecker } from "./checker";
 import { createDeclarationRestorers } from "./declarations";
+import { createNormalFormAnalyzer, createTermDiagnostics, dependentAliasAt, partialInferencePreprocessor } from "./dependent";
+import { createReification } from "./reification";
+import { builtinTermNames } from "./term-parser";
 import { createTypeSyntaxModel, kindParameterOwner, universeQuickInfo } from "./kinds";
 import { createTypeSyntax } from "./syntax";
 
@@ -13,12 +16,19 @@ export const typeComputationPlugin = definePlugin({
         id: pluginId,
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
-        displayName: "Type computation and higher-kinded types",
+        displayName: "Type computation, higher-kinded types, and dependent types",
+        capabilities: ["analysis-artifacts", "dependent-types", "runtime-type-reification"],
         syntax: {
             keywords: [
                 { keyword: "let", position: "type" },
                 { keyword: "match", position: "type" },
                 { keyword: "<", position: "type" },
+                { keyword: "(", position: "type" },
+                { keyword: "{", position: "type" },
+                { keyword: "auto", position: "type" },
+                ...builtinTermNames.map(keyword => ({ keyword, position: "type" as const })),
+                { keyword: "reify", position: "expression" },
+                { keyword: "typecase", position: "expression" },
                 { keyword: ":", position: "type-parameter-annotation" },
                 { keyword: ":", position: "type-alias-annotation" },
                 { keyword: "Type", position: "type" },
@@ -33,7 +43,14 @@ export const typeComputationPlugin = definePlugin({
                 const model = createTypeSyntaxModel();
                 const [typeSyntax, ...otherSyntax] = createTypeSyntax(ts, model);
                 const restorers = createDeclarationRestorers(ts, model);
+                const reification = createReification(ts);
                 const disposers = [
+                    context.compiler.registerSyntaxExtension(reification.reify),
+                    context.compiler.registerSyntaxExtension(reification.typecase),
+                    context.compiler.registerProgramRebuilder(reification.selection),
+                    context.compiler.registerSourcePreprocessor(partialInferencePreprocessor),
+                    context.compiler.registerProgramAnalyzer(createNormalFormAnalyzer(ts, model)),
+                    context.compiler.registerDiagnosticProvider(createTermDiagnostics(ts, model)),
                     context.compiler.registerSyntaxExtension({ ...typeSyntax, ...restorers }),
                     ...otherSyntax.map(extension => context.compiler.registerSyntaxExtension(extension)),
                     context.compiler.registerTypeExtension(createKindChecker(ts, model)),
@@ -58,8 +75,25 @@ export const typeComputationPlugin = definePlugin({
         languageService: {
             activate(context) {
                 return context.languageService.registerQuickInfoProvider(request => {
+                    const alias = request.owned ? dependentAliasAt(request.sourceText, request.position) : undefined;
+                    if (alias) {
+                        return {
+                            start: alias.nameStart,
+                            length: alias.nameEnd - alias.nameStart,
+                            display: alias.display,
+                            documentation: "A type alias annotated with its kind or type, checked by the type theory's kernel.",
+                        };
+                    }
                     const token = request.token;
                     if (!token) return undefined;
+                    if (request.owned && reificationDocumentation[token.text]) {
+                        return {
+                            start: token.start,
+                            length: token.length,
+                            display: `(TS++ dependent types) ${token.text}`,
+                            documentation: reificationDocumentation[token.text],
+                        };
+                    }
                     const universe = universeQuickInfo(token);
                     if (universe) return universe;
                     if (request.owned && ["let", "in", "match", "infer"].includes(token.text)) {
@@ -102,12 +136,19 @@ export const typeComputationPlugin = definePlugin({
         },
         editor: {
             keywords: ["in", "infer"],
-            grammars: ["./editor/type-computation.tmLanguage.json", "./editor/higher-kinded-types.tmLanguage.json"],
+            commands: [{ id: "tspp.showMlttNormalForms", title: "TS++: Show MLTT Normal Forms" }],
+            grammars: ["./editor/type-computation.tmLanguage.json", "./editor/higher-kinded-types.tmLanguage.json", "./editor/dependent-types.tmLanguage.json"],
         },
     },
 });
 
 export default typeComputationPlugin;
+export { inferDependentTypeUniverse, parseDependentType } from "./dependent";
+
+const reificationDocumentation: Readonly<Record<string, string>> = {
+    reify: "Creates a runtime descriptor for the following static type.",
+    typecase: "Matches a runtime type descriptor against type patterns in order.",
+};
 
 const typeComputationKeywordDocumentation: Readonly<Record<string, string>> = {
     let: "Introduces a locally named intermediate type.",

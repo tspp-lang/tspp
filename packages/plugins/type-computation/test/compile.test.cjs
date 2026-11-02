@@ -1,6 +1,6 @@
 // End-to-end behavior ported from the legacy-monolith compiler tests (unittests/tspp/typeComputation.ts).
 // Not ported: feature-flag gating (plugins are enabled per project now), `=>` match separators (this plugin's
-// syntax is `Pattern: Result`), and `typecase` and `TypeMatch<...>` (owned by the dependent-types kernel or removed).
+// syntax is `Pattern: Result`), and `typecase` and `TypeMatch<...>` (removed).
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, createLanguageService } = require("../../test-support/compile.cjs");

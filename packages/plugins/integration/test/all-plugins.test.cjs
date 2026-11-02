@@ -38,8 +38,8 @@ export const boxed: Apply<Box, string> = { value: "boxed" };
 export const pair: Pair = [4, 5];
 
 // dependent-types
-export type Two :: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
-export type Chosen :: Type0 = typecase number { number: string, _: boolean };
+export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
+export type Chosen: Type0 = match number { number: string, _: boolean };
 export const chosen: Chosen = "dependent";
 export const descriptor = reify Shape;
 export const described = typecase descriptor { Shape => descriptor.text, _ => "other" };

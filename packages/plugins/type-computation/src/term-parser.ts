@@ -38,11 +38,43 @@ export function getDependentBinderMode(term: MlttTerm): "explicit" | "implicit" 
     return binderModes.get(term);
 }
 
+/** The tokens a term is parsed from: the text of a term, or the compiler's parser at plugin syntax. */
+export interface TermTokens {
+    /** The text of the token `offset` tokens ahead; undefined at the end of the input. */
+    peek(offset?: number): string | undefined;
+    next(): void;
+    /** Where the current token starts, for messages. */
+    position(): number;
+}
+
+/** Where a name embedded in a term is written, kept as its `identity`, so that TypeScript's errors can point at it. */
+export interface TermLocation {
+    readonly start: number;
+    readonly end: number;
+}
+
+export interface TermParserOptions {
+    /** Earlier aliases of the file, by name, which are inlined. */
+    readonly aliases?: ReadonlyMap<string, MlttTerm>;
+    /** Names the file declares itself, which are ordinary types even if they spell a built-in term. */
+    readonly shadowed?: ReadonlySet<string>;
+}
+
 export function parseDependentTypeText(
     text: string,
     aliases: ReadonlyMap<string, MlttTerm> = new Map(),
 ): MlttTerm {
-    return new Parser(tokenize(text), aliases).parse();
+    return new TermParser(textTokens(text), { aliases }).parse();
+}
+
+function textTokens(text: string): TermTokens {
+    const tokens = tokenize(text);
+    let index = 0;
+    return {
+        peek: (offset = 0) => tokens[index + offset]?.text,
+        next: () => void index++,
+        position: () => tokens[index]?.start ?? (tokens.length ? tokens[tokens.length - 1].start : 0),
+    };
 }
 
 function tokenize(text: string): Token[] {
@@ -78,30 +110,56 @@ function tokenize(text: string): Token[] {
     return tokens;
 }
 
-class Parser {
-    private position = 0;
+const atomTerms: Readonly<Record<string, () => MlttTerm>> = {
+    Bool: mlttBoolType, True: mlttTrue, False: mlttFalse, Nat: mlttNatType, Zero: mlttZero,
+};
+const appliedTerms = new Set(["Succ", "NatAdd", "BoolElim", "If", "NatElim", "Eq", "Refl", "J", "Pair", "First", "Second", "Ann", "Lam", "Sigma"]);
+
+/** The built-in terms: `Nat` and the like on their own, and `Succ` and the like when applied. */
+export const builtinTermNames: readonly string[] = [...Object.keys(atomTerms), ...appliedTerms];
+
+/** Whether `name`, followed by `next`, starts a built-in term. */
+export function startsBuiltinTerm(name: string, next: string | undefined): boolean {
+    return name in atomTerms || appliedTerms.has(name) && next === "<";
+}
+
+export class TermParser {
     private readonly scope: string[] = [];
     private patternCaptures: string[] | undefined;
+    private readonly aliases: ReadonlyMap<string, MlttTerm>;
+    private readonly shadowed: ReadonlySet<string>;
 
-    public constructor(
-        private readonly tokens: readonly Token[],
-        private readonly aliases: ReadonlyMap<string, MlttTerm>,
-    ) {}
+    public constructor(private readonly tokens: TermTokens, options: TermParserOptions = {}) {
+        this.aliases = options.aliases ?? new Map();
+        this.shadowed = options.shadowed ?? new Set();
+    }
 
     public parse(): MlttTerm {
         const term = this.parseTerm();
-        if (this.peek()) this.fail(`Unexpected token '${this.peek()!.text}'.`);
+        if (this.peek()) this.fail(`Unexpected token '${this.peek()}'.`);
         return term;
     }
 
+    /** Parses one term and leaves the tokens after it, for the compiler's parser to go on from. */
+    public parseOne(): MlttTerm {
+        return this.parseTerm();
+    }
+
     private parseTerm(stop?: string): MlttTerm {
-        if (this.at("typecase")) return this.parseTypeMatch();
+        if (this.at("match")) return this.parseTypeMatch();
         if ((this.at("(") || this.at("{")) && this.isBinder()) return this.parseBinder(stop);
-        return this.parseUnion(stop);
+        const term = this.parseUnion(stop);
+        if (!this.at("=>")) return term;
+        // `A => B` is `(_: A) -> B`; the name stays out of the scope, since nothing can refer to it.
+        this.take();
+        this.scope.unshift("");
+        const codomain = this.parseTerm(stop);
+        this.scope.shift();
+        return mlttPi("_", term, codomain);
     }
 
     private parseBinder(stop?: string): MlttTerm {
-        const open = this.take().text;
+        const open = this.take();
         const close = open === "(" ? ")" : "}";
         const name = this.identifier();
         this.expect(":");
@@ -120,13 +178,13 @@ class Parser {
         const terms = [this.parseApplication(stop)];
         const separators: string[] = [];
         while (this.at("|") || this.at("&")) {
-            separators.push(this.take().text);
+            separators.push(this.take());
             terms.push(this.parseApplication(stop));
         }
         if (terms.length === 1) return terms[0];
         const displayName = terms.map((term, index) =>
             `${index ? ` ${separators[index - 1]} ` : ""}${display(term)}`).join("");
-        return mlttExternal(displayName, displayName, terms, mlttUniverse(0));
+        return mlttExternal(unionKey(separators), displayName, terms, mlttUniverse(0));
     }
 
     private parseApplication(stop?: string): MlttTerm {
@@ -134,16 +192,16 @@ class Parser {
         while (this.at("<")) {
             const argumentsList = this.parseArguments();
             if (term.kind === "external" && term.arguments.length === 0) {
-                term = this.createNamedApplication(term.key, argumentsList);
+                term = this.createNamedApplication(term.key, argumentsList, term.identity as TermLocation | undefined);
             }
             else {
                 for (const argument of argumentsList) term = mlttApplication(term, argument);
             }
         }
-        while (this.at("[") && this.tokens[this.position + 1]?.text === "]") {
+        while (this.at("[") && this.tokens.peek(1) === "]") {
             this.take();
             this.take();
-            term = mlttExternal(`Array<${display(term)}>`, `${display(term)}[]`, [term], mlttUniverse(0));
+            term = mlttExternal("Array", `${display(term)}[]`, [term], mlttUniverse(0));
         }
         return term;
     }
@@ -164,23 +222,25 @@ class Parser {
             this.scope.unshift(name);
             return mlttVariable(0);
         }
+        if (/^["'\d]/u.test(this.peek() ?? "")) {
+            const literal = this.take();
+            return mlttExternal(literal, literal, [], mlttUniverse(0));
+        }
+        const start = this.tokens.position();
         const name = this.identifier();
+        const location: TermLocation = { start, end: start + name.length };
         const universe = /^(?:Type)(0|[1-9]\d*)?$/u.exec(name);
         if (universe) return mlttUniverse(universe[1] === undefined ? 0 : Number(universe[1]));
-        if (name === "Bool") return mlttBoolType();
-        if (name === "True") return mlttTrue();
-        if (name === "False") return mlttFalse();
-        if (name === "Nat") return mlttNatType();
-        if (name === "Zero") return mlttZero();
-
         const index = this.scope.indexOf(name);
         if (index >= 0) return mlttVariable(index);
         const alias = this.aliases.get(name);
         if (alias) return alias;
-        return mlttExternal(name, name, [], mlttUniverse(0));
+        if (name in atomTerms && !this.shadowed.has(name)) return atomTerms[name]();
+        return mlttExternal(name, name, [], mlttUniverse(0), location);
     }
 
-    private createNamedApplication(name: string, args: readonly MlttTerm[]): MlttTerm {
+    private createNamedApplication(name: string, args: readonly MlttTerm[], location?: TermLocation): MlttTerm {
+        if (this.shadowed.has(name)) return mlttExternal(name, `${name}<${args.map(display).join(", ")}>`, args, mlttUniverse(0), location);
         const count = (expected: number): void => {
             if (args.length !== expected) this.fail(`${name} expects ${expected} type arguments, received ${args.length}.`);
         };
@@ -210,12 +270,12 @@ class Parser {
                 return mlttSigma(binder.parameterName, binder.domain, binder.codomain);
             }
             default:
-                return mlttExternal(name, `${name}<${args.map(display).join(", ")}>`, args, mlttUniverse(0));
+                return mlttExternal(name, `${name}<${args.map(display).join(", ")}>`, args, mlttUniverse(0), location);
         }
     }
 
     private parseTypeMatch(): MlttTerm {
-        this.expect("typecase");
+        this.expect("match");
         const scrutinee = this.parseTerm("{");
         this.expect("{");
         const cases: MlttTypeMatchCase[] = [];
@@ -263,33 +323,38 @@ class Parser {
     }
 
     private isBinder(): boolean {
-        return !!this.tokens[this.position + 1]
-            && /^[A-Za-z_$]/u.test(this.tokens[this.position + 1].text)
-            && this.tokens[this.position + 2]?.text === ":";
+        return /^[A-Za-z_$]/u.test(this.tokens.peek(1) ?? "") && this.tokens.peek(2) === ":";
     }
 
     private identifier(): string {
         const token = this.take();
-        if (!/^[A-Za-z_$]/u.test(token.text)) this.fail(`Expected an identifier, found '${token.text}'.`);
-        return token.text;
-    }
-
-    private at(text: string): boolean { return this.peek()?.text === text; }
-    private expect(text: string): void {
-        if (!this.at(text)) this.fail(`Expected '${text}', found '${this.peek()?.text ?? "end of input"}'.`);
-        this.take();
-    }
-    private take(): Token {
-        const token = this.tokens[this.position++];
-        if (!token) this.fail("Unexpected end of input.");
+        if (!/^[A-Za-z_$]/u.test(token)) this.fail(`Expected an identifier, found '${token}'.`);
         return token;
     }
-    private peek(): Token | undefined { return this.tokens[this.position]; }
+
+    private at(text: string): boolean { return this.peek() === text; }
+    private expect(text: string): void {
+        if (!this.at(text)) this.fail(`Expected '${text}', found '${this.peek() ?? "end of input"}'.`);
+        this.take();
+    }
+    private take(): string {
+        const token = this.tokens.peek();
+        if (token === undefined) this.fail("Unexpected end of input.");
+        this.tokens.next();
+        return token;
+    }
+    private peek(): string | undefined { return this.tokens.peek(); }
     private fail(message: string): never {
-        const offset = this.peek()?.start ?? (this.tokens.length ? this.tokens[this.tokens.length - 1].start : 0);
-        throw new SyntaxError(`${message} (offset ${offset})`);
+        throw new SyntaxError(`${message} (offset ${this.tokens.position()})`);
     }
 }
+
+/** The key of a union or intersection: its separators, which the lowering reads back. */
+function unionKey(separators: readonly string[]): string {
+    return `${unionKeyPrefix}${separators.join("")}`;
+}
+
+export const unionKeyPrefix = "union:";
 
 function display(term: MlttTerm): string {
     if (term.kind === "external") return term.displayName;

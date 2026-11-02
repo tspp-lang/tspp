@@ -2,7 +2,6 @@
   "name": "ts-plus-plus-monorepo",
   "private": true,
   "devDependencies": {
-    "@tspp/plugin-dependent-types": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
     "@tspp/plugin-modern-syntax": "workspace:*",

@@ -93,7 +93,7 @@ test("type-computation and dependent-types: kind annotations keep their meaning 
     export const bad2: T2 = true;
     type Lst: Type => Type = <A> =>> A[];
     export const bad3: Lst<number> = "x";
-    export type Two :: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
+    export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
     export const good: Lst<number> = [1];`);
   assert.deepEqual(messages, [
     "Type 'number' is not assignable to type 'T1'.",
@@ -139,7 +139,7 @@ test("macros and nominal-types: a macro over a data type", () => {
 
 test("macros and dependent-types: both projections apply to one file", () => {
   const { n } = run(`${macro}
-    export type Two :: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
+    export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
     interface I { a: number }
     macro named(I);
     export const n = IName;`);
@@ -238,19 +238,19 @@ test("formal-verification names no other plugin's syntax when it cannot model th
 test("source projections leave strings and comments alone", () => {
   const source = `
     export const a = "macro m(T);";
-    export const b = "type Fk :: Nat = Zero;";
+    export const b = "type Fk: Nat = Zero;";
     export const c = "function g() with { ensures: result > 1n; }: bigint";
-    export const d = \`data Fake = X | Y; assert: x; typecase \${"type Fk :: Nat = Zero;"}\`;
-    // type Fk :: Nat = Zero;
+    export const d = \`data Fake = X | Y; assert: x; typecase \${"type Fk: Nat = Zero;"}\`;
+    // type Fk: Nat = Zero;
     /* function g() with { ensures: true; } */`;
   const { a, b, c, d } = run(source);
   assert.equal(a, "macro m(T);");
-  assert.equal(b, "type Fk :: Nat = Zero;");
+  assert.equal(b, "type Fk: Nat = Zero;");
   assert.equal(c, "function g() with { ensures: result > 1n; }: bigint");
-  assert.equal(d, "data Fake = X | Y; assert: x; typecase type Fk :: Nat = Zero;");
+  assert.equal(d, "data Fake = X | Y; assert: x; typecase type Fk: Nat = Zero;");
   const { program, outputs } = compile(source);
   const javaScript = emitJavaScript(program, outputs);
-  assert.match(javaScript, /\/\/ type Fk :: Nat = Zero;/);
+  assert.match(javaScript, /\/\/ type Fk: Nat = Zero;/);
   assert.match(javaScript, /\/\* function g\(\) with \{ ensures: true; \} \*\//);
 });
 
@@ -277,7 +277,7 @@ test("plugin syntax does not exist outside TS++ files", () => {
     "export type U = match string { string: 1 };",
     "export type K<F: Type => Type> = F<number>;",
     "export type C = <A> =>> A;",
-    "export type D :: Nat = Zero;",
+    "export type D: Nat = Zero;",
     "export function f(v: bigint) with { ensures: result > 0n; }: bigint { return v; }",
     "export interface I { static s(): void; }",
     "macro function m() {}",
@@ -288,7 +288,7 @@ test("plugin syntax does not exist outside TS++ files", () => {
   // TypeScript's meaning stays, too: a parenthesized `_` is a value here.
   const { program, outputs } = compile("const _ = 3; export const b = (_ + 1);", {}, "/main.ts");
   assert.match(emitJavaScript(program, outputs), /exports\.b = \(_ \+ 1\);/);
-  assert.equal(ts.getTSPPProjectedSource("/main.ts", "type D :: Nat = Zero;"), "type D :: Nat = Zero;");
+  assert.equal(ts.getTSPPProjectedSource("/main.ts", "type D: Nat = Zero;"), "type D: Nat = Zero;");
 });
 
 test("Quick Info comes from the plugin whose syntax is under the cursor", () => {
@@ -299,7 +299,7 @@ test("Quick Info comes from the plugin whose syntax is under the cursor", () => 
     export const b = match s { A => 1, B => 2 };
     export type C = let X = string in match X { string: 1, _: 2 };
     type Lst: Type => Type = <A> =>> A[];
-    export type Two :: Nat = Zero;
+    export type Two: Nat = Zero;
     let plain = 1;`;
   const service = createLanguageService("/main.tspp", source);
   const at = text => service.getQuickInfoAtPosition("/main.tspp", source.indexOf(text));

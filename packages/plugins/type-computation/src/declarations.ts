@@ -35,12 +35,13 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
         let position = start;
         for (const annotation of annotations.sort((left, right) => left.start - right.start)) {
             if (annotation.start < position) continue;
-            result += text.slice(position, annotation.start) + `: ${kindToDeclarationString(annotation.kind)}`;
+            // A kind written as a term has no shorter form than the one its author wrote.
+            result += text.slice(position, annotation.start) + (annotation.kind.kind === "term" ? text.slice(annotation.start, annotation.end).trimEnd() : `: ${kindToDeclarationString(annotation.kind)}`);
             position = annotation.end;
         }
         return result + text.slice(position, end);
     };
-    const authoredText = (node: TS.Node, start: number) => restoredText(node, start).trimStart();
+    const authoredText = (node: TS.Node, start: number) => restoredText(node, start, model.authoredEnds.get(node) ?? node.end).trimStart();
     const modifiersOf = (node: TS.Node) =>
         (ts.canHaveModifiers(node) ? ts.getModifiers(node) ?? [] : []).map(modifier => `${ts.tokenToString(modifier.kind)} `).join("");
     const constructorAliasArity = (alias: TS.TypeAliasDeclaration): number => {

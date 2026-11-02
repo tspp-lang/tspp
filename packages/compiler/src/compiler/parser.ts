@@ -2179,6 +2179,7 @@ namespace Parser {
             precedingType: precedingType as unknown as TSPPSyntaxCursor["precedingType"],
             token: () => token() as never,
             tokenText: () => scanner.getTokenText(),
+            getSourceText: () => sourceText,
             nextToken: () => nextToken() as never,
             hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
             lookAhead,

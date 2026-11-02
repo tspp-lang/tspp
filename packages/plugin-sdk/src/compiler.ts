@@ -176,6 +176,8 @@ export interface TSPPSyntaxCursor {
     readonly modifiers: import("typescript-upstream").NodeArray<import("typescript-upstream").ModifierLike> | undefined;
     token(): import("typescript-upstream").SyntaxKind;
     tokenText(): string;
+    /** The text being parsed, after source projection. */
+    getSourceText(): string;
     nextToken(): import("typescript-upstream").SyntaxKind;
     hasPrecedingLineBreak(): boolean;
     lookAhead<T>(callback: () => T): T;

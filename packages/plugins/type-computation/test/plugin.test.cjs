@@ -23,14 +23,14 @@ function activate() {
 
 test("registers type-position syntax, a type extension, and declaration restorers as one capsule", () => {
   const { syntax, typeExtensions, diagnosticProviders } = activate();
-  assert.deepEqual(syntax.map(entry => entry.extension.position), ["type", "postfix-type", "type-parameter-annotation", "type-alias-annotation"]);
+  assert.deepEqual(syntax.map(entry => entry.extension.position), ["expression", "expression", "type", "postfix-type", "type-parameter-annotation", "type-alias-annotation"]);
   assert.ok(syntax.every(entry => entry.pluginId === "type-computation"));
-  const typeSyntax = syntax[0].extension;
-  assert.deepEqual(typeSyntax.startTokens, [ts.SyntaxKind.LetKeyword, ts.SyntaxKind.Identifier, ts.SyntaxKind.LessThanToken]);
+  const typeSyntax = syntax[2].extension;
+  assert.deepEqual(typeSyntax.startTokens, [ts.SyntaxKind.LetKeyword, ts.SyntaxKind.Identifier, ts.SyntaxKind.LessThanToken, ts.SyntaxKind.OpenParenToken, ts.SyntaxKind.OpenBraceToken]);
   assert.equal(typeof typeSyntax.restoreDeclaration, "function");
   assert.equal(typeof typeSyntax.restoreCompatibilityDeclaration, "function");
   assert.equal(typeExtensions.length, 1);
-  assert.equal(diagnosticProviders.length, 1);
+  assert.equal(diagnosticProviders.length, 2);
 });
 
 test("parses unary and multi-parameter function kinds", () => {

@@ -1,11 +1,11 @@
-export type NumberResult :: Type0 =
-  typecase number { number: string, _: boolean };
+export type NumberResult: Type0 =
+  match number { number: string, _: boolean };
 
-export type FallbackResult :: Type0 =
-  typecase string { number: string, _: boolean };
+export type FallbackResult: Type0 =
+  match string { number: string, _: boolean };
 
-export type ElementOrSelf :: Type1 =
-  (A: Type0) -> typecase A {
+export type ElementOrSelf: Type1 =
+  (A: Type0) -> match A {
     Array<infer Element>: Element,
     _: A
   };

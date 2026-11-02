@@ -163,7 +163,8 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
     function expectedKind(node: TS.TypeNode, host: TSPPTypeHost, state: CheckerState): TypeKind | undefined {
         const parent = node.parent;
         if (!parent) return undefined;
-        if (ts.isTypeAliasDeclaration(parent)) return parent.type === node ? model.declarationKinds.get(parent) : undefined;
+        // The kernel checks a term against its annotation (`dependent`).
+        if (ts.isTypeAliasDeclaration(parent)) return parent.type === node && !model.terms.has(node) ? model.declarationKinds.get(parent) : undefined;
         if (ts.isParameter(parent) && parent.type === node && model.applications.has(parent.parent)) {
             const index = (parent.parent as TS.FunctionTypeNode).parameters.indexOf(parent);
             if (index === 0) return undefined;
@@ -176,7 +177,7 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         // Only references that may carry a constructor are checked; other arguments are ordinary types.
         if (!ts.isTypeReferenceNode(node) && !model.constructors.has(node) && !model.applications.has(node)) {
             const kind = targetParameterKind(parent, index, host, state);
-            return kind?.kind === "function" ? kind : undefined;
+            return kind?.kind === "function" || kind?.kind === "term" ? kind : undefined;
         }
         return targetParameterKind(parent, index, host, state);
     }
@@ -191,10 +192,23 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         return kind.kind === "function" ? kind.parameters[index] : undefined;
     }
 
+    /**
+     * Whether a type has a kind. Under a term kind, a type parameter has the kind it declares, and a literal type stands
+     * for the value it spells: a term lowers to `2`, which is of kind `Nat`.
+     */
+    function hasKind(state: CheckerState, type: TS.Type, expected: TypeKind): boolean {
+        if (expected.kind !== "term") return kindsEqual(getKind(state, type), expected);
+        const declared = state.kinds.get(type) ?? declarationKind(type.symbol);
+        if (declared) return kindsEqual(declared, expected);
+        if (expected.term.kind === "nat-type") return type.isNumberLiteral() && Number.isInteger(type.value) && type.value >= 0;
+        if (expected.term.kind === "bool-type") return !!(type.flags & ts.TypeFlags.BooleanLiteral);
+        return true;
+    }
+
     function checkKind(host: TSPPTypeHost, state: CheckerState, type: TS.Type, expected: TypeKind, node: TS.Node): TS.Type {
         if (type === host.errorType) return type;
         const actual = getKind(state, type);
-        if (kindsEqual(actual, expected)) return type;
+        if (hasKind(state, type, expected)) return type;
         host.error(node, `Type '${host.checker.typeToString(type)}' has kind '${kindToString(actual)}', but kind '${kindToString(expected)}' was expected.`, diagnosticCodes.kindMismatch);
         return host.errorType;
     }
@@ -214,7 +228,7 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
             return host.errorType;
         }
         for (let index = 0; index < typeArguments.length; index++) {
-            if (kindsEqual(getKind(state, typeArguments[index]), kind.parameters[index])) continue;
+            if (hasKind(state, typeArguments[index], kind.parameters[index])) continue;
             return errorNode ? checkKind(host, state, typeArguments[index], kind.parameters[index], errorNode) : host.errorType;
         }
         const constructor = state.constructors.get(target);

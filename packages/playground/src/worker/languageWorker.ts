@@ -6,7 +6,6 @@
  */
 import * as ts from "ts-plus-plus/source";
 import type { TSPPPlugin } from "@tspp/plugin-sdk";
-import dependentTypesModule from "@tspp/plugin-dependent-types";
 import * as formalVerificationNamespace from "@tspp/plugin-formal-verification";
 import macrosModule, { getMacroExpansions } from "@tspp/plugin-macros";
 import modernSyntaxModule from "@tspp/plugin-modern-syntax";
@@ -53,7 +52,6 @@ const plugins: readonly TSPPPlugin[] = [
   pluginDefault(nominalTypesModule),
   pluginDefault(typeComputationModule),
   pluginDefault(staticInterfaceMembersModule),
-  pluginDefault(dependentTypesModule),
   formalVerification.formalVerificationPlugin,
   pluginDefault(macrosModule),
   pluginDefault(operatorSectionsModule),

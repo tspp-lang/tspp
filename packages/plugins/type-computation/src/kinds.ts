@@ -1,8 +1,10 @@
 import type { TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-/** The kind of a type: an ordinary type at a universe level, or a type constructor. */
-export type TypeKind = OrdinaryTypeKind | FunctionTypeKind;
+import { areMlttTermsDefinitionallyEqual, mlttBoolType, mlttNatType, mlttPi, mlttUniverse, printMlttTerm, type MlttTerm } from "./core";
+
+/** The kind of a type: an ordinary type at a universe level, a type constructor, or a term such as `Nat`. */
+export type TypeKind = OrdinaryTypeKind | FunctionTypeKind | TermTypeKind;
 
 export interface OrdinaryTypeKind {
     readonly kind: "type";
@@ -13,6 +15,12 @@ export interface FunctionTypeKind {
     readonly kind: "function";
     readonly parameters: readonly TypeKind[];
     readonly result: TypeKind;
+}
+
+/** Types that stand for values of a term of the type theory, such as `2`, of kind `Nat`. */
+export interface TermTypeKind {
+    readonly kind: "term";
+    readonly term: MlttTerm;
 }
 
 export const ordinaryKind: OrdinaryTypeKind = { kind: "type", level: 0 };
@@ -45,10 +53,14 @@ export function parseKind(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): TypeKin
         return { kind: "function", parameters, result: parseKind(ts, cursor) };
     }
 
-    const level = cursor.token() === kinds.Identifier ? universeLevel(cursor.tokenText()) : undefined;
-    if (level === undefined) throw new Error(`Expected a type kind, received '${cursor.tokenText()}'.`);
+    const name = cursor.token() === kinds.Identifier ? cursor.tokenText() : undefined;
+    const level = name === undefined ? undefined : universeLevel(name);
+    const head: TypeKind | undefined = level !== undefined ? { kind: "type", level }
+        : name === "Nat" ? { kind: "term", term: mlttNatType() }
+        : name === "Bool" ? { kind: "term", term: mlttBoolType() }
+        : undefined;
+    if (!head) throw new Error(`Expected a type kind, received '${cursor.tokenText()}'.`);
     cursor.nextToken();
-    const head: TypeKind = { kind: "type", level };
     if (cursor.token() !== kinds.EqualsGreaterThanToken) return head;
     cursor.nextToken();
     return { kind: "function", parameters: [head], result: parseKind(ts, cursor) };
@@ -56,6 +68,7 @@ export function parseKind(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): TypeKin
 
 export function kindToString(kind: TypeKind): string {
     if (kind.kind === "type") return kind.level === 0 ? "Type" : `Type${kind.level}`;
+    if (kind.kind === "term") return printMlttTerm(kind.term);
     const parameters = kind.parameters.length === 1
         ? kindToString(kind.parameters[0])
         : `(${kind.parameters.map(kindToString).join(", ")})`;
@@ -68,19 +81,40 @@ export function kindToString(kind: TypeKind): string {
  */
 export function kindToDeclarationString(kind: TypeKind): string {
     if (kind.kind === "type") return `Type${kind.level}`;
-    const parameters = kind.parameters.length === 1 && kind.parameters[0].kind === "type"
+    if (kind.kind === "term") return printMlttTerm(kind.term);
+    const parameters = kind.parameters.length === 1 && kind.parameters[0].kind !== "function"
         ? kindToDeclarationString(kind.parameters[0])
         : `(${kind.parameters.map(kindToDeclarationString).join(", ")})`;
     return `${parameters} => ${kindToDeclarationString(kind.result)}`;
 }
 
-export function kindsEqual(left: TypeKind, right: TypeKind): boolean {
-    if (left.kind === "type" || right.kind === "type") {
-        return left.kind === "type" && right.kind === "type" && left.level === right.level;
+/** A kind as a term of the type theory, so that the kernel decides when two kinds are the same. */
+export function kindToTerm(kind: TypeKind): MlttTerm {
+    if (kind.kind === "type") return mlttUniverse(kind.level);
+    if (kind.kind === "term") return kind.term;
+    return kind.parameters.reduceRight<MlttTerm>((result, parameter) => mlttPi("_", kindToTerm(parameter), result), kindToTerm(kind.result));
+}
+
+/** A kind written as a term: `Type1`, and a Pi type whose result does not depend on its parameter, read as kinds. */
+export function termToKind(term: MlttTerm): TypeKind {
+    if (term.kind === "universe") return { kind: "type", level: term.level };
+    if (term.kind === "pi" && !hasVariable(term.codomain)) {
+        return { kind: "function", parameters: [termToKind(term.domain)], result: termToKind(term.codomain) };
     }
-    return left.parameters.length === right.parameters.length
-        && left.parameters.every((parameter, index) => kindsEqual(parameter, right.parameters[index]))
-        && kindsEqual(left.result, right.result);
+    return { kind: "term", term };
+}
+
+/** Whether a term has a variable in it; only a closed result reads as a kind. */
+function hasVariable(term: unknown): boolean {
+    if (!term || typeof term !== "object") return false;
+    if ((term as { readonly kind?: string; }).kind === "variable") return true;
+    return Object.values(term).some(child => Array.isArray(child) ? child.some(hasVariable) : hasVariable(child));
+}
+
+export function kindsEqual(left: TypeKind, right: TypeKind): boolean {
+    // How many arguments a constructor takes at once is TypeScript's concern: the kernel's functions take one.
+    if (left.kind === "function" && right.kind === "function" && left.parameters.length !== right.parameters.length) return false;
+    return areMlttTermsDefinitionallyEqual(kindToTerm(left), kindToTerm(right));
 }
 
 /** Hover text for a universe such as `Type1`. */
@@ -122,8 +156,16 @@ export interface TypeSyntaxModel {
     readonly applications: WeakMap<TS.Node, { readonly target: TS.TypeNode; readonly typeArguments: readonly TS.TypeNode[]; }>;
     /** Type nodes that stand for authored syntax, with the start of that syntax (its end is the node's end). */
     readonly authored: WeakMap<TS.Node, number>;
+    /** Where authored syntax ends, for a type node with no range of its own. */
+    readonly authoredEnds: WeakMap<TS.Node, number>;
     /** The `infer` nodes a type-level `let` lowers to, with the authored name they bind. */
     readonly letBindings: WeakMap<TS.Node, TS.Identifier>;
+    /** Type nodes lowered from a term of the type theory, with that term; the kernel checks them, not the kinds. */
+    readonly terms: WeakMap<TS.Node, MlttTerm>;
+    /** An alias's annotation as a term, for the kernel to check its body against. */
+    readonly termAnnotations: WeakMap<TS.Node, MlttTerm>;
+    /** The file being parsed: its earlier aliases, and the names it declares itself. */
+    file?: { readonly sourceText: string; readonly aliases: Map<string, MlttTerm>; declared?: ReadonlySet<string>; };
     /** Whether any kind annotation or type constructor was parsed, so that ordinary programs skip kind work. */
     used: boolean;
 }
@@ -135,7 +177,10 @@ export function createTypeSyntaxModel(): TypeSyntaxModel {
         constructors: new WeakSet(),
         applications: new WeakMap(),
         authored: new WeakMap(),
+        authoredEnds: new WeakMap(),
         letBindings: new WeakMap(),
+        terms: new WeakMap(),
+        termAnnotations: new WeakMap(),
         used: false,
     };
 }

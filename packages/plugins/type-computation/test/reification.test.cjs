@@ -3,9 +3,9 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService } = require("../../test-support/compile.cjs");
-const { dependentTypesPlugin } = require("../dist");
+const { typeComputationPlugin } = require("../dist");
 
-usePlugins(dependentTypesPlugin);
+usePlugins(typeComputationPlugin);
 
 const options = { noLib: false, lib: ["lib.es2022.d.ts"], declaration: true };
 

@@ -20,7 +20,7 @@ export type Unused<T> = let Y = number in string;
 type Lst: Type => Type = <E> =>> E[];
 export const l: Lst<number> = [1];
 export const bad: Lst<number> = "x";
-export type Two :: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
+export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
 const de = reify number;
 export const t = typecase de { number => "n", _ => "o" };
 export interface P { static p(): number; inner: S; }

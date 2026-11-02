@@ -5,22 +5,6 @@
   "injectionSelector": "L:source.tspp",
   "patterns": [
     {
-      "match": "\\bType(?:0|[1-9]\\d*)?\\b",
-      "name": "support.type.universe.tspp"
-    },
-    {
-      "match": "\\b(?:Bool|True|False|BoolElim|If|Nat|Zero|Succ|NatAdd|NatElim|Eq|Refl|J|Sigma|Pair|First|Second|Lam|Ann)\\b",
-      "name": "support.type.mltt.tspp"
-    },
-    {
-      "match": "\\b(?:reify|typecase)\\b",
-      "name": "keyword.control.mltt.tspp"
-    },
-    {
-      "match": "->",
-      "name": "keyword.operator.dependent-function.tspp"
-    },
-    {
       "match": "\\b(assert|assume)(?=\\s*:)",
       "name": "keyword.control.verification.tspp"
     },
@@ -127,6 +111,22 @@
     {
       "match": "=>",
       "name": "keyword.operator.kind.tspp"
+    },
+    {
+      "match": "\\bType(?:0|[1-9]\\d*)?\\b",
+      "name": "support.type.universe.tspp"
+    },
+    {
+      "match": "\\b(?:Bool|True|False|BoolElim|If|Nat|Zero|Succ|NatAdd|NatElim|Eq|Refl|J|Sigma|Pair|First|Second|Lam|Ann)\\b",
+      "name": "support.type.mltt.tspp"
+    },
+    {
+      "match": "\\b(?:reify|typecase|auto)\\b",
+      "name": "keyword.control.mltt.tspp"
+    },
+    {
+      "match": "->",
+      "name": "keyword.operator.dependent-function.tspp"
     }
   ]
 }

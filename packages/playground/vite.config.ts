@@ -21,7 +21,6 @@ const browserPackages = [
   "@tspp/plugin-sdk/editor",
   "@tspp/plugin-sdk/host",
   "@tspp/plugin-sdk/language-service",
-  "@tspp/plugin-dependent-types",
   "@tspp/plugin-formal-verification",
   "@tspp/plugin-macros",
   "@tspp/plugin-modern-syntax",
@@ -181,7 +180,6 @@ function listFiles(directory: string, prefix = ""): string[] {
 
 function exampleFeature(packageName: string): string | undefined {
   const names: Record<string, string> = {
-    "@tspp/plugin-dependent-types": "type-system/dependent-types",
     "@tspp/plugin-formal-verification": "formal-verification/z3",
   };
   return names[packageName] ?? packageName.match(/^@tspp\/plugin-(.+)$/)?.[1];
