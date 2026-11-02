@@ -170,7 +170,7 @@ function getHost(state: TSPPTypeState, extension: TSPPTypeExtension): TSPPTypeHo
             return internals.createTypeReference(declared, [...declared.outerTypeParameters ?? [], ...typeArguments as unknown as readonly Type[]]) as never;
         },
         checkTypeArgumentConstraint: (typeArgument, constraint, node) => internals.checkTypeAssignableTo(typeArgument as unknown as Type, constraint as unknown as Type, node as unknown as Node, Diagnostics.Type_0_does_not_satisfy_the_constraint_1),
-        error: (node, message) => void internals.error(node as unknown as Node, Diagnostics._0, message),
+        error: (node, message, code) => void internals.error(node as unknown as Node, createTSPPDiagnosticMessage(code), message),
     };
     state.hosts.set(extension, host);
     return host;

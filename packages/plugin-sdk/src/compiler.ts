@@ -212,8 +212,8 @@ export interface TSPPSyntaxCursor {
     readonly precedingType?: import("typescript-upstream").TypeNode;
     parseVariableDeclarationList(inForStatementInitializer: boolean): import("typescript-upstream").VariableDeclarationList;
     finishNode<T extends import("typescript-upstream").Node>(node: T, pos: number, end?: number): T;
-    /** Reports a syntax error for `start` to `end`. */
-    parseErrorAt(start: number, end: number, message: string): void;
+    /** Reports a syntax error for `start` to `end`, with the plugin's own code (18086 if it has none). */
+    parseErrorAt(start: number, end: number, message: string, code?: number): void;
 }
 
 /** Syntax a plugin parses into ordinary TypeScript nodes, which the compiler then binds, checks, and emits unchanged. */
@@ -304,8 +304,8 @@ export interface TSPPTypeHost extends TSPPTypeOperations {
         constraint: import("typescript-upstream").Type,
         node: import("typescript-upstream").Node,
     ): boolean;
-    /** Reports a semantic error at `node`. */
-    error(node: import("typescript-upstream").Node, message: string): void;
+    /** Reports a semantic error at `node`, with the plugin's own code (18086 if it has none). */
+    error(node: import("typescript-upstream").Node, message: string, code?: number): void;
 }
 
 /**

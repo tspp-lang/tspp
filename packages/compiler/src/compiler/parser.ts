@@ -404,6 +404,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     annotateTSPPSyntax,
+    createTSPPDiagnosticMessage,
     expandTSPPListElement,
     isStartOfTSPPSyntax,
     isTSPPSyntaxNode,
@@ -2165,7 +2166,7 @@ namespace Parser {
             return parse();
         }
         catch (error) {
-            parseErrorAtCurrentToken(Diagnostics._0, error instanceof Error ? error.message : String(error));
+            parseErrorAtCurrentToken(createTSPPDiagnosticMessage(), error instanceof Error ? error.message : String(error));
             return undefined;
         }
     }
@@ -2219,7 +2220,7 @@ namespace Parser {
             parseTypeArguments: () => parseTypeArgumentsOfTypeReference() as never,
             parseVariableDeclarationList: inForStatementInitializer => parseVariableDeclarationList(inForStatementInitializer) as never,
             finishNode: (node, pos, end) => finishNode(node as unknown as Node, pos, end) as unknown as typeof node,
-            parseErrorAt: (start, end, message) => void parseErrorAt(start, end, Diagnostics._0, message),
+            parseErrorAt: (start, end, message, code) => void parseErrorAt(start, end, createTSPPDiagnosticMessage(code), message),
         };
     }
 

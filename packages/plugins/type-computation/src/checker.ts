@@ -3,6 +3,9 @@ import type * as TS from "typescript-upstream";
 
 import { kindsEqual, kindToString, ordinaryKind, type TypeKind, type TypeSyntaxModel, universeLevel } from "./kinds";
 
+/** The codes of this plugin's kind errors; `notGeneric` is TypeScript's own code for the same message. */
+const diagnosticCodes = { kindMismatch: 18072, wrongArity: 18073, notGeneric: 2315 } as const;
+
 interface ConstructorData {
     readonly node: TS.FunctionTypeNode;
     readonly typeParameters: readonly TS.TypeParameter[];
@@ -192,7 +195,7 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         if (type === host.errorType) return type;
         const actual = getKind(state, type);
         if (kindsEqual(actual, expected)) return type;
-        host.error(node, `Type '${host.checker.typeToString(type)}' has kind '${kindToString(actual)}', but kind '${kindToString(expected)}' was expected.`);
+        host.error(node, `Type '${host.checker.typeToString(type)}' has kind '${kindToString(actual)}', but kind '${kindToString(expected)}' was expected.`, diagnosticCodes.kindMismatch);
         return host.errorType;
     }
 
@@ -201,12 +204,12 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         if (target === host.errorType || typeArguments.includes(host.errorType)) return host.errorType;
         const kind = getKind(state, target);
         if (kind.kind !== "function") {
-            if (errorNode) host.error(errorNode, `Type '${host.checker.typeToString(target)}' is not generic.`);
+            if (errorNode) host.error(errorNode, `Type '${host.checker.typeToString(target)}' is not generic.`, diagnosticCodes.notGeneric);
             return host.errorType;
         }
         if (kind.parameters.length !== typeArguments.length) {
             if (errorNode) {
-                host.error(errorNode, `Type constructor '${host.checker.typeToString(target)}' must be applied to ${kind.parameters.length} type argument(s).`);
+                host.error(errorNode, `Type constructor '${host.checker.typeToString(target)}' must be applied to ${kind.parameters.length} type argument(s).`, diagnosticCodes.wrongArity);
             }
             return host.errorType;
         }

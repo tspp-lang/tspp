@@ -294,3 +294,13 @@ test("editor requests on the arrow of a kind annotation do not take it for a fun
     assert.deepEqual(service.getDefinitionAtPosition("/main.tspp", position) ?? [], []);
   }
 });
+
+test("kind errors carry this plugin's own codes", () => {
+  const { program } = createProgram(`
+    type Apply<F: Type => Type, X> = F<X>;
+    type Bad = Apply<number, string>;
+    type R = let F = <T> =>> { value: T } in F<number, string>;
+  `);
+  const codes = program.getSemanticDiagnostics().map(diagnostic => diagnostic.code).sort();
+  assert.deepEqual(codes, [18072, 18073], diagnosticMessages(program).join("\n"));
+});

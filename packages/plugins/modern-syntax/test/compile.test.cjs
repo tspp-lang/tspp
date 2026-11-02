@@ -29,6 +29,9 @@ test("requires every let-in binding to be initialized", () => {
     const read = let a = 1, b: number in a + b;
   `);
   assert.equal(messages.filter(message => message === "'let' declarations must be initialized.").length, 2, messages.join("\n"));
+  // A plugin syntax error without a code of its own gets the host's generic plugin code.
+  const { program } = createProgram("const unread = let x in 1;");
+  assert.deepEqual(program.getSyntacticDiagnostics().map(diagnostic => diagnostic.code), [18086]);
 });
 
 test("infers a do expression from its completion value", () => {
