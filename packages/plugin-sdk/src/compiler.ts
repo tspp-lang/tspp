@@ -158,8 +158,11 @@ export interface TSPPStatementReplacement {
     replace(statement: import("typescript-upstream").Statement, sourceFile: import("typescript-upstream").SourceFile): readonly import("typescript-upstream").Statement[];
 }
 
-/** Where plugin syntax may start: a unary expression, a statement, or a function body after its signature. */
-export type TSPPSyntaxExtensionPosition = "expression" | "statement" | "function-body";
+/**
+ * Where plugin syntax may start: a unary expression, a statement, a function body after its signature, or a
+ * declaration, which may follow modifiers such as `export`.
+ */
+export type TSPPSyntaxExtensionPosition = "expression" | "statement" | "function-body" | "declaration";
 
 /**
  * The parser at the start of plugin syntax. A plugin reads tokens, parses ordinary TypeScript parts, and builds its
@@ -167,6 +170,8 @@ export type TSPPSyntaxExtensionPosition = "expression" | "statement" | "function
  */
 export interface TSPPSyntaxCursor {
     readonly factory: import("typescript-upstream").NodeFactory;
+    /** The modifiers already parsed before a declaration, such as `export`. */
+    readonly modifiers: import("typescript-upstream").NodeArray<import("typescript-upstream").ModifierLike> | undefined;
     token(): import("typescript-upstream").SyntaxKind;
     tokenText(): string;
     nextToken(): import("typescript-upstream").SyntaxKind;
@@ -183,12 +188,15 @@ export interface TSPPSyntaxCursor {
     /** A block; in a function body it is parsed with the function's yield and await context. */
     parseBlock(): import("typescript-upstream").Block;
     parseStatement(): import("typescript-upstream").Statement;
+    /** Whether the parser is in an ambient context, such as a declaration file or a `declare` block. */
+    inAmbientContext(): boolean;
     /** Runs `callback` in the yield and await context of the function whose body is being parsed. */
     runInFunctionBody<T>(callback: () => T): T;
     parseBindingName(): import("typescript-upstream").BindingName;
     parseTypeAnnotation(): import("typescript-upstream").TypeNode | undefined;
     parseType(): import("typescript-upstream").TypeNode;
     parseIdentifier(): import("typescript-upstream").Identifier;
+    parseTypeParameters(): import("typescript-upstream").NodeArray<import("typescript-upstream").TypeParameterDeclaration> | undefined;
     parseVariableDeclarationList(inForStatementInitializer: boolean): import("typescript-upstream").VariableDeclarationList;
     finishNode<T extends import("typescript-upstream").Node>(node: T, pos: number, end?: number): T;
     /** Reports a syntax error for `start` to `end`. */
@@ -200,8 +208,16 @@ export interface TSPPSyntaxExtension {
     readonly position: TSPPSyntaxExtensionPosition;
     readonly startTokens: readonly import("typescript-upstream").SyntaxKind[];
     isStart(cursor: TSPPSyntaxCursor): boolean;
-    /** Returns an expression, a statement, or a function body block, matching `position`. */
-    parse(cursor: TSPPSyntaxCursor): import("typescript-upstream").Node;
+    /**
+     * Returns an expression, a statement, or a function body block, matching `position`. A statement or declaration
+     * may stand for several statements; the parser places the rest after the first in the enclosing list.
+     */
+    parse(cursor: TSPPSyntaxCursor): import("typescript-upstream").Node | readonly import("typescript-upstream").Statement[];
+    /**
+     * The text of a statement this syntax produced in feature-rich `.d.tspp` output, such as the authored
+     * declaration; an empty string omits the statement. `statement` is the declaration emitter's node.
+     */
+    restoreDeclaration?(statement: import("typescript-upstream").Statement): string | undefined;
 }
 
 /** Semantic diagnostics a plugin adds to each source file; comment directives such as `@ts-expect-error` apply. */
@@ -211,6 +227,8 @@ export interface TSPPDiagnosticProvider {
         sourceFile: import("typescript-upstream").SourceFile,
         checker: import("typescript-upstream").TypeChecker,
     ): readonly import("typescript-upstream").Diagnostic[];
+    /** Return false to drop a diagnostic the checker reported, for example one about code this plugin generated. */
+    filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean;
 }
 
 /** Where an expression being rewritten was parsed, and the factory for nodes that should count as parsed source. */

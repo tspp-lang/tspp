@@ -66,6 +66,8 @@ const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const programRebuilders = new Map<string, TSPPProgramRebuilder>();
 const syntaxExtensions = new Map<TSPPSyntaxExtensionPosition, { pluginId: string; extension: TSPPSyntaxExtension; }[]>();
 const diagnosticProviders = new Map<string, TSPPDiagnosticProvider>();
+const syntaxNodes = new WeakSet<Node>();
+const additionalListElements = new WeakMap<Node, readonly Node[]>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
 let pluginHost: TSPPPluginHost | undefined;
@@ -364,19 +366,64 @@ export function tryParseTSPPSyntax(position: TSPPSyntaxExtensionPosition, token:
     for (const { extension } of candidates) {
         if (!(extension.startTokens as readonly number[]).includes(token)) continue;
         cursor ??= createCursor();
-        if (extension.isStart(cursor)) return extension.parse(cursor) as unknown as Node;
+        if (!extension.isStart(cursor)) continue;
+        const parsed = extension.parse(cursor) as unknown as Node | readonly Node[];
+        const [first, ...rest] = Array.isArray(parsed) ? parsed : [parsed];
+        syntaxNodes.add(first);
+        if (rest.length) additionalListElements.set(first, rest);
+        return first;
     }
     return undefined;
 }
 
-/** Plugin diagnostics for a source file, merged with its bind and check diagnostics. @internal */
-export function getTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: TypeChecker): readonly Diagnostic[] {
-    if (!diagnosticProviders.size) return [];
-    const diagnostics: Diagnostic[] = [];
-    for (const provider of diagnosticProviders.values()) {
-        diagnostics.push(...provider.getSemanticDiagnostics(sourceFile as never, checker as never) as unknown as readonly Diagnostic[]);
+/** Whether plugin syntax registered for `position` starts at the current token; callers look ahead. @internal */
+export function isStartOfTSPPSyntax(position: TSPPSyntaxExtensionPosition, token: SyntaxKind, createCursor: () => TSPPSyntaxCursor): boolean {
+    const candidates = syntaxExtensions.get(position);
+    if (!candidates?.length) return false;
+    const cursor = createCursor();
+    return candidates.some(({ extension }) => (extension.startTokens as readonly number[]).includes(token) && extension.isStart(cursor));
+}
+
+/** A list element followed by the other statements its plugin syntax stands for. @internal */
+export function expandTSPPListElement<T extends Node>(node: T): readonly T[] {
+    const rest = additionalListElements.get(node);
+    if (!rest) return [node];
+    for (const element of rest) syntaxNodes.add(element);
+    return [node, ...rest as readonly T[]];
+}
+
+/** Plugin syntax is parsed again rather than reused by incremental parsing, so it never reuses a partial result. @internal */
+export function isTSPPSyntaxNode(node: Node): boolean {
+    return syntaxNodes.has(node);
+}
+
+/** The authored text a plugin restores for one of its statements in feature-rich declaration output. @internal */
+export function getTSPPRestoredDeclaration(node: Node): string | undefined {
+    for (const candidates of syntaxExtensions.values()) {
+        for (const { extension } of candidates) {
+            const restored = extension.restoreDeclaration?.(node as never);
+            if (restored !== undefined) return restored;
+        }
     }
-    return diagnostics;
+    return undefined;
+}
+
+/** Diagnostics as plugins filter them, such as suggestions about code a plugin generated. @internal */
+export function filterTSPPDiagnostics<T extends Diagnostic>(diagnostics: readonly T[]): readonly T[] {
+    if (!diagnosticProviders.size) return diagnostics;
+    const providers = [...diagnosticProviders.values()];
+    return diagnostics.filter(diagnostic => providers.every(provider => provider.filterDiagnostic?.(diagnostic as never) ?? true));
+}
+
+/** A source file's check diagnostics as plugins filter them, followed by the diagnostics plugins add. @internal */
+export function applyTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: TypeChecker, diagnostics: Diagnostic[]): Diagnostic[] {
+    if (!diagnosticProviders.size) return diagnostics;
+    const providers = [...diagnosticProviders.values()];
+    const result = diagnostics.filter(diagnostic => providers.every(provider => provider.filterDiagnostic?.(diagnostic as never) ?? true));
+    for (const provider of providers) {
+        result.push(...provider.getSemanticDiagnostics(sourceFile as never, checker as never) as unknown as readonly Diagnostic[]);
+    }
+    return result;
 }
 
 /** A member that an interface member contract moves to the implementing side, such as `static` in an interface. @internal */

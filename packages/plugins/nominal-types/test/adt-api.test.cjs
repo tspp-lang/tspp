@@ -36,7 +36,8 @@ test("is provided to plugins that depend on nominal-types", () => {
     facets: { compiler: { activate: context => { received = context.dependencies.get("nominal-types/adt"); } } },
   };
   const logger = { debug() {}, info() {}, warn() {}, error() {} };
-  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  const { ts } = require("../../test-support/compile.cjs");
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts });
   host.register(nominalTypesPlugin).register(consumer);
   host.activateAll();
   assert.equal(received, nominalTypesADTAPI);

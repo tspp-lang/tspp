@@ -241,6 +241,7 @@ import {
     isRecognizedTripleSlashComment,
     isSourceFile,
     isSourceFileNotJson,
+    isStatement,
     isStringLiteral,
     isTemplateLiteralKind,
     isTokenKind,
@@ -441,6 +442,7 @@ import {
     getPreprocessedFunctionWithClause,
     getPreprocessedTypeAliasDeclaration,
     getPreservedExtensionTypeRange,
+    getTSPPRestoredDeclaration,
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
@@ -1630,6 +1632,10 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         if (hint === EmitHint.EmbeddedStatement) {
             Debug.assertNode(node, isEmptyStatement);
             return emitEmptyStatement(/*isEmbeddedStatement*/ true);
+        }
+        if (hint === EmitHint.Unspecified && !tsppCompatibilityDeclaration && !tsppJavaScriptEmit && currentSourceFile?.isDeclarationFile && isStatement(node)) { // TSPP-SLOT(syntax-extension)
+            const restored = getTSPPRestoredDeclaration(node); // TSPP-SLOT(syntax-extension)
+            if (restored !== undefined) return void write(restored); // TSPP-SLOT(syntax-extension)
         }
         if (hint === EmitHint.Unspecified && !tsppCompatibilityDeclaration && currentSourceFile) {
             const range = getPreservedExtensionTypeRange(node);

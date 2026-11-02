@@ -414,10 +414,13 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
+    expandTSPPListElement,
     expressionSyntaxKinds,
     getTypeKindAnnotation,
     isExtensionTypeConstructor,
     isStartOfExtensionDeclaration,
+    isStartOfTSPPSyntax,
+    isTSPPSyntaxNode,
     projectTSPPSource,
     registerTypeApplication,
     registerTypeConstructor,
@@ -2218,9 +2221,10 @@ namespace Parser {
     }
 
     /** The parser at the current token, for plugin syntax. `functionFlags` is set when parsing a function body. */
-    function createTSPPSyntaxCursor(functionFlags?: SignatureFlags): TSPPSyntaxCursor { // TSPP-SLOT(syntax-extension)
+    function createTSPPSyntaxCursor(functionFlags?: SignatureFlags, modifiers?: NodeArray<ModifierLike>): TSPPSyntaxCursor { // TSPP-SLOT(syntax-extension)
         return {
             factory: factory as unknown as TSPPSyntaxCursor["factory"],
+            modifiers: modifiers as unknown as TSPPSyntaxCursor["modifiers"],
             token: () => token() as never,
             tokenText: () => scanner.getTokenText(),
             nextToken: () => nextToken() as never,
@@ -2235,6 +2239,7 @@ namespace Parser {
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true) as never,
             parseBlock: () => (functionFlags === undefined ? parseBlock(/*ignoreMissingOpenBrace*/ false) : parseFunctionBlock(functionFlags)) as never,
             parseStatement: () => parseStatement() as never,
+            inAmbientContext: () => inContext(NodeFlags.Ambient),
             runInFunctionBody: callback => {
                 if (functionFlags === undefined) return callback();
                 const savedYieldContext = inYieldContext();
@@ -2259,6 +2264,7 @@ namespace Parser {
             parseTypeAnnotation: () => parseTypeAnnotation() as never,
             parseType: () => parseType() as never,
             parseIdentifier: () => parseIdentifier() as never,
+            parseTypeParameters: () => parseTypeParameters() as never,
             parseVariableDeclarationList: inForStatementInitializer => parseVariableDeclarationList(inForStatementInitializer) as never,
             finishNode: (node, pos, end) => finishNode(node as unknown as Node, pos, end) as unknown as typeof node,
             parseErrorAt: (start, end, message) => void parseErrorAt(start, end, Diagnostics._0, message),
@@ -3218,7 +3224,7 @@ namespace Parser {
 
         while (!isListTerminator(kind)) {
             if (isListElement(kind, /*inErrorRecovery*/ false)) {
-                list.push(parseListElement(kind, parseElement));
+                list.push(...expandTSPPListElement(parseListElement(kind, parseElement))); // TSPP-SLOT(syntax-extension)
 
                 continue;
             }
@@ -3261,7 +3267,7 @@ namespace Parser {
         // Can't reuse a node that intersected the change range.
         // Can't reuse a node that contains a parse error.  This is necessary so that we
         // produce the same set of errors again.
-        if (nodeIsMissing(node) || intersectsIncrementalChange(node) || containsParseError(node)) {
+        if (nodeIsMissing(node) || intersectsIncrementalChange(node) || containsParseError(node) || isTSPPSyntaxNode(node)) { // TSPP-SLOT(syntax-extension)
             return undefined;
         }
 
@@ -7801,6 +7807,7 @@ namespace Parser {
                     continue;
 
                 default:
+                    if (isStartOfTSPPSyntax("declaration", token(), createTSPPSyntaxCursor)) return true; // TSPP-SLOT(syntax-extension)
                     return isStartOfExtensionDeclaration(
                         token(),
                         pluginId =>
@@ -7932,7 +7939,7 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
-        const syntaxStatement = tryParsePluginSyntax(() => tryParseTSPPSyntax("statement", token(), createTSPPSyntaxCursor)) as Statement | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxStatement = tryParsePluginSyntax(() => tryParseTSPPSyntax("statement", token(), createTSPPSyntaxCursor) ?? tryParseTSPPSyntax("declaration", token(), createTSPPSyntaxCursor)) as Statement | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxStatement) return syntaxStatement; // TSPP-SLOT(syntax-extension)
         const extensionDeclaration = tryParsePluginSyntax(() =>
             tryParseExtensionDeclaration(
@@ -8196,6 +8203,8 @@ namespace Parser {
     }
 
     function parseDeclarationWorker(pos: number, hasJSDoc: boolean, modifiersIn: NodeArray<ModifierLike> | undefined): Statement {
+        const syntaxDeclaration = tryParsePluginSyntax(() => tryParseTSPPSyntax("declaration", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, modifiersIn))) as Statement | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxDeclaration) return syntaxDeclaration; // TSPP-SLOT(syntax-extension)
         const extensionDeclaration = tryParsePluginSyntax(() =>
             tryParseExtensionDeclaration(
                 token(),

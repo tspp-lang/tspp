@@ -1,6 +1,5 @@
 // End-to-end behavior ported from the legacy-monolith compiler tests (unittests/tspp/newtypeData.ts).
-// Not ported: feature-flag gating and its quick fixes, and the legacy runtime shapes (variants also carry `_values`
-// and newtype constructors are erased).
+// Not ported: feature-flag gating and its quick fixes. Newtype constructors are identity functions at runtime.
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService } = require("../../test-support/compile.cjs");
@@ -232,7 +231,7 @@ test("or-patterns reject variants with fields", () => {
   assert.match(messages.join("\n"), /Or-patterns support only variants without fields/);
 });
 
-test("data declarations lower to tagged constructors and newtype constructors erase", () => {
+test("data declarations lower to tagged constructors and newtypes to identity constructors", () => {
   const javascript = javascriptOf(`
     newtype UserId = number;
     data Option<T> = None | Some(value: T);
@@ -240,7 +239,8 @@ test("data declarations lower to tagged constructors and newtype constructors er
   `);
   assert.match(javascript, /const None = \{ _tag: "None"/);
   assert.match(javascript, /function Some\(value\) \{\s*return \{ _tag: "Some"/);
-  assert.match(javascript, /const values = \[1, Some\(2\), None\];/);
+  assert.match(javascript, /function UserId\(value\) \{\s*return value;\s*\}/);
+  assert.match(javascript, /const values = \[UserId\(1\), Some\(2\), None\];/);
 });
 
 test("value matches lower to a single-evaluation tag dispatch", () => {
@@ -249,8 +249,15 @@ test("value matches lower to a single-evaluation tag dispatch", () => {
     declare const result: Result<number>;
     const selected = match result { Ok(value) => value, Err(error) => error };
   `);
-  assert.match(javascript, /\(([\w$]+) => \1\._tag === "Ok" \? /);
-  assert.match(javascript, /\)\(result\);/);
+  // A variable is read again in each tag test; any other scrutinee is evaluated once, as the dispatch's default parameter.
+  assert.match(javascript, /\(\(\) => result\._tag === "Ok" \? /);
+  assert.match(javascript, /\)\(\);/);
+  const computed = javascriptOf(`
+    data Result<T> = Ok(value: T) | Err(error: string);
+    declare function load(): Result<number>;
+    const selected = match load() { Ok(value) => value, Err(error) => error };
+  `);
+  assert.match(computed, /\(\(match = load\(\)\) => match\._tag === "Ok" \? /);
   assert.doesNotMatch(javascript, /match result/);
 });
 

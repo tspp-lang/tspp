@@ -1,108 +1,27 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const { TSPPPluginHost } = require("@tspp/plugin-sdk/host");
+const { ts } = require("../../test-support/compile.cjs");
 const { nominalTypesPlugin } = require("../dist");
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 
-test("registers a type-and-value declaration capsule", () => {
-  const registrations = [];
-  const expressions = [];
-  let disposed = 0;
-  const compiler = {
-    expressionSyntaxKinds: { identifier: 1 },
-    declarationSyntaxKinds: {
-      identifier: 1,
-      equalsToken: 2,
-      barToken: 3,
-      openParenToken: 4,
-      closeParenToken: 5,
-      commaToken: 6,
-      colonToken: 7,
-    },
-    registerDeclarationSyntax(pluginId, syntax) {
-      registrations.push({ pluginId, syntax });
-      return () => { disposed++; };
-    },
-    registerExpressionSyntax(pluginId, syntax) {
-      expressions.push({ pluginId, syntax });
-      return () => { disposed++; };
-    },
+test("registers its declaration and match syntax and its diagnostics, and removes them on dispose", () => {
+  const registered = new Set();
+  const register = kind => (_pluginId, value) => {
+    const key = `${kind}:${value.position ?? value.id}`;
+    registered.add(key);
+    return () => registered.delete(key);
   };
-  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler });
+  const compiler = {
+    expressionSyntaxKinds: {}, declarationSyntaxKinds: {}, typeSyntaxKinds: {},
+    registerSyntaxExtension: register("syntax"),
+    registerDiagnosticProvider: register("diagnostics"),
+  };
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts });
   host.register(nominalTypesPlugin);
   host.activateAll();
-  const newtype = registrations.find(registration => registration.syntax.binding === "type-and-value");
-  const data = registrations.find(registration => registration.syntax.binding === "type");
-  assert.equal(newtype.pluginId, "nominal-types");
-  assert.equal(newtype.syntax.runtime, "erased");
-  assert.equal(newtype.syntax.valueUse, "call-only");
-  assert.equal(data.pluginId, "nominal-types");
-  assert.equal(data.syntax.runtime, "emitted");
-  const match = expressions[0];
-  assert.equal(match.pluginId, "nominal-types");
-
-  const checkedType = {};
-  const matchNode = {};
-  assert.equal(match.syntax.check(matchNode, {
-    checkTaggedUnionMatch(node, mode) {
-      assert.equal(node, matchNode);
-      assert.equal(mode, 7);
-      return checkedType;
-    },
-  }, 7), checkedType);
-
-  const declaration = {};
-  const notEmitted = {};
-  assert.equal(newtype.syntax.transform(declaration, {
-    createNotEmittedStatement(node) {
-      assert.equal(node, declaration);
-      return notEmitted;
-    },
-  }), notEmitted);
-
-  const argument = {};
-  const visitedArgument = {};
-  assert.equal(newtype.syntax.transformCall({}, declaration, {
-    getArguments() { return [argument]; },
-    visitExpression(node) {
-      assert.equal(node, argument);
-      return visitedArgument;
-    },
-  }), visitedArgument);
-  const invalidCall = {};
-  assert.equal(newtype.syntax.transformCall(invalidCall, declaration, {
-    getArguments() { return []; },
-    visitExpression() { throw new Error("invalid calls must not be erased"); },
-  }), invalidCall);
-
-  let emitted;
-  newtype.syntax.emitDeclaration(declaration, {
-    emitTypeAliasDeclaration(node, keyword) {
-      emitted = { node, keyword };
-    },
-  });
-  assert.deepEqual(emitted, { node: declaration, keyword: "newtype" });
-
-  const generated = [{ statement: true }];
-  assert.equal(data.syntax.transform(declaration, {
-    createTaggedUnionStatements(node) {
-      assert.equal(node, declaration);
-      return generated;
-    },
-  }), generated);
-  data.syntax.emitDeclaration(declaration, {
-    emitTaggedUnionDeclaration(node, keyword) {
-      emitted = { node, keyword };
-    },
-  });
-  assert.deepEqual(emitted, { node: declaration, keyword: "data" });
-
-  assert.throws(
-    () => match.syntax.transform(),
-    /lowered to standard TypeScript/,
-  );
-
+  assert.deepEqual([...registered].sort(), ["diagnostics:nominal-types", "syntax:declaration", "syntax:expression"]);
   host.dispose();
-  assert.equal(disposed, 3);
+  assert.equal(registered.size, 0);
 });

@@ -2612,6 +2612,7 @@ export function getErrorSpanForNode(sourceFile: SourceFile, node: Node): TextSpa
         return getSpanOfTokenAtPosition(sourceFile, node.pos);
     }
 
+    if (positionIsSynthesized(errorNode.pos)) errorNode = node; // TSPP-SLOT(program-rebuild)
     Debug.assert(!isJSDoc(errorNode));
 
     const isMissing = nodeIsMissing(errorNode);
