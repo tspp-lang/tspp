@@ -203,7 +203,6 @@ import {
     isExportSpecifier,
     isExpression,
     isFileLevelUniqueName,
-    isFunctionDeclaration,
     isFunctionLike,
     isGeneratedIdentifier,
     isGeneratedPrivateIdentifier,
@@ -220,7 +219,6 @@ import {
     isKeyword,
     isLet,
     isLiteralExpression,
-    isLiteralTypeNode,
     isMemberName,
     isModifier,
     isModuleDeclaration,
@@ -427,12 +425,20 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
-    getPreprocessedFunctionPrefix,
-    getPreprocessedFunctionWithClause,
+    emitTSPPCompatibilityDeclaration,
+    emitTSPPRestoredFunctionClause,
+    emitTSPPRestoredFunctionPrefix,
+    getTSPPCompatibilityImportTypeArgument,
+    getTSPPCompatibilityModuleSpecifier,
+    isOmittedFromTSPPCompatibilityDeclaration,
+    isTSPPCompatibilityDeclarationBlocked,
+} from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
+import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
+import {
     getPreprocessedTypeAliasDeclaration,
     getTSPPRestoredDeclaration,
     isTSPPRewrittenIdentifier,
-} from "./tspp/registry.js";
+} from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
 
 const brackets = createBracketsMap();
 
@@ -536,11 +542,8 @@ export function getOutputPathsFor(sourceFile: SourceFile | Bundle, host: EmitHos
         const jsFilePath = options.emitDeclarationOnly || isJsonEmittedToSameLocation ? undefined : ownOutputFilePath;
         const sourceMapFilePath = !jsFilePath || isJsonSourceFile(sourceFile) ? undefined : getSourceMapFilePath(jsFilePath, options);
         const declarationFilePath = (forceDtsPaths || (getEmitDeclarations(options) && !isJsonFile)) ? getDeclarationEmitOutputFilePath(sourceFile.fileName, host) : undefined;
-        const compatibilityDeclarationFilePath = declarationFilePath && fileExtensionIs(sourceFile.fileName, Extension.Tspp)
-            ? declarationFilePath.slice(0, -".d.tspp".length) + Extension.Dts
-            : undefined;
         const declarationMapPath = declarationFilePath && getAreDeclarationMapsEnabled(options) ? declarationFilePath + ".map" : undefined;
-        return { jsFilePath, sourceMapFilePath, declarationFilePath, compatibilityDeclarationFilePath, declarationMapPath };
+        return { jsFilePath, sourceMapFilePath, declarationFilePath, declarationMapPath };
     }
 }
 
@@ -638,9 +641,7 @@ function getOwnOutputFileNames(configFile: ParsedCommandLine, inputFileName: str
     if (getEmitDeclarations(configFile.options)) {
         const dts = getOutputDeclarationFileName(inputFileName, configFile, ignoreCase, getCommonSourceDirectory);
         addOutput(dts);
-        if (fileExtensionIs(inputFileName, Extension.Tspp)) {
-            addOutput(dts.slice(0, -".d.tspp".length) + Extension.Dts);
-        }
+        addOutput(getTSPPCompatibilityDeclarationFilePath(dts)); // TSPP-SLOT(declaration-output)
         if (configFile.options.declarationMap) {
             addOutput(`${dts}.map`);
         }
@@ -806,13 +807,13 @@ export function emitFiles(
         sourceMaps: sourceMapDataList,
     };
 
-    function emitSourceFileOrBundle({ jsFilePath, sourceMapFilePath, declarationFilePath, compatibilityDeclarationFilePath, declarationMapPath, buildInfoPath }: EmitFileNames, sourceFileOrBundle: SourceFile | Bundle | undefined) {
+    function emitSourceFileOrBundle({ jsFilePath, sourceMapFilePath, declarationFilePath, declarationMapPath, buildInfoPath }: EmitFileNames, sourceFileOrBundle: SourceFile | Bundle | undefined) {
         tracing?.push(tracing.Phase.Emit, "emitJsFileOrBundle", { jsFilePath });
         emitJsFileOrBundle(sourceFileOrBundle, jsFilePath, sourceMapFilePath);
         tracing?.pop();
 
         tracing?.push(tracing.Phase.Emit, "emitDeclarationFileOrBundle", { declarationFilePath });
-        emitDeclarationFileOrBundle(sourceFileOrBundle, declarationFilePath, compatibilityDeclarationFilePath, declarationMapPath);
+        emitDeclarationFileOrBundle(sourceFileOrBundle, declarationFilePath, declarationMapPath);
         tracing?.pop();
 
         tracing?.push(tracing.Phase.Emit, "emitBuildInfo", { buildInfoPath });
@@ -871,7 +872,7 @@ export function emitFiles(
             inlineSourceMap: compilerOptions.inlineSourceMap,
             inlineSources: compilerOptions.inlineSources,
             extendedDiagnostics: compilerOptions.extendedDiagnostics,
-            tsppJavaScriptEmit: true,
+            tsppJavaScriptEmit: true, // TSPP-SLOT(declaration-output)
         };
 
         // Create a printer to print the nodes
@@ -902,7 +903,6 @@ export function emitFiles(
     function emitDeclarationFileOrBundle(
         sourceFileOrBundle: SourceFile | Bundle | undefined,
         declarationFilePath: string | undefined,
-        compatibilityDeclarationFilePath: string | undefined,
         declarationMapPath: string | undefined,
     ) {
         if (!sourceFileOrBundle || emitOnly === EmitOnly.Js) return;
@@ -934,10 +934,7 @@ export function emitFiles(
             }
         }
 
-        const declBlocked = (!!declarationTransform.diagnostics && !!declarationTransform.diagnostics.length)
-            || !!host.isEmitBlocked(declarationFilePath)
-            || !!compatibilityDeclarationFilePath && !!host.isEmitBlocked(compatibilityDeclarationFilePath)
-            || !!compilerOptions.noEmit;
+        const declBlocked = (!!declarationTransform.diagnostics && !!declarationTransform.diagnostics.length) || !!host.isEmitBlocked(declarationFilePath) || isTSPPCompatibilityDeclarationBlocked(host, declarationFilePath) || !!compilerOptions.noEmit; // TSPP-SLOT(declaration-output)
         emitSkipped = emitSkipped || declBlocked;
         if (!declBlocked || forceDtsEmit) {
             Debug.assert(declarationTransform.transformed.length === 1, "Should only see one output from the decl transform");
@@ -977,28 +974,10 @@ export function emitFiles(
                     // Explicitly do not passthru either `inline` option
                 },
             );
-            let compatibilityDtsWritten = false;
-            if (compatibilityDeclarationFilePath) {
-                const compatibilityPrinter = createPrinter(
-                    { ...printerOptions, sourceMap: false, tsppCompatibilityDeclaration: true },
-                    {
-                        hasGlobalName: resolver.hasGlobalName,
-                        onEmitNode: declarationTransform.emitNodeWithNotification,
-                        isEmitNotificationEnabled: declarationTransform.isEmitNotificationEnabled,
-                        substituteNode: declarationTransform.substituteNode,
-                    },
-                );
-                compatibilityDtsWritten = printSourceFileOrBundle(
-                    compatibilityDeclarationFilePath,
-                    /*sourceMapFilePath*/ undefined,
-                    declarationTransform,
-                    compatibilityPrinter,
-                    { extendedDiagnostics: compilerOptions.extendedDiagnostics },
-                );
-            }
+            const compatibilityDeclarationFilePath = emitTSPPCompatibilityDeclaration(declarationFilePath, printerOptions, resolver, declarationTransform, (filePath, printer) => printSourceFileOrBundle(filePath, /*sourceMapFilePath*/ undefined, declarationTransform, printer, { extendedDiagnostics: compilerOptions.extendedDiagnostics })); // TSPP-SLOT(declaration-output)
             if (emittedFilesList) {
                 if (dtsWritten) emittedFilesList.push(declarationFilePath);
-                if (compatibilityDtsWritten) emittedFilesList.push(compatibilityDeclarationFilePath!);
+                if (compatibilityDeclarationFilePath) emittedFilesList.push(compatibilityDeclarationFilePath); // TSPP-SLOT(declaration-output)
                 if (declarationMapPath) {
                     emittedFilesList.push(declarationMapPath);
                 }
@@ -1266,8 +1245,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     } = handlers;
 
     var extendedDiagnostics = !!printerOptions.extendedDiagnostics;
-    var tsppCompatibilityDeclaration = !!printerOptions.tsppCompatibilityDeclaration;
-    var tsppJavaScriptEmit = !!printerOptions.tsppJavaScriptEmit;
+    var tsppCompatibilityDeclaration = !!printerOptions.tsppCompatibilityDeclaration; // TSPP-SLOT(declaration-output)
+    var tsppJavaScriptEmit = !!printerOptions.tsppJavaScriptEmit; // TSPP-SLOT(declaration-output)
     var omitBraceSourcePositions = !!printerOptions.omitBraceSourceMapPositions;
     var newLine = getNewLineCharacter(printerOptions);
     var moduleKind = getEmitModuleKind(printerOptions);
@@ -2289,8 +2268,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     //
 
     function emitPropertySignature(node: PropertySignature) {
-        if (tsppCompatibilityDeclaration && node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword)) return;
-        emitModifierList(node, getCompatibilityInterfaceModifiers(node));
+        if (isOmittedFromTSPPCompatibilityDeclaration(node, tsppCompatibilityDeclaration)) return; // TSPP-SLOT(interface-member-contract)
+        emitModifierList(node, node.modifiers);
         emitNodeWithWriter(node.name, writeProperty);
         emit(node.questionToken);
         emitTypeAnnotation(node.type);
@@ -2308,18 +2287,11 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitMethodSignature(node: MethodSignature) {
-        if (tsppCompatibilityDeclaration && node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword)) return;
-        emitModifierList(node, getCompatibilityInterfaceModifiers(node));
+        if (isOmittedFromTSPPCompatibilityDeclaration(node, tsppCompatibilityDeclaration)) return; // TSPP-SLOT(interface-member-contract)
+        emitModifierList(node, node.modifiers);
         emit(node.name);
         emit(node.questionToken);
         emitSignatureAndBody(node, emitSignatureHead, emitEmptyFunctionBody);
-    }
-
-    function getCompatibilityInterfaceModifiers(node: PropertySignature | MethodSignature) {
-        if (!tsppCompatibilityDeclaration || !node.modifiers) {
-            return node.modifiers;
-        }
-        return factory.createNodeArray(node.modifiers.filter(modifier => modifier.kind !== SyntaxKind.StaticKeyword));
     }
 
     function emitMethodDeclaration(node: MethodDeclaration) {
@@ -2619,16 +2591,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
         writeKeyword("import");
         writePunctuation("(");
-        if (tsppCompatibilityDeclaration && isLiteralTypeNode(node.argument) && isStringLiteral(node.argument.literal)) {
-            const literal = node.argument.literal;
-            const text = literal.text.endsWith(Extension.Tspp)
-                ? literal.text.slice(0, -Extension.Tspp.length) + Extension.Js
-                : literal.text;
-            emit(factory.createLiteralTypeNode(factory.createStringLiteral(text)));
-        }
-        else {
-            emit(node.argument);
-        }
+        emit(getTSPPCompatibilityImportTypeArgument(node.argument, tsppCompatibilityDeclaration)); // TSPP-SLOT(declaration-output)
         if (node.attributes) {
             writePunctuation(",");
             writeSpace();
@@ -3493,22 +3456,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
 
     function emitFunctionDeclarationOrExpression(node: FunctionDeclaration | FunctionExpression) {
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
-        emitRestoredFunctionPrefix(node); // TSPP-SLOT(source-projection)
+        emitTSPPRestoredFunctionPrefix(node, currentSourceFile, tsppCompatibilityDeclaration || tsppJavaScriptEmit, write, writeSpace); // TSPP-SLOT(source-projection)
         writeKeyword("function");
         emit(node.asteriskToken);
         writeSpace();
         emitIdentifierName(node.name);
         emitSignatureAndBody(node, emitSignatureHead, emitFunctionBody);
-    }
-
-    /** Declaration surfaces restore plugin syntax a source projection removed before the `function` keyword. */
-    function emitRestoredFunctionPrefix(node: FunctionDeclaration | FunctionExpression) {
-        if (tsppCompatibilityDeclaration || tsppJavaScriptEmit || !isFunctionDeclaration(node) || !node.name || !currentSourceFile) return;
-        const prefix = getPreprocessedFunctionPrefix(currentSourceFile.fileName, idText(node.name), node.pos);
-        if (prefix) {
-            write(prefix);
-            writeSpace();
-        }
     }
 
     function emitSignatureAndBody<T extends SignatureDeclaration>(node: T, emitSignatureHead: (node: T) => void, emitBody: (node: T) => void) {
@@ -3545,14 +3498,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitSignatureHead(node: SignatureDeclaration) {
         emitTypeParameters(node, node.typeParameters);
         emitParameters(node, node.parameters);
-        // Contracts are erased from JavaScript; only declaration surfaces restore the authored clause.
-        const restoredWithClause = !tsppCompatibilityDeclaration && !tsppJavaScriptEmit && isFunctionDeclaration(node) && node.name && currentSourceFile
-            ? getPreprocessedFunctionWithClause(currentSourceFile.fileName, idText(node.name), node.pos)
-            : undefined;
-        if (restoredWithClause) {
-            writeSpace();
-            write(restoredWithClause);
-        }
+        emitTSPPRestoredFunctionClause(node, currentSourceFile, tsppCompatibilityDeclaration || tsppJavaScriptEmit, write, writeSpace); // TSPP-SLOT(source-projection)
         emitTypeAnnotation(node.type);
     }
 
@@ -3781,7 +3727,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             emitTokenWithComment(SyntaxKind.FromKeyword, node.importClause.end, writeKeyword, node);
             writeSpace();
         }
-        emitCompatibilityModuleSpecifier(node.moduleSpecifier);
+        emitExpression(getTSPPCompatibilityModuleSpecifier(node.moduleSpecifier, tsppCompatibilityDeclaration)); // TSPP-SLOT(declaration-output)
         if (node.attributes) {
             emitWithLeadingSpace(node.attributes);
         }
@@ -3855,20 +3801,12 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             const fromPos = node.exportClause ? node.exportClause.end : nextPos;
             emitTokenWithComment(SyntaxKind.FromKeyword, fromPos, writeKeyword, node);
             writeSpace();
-            emitCompatibilityModuleSpecifier(node.moduleSpecifier);
+            emitExpression(getTSPPCompatibilityModuleSpecifier(node.moduleSpecifier, tsppCompatibilityDeclaration)); // TSPP-SLOT(declaration-output)
         }
         if (node.attributes) {
             emitWithLeadingSpace(node.attributes);
         }
         writeTrailingSemicolon();
-    }
-
-    function emitCompatibilityModuleSpecifier(moduleSpecifier: Expression) {
-        if (tsppCompatibilityDeclaration && isStringLiteral(moduleSpecifier) && moduleSpecifier.text.endsWith(Extension.Tspp)) {
-            emitExpression(factory.createStringLiteral(moduleSpecifier.text.slice(0, -Extension.Tspp.length) + Extension.Js));
-            return;
-        }
-        emitExpression(moduleSpecifier);
     }
 
     function emitImportTypeNodeAttributes(node: ImportAttributes) {

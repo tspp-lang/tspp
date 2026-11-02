@@ -324,6 +324,7 @@ import {
     writeFileEnsuringDirectories,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
 import { rebuildTSPPProgram } from "./tspp/rebuild.js"; // TSPP-SLOT(program-rebuild)
 import {
     applyTSPPSemanticDiagnostics,
@@ -1358,7 +1359,7 @@ export function getImpliedNodeFormatForFileWorker(
         || pathContainsNodeModules(fileName);
     return fileExtensionIsOneOf(fileName, [Extension.Dmts, Extension.Mts, Extension.Mjs]) ? ModuleKind.ESNext :
         fileExtensionIsOneOf(fileName, [Extension.Dcts, Extension.Cts, Extension.Cjs]) ? ModuleKind.CommonJS :
-        shouldLookupFromPackageJson && fileExtensionIsOneOf(fileName, [Extension.Dts, Extension.Tspp, Extension.Ts, Extension.Tsx, Extension.Js, Extension.Jsx]) ? lookupFromPackageJson() :
+        shouldLookupFromPackageJson && fileExtensionIsOneOf(fileName, [Extension.Dts, Extension.Tspp, Extension.Ts, Extension.Tsx, Extension.Js, Extension.Jsx]) ? lookupFromPackageJson() : // TSPP-SLOT(tspp-extension)
         undefined; // other extensions, like `json` or `tsbuildinfo`, are set as `undefined` here but they should never be fed through the transformer pipeline
 
     function lookupFromPackageJson(): Partial<CreateSourceFileOptions> {
@@ -4403,7 +4404,7 @@ export function createProgram(_rootNamesOrOptions: readonly string[] | CreatePro
                     verifyEmitFilePath(emitFileNames.jsFilePath, emitFilesSeen);
                 }
                 verifyEmitFilePath(emitFileNames.declarationFilePath, emitFilesSeen);
-                verifyEmitFilePath(emitFileNames.compatibilityDeclarationFilePath, emitFilesSeen);
+                verifyEmitFilePath(getTSPPCompatibilityDeclarationFilePath(emitFileNames.declarationFilePath), emitFilesSeen); // TSPP-SLOT(declaration-output)
             });
         }
 
@@ -5146,8 +5147,8 @@ export function resolveProjectReferencePath(ref: ProjectReference): ResolvedConf
 export function getResolutionDiagnostic(options: CompilerOptions, { extension }: ResolvedModuleFull, { isDeclarationFile }: { isDeclarationFile: SourceFile["isDeclarationFile"]; }): DiagnosticMessage | undefined {
     switch (extension) {
         case Extension.Ts:
-        case Extension.Tspp:
-        case ".d.tspp":
+        case Extension.Tspp: // TSPP-SLOT(tspp-extension)
+        case ".d.tspp": // TSPP-SLOT(tspp-extension)
         case Extension.Dts:
         case Extension.Mts:
         case Extension.Dmts:

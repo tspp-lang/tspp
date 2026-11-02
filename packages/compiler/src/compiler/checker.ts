@@ -4851,7 +4851,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                             // CJS file resolving to an ESM file
                             let diagnosticDetails;
                             const ext = tryGetExtensionFromPath(currentSourceFile.fileName);
-                            if (ext === Extension.Tspp || ext === Extension.Ts || ext === Extension.Js || ext === Extension.Tsx || ext === Extension.Jsx) {
+                            if (ext === Extension.Tspp || ext === Extension.Ts || ext === Extension.Js || ext === Extension.Tsx || ext === Extension.Jsx) { // TSPP-SLOT(tspp-extension)
                                 diagnosticDetails = createModeMismatchDetails(currentSourceFile);
                             }
 

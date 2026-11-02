@@ -6570,10 +6570,10 @@ export function getDeclarationEmitOutputFilePathWorker(fileName: string, options
 }
 
 /** @internal */
-export function getDeclarationEmitExtensionForPath(path: string): Extension.Dts | Extension.Dmts | Extension.Dcts | ".d.tspp" | ".d.json.ts" {
+export function getDeclarationEmitExtensionForPath(path: string): Extension.Dts | Extension.Dmts | Extension.Dcts | ".d.tspp" | ".d.json.ts" { // TSPP-SLOT(tspp-extension)
     return fileExtensionIsOneOf(path, [Extension.Mjs, Extension.Mts]) ? Extension.Dmts :
         fileExtensionIsOneOf(path, [Extension.Cjs, Extension.Cts]) ? Extension.Dcts :
-        fileExtensionIs(path, Extension.Tspp) ? ".d.tspp" :
+        fileExtensionIs(path, Extension.Tspp) ? ".d.tspp" : // TSPP-SLOT(tspp-extension)
         fileExtensionIsOneOf(path, [Extension.Json]) ? `.d.json.ts` : // Drive-by redefinition of json declaration file output name so if it's ever enabled, it behaves well
         Extension.Dts;
 }
@@ -6586,7 +6586,7 @@ export function getDeclarationEmitExtensionForPath(path: string): Extension.Dts 
 export function getPossibleOriginalInputExtensionForExtension(path: string): Extension[] {
     return fileExtensionIsOneOf(path, [Extension.Dmts, Extension.Mjs, Extension.Mts]) ? [Extension.Mts, Extension.Mjs] :
         fileExtensionIsOneOf(path, [Extension.Dcts, Extension.Cjs, Extension.Cts]) ? [Extension.Cts, Extension.Cjs] :
-        fileExtensionIs(path, ".d.tspp") ? [Extension.Tspp] :
+        fileExtensionIs(path, ".d.tspp") ? [Extension.Tspp] : // TSPP-SLOT(tspp-extension)
         fileExtensionIsOneOf(path, [`.d.json.ts`]) ? [Extension.Json] :
         [Extension.Tsx, Extension.Ts, Extension.Jsx, Extension.Js];
 }
@@ -6621,8 +6621,6 @@ export interface EmitFileNames {
     jsFilePath?: string | undefined;
     sourceMapFilePath?: string | undefined;
     declarationFilePath?: string | undefined;
-    /** TypeScript-compatible declaration emitted alongside a TS++ declaration. */
-    compatibilityDeclarationFilePath?: string | undefined;
     declarationMapPath?: string | undefined;
     buildInfoPath?: string | undefined;
 }
@@ -9959,7 +9957,7 @@ export function getScriptKindFromFileName(fileName: string): ScriptKind {
         case Extension.Jsx:
             return ScriptKind.JSX;
         case Extension.Ts:
-        case Extension.Tspp:
+        case Extension.Tspp: // TSPP-SLOT(tspp-extension)
         case Extension.Cts:
         case Extension.Mts:
             return ScriptKind.TS;
@@ -9975,21 +9973,21 @@ export function getScriptKindFromFileName(fileName: string): ScriptKind {
 /**
  *  Groups of supported extensions in order of file resolution precedence. (eg, TS > TSX > DTS and seperately, CTS > DCTS)
  */
-const supportedTSExtensions: readonly Extension[][] = [[Extension.Tspp, Extension.Ts, Extension.Tsx, Extension.Dts], [Extension.Cts, Extension.Dcts], [Extension.Mts, Extension.Dmts]];
+const supportedTSExtensions: readonly Extension[][] = [[Extension.Tspp, Extension.Ts, Extension.Tsx, Extension.Dts], [Extension.Cts, Extension.Dcts], [Extension.Mts, Extension.Dmts]]; // TSPP-SLOT(tspp-extension)
 /** @internal */
 export const supportedTSExtensionsFlat: readonly Extension[] = flatten(supportedTSExtensions);
 const supportedTSExtensionsWithJson: readonly Extension[][] = [...supportedTSExtensions, [Extension.Json]];
 /** Must have ".d.ts" first because if ".ts" goes first, that will be detected as the extension instead of ".d.ts". */
-const supportedTSExtensionsForExtractExtension: readonly Extension[] = [Extension.Dts, Extension.Dcts, Extension.Dmts, Extension.Tspp, Extension.Cts, Extension.Mts, Extension.Ts, Extension.Tsx];
+const supportedTSExtensionsForExtractExtension: readonly Extension[] = [Extension.Dts, Extension.Dcts, Extension.Dmts, Extension.Tspp, Extension.Cts, Extension.Mts, Extension.Ts, Extension.Tsx]; // TSPP-SLOT(tspp-extension)
 const supportedJSExtensions: readonly Extension[][] = [[Extension.Js, Extension.Jsx], [Extension.Mjs], [Extension.Cjs]];
 /** @internal */
 export const supportedJSExtensionsFlat: readonly Extension[] = flatten(supportedJSExtensions);
-const allSupportedExtensions: readonly Extension[][] = [[Extension.Tspp, Extension.Ts, Extension.Tsx, Extension.Dts, Extension.Js, Extension.Jsx], [Extension.Cts, Extension.Dcts, Extension.Cjs], [Extension.Mts, Extension.Dmts, Extension.Mjs]];
+const allSupportedExtensions: readonly Extension[][] = [[Extension.Tspp, Extension.Ts, Extension.Tsx, Extension.Dts, Extension.Js, Extension.Jsx], [Extension.Cts, Extension.Dcts, Extension.Cjs], [Extension.Mts, Extension.Dmts, Extension.Mjs]]; // TSPP-SLOT(tspp-extension)
 const allSupportedExtensionsWithJson: readonly Extension[][] = [...allSupportedExtensions, [Extension.Json]];
 /** @internal */
 export const supportedDeclarationExtensions: readonly Extension[] = [Extension.Dts, Extension.Dcts, Extension.Dmts];
 /** @internal */
-export const supportedTSImplementationExtensions: readonly Extension[] = [Extension.Tspp, Extension.Ts, Extension.Cts, Extension.Mts, Extension.Tsx];
+export const supportedTSImplementationExtensions: readonly Extension[] = [Extension.Tspp, Extension.Ts, Extension.Cts, Extension.Mts, Extension.Tsx]; // TSPP-SLOT(tspp-extension)
 /** @internal */
 export const extensionsNotSupportingExtensionlessResolution: readonly Extension[] = [Extension.Mts, Extension.Dmts, Extension.Mjs, Extension.Cts, Extension.Dcts, Extension.Cjs];
 
@@ -10175,7 +10173,7 @@ export function compareNumberOfDirectorySeparators(path1: string, path2: string)
     );
 }
 
-const extensionsToRemove = [Extension.Dts, Extension.Dmts, Extension.Dcts, Extension.Tspp, Extension.Mjs, Extension.Mts, Extension.Cjs, Extension.Cts, Extension.Ts, Extension.Js, Extension.Tsx, Extension.Jsx, Extension.Json];
+const extensionsToRemove = [Extension.Dts, Extension.Dmts, Extension.Dcts, Extension.Tspp, Extension.Mjs, Extension.Mts, Extension.Cjs, Extension.Cts, Extension.Ts, Extension.Js, Extension.Tsx, Extension.Jsx, Extension.Json]; // TSPP-SLOT(tspp-extension)
 /** @internal */
 export function removeFileExtension(path: string): string {
     for (const ext of extensionsToRemove) {
@@ -10282,7 +10280,7 @@ export function positionIsSynthesized(pos: number): boolean {
  * @internal
  */
 export function extensionIsTS(ext: string): boolean {
-    return ext === Extension.Tspp || ext === Extension.Ts || ext === Extension.Tsx || ext === Extension.Dts || ext === Extension.Cts || ext === Extension.Mts || ext === Extension.Dmts || ext === Extension.Dcts || (startsWith(ext, ".d.") && endsWith(ext, ".ts"));
+    return ext === Extension.Tspp || ext === Extension.Ts || ext === Extension.Tsx || ext === Extension.Dts || ext === Extension.Cts || ext === Extension.Mts || ext === Extension.Dmts || ext === Extension.Dcts || (startsWith(ext, ".d.") && endsWith(ext, ".ts")); // TSPP-SLOT(tspp-extension)
 }
 
 /** @internal */

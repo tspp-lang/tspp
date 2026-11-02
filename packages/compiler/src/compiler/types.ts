@@ -7363,7 +7363,7 @@ export enum ModuleDetectionKind {
 export interface PluginImport {
     name: string;
     /** Marks this package as a TSPP feature capsule loaded by both tsc and tsserver. */
-    tspp?: boolean;
+    tspp?: boolean; // TSPP-SLOT(plugin-host)
 }
 
 export interface ProjectReference {
@@ -8069,7 +8069,7 @@ export interface PackageId {
 
 export const enum Extension {
     Ts = ".ts",
-    Tspp = ".tspp",
+    Tspp = ".tspp", // TSPP-SLOT(tspp-extension)
     Tsx = ".tsx",
     Dts = ".d.ts",
     Js = ".js",
@@ -9884,8 +9884,8 @@ export interface PrinterOptions {
     /** @internal */ stripInternal?: boolean;
     /** @internal */ preserveSourceNewlines?: boolean;
     /** @internal */ terminateUnterminatedLiterals?: boolean;
-    /** @internal */ tsppCompatibilityDeclaration?: boolean;
-    /** @internal */ tsppJavaScriptEmit?: boolean;
+    /** @internal */ tsppCompatibilityDeclaration?: boolean; // TSPP-SLOT(declaration-output)
+    /** @internal */ tsppJavaScriptEmit?: boolean; // TSPP-SLOT(declaration-output)
 }
 
 /** @internal */

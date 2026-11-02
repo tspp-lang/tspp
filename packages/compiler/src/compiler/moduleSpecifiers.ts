@@ -1430,7 +1430,7 @@ export function tryGetJSExtensionForFile(fileName: string, options: CompilerOpti
     const ext = tryGetExtensionFromPath(fileName);
     switch (ext) {
         case Extension.Ts:
-        case Extension.Tspp:
+        case Extension.Tspp: // TSPP-SLOT(tspp-extension)
         case Extension.Dts:
             return Extension.Js;
         case Extension.Tsx:

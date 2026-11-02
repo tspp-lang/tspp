@@ -310,7 +310,7 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { isTSPPInterfaceStaticMember } from "./tspp/registry.js";
+import { isTSPPInterfaceStaticMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-contract)
 
 /** @internal */
 export const enum ModuleInstanceState {
