@@ -32,7 +32,8 @@ try {
     errors.length = 0;
     const started = Date.now();
     const failure = await runExample(page, example, errors).catch(error => String(error));
-    console.log(`${failure ? "FAIL" : "ok  "} ${example} (${((Date.now() - started) / 1000).toFixed(1)}s)`);
+    const lines = await page.$$eval("#run-output > *", output => output.length);
+    console.log(`${failure ? "FAIL" : "ok  "} ${example} (${((Date.now() - started) / 1000).toFixed(1)}s, ${lines} line(s) of output)`);
     if (failure) failures.push(`${example}: ${failure}`);
   }
 }
