@@ -324,7 +324,8 @@ import {
     writeFileEnsuringDirectories,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { rebuildTSPPProgram } from "./tspp/rebuild.js";
+import { rebuildTSPPProgram } from "./tspp/rebuild.js"; // TSPP-SLOT(program-rebuild)
+import { getTSPPSemanticDiagnostics } from "./tspp/registry.js"; // TSPP-SLOT(diagnostics)
 
 export function findConfigFile(searchPath: string, fileExists: (fileName: string) => boolean, configName = "tsconfig.json"): string | undefined {
     return forEachAncestorDirectory(searchPath, ancestor => {
@@ -2905,6 +2906,7 @@ export function createProgram(_rootNamesOrOptions: readonly string[] | CreatePro
 
             let bindDiagnostics = sourceFile.bindDiagnostics;
             let checkDiagnostics = typeChecker.getDiagnostics(sourceFile, cancellationToken, nodesToCheck);
+            if (!nodesToCheck) checkDiagnostics = [...checkDiagnostics, ...getTSPPSemanticDiagnostics(sourceFile, typeChecker)]; // TSPP-SLOT(diagnostics)
             if (isPlainJs) {
                 bindDiagnostics = filter(bindDiagnostics, d => plainJSErrors.has(d.code));
                 checkDiagnostics = filter(checkDiagnostics, d => plainJSErrors.has(d.code));

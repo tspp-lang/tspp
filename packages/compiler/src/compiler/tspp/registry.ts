@@ -5,10 +5,9 @@ import {
 import type {
     TSPPCompilerHostAPI,
     TSPPDeclarationSyntax,
-    TSPPDeepReadonlyBindingSyntax,
+    TSPPDiagnosticProvider,
     TSPPExpressionRewriter,
     TSPPExpressionSyntax,
-    TSPPFunctionBodySyntax,
     TSPPInterfaceMemberContract,
     TSPPKindAnnotationSyntax,
     TSPPPostfixTypeSyntax,
@@ -16,7 +15,9 @@ import type {
     TSPPProgramAnalyzer,
     TSPPProgramRebuilder,
     TSPPSourcePreprocessor,
-    TSPPTrailingClosureBindingSyntax,
+    TSPPSyntaxCursor,
+    TSPPSyntaxExtension,
+    TSPPSyntaxExtensionPosition,
     TSPPTypeKind,
     TSPPTypeScript,
     TSPPTypeSyntax,
@@ -30,31 +31,22 @@ import type {
 import * as ts from "../_namespaces/ts.js";
 import { version } from "../corePublic.js";
 import type {
-    Block,
+    Diagnostic,
     Expression,
     ExtensionExpression,
     Identifier,
     Node,
     NodeFactory,
+    SourceFile,
     Statement,
-    VariableDeclaration,
-    VariableStatement,
+    TypeChecker,
 } from "../types.js";
-import {
-    SyntaxKind,
-    TransformFlags,
-} from "../types.js";
+import { SyntaxKind } from "../types.js";
 import { getTaggedUnionSyntheticDeclarations } from "./taggedUnion.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax[]>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
 const expressionSyntaxByNode = new WeakMap<object, TSPPExpressionSyntax>();
-const functionBodySyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPFunctionBodySyntax; }[]>();
-const functionBodySyntaxByBlock = new WeakMap<object, TSPPFunctionBodySyntax>();
-const trailingClosureSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTrailingClosureBindingSyntax; }[]>();
-const trailingClosureBindingByStatement = new WeakMap<object, TrailingClosureBindingData>();
-const deepReadonlySyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeepReadonlyBindingSyntax; }[]>();
-const deepReadonlyStatements = new WeakSet<object>();
 const selectedExtensionExpressions = new WeakMap<object, object>();
 const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
 const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
@@ -72,6 +64,8 @@ const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgr
 const expressionRewriters = new Map<string, TSPPExpressionRewriter>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const programRebuilders = new Map<string, TSPPProgramRebuilder>();
+const syntaxExtensions = new Map<TSPPSyntaxExtensionPosition, { pluginId: string; extension: TSPPSyntaxExtension; }[]>();
+const diagnosticProviders = new Map<string, TSPPDiagnosticProvider>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
 let pluginHost: TSPPPluginHost | undefined;
@@ -214,66 +208,6 @@ const compilerAPI: TSPPCompilerHostAPI = {
             }
         };
     },
-    registerFunctionBodySyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP function-body plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        for (const token of syntax.startTokens) {
-            const candidates = functionBodySyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else functionBodySyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            for (const token of syntax.startTokens) {
-                const candidates = functionBodySyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) functionBodySyntaxByStartToken.delete(token);
-            }
-        };
-    },
-    registerTrailingClosureBindingSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP trailing-closure plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        for (const token of syntax.startTokens) {
-            const candidates = trailingClosureSyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else trailingClosureSyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            for (const token of syntax.startTokens) {
-                const candidates = trailingClosureSyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) trailingClosureSyntaxByStartToken.delete(token);
-            }
-        };
-    },
-    registerDeepReadonlyBindingSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP deep-readonly plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        for (const token of syntax.startTokens) {
-            const candidates = deepReadonlySyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else deepReadonlySyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            for (const token of syntax.startTokens) {
-                const candidates = deepReadonlySyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) deepReadonlySyntaxByStartToken.delete(token);
-            }
-        };
-    },
     registerDeclarationSyntax(pluginId, syntax) {
         if (syntax.startTokens.length === 0) {
             throw new Error(`TSPP declaration plugin '${pluginId}' must claim at least one start token.`);
@@ -388,6 +322,22 @@ const compilerAPI: TSPPCompilerHostAPI = {
         expressionRewriters.set(pluginId, rewriter);
         return () => expressionRewriters.delete(pluginId);
     },
+    registerSyntaxExtension(pluginId, extension) {
+        const entry = { pluginId, extension };
+        const list = syntaxExtensions.get(extension.position) ?? [];
+        list.push(entry);
+        syntaxExtensions.set(extension.position, list);
+        return () => {
+            const index = list.indexOf(entry);
+            if (index >= 0) list.splice(index, 1);
+        };
+    },
+    registerDiagnosticProvider(pluginId, provider) {
+        const key = `${pluginId}/${provider.id}`;
+        if (diagnosticProviders.has(key)) throw new Error(`Duplicate TSPP diagnostic provider '${key}'.`);
+        diagnosticProviders.set(key, provider);
+        return () => diagnosticProviders.delete(key);
+    },
     registerProgramRebuilder(pluginId, rebuilder) {
         const key = `${pluginId}/${rebuilder.id}`;
         if (programRebuilders.has(key)) throw new Error(`Duplicate TSPP program rebuilder '${key}'.`);
@@ -405,6 +355,29 @@ const languageServiceAPI: TSPPLanguageServiceHostAPI = {
         return () => quickInfoProviders.delete(pluginId);
     },
 };
+
+/** Lets plugin syntax registered for `position` parse at the current token, if one starts there. @internal */
+export function tryParseTSPPSyntax(position: TSPPSyntaxExtensionPosition, token: SyntaxKind, createCursor: () => TSPPSyntaxCursor): Node | undefined {
+    const candidates = syntaxExtensions.get(position);
+    if (!candidates?.length) return undefined;
+    let cursor: TSPPSyntaxCursor | undefined;
+    for (const { extension } of candidates) {
+        if (!(extension.startTokens as readonly number[]).includes(token)) continue;
+        cursor ??= createCursor();
+        if (extension.isStart(cursor)) return extension.parse(cursor) as unknown as Node;
+    }
+    return undefined;
+}
+
+/** Plugin diagnostics for a source file, merged with its bind and check diagnostics. @internal */
+export function getTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: TypeChecker): readonly Diagnostic[] {
+    if (!diagnosticProviders.size) return [];
+    const diagnostics: Diagnostic[] = [];
+    for (const provider of diagnosticProviders.values()) {
+        diagnostics.push(...provider.getSemanticDiagnostics(sourceFile as never, checker as never) as unknown as readonly Diagnostic[]);
+    }
+    return diagnostics;
+}
 
 /** @internal */
 export function getRegisteredTSPPProgramRebuilders(): readonly TSPPProgramRebuilder[] {
@@ -681,105 +654,6 @@ export function getExtensionExpressionSyntax(node: ExtensionExpression): any {
     const syntaxes = expressionSyntaxByPluginId.get(node.pluginId);
     if (syntaxes?.length === 1) return syntaxes[0];
     throw new Error(`Unknown TSPP extension expression syntax for plugin: ${node.pluginId}`);
-}
-
-/** @internal */
-export function tryParseExtensionFunctionBody(
-    token: SyntaxKind,
-    createParser: () => any,
-): Block | undefined {
-    const candidates = functionBodySyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { syntax } of candidates) {
-        const parser = createParser();
-        if (!syntax.isStart(parser)) continue;
-        const block = syntax.parse(parser) as Block;
-        (block as { transformFlags: TransformFlags; }).transformFlags |= TransformFlags.ContainsTypeScript;
-        functionBodySyntaxByBlock.set(block, syntax);
-        return block;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function getExtensionFunctionBodySyntax(block: object): any {
-    let current: { readonly original?: object; } | undefined = block;
-    while (current) {
-        const syntax = functionBodySyntaxByBlock.get(current);
-        if (syntax) return syntax;
-        current = current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export interface TrailingClosureBindingData {
-    readonly statement: VariableStatement;
-    readonly declaration: VariableDeclaration;
-    readonly target: Expression;
-}
-
-/** @internal */
-export function tryParseTrailingClosureBinding(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): Statement | undefined {
-    const candidates = trailingClosureSyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) return syntax.parse(parser) as Statement;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function registerTrailingClosureBinding(
-    statement: VariableStatement,
-    declaration: VariableDeclaration,
-    target: Expression,
-): void {
-    trailingClosureBindingByStatement.set(statement, { statement, declaration, target });
-}
-
-/** @internal */
-export function getTrailingClosureBinding(node: object): TrailingClosureBindingData | undefined {
-    let current: { readonly parent?: object; readonly original?: object; } | undefined = node;
-    while (current) {
-        const data = trailingClosureBindingByStatement.get(current);
-        if (data) return data;
-        current = current.parent ?? current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function tryParseDeepReadonlyBinding(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): Statement | undefined {
-    const candidates = deepReadonlySyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) return syntax.parse(parser) as Statement;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function registerDeepReadonlyBinding(statement: VariableStatement): void {
-    deepReadonlyStatements.add(statement);
-}
-
-/** @internal */
-export function isDeepReadonlyBinding(node: object): boolean {
-    let current: { readonly parent?: object; readonly original?: object; } | undefined = node;
-    while (current) {
-        if (deepReadonlyStatements.has(current)) return true;
-        current = current.parent ?? current.original;
-    }
-    return false;
 }
 
 /** @internal */

@@ -741,7 +741,6 @@ import {
     isRequireCall,
     isRestParameter,
     isRestTypeNode,
-    isReturnStatement,
     isRightSideOfAccessExpression,
     isRightSideOfInstanceofExpression,
     isRightSideOfQualifiedNameOrPropertyAccess,
@@ -1161,14 +1160,11 @@ import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
-    getExtensionFunctionBodySyntax,
-    getTrailingClosureBinding,
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
     hasExtensionDeclarationValueUseRestrictions,
     hasInterfaceMemberContract,
-    isDeepReadonlyBinding,
     isExtensionTypeConstructor,
     setSelectedExtensionExpression,
 } from "./tspp/registry.js";
@@ -1518,7 +1514,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
     var hasTSPPValueUseRestrictions = hasExtensionDeclarationValueUseRestrictions();
-    var activeCompletionBlocks = new Set<Block>();
     interface ExtensionTypeConstructorData {
         readonly node: FunctionTypeNode;
         readonly typeParameters: readonly TypeParameter[];
@@ -11911,11 +11906,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         includeOptionality: boolean,
         checkMode: CheckMode,
     ): Type | undefined {
-        const trailingClosure = getTrailingClosureBinding(declaration);
-        if (trailingClosure && declaration === trailingClosure.declaration) {
-            return tryGetTypeFromEffectiveTypeNode(declaration)
-                || getTrailingClosureBindingType(trailingClosure);
-        }
         // A variable declared in a for..in statement is of type string, or of type keyof T when the
         // right hand expression is of a type parameter type.
         if (isVariableDeclaration(declaration) && declaration.parent.parent.kind === SyntaxKind.ForInStatement) {
@@ -39828,7 +39818,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function functionHasImplicitReturn(func: FunctionLikeDeclaration) {
-        if (func.body?.kind === SyntaxKind.Block && getExtensionFunctionBodySyntax(func.body)) return false;
         return func.endFlowNode && isReachableFlowNode(func.endFlowNode);
     }
 
@@ -39837,10 +39826,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         const functionFlags = getFunctionFlags(func);
         const aggregatedTypes: Type[] = [];
         let hasReturnWithNoExpression = functionHasImplicitReturn(func);
-        if (func.body?.kind === SyntaxKind.Block && getExtensionFunctionBodySyntax(func.body)) {
-            pushIfUnique(aggregatedTypes, getBlockCompletionType(func.body as Block, checkMode));
-            hasReturnWithNoExpression = false;
-        }
         let hasReturnOfTypeNever = false;
         forEachReturnStatement(func.body as Block, returnStatement => {
             let expr = returnStatement.expression;
@@ -41910,8 +41895,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
     function isConstContext(node: Expression): boolean {
         const parent = node.parent;
-        return isVariableDeclaration(parent) && parent.initializer === node && isDeepReadonlyBinding(parent) ||
-            isAssertionExpression(parent) && isConstTypeReference(parent.type) ||
+        return isAssertionExpression(parent) && isConstTypeReference(parent.type) ||
             isJSDocTypeAssertion(parent) && isConstTypeReference(getJSDocTypeAssertionType(parent)) ||
             isValidConstAssertionArgument(node) && isConstTypeVariable(getContextualType(node, ContextFlags.None)) ||
             (isParenthesizedExpression(parent) || isArrayLiteralExpression(parent) || isSpreadElement(parent)) && isConstContext(parent) ||
@@ -42549,97 +42533,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return checkExpression(node.extensionChildren[1] as Expression, checkMode);
     }
 
-    function getTrailingClosureSignature(target: Expression, continuationType?: Type): Signature | undefined {
-        const callable = isCallExpression(target) ? target.expression : target;
-        const signatures = getSignaturesOfType(checkExpression(callable), SignatureKind.Call);
-        if (signatures.length === 0) return undefined;
-        let signature = signatures[0];
-        if (isCallExpression(target) && target.typeArguments) {
-            signature = createSignatureInstantiation(signature, target.typeArguments.map(getTypeFromTypeNode));
-        }
-        else if (
-            continuationType
-            && signature.typeParameters?.length
-            && !(continuationType.flags & (TypeFlags.Any | TypeFlags.Void | TypeFlags.Unknown))
-        ) {
-            signature = createSignatureInstantiation(signature, signature.typeParameters.map(() => continuationType));
-        }
-        return signature;
-    }
-
-    function getTrailingClosureCallbackSignature(target: Expression, continuationType?: Type): Signature | undefined {
-        const signature = getTrailingClosureSignature(target, continuationType);
-        const parameter = signature?.parameters[signature.parameters.length - 1];
-        if (!parameter) return undefined;
-        return firstOrUndefined(getSignaturesOfType(getTypeOfSymbolAtLocation(parameter, target), SignatureKind.Call));
-    }
-
-    function getTrailingClosureBindingType(binding: ReturnType<typeof getTrailingClosureBinding> & {}): Type {
-        const links = getNodeLinks(binding.statement);
-        if (!links.resolvedType) {
-            const signature = getTrailingClosureCallbackSignature(binding.target);
-            const parameter = signature?.parameters[0];
-            links.resolvedType = parameter ? getTypeOfSymbolAtLocation(parameter, binding.target) : anyType;
-        }
-        return links.resolvedType;
-    }
-
-    function getTrailingClosureReturnType(
-        binding: ReturnType<typeof getTrailingClosureBinding> & {},
-        continuationType: Type,
-    ): Type {
-        const signature = getTrailingClosureSignature(binding.target, continuationType);
-        if (!signature) return anyType;
-        const callback = getTrailingClosureCallbackSignature(binding.target, continuationType);
-        if (callback) {
-            const expected = getReturnTypeOfSignature(callback);
-            if (!(expected.flags & (TypeFlags.Any | TypeFlags.Void | TypeFlags.Unknown))) {
-                checkTypeAssignableToAndOptionallyElaborate(
-                    continuationType,
-                    expected,
-                    binding.target,
-                    /*expr*/ undefined,
-                );
-            }
-        }
-        return getReturnTypeOfSignature(signature);
-    }
-
-    function getStatementsCompletionType(
-        statements: readonly Statement[],
-        start: number,
-        checkMode: CheckMode | undefined,
-    ): Type {
-        for (let index = start; index < statements.length; index++) {
-            const binding = getTrailingClosureBinding(statements[index]);
-            if (binding) {
-                return getTrailingClosureReturnType(
-                    binding,
-                    getStatementsCompletionType(statements, index + 1, checkMode),
-                );
-            }
-        }
-        const last = lastOrUndefined(statements);
-        if (!last) return voidType;
-        if (isExpressionStatement(last)) return checkExpression(last.expression, checkMode);
-        if (isReturnStatement(last) && last.expression) return checkExpression(last.expression, checkMode);
-        if (isIfStatement(last)) {
-            const branchType = (statement: Statement): Type => {
-                if (isBlock(statement)) return getBlockCompletionType(statement, checkMode);
-                if (isExpressionStatement(statement)) return checkExpression(statement.expression, checkMode);
-                return voidType;
-            };
-            const thenType = branchType(last.thenStatement);
-            const elseType = last.elseStatement ? branchType(last.elseStatement) : undefinedType;
-            return getUnionType([thenType, elseType], UnionReduction.Subtype);
-        }
-        return voidType;
-    }
-
-    function getBlockCompletionType(block: Block, checkMode: CheckMode | undefined): Type {
-        return getStatementsCompletionType(block.statements, 0, checkMode);
-    }
-
     function checkExtensionExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
         function createReifiedType(typeNode: TypeNode): Type {
             const representedType = getTypeFromTypeNode(typeNode);
@@ -42751,28 +42644,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
         const pluginChecker: TSPPExpressionChecker = {
             checkExpression: (expression, mode) => checkExpression(expression as Expression, mode as CheckMode | undefined),
-            checkVariableDeclarationList: (declarations, options) => {
-                const list = declarations as VariableDeclarationList;
-                if (options?.requireInitializers) {
-                    const keyword = list.flags & NodeFlags.Const ? "const" : list.flags & NodeFlags.Let ? "let" : "var";
-                    for (const declaration of list.declarations) {
-                        if (!declaration.initializer) error(declaration.name, Diagnostics._0_declarations_must_be_initialized, keyword);
-                    }
-                }
-                checkVariableDeclarationList(list);
-            },
             checkTaggedUnionMatch: (expression, mode) => checkTaggedUnionMatchExpression(expression as ExtensionExpression, mode as CheckMode | undefined),
-            checkCompletionBlock: (block, mode) => {
-                const completionBlock = block as Block;
-                activeCompletionBlocks.add(completionBlock);
-                try {
-                    checkBlock(completionBlock);
-                    return getBlockCompletionType(completionBlock, mode as CheckMode | undefined);
-                }
-                finally {
-                    activeCompletionBlocks.delete(completionBlock);
-                }
-            },
             createReifiedType: type => createReifiedType(type as TypeNode),
             checkReifiedTypeMatch: (owner, scrutinee, arms, mode) =>
                 checkReifiedTypeMatch(
@@ -45708,21 +45580,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function checkBlock(node: Block) {
-        const extensionFunctionBody = getExtensionFunctionBodySyntax(node);
-        if (extensionFunctionBody) {
-            activeCompletionBlocks.add(node);
-            const container = getContainingFunctionOrClassStaticBlock(node);
-            if (container && isFunctionLikeDeclaration(container) && container.body === node) {
-                const annotation = getReturnTypeFromAnnotation(container);
-                if (annotation) {
-                    const signature = getSignatureFromDeclaration(container);
-                    const returnType = getReturnTypeOfSignature(signature);
-                    const expected = unwrapReturnType(returnType, getFunctionFlags(container)) ?? returnType;
-                    const completion = getBlockCompletionType(node, CheckMode.Normal);
-                    checkTypeAssignableToAndOptionallyElaborate(completion, expected, node, /*expr*/ undefined);
-                }
-            }
-        }
         // Grammar checking for SyntaxKind.Block
         if (node.kind === SyntaxKind.Block) {
             checkGrammarStatementInAmbientContext(node);
@@ -45738,7 +45595,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         if (node.locals) {
             registerForUnusedIdentifiersCheck(node);
         }
-        if (extensionFunctionBody) activeCompletionBlocks.delete(node);
     }
 
     function checkCollisionWithArgumentsInGeneratedCode(node: SignatureDeclaration) {
@@ -46245,51 +46101,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     function checkVariableDeclaration(node: VariableDeclaration) {
         tracing?.push(tracing.Phase.Check, "checkVariableDeclaration", { kind: node.kind, pos: node.pos, end: node.end, path: (node as TracingNode).tracingPath });
         checkGrammarVariableDeclaration(node);
-        const trailingClosure = getTrailingClosureBinding(node);
-        if (trailingClosure && trailingClosure.declaration === node) {
-            const block = trailingClosure.statement.parent;
-            if (
-                !isBlock(block)
-                || (!activeCompletionBlocks.has(block) && !getExtensionFunctionBodySyntax(block))
-            ) {
-                error(
-                    trailingClosure.statement,
-                    Diagnostics.A_trailing_closure_binding_is_only_allowed_directly_inside_a_completion_valued_block,
-                );
-            }
-            if (node.type) checkSourceElement(node.type);
-            if (isCallExpression(trailingClosure.target)) {
-                checkExpression(trailingClosure.target.expression);
-                forEach(trailingClosure.target.typeArguments, checkSourceElement);
-                forEach(trailingClosure.target.arguments, checkExpression);
-            }
-            else {
-                checkExpression(trailingClosure.target);
-            }
-            if (isBindingPattern(node.name)) forEach(node.name.elements, checkSourceElement);
-            const inferred = getTrailingClosureBindingType(trailingClosure);
-            const annotated = node.type && getTypeFromTypeNode(node.type);
-            if (annotated) {
-                checkTypeAssignableToAndOptionallyElaborate(
-                    inferred,
-                    annotated,
-                    node,
-                    trailingClosure.target,
-                );
-            }
-            if (isBlock(block)) {
-                const index = block.statements.indexOf(trailingClosure.statement);
-                if (index >= 0) {
-                    getTrailingClosureReturnType(
-                        trailingClosure,
-                        getStatementsCompletionType(block.statements, index + 1, CheckMode.Normal),
-                    );
-                }
-            }
-        }
-        else {
-            checkVariableLikeDeclaration(node);
-        }
+        checkVariableLikeDeclaration(node);
         tracing?.pop();
     }
 

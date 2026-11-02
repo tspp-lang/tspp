@@ -3,9 +3,6 @@ import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger } fro
 /** Opaque compiler values prevent plugins from depending on compiler internals. */
 export type TSPPSyntaxNode = object;
 export type TSPPExpression = TSPPSyntaxNode;
-export type TSPPBlock = TSPPSyntaxNode;
-export type TSPPVariableDeclarationList = TSPPSyntaxNode;
-export type TSPPBindingName = TSPPSyntaxNode;
 export type TSPPStatement = TSPPSyntaxNode;
 export type TSPPDeclaration = TSPPSyntaxNode;
 export type TSPPCallExpression = TSPPExpression;
@@ -159,6 +156,61 @@ export interface TSPPStatementReplacement {
     readonly start: number;
     readonly end: number;
     replace(statement: import("typescript-upstream").Statement, sourceFile: import("typescript-upstream").SourceFile): readonly import("typescript-upstream").Statement[];
+}
+
+/** Where plugin syntax may start: a unary expression, a statement, or a function body after its signature. */
+export type TSPPSyntaxExtensionPosition = "expression" | "statement" | "function-body";
+
+/**
+ * The parser at the start of plugin syntax. A plugin reads tokens, parses ordinary TypeScript parts, and builds its
+ * result from them with the parser's own `factory`; `finishNode` gives a created node its source range.
+ */
+export interface TSPPSyntaxCursor {
+    readonly factory: import("typescript-upstream").NodeFactory;
+    token(): import("typescript-upstream").SyntaxKind;
+    tokenText(): string;
+    nextToken(): import("typescript-upstream").SyntaxKind;
+    hasPrecedingLineBreak(): boolean;
+    lookAhead<T>(callback: () => T): T;
+    /** The position the next node would start at, including leading trivia. */
+    getNodePos(): number;
+    getTokenStart(): number;
+    parseExpected(kind: import("typescript-upstream").SyntaxKind): boolean;
+    parseOptional(kind: import("typescript-upstream").SyntaxKind): boolean;
+    parseSemicolon(): boolean;
+    parseExpression(): import("typescript-upstream").Expression;
+    parseAssignmentExpression(): import("typescript-upstream").Expression;
+    /** A block; in a function body it is parsed with the function's yield and await context. */
+    parseBlock(): import("typescript-upstream").Block;
+    parseStatement(): import("typescript-upstream").Statement;
+    /** Runs `callback` in the yield and await context of the function whose body is being parsed. */
+    runInFunctionBody<T>(callback: () => T): T;
+    parseBindingName(): import("typescript-upstream").BindingName;
+    parseTypeAnnotation(): import("typescript-upstream").TypeNode | undefined;
+    parseType(): import("typescript-upstream").TypeNode;
+    parseIdentifier(): import("typescript-upstream").Identifier;
+    parseVariableDeclarationList(inForStatementInitializer: boolean): import("typescript-upstream").VariableDeclarationList;
+    finishNode<T extends import("typescript-upstream").Node>(node: T, pos: number, end?: number): T;
+    /** Reports a syntax error for `start` to `end`. */
+    parseErrorAt(start: number, end: number, message: string): void;
+}
+
+/** Syntax a plugin parses into ordinary TypeScript nodes, which the compiler then binds, checks, and emits unchanged. */
+export interface TSPPSyntaxExtension {
+    readonly position: TSPPSyntaxExtensionPosition;
+    readonly startTokens: readonly import("typescript-upstream").SyntaxKind[];
+    isStart(cursor: TSPPSyntaxCursor): boolean;
+    /** Returns an expression, a statement, or a function body block, matching `position`. */
+    parse(cursor: TSPPSyntaxCursor): import("typescript-upstream").Node;
+}
+
+/** Semantic diagnostics a plugin adds to each source file; comment directives such as `@ts-expect-error` apply. */
+export interface TSPPDiagnosticProvider {
+    readonly id: string;
+    getSemanticDiagnostics(
+        sourceFile: import("typescript-upstream").SourceFile,
+        checker: import("typescript-upstream").TypeChecker,
+    ): readonly import("typescript-upstream").Diagnostic[];
 }
 
 /** Where an expression being rewritten was parsed, and the factory for nodes that should count as parsed source. */
@@ -338,23 +390,15 @@ export interface TSPPExpressionParser {
     lookAhead<T>(callback: () => T): T;
     getNodePos(): number;
     parseExpected(kind: TSPPSyntaxKind): boolean;
-    parseVariableDeclarationList(inForStatementInitializer: boolean): TSPPVariableDeclarationList;
     parseType(): TSPPTypeNode;
     parseAssignmentExpression(): TSPPExpression;
-    parseBlock(): TSPPBlock;
     parseTaggedUnionMatchExpression(): TSPPExpression;
     finishExpression(children: readonly TSPPSyntaxNode[], pos: number): TSPPExtensionExpression;
 }
 
 export interface TSPPExpressionChecker {
     checkExpression(node: TSPPExpression, checkMode: number | undefined): TSPPType;
-    /** `requireInitializers` reports each binding without an initializer, which the list syntax alone allows. */
-    checkVariableDeclarationList(
-        node: TSPPVariableDeclarationList,
-        options?: { readonly requireInitializers?: boolean; },
-    ): void;
     checkTaggedUnionMatch(node: TSPPExtensionExpression, checkMode: number | undefined): TSPPType;
-    checkCompletionBlock(block: TSPPBlock, checkMode: number | undefined): TSPPType;
     /** Creates an opaque runtime descriptor type that retains its represented static type. */
     createReifiedType(type: TSPPTypeNode): TSPPType;
     checkReifiedTypeMatch(
@@ -373,80 +417,9 @@ export interface TSPPReifiedTypeMatchArm {
 
 export interface TSPPExpressionTransformer {
     visitExpression(node: TSPPExpression): TSPPExpression;
-    visitVariableDeclarationList(node: TSPPVariableDeclarationList): TSPPVariableDeclarationList;
-    createVariableStatement(declarations: TSPPVariableDeclarationList): TSPPSyntaxNode;
-    createReturnStatement(expression: TSPPExpression): TSPPSyntaxNode;
-    createBlock(statements: readonly TSPPSyntaxNode[], multiLine: boolean): TSPPSyntaxNode;
-    createArrowFunction(body: TSPPSyntaxNode): TSPPExpression;
-    createParenthesizedExpression(expression: TSPPExpression): TSPPExpression;
-    createCallExpression(expression: TSPPExpression): TSPPExpression;
-    createCompletionBlockIIFE(block: TSPPBlock): TSPPExpression;
     /** Emits a serializable runtime descriptor for an authored type node. */
     createReifiedTypeDescriptor(type: TSPPTypeNode): TSPPExpression;
     getSelectedExpression(owner: TSPPExtensionExpression): TSPPExpression;
-}
-
-export interface TSPPFunctionBodyParser {
-    readonly kinds: TSPPExpressionSyntaxKinds;
-    token(): TSPPSyntaxKind;
-    nextToken(): TSPPSyntaxKind;
-    lookAhead<T>(callback: () => T): T;
-    parseExpected(kind: TSPPSyntaxKind): boolean;
-    parseBlock(): TSPPBlock;
-}
-
-/** A plugin-owned prefix that turns a normal function block into a completion-valued body. */
-export interface TSPPFunctionBodySyntax {
-    readonly startTokens: readonly TSPPSyntaxKind[];
-    isStart(parser: TSPPFunctionBodyParser): boolean;
-    parse(parser: TSPPFunctionBodyParser): TSPPBlock;
-    readonly completion: "implicit-return";
-}
-
-export interface TSPPStatementParser {
-    readonly kinds: TSPPExpressionSyntaxKinds;
-    token(): TSPPSyntaxKind;
-    tokenText(): string;
-    nextToken(): TSPPSyntaxKind;
-    hasPrecedingLineBreak(): boolean;
-    lookAhead<T>(callback: () => T): T;
-    getNodePos(): number;
-    parseExpected(kind: TSPPSyntaxKind): boolean;
-    parseBindingName(): TSPPBindingName;
-    parseTypeAnnotation(): TSPPTypeNode | undefined;
-    parseExpression(): TSPPExpression;
-    parseSemicolon(): boolean;
-    finishTrailingClosureBinding(
-        name: TSPPBindingName,
-        type: TSPPTypeNode | undefined,
-        target: TSPPExpression,
-        pos: number,
-    ): TSPPStatement;
-}
-
-/** A statement lowered by passing the remainder of its completion block as a trailing closure. */
-export interface TSPPTrailingClosureBindingSyntax {
-    readonly startTokens: readonly TSPPSyntaxKind[];
-    isStart(parser: TSPPStatementParser): boolean;
-    parse(parser: TSPPStatementParser): TSPPStatement;
-}
-
-export interface TSPPDeepReadonlyBindingParser {
-    readonly kinds: TSPPExpressionSyntaxKinds;
-    token(): TSPPSyntaxKind;
-    tokenText(): string;
-    nextToken(): TSPPSyntaxKind;
-    hasPrecedingLineBreak(): boolean;
-    lookAhead<T>(callback: () => T): T;
-    getNodePos(): number;
-    finishDeepReadonlyBinding(pos: number): TSPPStatement;
-}
-
-/** A plugin-owned declaration with const binding and recursive const-context inference. */
-export interface TSPPDeepReadonlyBindingSyntax {
-    readonly startTokens: readonly TSPPSyntaxKind[];
-    isStart(parser: TSPPDeepReadonlyBindingParser): boolean;
-    parse(parser: TSPPDeepReadonlyBindingParser): TSPPStatement;
 }
 
 export interface TSPPExpressionSyntax {
@@ -563,9 +536,6 @@ export interface TSPPCompilerPluginAPI {
     readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
-    registerFunctionBodySyntax(syntax: TSPPFunctionBodySyntax): TSPPPluginDisposer;
-    registerTrailingClosureBindingSyntax(syntax: TSPPTrailingClosureBindingSyntax): TSPPPluginDisposer;
-    registerDeepReadonlyBindingSyntax(syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerTypeSyntax(syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
@@ -575,6 +545,8 @@ export interface TSPPCompilerPluginAPI {
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
     registerExpressionRewriter(rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
     registerProgramRebuilder(rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
+    registerSyntaxExtension(extension: TSPPSyntaxExtension): TSPPPluginDisposer;
+    registerDiagnosticProvider(provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
@@ -582,9 +554,6 @@ export interface TSPPCompilerHostAPI {
     readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
-    registerFunctionBodySyntax(pluginId: string, syntax: TSPPFunctionBodySyntax): TSPPPluginDisposer;
-    registerTrailingClosureBindingSyntax(pluginId: string, syntax: TSPPTrailingClosureBindingSyntax): TSPPPluginDisposer;
-    registerDeepReadonlyBindingSyntax(pluginId: string, syntax: TSPPDeepReadonlyBindingSyntax): TSPPPluginDisposer;
     registerDeclarationSyntax(pluginId: string, syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerTypeSyntax(pluginId: string, syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(pluginId: string, syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
@@ -594,6 +563,8 @@ export interface TSPPCompilerHostAPI {
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
     registerExpressionRewriter(pluginId: string, rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
     registerProgramRebuilder(pluginId: string, rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
+    registerSyntaxExtension(pluginId: string, extension: TSPPSyntaxExtension): TSPPPluginDisposer;
+    registerDiagnosticProvider(pluginId: string, provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
 }
 
 /** The public TypeScript API of the host compiler. Plugins use it instead of importing their own `typescript`. */

@@ -150,11 +150,6 @@ export class TSPPPluginHost {
                 declarationSyntaxKinds: this.environment.compiler.declarationSyntaxKinds,
                 typeSyntaxKinds: this.environment.compiler.typeSyntaxKinds,
                 registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
-                registerFunctionBodySyntax: syntax => this.environment.compiler.registerFunctionBodySyntax(pluginId, syntax),
-                registerTrailingClosureBindingSyntax: syntax =>
-                    this.environment.compiler.registerTrailingClosureBindingSyntax(pluginId, syntax),
-                registerDeepReadonlyBindingSyntax: syntax =>
-                    this.environment.compiler.registerDeepReadonlyBindingSyntax(pluginId, syntax),
                 registerDeclarationSyntax: syntax => this.environment.compiler.registerDeclarationSyntax(pluginId, syntax),
                 registerTypeSyntax: syntax => this.environment.compiler.registerTypeSyntax(pluginId, syntax),
                 registerPostfixTypeSyntax: syntax => this.environment.compiler.registerPostfixTypeSyntax(pluginId, syntax),
@@ -166,6 +161,8 @@ export class TSPPPluginHost {
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
                 registerExpressionRewriter: rewriter => this.environment.compiler.registerExpressionRewriter(pluginId, rewriter),
                 registerProgramRebuilder: rebuilder => this.environment.compiler.registerProgramRebuilder(pluginId, rebuilder),
+                registerSyntaxExtension: extension => this.environment.compiler.registerSyntaxExtension(pluginId, extension),
+                registerDiagnosticProvider: provider => this.environment.compiler.registerDiagnosticProvider(pluginId, provider),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

@@ -1,11 +1,9 @@
 import type {
     TSPPDeclarationParser,
-    TSPPDeepReadonlyBindingParser,
     TSPPExpressionParser,
-    TSPPFunctionBodyParser,
     TSPPKindAnnotationParser,
     TSPPPostfixTypeParser,
-    TSPPStatementParser,
+    TSPPSyntaxCursor,
     TSPPTaggedUnionVariant,
     TSPPTypeKind,
     TSPPTypeParser,
@@ -421,21 +419,17 @@ import {
     isExtensionTypeConstructor,
     isStartOfExtensionDeclaration,
     projectTSPPSource,
-    registerDeepReadonlyBinding,
-    registerTrailingClosureBinding,
     registerTypeApplication,
     registerTypeConstructor,
     registerTypeUniverse,
     rewriteTSPPExpression,
     setTypeKindAnnotation,
-    tryParseDeepReadonlyBinding,
     tryParseExtensionDeclaration,
     tryParseExtensionExpression,
-    tryParseExtensionFunctionBody,
     tryParseExtensionType,
     tryParseKindAnnotation,
     tryParsePostfixType,
-    tryParseTrailingClosureBinding,
+    tryParseTSPPSyntax,
     typeSyntaxKinds,
 } from "./tspp/registry.js";
 import {
@@ -2221,6 +2215,54 @@ namespace Parser {
             parseErrorAtCurrentToken(Diagnostics._0, error instanceof Error ? error.message : String(error));
             return undefined;
         }
+    }
+
+    /** The parser at the current token, for plugin syntax. `functionFlags` is set when parsing a function body. */
+    function createTSPPSyntaxCursor(functionFlags?: SignatureFlags): TSPPSyntaxCursor { // TSPP-SLOT(syntax-extension)
+        return {
+            factory: factory as unknown as TSPPSyntaxCursor["factory"],
+            token: () => token() as never,
+            tokenText: () => scanner.getTokenText(),
+            nextToken: () => nextToken() as never,
+            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
+            lookAhead,
+            getNodePos,
+            getTokenStart: () => scanner.getTokenStart(),
+            parseExpected: kind => parseExpected(kind as never),
+            parseOptional: kind => parseOptional(kind as never),
+            parseSemicolon,
+            parseExpression: () => parseExpression() as never,
+            parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true) as never,
+            parseBlock: () => (functionFlags === undefined ? parseBlock(/*ignoreMissingOpenBrace*/ false) : parseFunctionBlock(functionFlags)) as never,
+            parseStatement: () => parseStatement() as never,
+            runInFunctionBody: callback => {
+                if (functionFlags === undefined) return callback();
+                const savedYieldContext = inYieldContext();
+                const savedAwaitContext = inAwaitContext();
+                const savedDecoratorContext = inDecoratorContext();
+                const savedTopLevel = topLevel;
+                setYieldContext(!!(functionFlags & SignatureFlags.Yield));
+                setAwaitContext(!!(functionFlags & SignatureFlags.Await));
+                setDecoratorContext(/*val*/ false);
+                topLevel = false;
+                try {
+                    return callback();
+                }
+                finally {
+                    topLevel = savedTopLevel;
+                    setDecoratorContext(savedDecoratorContext);
+                    setAwaitContext(savedAwaitContext);
+                    setYieldContext(savedYieldContext);
+                }
+            },
+            parseBindingName: () => parseIdentifierOrPattern() as never,
+            parseTypeAnnotation: () => parseTypeAnnotation() as never,
+            parseType: () => parseType() as never,
+            parseIdentifier: () => parseIdentifier() as never,
+            parseVariableDeclarationList: inForStatementInitializer => parseVariableDeclarationList(inForStatementInitializer) as never,
+            finishNode: (node, pos, end) => finishNode(node as unknown as Node, pos, end) as unknown as typeof node,
+            parseErrorAt: (start, end, message) => void parseErrorAt(start, end, Diagnostics._0, message),
+        };
     }
 
     function parseErrorAtCurrentToken(message: DiagnosticMessage, ...args: DiagnosticArguments): DiagnosticWithDetachedLocation | undefined {
@@ -5774,6 +5816,8 @@ namespace Parser {
 
         const extensionExpression = tryParsePluginSyntax(() => tryParseExtensionExpression(token(), createExtensionParser));
         if (extensionExpression) return extensionExpression;
+        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("expression", token(), createTSPPSyntaxCursor)) as Expression | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
 
         if (
             token() !== SyntaxKind.SemicolonToken &&
@@ -5978,6 +6022,8 @@ namespace Parser {
     function parseUnaryExpressionOrHigher(): UnaryExpression | BinaryExpression {
         const extensionExpression = tryParsePluginSyntax(() => tryParseExtensionExpression(token(), createExtensionParser));
         if (extensionExpression) return extensionExpression as UnaryExpression;
+        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("expression", token(), createTSPPSyntaxCursor)) as UnaryExpression | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
 
         /**
          * ES7 UpdateExpression:
@@ -6262,96 +6308,14 @@ namespace Parser {
             lookAhead,
             getNodePos,
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-            parseVariableDeclarationList,
             parseType,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
-            parseBlock: () => parseBlock(/*ignoreMissingOpenBrace*/ false),
             parseTaggedUnionMatchExpression,
             finishExpression: (children, pos) =>
                 finishNode(
                     factory.createExtensionExpression(pluginId, children as readonly Node[]),
                     pos,
                 ),
-        };
-    }
-
-    function createExtensionFunctionBodyParser(flags: SignatureFlags): TSPPFunctionBodyParser {
-        return {
-            kinds: expressionSyntaxKinds,
-            token,
-            nextToken,
-            lookAhead,
-            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-            parseBlock: () => parseFunctionBlock(flags),
-        };
-    }
-
-    function createExtensionStatementParser(_pluginId: string): TSPPStatementParser {
-        return {
-            kinds: expressionSyntaxKinds,
-            token,
-            tokenText: () => scanner.getTokenText(),
-            nextToken,
-            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
-            lookAhead,
-            getNodePos,
-            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-            parseBindingName: () => parseIdentifierOrPattern(Diagnostics.Private_identifiers_are_not_allowed_in_variable_declarations),
-            parseTypeAnnotation,
-            parseExpression: () => allowInAnd(parseExpression),
-            parseSemicolon,
-            finishTrailingClosureBinding: (name, type, target, pos) => {
-                const declaration = finishNode(
-                    factoryCreateVariableDeclaration(
-                        name as BindingName,
-                        /*exclamationToken*/ undefined,
-                        type as TypeNode | undefined,
-                        factory.createNull(),
-                    ),
-                    pos,
-                );
-                const declarationList = finishNode(
-                    factoryCreateVariableDeclarationList([declaration], NodeFlags.Let),
-                    pos,
-                );
-                const statement = finishNode(
-                    factoryCreateVariableStatement(/*modifiers*/ undefined, declarationList),
-                    pos,
-                );
-                setParent(target as Node, statement);
-                setParentRecursive(target as Node, /*incremental*/ false);
-                registerTrailingClosureBinding(statement, declaration, target as Expression);
-                return statement;
-            },
-        };
-    }
-
-    function createDeepReadonlyBindingParser(_pluginId: string): TSPPDeepReadonlyBindingParser {
-        return {
-            kinds: expressionSyntaxKinds,
-            token,
-            tokenText: () => scanner.getTokenText(),
-            nextToken,
-            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
-            lookAhead,
-            getNodePos,
-            finishDeepReadonlyBinding: pos => {
-                const declarations = parseDelimitedList(
-                    ParsingContext.VariableDeclarations,
-                    parseVariableDeclarationAllowExclamation,
-                );
-                const declarationList = finishNode(
-                    factoryCreateVariableDeclarationList(declarations, NodeFlags.Const),
-                    pos,
-                );
-                parseSemicolon();
-                const statement = finishNode(
-                    factoryCreateVariableStatement(/*modifiers*/ undefined, declarationList),
-                    pos,
-                );
-                registerDeepReadonlyBinding(statement);
-                return statement;
-            },
         };
     }
 
@@ -7366,7 +7330,7 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(isGenerator | isAsync);
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
-        const body = tryParsePluginSyntax(() => tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(isGenerator | isAsync)))
+        const body = tryParsePluginSyntax(() => tryParseTSPPSyntax("function-body", token(), () => createTSPPSyntaxCursor(isGenerator | isAsync))) as Block | undefined // TSPP-SLOT(syntax-extension)
             ?? parseFunctionBlock(isGenerator | isAsync);
 
         setDecoratorContext(savedDecoratorContext);
@@ -7968,10 +7932,8 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
-        const extensionStatement = tryParsePluginSyntax(() => tryParseTrailingClosureBinding(token(), createExtensionStatementParser));
-        if (extensionStatement) return extensionStatement;
-        const deepReadonlyBinding = tryParsePluginSyntax(() => tryParseDeepReadonlyBinding(token(), createDeepReadonlyBindingParser));
-        if (deepReadonlyBinding) return deepReadonlyBinding;
+        const syntaxStatement = tryParsePluginSyntax(() => tryParseTSPPSyntax("statement", token(), createTSPPSyntaxCursor)) as Statement | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxStatement) return syntaxStatement; // TSPP-SLOT(syntax-extension)
         const extensionDeclaration = tryParsePluginSyntax(() =>
             tryParseExtensionDeclaration(
                 token(),
@@ -8306,8 +8268,8 @@ namespace Parser {
     }
 
     function parseFunctionBlockOrSemicolon(flags: SignatureFlags, diagnosticMessage?: DiagnosticMessage): Block | undefined {
-        const extensionBody = tryParsePluginSyntax(() => tryParseExtensionFunctionBody(token(), () => createExtensionFunctionBodyParser(flags)));
-        if (extensionBody) return extensionBody;
+        const syntaxBody = tryParsePluginSyntax(() => tryParseTSPPSyntax("function-body", token(), () => createTSPPSyntaxCursor(flags))) as Block | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxBody) return syntaxBody; // TSPP-SLOT(syntax-extension)
         if (token() !== SyntaxKind.OpenBraceToken) {
             if (flags & SignatureFlags.Type) {
                 parseTypeMemberSemicolon();
