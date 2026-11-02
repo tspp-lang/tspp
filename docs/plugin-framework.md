@@ -40,8 +40,9 @@ A feature package may expose four facets:
   current feature needs this escape hatch;
 - `editor`: optional static editor metadata such as commands and snippets.
 
-Plugins depend on `@tspp/plugin-sdk`, never compiler internals or another
-feature implementation. Hosts load only the facet they own.
+Plugins depend on `@tspp/plugin-sdk` and on the public TypeScript API the host
+hands them as `context.ts`, never on compiler internals or another feature
+implementation. Hosts load only the facet they own.
 
 ## Project declaration
 
@@ -115,7 +116,8 @@ return acquire(arg, value => { return rest(value); })
 - no compiler-internal imports from feature packages;
 - registrations return disposers and are owned by a host lifecycle;
 - duplicate IDs and incompatible API versions fail at activation;
-- required, optional, and conflicting capsule relationships are manifest data;
+- required and optional capsule relationships and provided APIs are manifest
+  data;
 - plugin packages are resolved from the declaring project;
 - standard language-service behavior is reused instead of reimplemented;
 - new SDK ports require a concrete feature consumer.
@@ -204,12 +206,76 @@ grammar.
 
 ### Declaration extensions
 
-Declaration plugins register a contextual start-token parser and return an
-ordinary upstream declaration node. The host records plugin ownership out of
-band, so the binder, checker, and TypeScript transformer can delegate only the
-extension-specific binding, declared/value type, and runtime lowering without
-adding a feature-specific syntax kind. The SDK exposes opaque type-building
-primitives; plugin packages never receive compiler nodes or symbol tables.
+Declaration plugins register a syntax extension at the `declaration` position
+and return ordinary upstream declaration nodes built with the parser's factory.
+The host records plugin ownership out of band; the binder, checker, and
+transformers process the lowered declarations unchanged, and the extension's
+`restoreDeclaration`/`restoreCompatibilityDeclaration` give the text of
+`.d.tspp` and compatible `.d.ts` output.
+
+## Core modification rules
+
+The compiler package stays as close to upstream TypeScript as possible
+(docs/core-restoration-plan.md). Against the upstream baseline (the
+`tspp-core-baseline` tag):
+
+1. **Only slot call sites.** Every change to an upstream file is a call site of a
+   registered slot and carries the marker `// TSPP-SLOT(<slot>)` on an added
+   line. Call sites forward to the slot implementation in one or a few lines.
+   JSON has no comments, so a diagnostic message added for a slot carries the
+   marker in a `"tsppSlot"` field.
+2. **Implementations live in new files.** Slot implementations, the plugin
+   registry, and product-layer logic live in `packages/compiler/src/compiler/tspp/`,
+   `services/tspp/`, and `server/tspp/`.
+3. **No upstream restructuring.** Upstream signatures, names, order, formatting,
+   and comments stay as they are; extra data goes in `WeakMap` side tables, not
+   in new fields on upstream nodes.
+4. **No new `SyntaxKind`s.** Plugins lower their syntax to ordinary nodes.
+5. **Zero plugins means upstream.** Without plugins, `.ts` files compile exactly
+   as upstream: no new keywords, no new syntax.
+6. **Slot admission.** A new slot must be describable without naming a feature,
+   have an existing plugin that uses it immediately, and explain why existing
+   slots or desugaring to plain TypeScript cannot do the job. It is registered in
+   the table below when it lands.
+7. **Plugin relationships only through manifests.** The only lasting relationship
+   between plugins is a one-way dependency declared in the manifest and used
+   through the provider's API.
+
+`node scripts/core-diff.mjs` (`pnpm core-diff`) reports the changed lines per
+upstream file and lists hunks without a marker. CI runs it with `--check`
+(`pnpm core-diff:check`), which fails on an unmarked hunk, on a new file outside
+the `tspp/` directories, or when the changed lines exceed the budget in the
+script. Lower the budget when the core shrinks; raising it needs the same review
+as a new slot.
+
+## Slot registry
+
+Feature slots are what plugins register with, through `context.compiler` (or
+`context.languageService` for Quick Info). The host implementation lives in
+`compiler/tspp/registry.ts` unless noted. Call sites are in
+`packages/compiler/src`; `parser.ts` means `compiler/parser.ts` and so on.
+
+| Slot | Registration | Host | Call sites |
+|---|---|---|---|
+| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreTypeAliasDeclaration`, `restoreFunctionPrefix`, `restoreFunctionWithClause`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function`, after the parameters, and in type aliases of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
+| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`; `restoreDeclaration`, `restoreCompatibilityDeclaration`) | `registry.ts`, `services/tspp/syntax.ts` | `parser.ts` (the cursor, each position, list expansion, no incremental reuse of plugin nodes); `emitter.ts` (restored declarations); `checker.ts` (`getSymbolAtLocation` for `=>` outside functions); `services/services.ts` (`createChildren`); `services/formatting/formatting.ts`; `services/codefixes/fixUnusedIdentifier.ts` |
+| `expression-rewrite` | `registerExpressionRewriter` | `registry.ts` | `parser.ts` (`parseParenthesizedExpression`, `parseArgumentExpression`); `emitter.ts` (renamed identifiers); `services/codefixes/inferFromUsage.ts` |
+| `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, `filterDiagnostic`) | `registry.ts` | `program.ts` (semantic and suggestion diagnostics); `diagnosticMessages.json` (18086 `{0}`) |
+| `interface-member-contract` | `registerInterfaceMemberContract` | `registry.ts`; the static-side type stays in `checker.ts` | `binder.ts`; `checker.ts` (static side of `implements`, static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`); `emitter.ts` (omitted from compatible `.d.ts`); `diagnosticMessages.json` (18074) |
+| `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` | `program.ts` (`createProgram` return); `types.ts` (`CompilerHost.invalidateTSPPProgram`); `services/services.ts` and `services/types.ts` (invalidation and rebuild on the next request); `server/project.ts` and `server/session.ts`; `resolutionCache.ts`; `transformers/declarations.ts`, `utilities.ts`, `services/utilities.ts`, `services/findAllReferences.ts`, `services/documentHighlights.ts` (generated declarations without source text) |
+| `program-analysis` | `registerProgramAnalyzer` | `compiler/tspp/analysis.ts` | none of its own: runs from the `command-line` and `plugin-host` call sites |
+| `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |
+| `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` | `services/services.ts` (`getQuickInfoAtPosition` of the language service object) |
+
+Product-layer slots belong to the host; no plugin registers with them:
+
+| Slot | Implementation | Call sites |
+|---|---|---|
+| `tspp-extension` (`.tspp` sources and `.d.tspp` declarations) | `compiler/tspp/files.ts` | `types.ts` (`Extension.Tspp`); `utilities.ts` (extension tables, script kind, declaration extensions); `program.ts`; `checker.ts`; `moduleSpecifiers.ts`; `moduleNameResolver.ts` (`extensionIsOk`); `services/stringCompletions.ts`; `server/project.ts` (`hasNoTypeScriptSource`) |
+| `module-resolution` (`.tspp`/`.d.tspp` resolution, `tsppTypes`, the `tspp-types` condition) | `compiler/tspp/files.ts` | `moduleNameResolver.ts` |
+| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts` | `emitter.ts`; `program.ts` (`verifyEmitFilePath`); `types.ts` (`PrinterOptions`) |
+| `command-line` (branding, plugins from tsconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` | `executeCommandLine.ts`; `tsc/tsc.ts`; `_namespaces/ts.ts` |
+| `plugin-host` (the registry, plugin activation in tsserver) | `compiler/tspp/registry.ts`, `server/tspp/project.ts` | `_namespaces/ts.ts`; `types.ts` (`PluginImport.tspp`); `server/project.ts` (`enableProxy`) |
 
 ## Current process boundary
 

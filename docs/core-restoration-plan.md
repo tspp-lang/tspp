@@ -87,7 +87,7 @@ manifest: {
 |---|---|---|
 | higher-kinded-types 与 type-computation 共用 checker 中的类型构造器与 kind 机制；只加载 type-computation 时它的 27 个测试有 8 个失败 | 互相依赖 | 合并：type-computation 吸收 higher-kinded-types。**已完成** |
 | nominal-types 的 `match` 与 dependent-types 的 `match mltt` | 关键词冲突 | dependent-types 改用 `typecase`，删除 nominal-types 里的 `"mltt"` 排除。**已完成** |
-| macros 与 formal-verification 都使用 `function ... with { ... }` | 关键词冲突 + 隐性干扰（#34） | `with` 归 formal-verification；宏的配置改为 `macro({ timeout: ... }) function`。迁移前 formal-verification 暂时用 `isMacroWithClause` 跳过宏函数，迁移后删除 |
+| macros 与 formal-verification 都使用 `function ... with { ... }` | 关键词冲突 + 隐性干扰（#34） | `with` 归 formal-verification；宏的配置改为 `macro({ timeout: ... }) function`；`isMacroWithClause` 已删除。**已完成** |
 | formal-verification 用正则读 nominal-types 的 `data` 并假设 `_tag` | 未建模的单向依赖 | nominal-types 通过 `provides` 发布 `nominal-types/adt`（`@tspp/plugin-nominal-types/api`），formal-verification 经 `optionalDependencies` 取用：没装 nominal-types 时没有 `data` 语法，也就无需建模，所以用可选依赖而不是 `requires`。**已完成** |
 | nominal-types 的测试加载 higher-kinded-types（"data 类型构造器作高阶参数"的用例） | 未声明的测试依赖 | 两个跨插件用例移到 `integration/test/cross-plugin.test.cjs`。**已完成** |
 
@@ -108,7 +108,21 @@ manifest: {
 | 类型层扩展 | checker 类型解析、实例化与打印（`checker.ts` 五处带标记的调用点，宿主在 `compiler/tspp/types.ts`） | 插件为类型节点给出类型、实例化并打印自己创建的类型（`registerTypeExtension`）：`resolveTypeNode` 在 `getTypeFromTypeNodeWorker` 开头先问插件；插件用宿主的 `createType` 创建归自己所有的类型，`instantiateTypeWorker` 遇到这些类型时交给插件的 `instantiateType`，节点构造器遇到时交给 `typeToTypeNode`；`isTypeParameterApplicable` 让带类型实参的引用也能指向某个类型参数（决定匿名类型需要带哪些外层类型参数实例化）。宿主（每个 checker 一个）只提供与特性无关的类型操作：解析引用名、取泛型符号的类型参数、实例化泛型别名或类与接口、创建与组合 mapper、按 mapper 实例化、检查类型实参约束、报告错误。**已实现** | type-computation |
 | Quick Info | language service | 已有 | 多个插件 |
 
-现有的单消费者原语（`finish*`、`checkTaggedUnionMatch`、`createNominalType`、`registerCompileTimeMacros`、`registerPlaceholderExpressionSyntax`、`registerInterfaceMemberContract` 等）在对应插件迁移完成后从 SDK 删除。
+代码里的标记名依次是 `source-projection`、`syntax-extension`、`expression-rewrite`、`diagnostics`、`interface-member-contract`、`program-rebuild`、`program-analysis`、`type-extension`、`quick-info`。
+
+产品层插槽只归宿主，没有插件注册（规则 2；阶段 3 登记）：
+
+| 插槽 | 标记名 | 实现 | 调用点 |
+|---|---|---|---|
+| `.tspp` 文件 | `tspp-extension` | `compiler/tspp/files.ts` | `Extension.Tspp` 与 `utilities.ts` 中的扩展名表等，每处一行 |
+| 模块解析 | `module-resolution` | `compiler/tspp/files.ts` | `moduleNameResolver.ts`：TS++ 源文件解析 `.tspp`/`.d.tspp`、优先 `tsppTypes`、加 `tspp-types` 条件，并且不与 `.ts` 共用目录缓存 |
+| 兼容声明 | `declaration-output` | `compiler/tspp/emit.ts` | `emitter.ts`、`program.ts`：`.d.tspp` 旁输出兼容 `.d.ts` |
+| 命令行 | `command-line` | `compiler/tspp/commandLine.ts` | `executeCommandLine.ts`、`tsc.ts`：品牌、从 tsconfig 加载插件、等待程序重建与分析器的一次性编译 |
+| 插件宿主 | `plugin-host` | `compiler/tspp/registry.ts`、`server/tspp/project.ts` | 命名空间导出、`PluginImport.tspp`、tsserver 的 `enableProxy` |
+
+各插槽的注册接口与全部调用点见 `docs/plugin-framework.md` 的 "Slot registry"。
+
+只有一个消费者的原语（`finish*`、`checkTaggedUnionMatch`、`createNominalType`、`registerCompileTimeMacros`、`registerPlaceholderExpressionSyntax` 等）已随对应插件迁移从 SDK 删除；`registerInterfaceMemberContract` 经评审保留为通用插槽。
 
 ## 阶段
 
@@ -204,10 +218,17 @@ manifest: {
 
 ### 阶段 3：逐文件还原与收口
 
-1. 对每个改过的上游文件，与基线逐 hunk 对比：剩余 hunk 必须全部是带标记的插槽调用点，其余一律还原原文（包括格式、命名、顺序、注释）。
-2. 产品层改动（`.tspp` 扩展名、`tsppTypes`、CLI 品牌、插件加载）的实现移到 `tspp/` 新文件，原有文件里只留调用点。
-3. `core-diff` 在 CI 中变成门槛：出现未标记的 hunk 就失败；改动行数设预算（阶段 1 结束后根据实际数字定）。
-4. 更新 `docs/plugin-framework.md`：写入本计划的核心修改规则与插槽登记表。
+1. 对每个改过的上游文件，与基线逐 hunk 对比：剩余 hunk 必须全部是带标记的插槽调用点，其余一律还原原文（包括格式、命名、顺序、注释）。**已完成**
+2. 产品层改动（`.tspp` 扩展名、`tsppTypes`、CLI 品牌、插件加载）的实现移到 `tspp/` 新文件，原有文件里只留调用点。**已完成**
+3. `core-diff` 在 CI 中变成门槛：出现未标记的 hunk 就失败；改动行数设预算。**已完成**
+4. 更新 `docs/plugin-framework.md`：写入本计划的核心修改规则与插槽登记表。**已完成**
+
+**完成记录（2026-11-02）**
+
+- `core-diff`：26 个上游文件 +369 −47，无标记 hunk 0 个，`tspp/` 目录之外没有新增文件（阶段 3 前为 27 个文件 +812 −130、159 个）。最大的剩余改动是 `parser.ts`（+111，语法扩展的游标与各位置调用点）和 `checker.ts`（+75，类型层扩展与接口成员契约的静态侧类型）。
+- 产品层实现移入新文件：`compiler/tspp/commandLine.ts`（CLI 品牌、从 tsconfig 加载插件、一次性编译等待程序重建与分析器，`tsc.ts` 改调 `executeTSPPCommandLine`）、`compiler/tspp/files.ts`（`.tspp`/`.d.tspp` 模块解析与兼容声明路径；`EmitFileNames` 不再带兼容声明字段）、`compiler/tspp/emit.ts`（兼容 `.d.ts` 输出、声明输出中恢复投影掉的文本）、`services/tspp/quickInfo.ts`、`services/tspp/syntax.ts`（插件语法的子节点、格式化、修复）、`server/tspp/project.ts`（tsserver 激活插件与分析诊断）。`executeCommandLine.ts`、`services.ts` 的 Quick Info 与语义分类、`typescript.ts` 回到基线原文（注册表在加载时自行初始化）。产品层插槽登记在上表。
+- 门槛：`node scripts/core-diff.mjs --check`（`pnpm core-diff:check`）在出现无标记 hunk、`tspp/` 之外的新文件或超出预算（27 个文件 +385 −55）时失败，CI 的 "Core drift gate" 运行它。`diagnosticMessages.json` 不能写注释，插槽新增的消息用 `"tsppSlot"` 字段携带标记；未被使用的 18071 消息删除（modern-syntax 自带同样的文字）。
+- 行为差异：`.ts` 文件里无扩展名的导入回到上游的 `resolvedUsingTsExtension`（`false`，原来是 `undefined`）；`Node.getChildren` 只在 TS++ 文件或含无位置子节点的节点上走插件语法的实现，其余节点回到上游（tabstop 节点里的标识符重新被跳过）；兼容 `.d.ts` 不再为没有 `static` 修饰符的接口成员复制修饰符数组；同步的 `executeCommandLine` 在有分析器时不再返回 Promise。
 
 ## 风险与待定
 
