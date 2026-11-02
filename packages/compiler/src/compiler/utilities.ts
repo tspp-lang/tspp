@@ -2539,7 +2539,7 @@ function getErrorSpanForArrowFunction(sourceFile: SourceFile, node: ArrowFunctio
 
 /** @internal */
 export function getErrorSpanForNode(sourceFile: SourceFile, node: Node): TextSpan {
-    if (positionIsSynthesized(node.pos) && node.parent) return getErrorSpanForNode(sourceFile, node.parent); // TSPP-SLOT(program-rebuild)
+    if (positionIsSynthesized(node.pos) && node.parent) return getErrorSpanForNode(sourceFile, node.parent); // TSPP-SLOT(syntax-extension): nodes plugins build without a source position stand for their parent
     let errorNode: Node | undefined = node;
     switch (node.kind) {
         case SyntaxKind.SourceFile: {
@@ -2611,7 +2611,7 @@ export function getErrorSpanForNode(sourceFile: SourceFile, node: Node): TextSpa
         return getSpanOfTokenAtPosition(sourceFile, node.pos);
     }
 
-    if (positionIsSynthesized(errorNode.pos)) errorNode = node; // TSPP-SLOT(program-rebuild)
+    if (positionIsSynthesized(errorNode.pos)) errorNode = node; // TSPP-SLOT(syntax-extension)
     Debug.assert(!isJSDoc(errorNode));
 
     const isMissing = nodeIsMissing(errorNode);

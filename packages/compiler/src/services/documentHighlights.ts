@@ -69,7 +69,7 @@ import {
     modifierToFlag,
     ModuleBlock,
     Node,
-    nodeIsSynthesized, // TSPP-SLOT(program-rebuild)
+    nodeIsSynthesized, // TSPP-SLOT(syntax-extension)
     ObjectTypeDeclaration,
     Program,
     ReturnStatement,
@@ -195,7 +195,7 @@ export namespace DocumentHighlights {
         }
 
         function highlightSpans(nodes: readonly Node[] | undefined): HighlightSpan[] | undefined {
-            return nodes && nodes.filter(node => !nodeIsSynthesized(node)).map(node => getHighlightSpanForNode(node, sourceFile)); // TSPP-SLOT(program-rebuild): generated declarations have no source text
+            return nodes && nodes.filter(node => !nodeIsSynthesized(node)).map(node => getHighlightSpanForNode(node, sourceFile)); // TSPP-SLOT(syntax-extension): nodes plugins build without a source position stand for their parent
         }
     }
 

@@ -221,7 +221,7 @@ import {
     ParameterDeclaration,
     ParenthesizedExpression,
     Path,
-    positionIsSynthesized, // TSPP-SLOT(program-rebuild)
+    positionIsSynthesized, // TSPP-SLOT(syntax-extension)
     PrivateIdentifier,
     Program,
     PropertyAccessExpression,
@@ -872,7 +872,7 @@ export function toHighlightSpan(entry: Entry): { fileName: string; span: Highlig
 }
 
 function getTextSpan(node: Node, sourceFile: SourceFile, endNode?: Node): TextSpan {
-    if (positionIsSynthesized(node.pos) && node.parent) return getTextSpan(node.parent, sourceFile); // TSPP-SLOT(program-rebuild): generated declarations have no source text
+    if (positionIsSynthesized(node.pos) && node.parent) return getTextSpan(node.parent, sourceFile); // TSPP-SLOT(syntax-extension): nodes plugins build without a source position stand for their parent
     let start = node.getStart(sourceFile);
     let end = (endNode || node).getEnd();
     if (isStringLiteralLike(node) && (end - start) > 2) {

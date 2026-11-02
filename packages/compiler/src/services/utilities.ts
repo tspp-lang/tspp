@@ -307,7 +307,7 @@ import {
     PackageJsonDependencyGroup,
     parseBigInt,
     pathIsRelative,
-    positionIsSynthesized, // TSPP-SLOT(program-rebuild)
+    positionIsSynthesized, // TSPP-SLOT(syntax-extension)
     PrefixUnaryExpression,
     Program,
     ProjectPackageJsonInfo,
@@ -2315,7 +2315,7 @@ export function getReplacementSpanForContextToken(contextToken: Node | undefined
 
 /** @internal */
 export function createTextSpanFromNode(node: Node, sourceFile?: SourceFile, endNode?: Node): TextSpan {
-    if (positionIsSynthesized(node.pos) && node.parent) return createTextSpanFromNode(node.parent, sourceFile); // TSPP-SLOT(program-rebuild): generated declarations have no source text
+    if (positionIsSynthesized(node.pos) && node.parent) return createTextSpanFromNode(node.parent, sourceFile); // TSPP-SLOT(syntax-extension): nodes plugins build without a source position stand for their parent
     return createTextSpanFromBounds(node.getStart(sourceFile), (endNode || node).getEnd());
 }
 
