@@ -379,6 +379,11 @@ export function getTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: Type
     return diagnostics;
 }
 
+/** A member that an interface member contract moves to the implementing side, such as `static` in an interface. @internal */
+export function isTSPPInterfaceStaticMember(node: Node): boolean {
+    return hasInterfaceMemberContract("static") && node.parent?.kind === SyntaxKind.InterfaceDeclaration && ts.hasStaticModifier(node);
+}
+
 /** @internal */
 export function getRegisteredTSPPProgramRebuilders(): readonly TSPPProgramRebuilder[] {
     return [...programRebuilders.values()];

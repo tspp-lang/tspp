@@ -98,10 +98,11 @@ manifest: {
 | 插槽 | 位置 | 说明 | 预期消费者 |
 |---|---|---|---|
 | 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法。`.d.tspp` 输出可通过 `restoreFunctionWithClause`（参数表之后）与 `restoreFunctionPrefix`（`function` 之前）恢复被投影掉的文本 | dependent-types、formal-verification、macros |
-| 语法扩展 | 表达式、语句、声明、类型、后缀类型、类成员等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点或 `ExtensionExpression` | 全部语法类插件 |
+| 语法扩展 | 表达式、语句、声明、类型、后缀类型、类成员等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点或 `ExtensionExpression`。表达式、语句、函数体三个位置的通用游标（`registerSyntaxExtension`，解析器自己的 factory、`finishNode`、普通解析函数）**已实现** | modern-syntax；其余语法类插件待迁移 |
 | 表达式改写 | 括号表达式与调用实参解析完成后（`parseParenthesizedExpression`、`parseArgumentExpression`） | 插件用解析器自己的 factory 把表达式改写成普通 TS 语法；被改名的标识符按新名字输出（emitter 中一处调用点）。**已实现** | operator-sections |
 | 扩展节点检查 | checker | 对 `ExtensionExpression` 返回类型，插件可调用公共 checker API | modern-syntax、dependent-types、nominal-types |
-| 附加诊断 | checker 结束一个源文件时 | 插件遍历自己拥有的节点并报告诊断（穷尽性、静态成员契约、使用限制等） | nominal-types、static-interface-members |
+| 附加诊断 | 源文件的绑定与检查诊断合并处（`program.ts` 一处调用点） | 插件为每个源文件补充语义诊断，`@ts-expect-error` 等注释指令照常生效（`registerDiagnosticProvider`）。**已实现** | modern-syntax；nominal-types 待迁移 |
+| 接口成员契约 | binder 成员归属、名字解析的静态性、修饰符语法检查、`implements` 的静态侧检查 | 声明式契约（`registerInterfaceMemberContract`）：带指定修饰符的接口成员移到实现方的静态侧。经评审认定为通用插槽：公共 API 无法改变绑定与语法检查，源码投影也无法等长改写。调用点都是带标记的一行；静态侧类型的构造需要 checker 内部函数，留在 `checker.ts` 并标记 | static-interface-members |
 | 扩展节点降级 | `transformers/ts.ts` 之前 | 把扩展节点变成普通 TS AST | modern-syntax、dependent-types |
 | 声明输出 | `.d.tspp` 输出 | 插件为自己拥有的节点提供声明文本 | 有富语法的插件 |
 | 程序重建 | `createProgram` 返回前（`program.ts` 一处调用点），以及 `createProgramAsync` | 插件检查建好的程序，返回按位置匹配的语句替换；宿主从同一源码重新解析这些文件、换入替换语句、重建程序，并可附加或过滤语义诊断、在输出时追加转换器。长期宿主（语言服务）提供 `invalidate`，插件异步完成后请求重建。宏的 worker、超时与展开策略归插件。**已实现** | macros |

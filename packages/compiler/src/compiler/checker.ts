@@ -1166,6 +1166,7 @@ import {
     hasExtensionDeclarationValueUseRestrictions,
     hasInterfaceMemberContract,
     isExtensionTypeConstructor,
+    isTSPPInterfaceStaticMember,
     setSelectedExtensionExpression,
 } from "./tspp/registry.js";
 import {
@@ -48034,7 +48035,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                         if (!checkTypeAssignableTo(typeWithThis, baseWithThis, /*errorNode*/ undefined)) {
                             issueMemberSpecificError(node, typeWithThis, baseWithThis, genericDiag);
                         }
-                        else {
+                        else { // TSPP-SLOT(interface-member-contract)
                             const staticInterfaceType = getStaticInterfaceType(t, type);
                             if (staticInterfaceType && !checkTypeAssignableTo(staticType, staticInterfaceType, /*errorNode*/ undefined)) {
                                 issueMemberSpecificError(
@@ -48053,6 +48054,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             };
         }
 
+        /** The static side an implementing class owes an interface with static members. TSPP-SLOT(interface-member-contract) */
         function getStaticInterfaceType(interfaceType: Type, implementingInstanceType: Type): Type | undefined {
             if (
                 !hasInterfaceMemberContract("static")
@@ -50696,10 +50698,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     copySymbol(argumentsSymbol, meaning);
                 }
 
-                isStaticSymbol = isStatic(location)
-                    || hasInterfaceMemberContract("static")
-                        && location.parent?.kind === SyntaxKind.InterfaceDeclaration
-                        && hasStaticModifier(location);
+                isStaticSymbol = isStatic(location) || isTSPPInterfaceStaticMember(location); // TSPP-SLOT(interface-member-contract)
                 location = location.parent;
             }
 
@@ -52769,14 +52768,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             }
             else {
                 if (modifier.kind !== SyntaxKind.ReadonlyKeyword) {
-                    if (
-                        (node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature)
-                        && !(
-                            modifier.kind === SyntaxKind.StaticKeyword
-                            && node.parent.kind === SyntaxKind.InterfaceDeclaration
-                            && hasInterfaceMemberContract("static")
-                        )
-                    ) {
+                    if ((node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature) && !(modifier.kind === SyntaxKind.StaticKeyword && isTSPPInterfaceStaticMember(node))) { // TSPP-SLOT(interface-member-contract)
                         return grammarErrorOnNode(modifier, Diagnostics._0_modifier_cannot_appear_on_a_type_member, tokenToString(modifier.kind));
                     }
                     if (node.kind === SyntaxKind.IndexSignature && (modifier.kind !== SyntaxKind.StaticKeyword || !isClassLike(node.parent))) {

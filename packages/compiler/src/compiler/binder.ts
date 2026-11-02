@@ -116,7 +116,6 @@ import {
     hasDynamicName,
     hasJSDocNodes,
     HasLocals,
-    hasStaticModifier,
     hasSyntacticModifier,
     Identifier,
     identifierToKeywordKind,
@@ -313,7 +312,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
-    hasInterfaceMemberContract,
+    isTSPPInterfaceStaticMember,
 } from "./tspp/registry.js";
 import { getTaggedUnionSyntheticDeclarations } from "./tspp/taggedUnion.js";
 
@@ -2289,18 +2288,15 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
             case SyntaxKind.TypeLiteral:
             case SyntaxKind.JSDocTypeLiteral:
             case SyntaxKind.ObjectLiteralExpression:
+            case SyntaxKind.InterfaceDeclaration:
             case SyntaxKind.JsxAttributes:
                 // Interface/Object-types always have their children added to the 'members' of
                 // their container. They are only accessible through an instance of their
                 // container, and are never in scope otherwise (even inside the body of the
                 // object / type / interface declaring them). An exception is type parameters,
                 // which are in scope without qualification (similar to 'locals').
+                if (isTSPPInterfaceStaticMember(node)) return declareSymbol(container.symbol.exports ||= createSymbolTable(), container.symbol, node, symbolFlags, symbolExcludes); // TSPP-SLOT(interface-member-contract)
                 return declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
-
-            case SyntaxKind.InterfaceDeclaration:
-                return hasInterfaceMemberContract("static") && hasStaticModifier(node)
-                    ? declareSymbol(container.symbol.exports ||= createSymbolTable(), container.symbol, node, symbolFlags, symbolExcludes)
-                    : declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
 
             case SyntaxKind.FunctionType:
             case SyntaxKind.ConstructorType:
