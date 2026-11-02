@@ -1,7 +1,10 @@
 // Measures how far packages/compiler/src has drifted from the upstream TypeScript baseline
 // (docs/core-restoration-plan.md). Upstream files may only change at slot call sites marked `TSPP-SLOT(<slot>)`;
 // this reports the changed lines per upstream file, the hunks without that marker, and how often feature terms
-// still appear in the added lines. Usage: node scripts/core-diff.mjs [--base <ref>] [--json]
+// still appear in the added lines. Usage: node scripts/core-diff.mjs [--base <ref>] [--json] [--check]
+//
+// With --check (CI), it exits non-zero when an upstream file has a hunk without the marker or when the changed lines
+// exceed `budget`. Lower the budget when the core shrinks; raising it needs the review that a new slot needs.
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
@@ -17,9 +20,13 @@ const featureTerms = [
     "typeMatch", "operatorSection", "staticInterface", "trailingClosure", "completionBlock", "withClause", "tspp",
 ];
 
+// Set from the phase 3 result (+369 -47 in 26 files) with a small margin.
+const budget = { upstreamFiles: 27, upstreamAdded: 385, upstreamRemoved: 55 };
+
 const args = process.argv.slice(2);
 const base = valueOf("--base") ?? "tspp-core-baseline";
 const json = args.includes("--json");
+const check = args.includes("--check");
 
 function valueOf(flag) {
     const index = args.indexOf(flag);
@@ -86,9 +93,10 @@ const summary = {
     newFileLines: sum(added, "added"),
     unmarkedHunks: unmarkedHunks.length,
 };
+const overBudget = Object.entries(budget).filter(([key, limit]) => summary[key] > limit).map(([key, limit]) => `${key} ${summary[key]} > ${limit}`);
 
 if (json) {
-    console.log(JSON.stringify({ summary, upstream, added, unmarkedHunks, featureTerms: termCounts }, undefined, 2));
+    console.log(JSON.stringify({ summary, budget, overBudget, upstream, added, unmarkedHunks, featureTerms: termCounts }, undefined, 2));
 }
 else {
     console.log(`Core drift from ${base} (${coreDir}, tests and tspp/ directories excluded)\n`);
@@ -98,9 +106,21 @@ else {
     for (const entry of added) console.log(`  +${entry.added}\t${entry.file}`);
     console.log("\nFeature terms in added lines:");
     for (const [term, count] of Object.entries(termCounts)) if (count) console.log(`  ${count}\t${term}`);
-    console.log(`\nUnmarked hunks in upstream files: ${unmarkedHunks.length} (list with --json)`);
+    console.log(`\nUnmarked hunks in upstream files: ${unmarkedHunks.length}`);
+    for (const entry of unmarkedHunks) console.log(`  ${entry.file}:${entry.line} (+${entry.added} -${entry.removed})`);
     console.log(
         `Total: ${summary.upstreamFiles} upstream files +${summary.upstreamAdded} -${summary.upstreamRemoved}, `
             + `${summary.newFiles} new files +${summary.newFileLines}`,
     );
+    console.log(`Budget: ${budget.upstreamFiles} upstream files +${budget.upstreamAdded} -${budget.upstreamRemoved}${overBudget.length ? ` (exceeded: ${overBudget.join(", ")})` : ""}`);
+}
+
+if (check) {
+    const failures = [
+        ...unmarkedHunks.length ? [`${unmarkedHunks.length} hunks in upstream files lack a TSPP-SLOT(<slot>) marker`] : [],
+        ...added.length ? [`${added.length} new files outside the tspp/ directories`] : [],
+        ...overBudget.map(entry => `over budget: ${entry}`),
+    ];
+    for (const failure of failures) console.error(`core-diff: ${failure}`);
+    if (failures.length) process.exitCode = 1;
 }

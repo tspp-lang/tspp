@@ -37,7 +37,7 @@ jobs:
       - run: pnpm test:examples
 
   core-drift:
-    name: Core drift report
+    name: Core drift gate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -47,8 +47,9 @@ jobs:
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 22.22.0
-      # Reported only for now; docs/core-restoration-plan.md phase 3 turns it into a gate.
-      - run: node scripts/core-diff.mjs
+      # Fails on upstream changes without a TSPP-SLOT marker and on changed lines over the budget
+      # (docs/plugin-framework.md, "Core modification rules").
+      - run: node scripts/core-diff.mjs --check
 
   products:
     name: Build products
