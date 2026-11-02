@@ -289,8 +289,6 @@ export const enum SyntaxKind {
     ArrowFunction,
     DeleteExpression,
     TypeOfExpression,
-    /** A syntax node owned by a registered TSPP plugin. */
-    ExtensionExpression,
     VoidExpression,
     AwaitExpression,
     PrefixUnaryExpression,
@@ -1197,8 +1195,7 @@ export type HasChildren =
     | EnumMember
     | SourceFile
     | PartiallyEmittedExpression
-    | CommaListExpression
-    | ExtensionExpression;
+    | CommaListExpression;
 
 export type HasJSDoc =
     | AccessorDeclaration
@@ -1450,7 +1447,6 @@ export type IsContainer =
  */
 export type IsBlockScopedContainer =
     | IsContainer
-    | ExtensionExpression
     | CatchClause
     | ForStatement
     | ForInStatement
@@ -1523,7 +1519,6 @@ export type IsFunctionExpression =
 export type HasLocals =
     | ArrowFunction
     | Block
-    | ExtensionExpression
     | CallSignatureDeclaration
     | CaseBlock
     | CatchClause
@@ -2460,20 +2455,6 @@ export interface MemberExpression extends LeftHandSideExpression {
 
 export interface PrimaryExpression extends MemberExpression {
     _primaryExpressionBrand: any;
-}
-
-/**
- * Generic AST envelope for expression syntax owned by a TSPP plugin.
- *
- * The compiler owns traversal and lexical isolation. The registered plugin
- * owns the meaning and ordering of `extensionChildren`.
- *
- * @internal
- */
-export interface ExtensionExpression extends PrimaryExpression, LocalsContainer {
-    readonly kind: SyntaxKind.ExtensionExpression;
-    readonly pluginId: string;
-    readonly extensionChildren: NodeArray<Node>;
 }
 
 export interface NullLiteral extends PrimaryExpression {
@@ -9329,8 +9310,6 @@ export interface NodeFactory {
     createNotEmittedTypeElement(): NotEmittedTypeElement;
     createPartiallyEmittedExpression(expression: Expression, original?: Node): PartiallyEmittedExpression;
     updatePartiallyEmittedExpression(node: PartiallyEmittedExpression, expression: Expression): PartiallyEmittedExpression;
-    /** @internal */ createExtensionExpression(pluginId: string, children: readonly Node[]): ExtensionExpression;
-    /** @internal */ updateExtensionExpression(node: ExtensionExpression, children: readonly Node[]): ExtensionExpression;
     /** @internal */ createSyntheticReferenceExpression(expression: Expression, thisArg: Expression): SyntheticReferenceExpression;
     /** @internal */ updateSyntheticReferenceExpression(node: SyntheticReferenceExpression, expression: Expression, thisArg: Expression): SyntheticReferenceExpression;
     createCommaListExpression(elements: readonly Expression[]): CommaListExpression;

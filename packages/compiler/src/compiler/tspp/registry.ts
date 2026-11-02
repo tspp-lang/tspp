@@ -6,7 +6,6 @@ import type {
     TSPPCompilerHostAPI,
     TSPPDiagnosticProvider,
     TSPPExpressionRewriter,
-    TSPPExpressionSyntax,
     TSPPInterfaceMemberContract,
     TSPPKindAnnotationSyntax,
     TSPPPostfixTypeSyntax,
@@ -32,7 +31,6 @@ import { version } from "../corePublic.js";
 import type {
     Diagnostic,
     Expression,
-    ExtensionExpression,
     Identifier,
     Node,
     NodeFactory,
@@ -41,10 +39,6 @@ import type {
 } from "../types.js";
 import { SyntaxKind } from "../types.js";
 
-const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax[]>();
-const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
-const expressionSyntaxByNode = new WeakMap<object, TSPPExpressionSyntax>();
-const selectedExtensionExpressions = new WeakMap<object, object>();
 const typeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTypeSyntax; }[]>();
 const typeSyntaxByNode = new WeakMap<object, TSPPTypeSyntax>();
 const postfixTypeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPPostfixTypeSyntax; }[]>();
@@ -71,49 +65,6 @@ const silentLogger: TSPPPluginLogger = {
     info() {},
     warn() {},
     error() {},
-};
-
-/** @internal */
-export const expressionSyntaxKinds: {
-    readonly endOfFileToken: SyntaxKind;
-    readonly identifier: SyntaxKind;
-    readonly openBracketToken: SyntaxKind;
-    readonly closeBracketToken: SyntaxKind;
-    readonly openBraceToken: SyntaxKind;
-    readonly closeBraceToken: SyntaxKind;
-    readonly openParenToken: SyntaxKind;
-    readonly closeParenToken: SyntaxKind;
-    readonly semicolonToken: SyntaxKind;
-    readonly commaToken: SyntaxKind;
-    readonly equalsToken: SyntaxKind;
-    readonly colonToken: SyntaxKind;
-    readonly lessThanToken: SyntaxKind;
-    readonly minusToken: SyntaxKind;
-    readonly equalsGreaterThanToken: SyntaxKind;
-    readonly inKeyword: SyntaxKind;
-    readonly letKeyword: SyntaxKind;
-    readonly doKeyword: SyntaxKind;
-    readonly whileKeyword: SyntaxKind;
-} = {
-    endOfFileToken: SyntaxKind.EndOfFileToken,
-    identifier: SyntaxKind.Identifier,
-    openBracketToken: SyntaxKind.OpenBracketToken,
-    closeBracketToken: SyntaxKind.CloseBracketToken,
-    openBraceToken: SyntaxKind.OpenBraceToken,
-    closeBraceToken: SyntaxKind.CloseBraceToken,
-    openParenToken: SyntaxKind.OpenParenToken,
-    closeParenToken: SyntaxKind.CloseParenToken,
-    semicolonToken: SyntaxKind.SemicolonToken,
-    commaToken: SyntaxKind.CommaToken,
-    equalsToken: SyntaxKind.EqualsToken,
-    colonToken: SyntaxKind.ColonToken,
-    lessThanToken: SyntaxKind.LessThanToken,
-    minusToken: SyntaxKind.MinusToken,
-    equalsGreaterThanToken: SyntaxKind.EqualsGreaterThanToken,
-    inKeyword: SyntaxKind.InKeyword,
-    letKeyword: SyntaxKind.LetKeyword,
-    doKeyword: SyntaxKind.DoKeyword,
-    whileKeyword: SyntaxKind.WhileKeyword,
 };
 
 /** @internal */
@@ -154,37 +105,7 @@ export const typeSyntaxKinds: {
 };
 
 const compilerAPI: TSPPCompilerHostAPI = {
-    expressionSyntaxKinds,
     typeSyntaxKinds,
-    registerExpressionSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP expression plugin '${pluginId}' must claim at least one start token.`);
-        }
-
-        const registration = { pluginId, syntax };
-        const syntaxes = expressionSyntaxByPluginId.get(pluginId);
-        if (syntaxes) syntaxes.push(syntax);
-        else expressionSyntaxByPluginId.set(pluginId, [syntax]);
-        for (const token of syntax.startTokens) {
-            const candidates = expressionSyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else expressionSyntaxByStartToken.set(token, [registration]);
-        }
-
-        return () => {
-            const syntaxes = expressionSyntaxByPluginId.get(pluginId);
-            const syntaxIndex = syntaxes?.indexOf(syntax) ?? -1;
-            if (syntaxes && syntaxIndex >= 0) syntaxes.splice(syntaxIndex, 1);
-            if (syntaxes?.length === 0) expressionSyntaxByPluginId.delete(pluginId);
-            for (const token of syntax.startTokens) {
-                const candidates = expressionSyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) expressionSyntaxByStartToken.delete(token);
-            }
-        };
-    },
     registerTypeSyntax(pluginId, syntax) {
         if (syntax.startTokens.length === 0) {
             throw new Error(`TSPP type-syntax plugin '${pluginId}' must claim at least one start token.`);
@@ -503,25 +424,6 @@ export function rewriteTSPPExpression(
 }
 
 /** @internal */
-export function tryParseExtensionExpression(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): Expression | undefined {
-    const candidates = expressionSyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) {
-            const expression = syntax.parse(parser) as Expression;
-            expressionSyntaxByNode.set(expression, syntax);
-            return expression;
-        }
-    }
-    return undefined;
-}
-
-/** @internal */
 export function tryParseExtensionType(
     token: SyntaxKind,
     createParser: (pluginId: string) => any,
@@ -641,35 +543,6 @@ export function isExtensionTypeConstructor(node: object): boolean {
         current = current.original;
     }
     return false;
-}
-
-/** @internal */
-export function getExtensionExpressionSyntax(node: ExtensionExpression): any {
-    let current: { readonly original?: object; } | undefined = node;
-    while (current) {
-        const syntax = expressionSyntaxByNode.get(current);
-        if (syntax) return syntax;
-        current = current.original;
-    }
-    const syntaxes = expressionSyntaxByPluginId.get(node.pluginId);
-    if (syntaxes?.length === 1) return syntaxes[0];
-    throw new Error(`Unknown TSPP extension expression syntax for plugin: ${node.pluginId}`);
-}
-
-/** @internal */
-export function setSelectedExtensionExpression(owner: object, expression: object): void {
-    selectedExtensionExpressions.set(owner, expression);
-}
-
-/** @internal */
-export function getSelectedExtensionExpression(owner: object): object | undefined {
-    let current: { readonly original?: object; } | undefined = owner;
-    while (current) {
-        const selected = selectedExtensionExpressions.get(current);
-        if (selected) return selected;
-        current = current.original;
-    }
-    return undefined;
 }
 
 /** @internal */

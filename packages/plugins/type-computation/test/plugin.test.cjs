@@ -11,7 +11,7 @@ test("registers type-position syntax as one capsule", () => {
   };
   const registrations = [];
   const compiler = {
-    expressionSyntaxKinds: {}, typeSyntaxKinds,
+    typeSyntaxKinds,
     registerTypeSyntax(pluginId, syntax) {
       registrations.push({ pluginId, syntax });
       return () => {};
@@ -34,7 +34,7 @@ test("registers kind annotations as an isolated syntax facet", () => {
   const typeSyntaxKinds = { colonToken: 1 };
   let registration;
   const compiler = {
-    expressionSyntaxKinds: {}, typeSyntaxKinds,
+    typeSyntaxKinds,
     registerKindAnnotationSyntax(pluginId, syntax) {
       registration = { pluginId, syntax };
       return () => {};
@@ -59,7 +59,7 @@ test("parses unary and multi-parameter function kinds", () => {
   let universeSyntax;
   let applicationSyntax;
   const compiler = {
-    expressionSyntaxKinds: {}, typeSyntaxKinds: kinds,
+    typeSyntaxKinds: kinds,
     registerKindAnnotationSyntax(_pluginId, value) { syntax = value; return () => {}; },
     registerTypeSyntax(_pluginId, value) {
       if (value.startTokens.length === 1) universeSyntax = value;

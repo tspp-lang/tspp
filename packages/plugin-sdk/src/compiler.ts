@@ -2,12 +2,9 @@ import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger } fro
 
 /** Opaque compiler values prevent plugins from depending on compiler internals. */
 export type TSPPSyntaxNode = object;
-export type TSPPExpression = TSPPSyntaxNode;
-export type TSPPStatement = TSPPSyntaxNode;
 export type TSPPIdentifier = TSPPSyntaxNode;
 export type TSPPTypeNode = TSPPSyntaxNode;
 export type TSPPTypeParameterList = TSPPSyntaxNode;
-export type TSPPType = object;
 export type TSPPSyntaxKind = number;
 
 /** Immutable, compiler-neutral syntax snapshot supplied to background analyzers. */
@@ -254,33 +251,6 @@ export interface TSPPExpressionRewriter {
     ): import("typescript-upstream").Expression | undefined;
 }
 
-export interface TSPPExtensionExpression {
-    readonly pluginId: string;
-    readonly extensionChildren: readonly TSPPSyntaxNode[];
-}
-
-export interface TSPPExpressionSyntaxKinds {
-    readonly endOfFileToken: TSPPSyntaxKind;
-    readonly identifier: TSPPSyntaxKind;
-    readonly openBracketToken: TSPPSyntaxKind;
-    readonly closeBracketToken: TSPPSyntaxKind;
-    readonly openBraceToken: TSPPSyntaxKind;
-    readonly closeBraceToken: TSPPSyntaxKind;
-    readonly openParenToken: TSPPSyntaxKind;
-    readonly closeParenToken: TSPPSyntaxKind;
-    readonly semicolonToken: TSPPSyntaxKind;
-    readonly commaToken: TSPPSyntaxKind;
-    readonly equalsToken: TSPPSyntaxKind;
-    readonly colonToken: TSPPSyntaxKind;
-    readonly lessThanToken: TSPPSyntaxKind;
-    readonly minusToken: TSPPSyntaxKind;
-    readonly equalsGreaterThanToken: TSPPSyntaxKind;
-    readonly inKeyword: TSPPSyntaxKind;
-    readonly letKeyword: TSPPSyntaxKind;
-    readonly doKeyword: TSPPSyntaxKind;
-    readonly whileKeyword: TSPPSyntaxKind;
-}
-
 export interface TSPPTypeSyntaxKinds {
     readonly endOfFileToken: TSPPSyntaxKind;
     readonly identifier: TSPPSyntaxKind;
@@ -400,57 +370,8 @@ export interface TSPPPostfixTypeSyntax {
     parse(target: TSPPTypeNode, parser: TSPPPostfixTypeParser): TSPPTypeNode;
 }
 
-export interface TSPPExpressionParser {
-    readonly kinds: TSPPExpressionSyntaxKinds;
-    token(): TSPPSyntaxKind;
-    tokenText(): string;
-    nextToken(): TSPPSyntaxKind;
-    hasPrecedingLineBreak(): boolean;
-    lookAhead<T>(callback: () => T): T;
-    getNodePos(): number;
-    parseExpected(kind: TSPPSyntaxKind): boolean;
-    parseType(): TSPPTypeNode;
-    parseAssignmentExpression(): TSPPExpression;
-    finishExpression(children: readonly TSPPSyntaxNode[], pos: number): TSPPExtensionExpression;
-}
-
-export interface TSPPExpressionChecker {
-    checkExpression(node: TSPPExpression, checkMode: number | undefined): TSPPType;
-    /** Creates an opaque runtime descriptor type that retains its represented static type. */
-    createReifiedType(type: TSPPTypeNode): TSPPType;
-    checkReifiedTypeMatch(
-        owner: TSPPExtensionExpression,
-        scrutinee: TSPPExpression,
-        arms: readonly TSPPReifiedTypeMatchArm[],
-        checkMode: number | undefined,
-    ): TSPPType;
-}
-
-export interface TSPPReifiedTypeMatchArm {
-    /** Missing only for the required final wildcard arm. */
-    readonly pattern?: TSPPTypeNode;
-    readonly result: TSPPExpression;
-}
-
-export interface TSPPExpressionTransformer {
-    visitExpression(node: TSPPExpression): TSPPExpression;
-    /** Emits a serializable runtime descriptor for an authored type node. */
-    createReifiedTypeDescriptor(type: TSPPTypeNode): TSPPExpression;
-    getSelectedExpression(owner: TSPPExtensionExpression): TSPPExpression;
-}
-
-export interface TSPPExpressionSyntax {
-    readonly startTokens: readonly TSPPSyntaxKind[];
-    isStart(parser: TSPPExpressionParser): boolean;
-    parse(parser: TSPPExpressionParser): TSPPExpression;
-    check(node: TSPPExtensionExpression, checker: TSPPExpressionChecker, checkMode: number | undefined): TSPPType;
-    transform(node: TSPPExtensionExpression, transformer: TSPPExpressionTransformer): TSPPExpression;
-}
-
 export interface TSPPCompilerPluginAPI {
-    readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
-    registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
     registerTypeSyntax(syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
     registerKindAnnotationSyntax(syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;
@@ -464,9 +385,7 @@ export interface TSPPCompilerPluginAPI {
 }
 
 export interface TSPPCompilerHostAPI {
-    readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
     readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
-    registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
     registerTypeSyntax(pluginId: string, syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(pluginId: string, syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
     registerKindAnnotationSyntax(pluginId: string, syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;

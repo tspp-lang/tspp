@@ -86,16 +86,17 @@ The same capsule implements `def` through the SDK's deep-readonly binding
 boundary. The parser produces an ordinary `const` declaration, while
 out-of-band ownership makes its initializer a recursive const-inference
 context. Emission therefore has zero runtime machinery.
-The compiler sees only a generic `ExtensionExpression` carrying the plugin ID
-and ordered child nodes.
+Syntax plugins desugar while parsing: the parser hands them a cursor with its
+own factory, and they return ordinary TypeScript nodes that the upstream binder,
+checker, and emitter process unchanged.
 
 ```mermaid
 flowchart LR
-    Source[.tspp source] --> Parse[plugin parser capability]
-    Parse --> Envelope[ExtensionExpression]
-    Envelope --> Check[plugin checker capability]
-    Envelope --> Lower[plugin lowering capability]
-    Lower --> JS[ordinary JavaScript AST]
+    Source[.tspp source] --> Parse[plugin syntax extension]
+    Parse --> Nodes[ordinary TypeScript nodes]
+    Nodes --> Check[upstream checker + plugin diagnostics]
+    Nodes --> Emit[upstream emitter]
+    Emit --> JS[ordinary JavaScript]
 ```
 
 A trailing-closure binding turns the remainder of the enclosing completion
@@ -192,12 +193,14 @@ allowed when real duplication appears; merging the two semantic models merely
 because both are called “IR” is not.
 
 The dependent-types capsule uses length-preserving projection for representable
-Pi signatures and the asynchronous analyzer port for kernel diagnostics. The
-SDK additionally exposes generic reified-type descriptor and compile-time
-selection operations. Consequently `reify T` and expression-level exact type
-matching retain ordinary TypeScript types without exposing checker nodes to the
-feature package. These host operations have no MLTT feature IDs or imports;
-the plugin still owns its syntax, kernel, projection policy, and editor grammar.
+Pi signatures and the asynchronous analyzer port for kernel diagnostics.
+`reify T` desugars to a descriptor object whose static type carries `T` in a
+phantom property, and expression-level `typecase` desugars to a call whose
+overloads are its arms, so TypeScript's overload resolution selects the arm and
+infers its captures. A program rebuild without replacements adds the emit
+transformer that keeps only the selected arm. The host has no MLTT feature IDs
+or operations; the plugin owns its syntax, kernel, projection policy, and editor
+grammar.
 
 ### Declaration extensions
 

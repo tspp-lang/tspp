@@ -1,4 +1,3 @@
-import type { TSPPExpressionTransformer } from "@tspp/plugin-sdk/compiler";
 import {
     __String,
     AccessorDeclaration,
@@ -40,7 +39,6 @@ import {
     ExportSpecifier,
     Expression,
     ExpressionWithTypeArguments,
-    ExtensionExpression,
     filter,
     findSuperStatementIndexPath,
     flattenDestructuringAssignment,
@@ -60,7 +58,6 @@ import {
     getOriginalNode,
     getParseTreeNode,
     getProperties,
-    getSourceTextOfNodeFromSourceFile,
     getTextOfNode,
     hasDecorators,
     hasSyntacticModifier,
@@ -195,7 +192,6 @@ import {
     TransformationContext,
     Transformer,
     TransformFlags,
-    TypeNode,
     VariableDeclaration,
     VariableStatement,
     visitEachChild,
@@ -206,10 +202,6 @@ import {
     visitParameterList,
     VisitResult,
 } from "../_namespaces/ts.js";
-import {
-    getExtensionExpressionSyntax,
-    getSelectedExtensionExpression,
-} from "../tspp/registry.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.
@@ -642,29 +634,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
         return node;
     }
 
-    function transformExtensionExpression(node: ExtensionExpression): Expression {
-        const pluginTransformer: TSPPExpressionTransformer = {
-            visitExpression: expression => Debug.checkDefined(visitNode(expression as Expression, visitor, isExpression)),
-            createReifiedTypeDescriptor: type => {
-                const typeNode = type as TypeNode;
-                const text = currentSourceFile
-                    ? getSourceTextOfNodeFromSourceFile(currentSourceFile, typeNode, /*includeTrivia*/ false).trim()
-                    : "unknown";
-                return factory.createObjectLiteralExpression([
-                    factory.createPropertyAssignment("kind", factory.createStringLiteral("type")),
-                    factory.createPropertyAssignment("text", factory.createStringLiteral(text)),
-                ]);
-            },
-            getSelectedExpression: owner => {
-                const selected = getSelectedExtensionExpression(owner);
-                return selected
-                    ? Debug.checkDefined(visitNode(selected as Expression, visitor, isExpression))
-                    : factory.createVoidZero();
-            },
-        };
-        return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;
-    }
-
     /**
      * Branching visitor, visits a TypeScript syntax node.
      *
@@ -678,9 +647,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
         }
 
         switch (node.kind) {
-            case SyntaxKind.ExtensionExpression:
-                return transformExtensionExpression(node as ExtensionExpression);
-
             case SyntaxKind.ExportKeyword:
             case SyntaxKind.DefaultKeyword:
                 // ES6 export and default modifiers are elided when inside a namespace.

@@ -2099,7 +2099,6 @@ function isExpressionKind(kind: SyntaxKind): boolean {
         case SyntaxKind.CommaListExpression:
         case SyntaxKind.PartiallyEmittedExpression:
         case SyntaxKind.SatisfiesExpression:
-        case SyntaxKind.ExtensionExpression:
             return true;
         default:
             return isUnaryExpressionKind(kind);
@@ -2290,7 +2289,6 @@ export function canHaveLocals(node: Node): node is HasLocals {
         case SyntaxKind.CatchClause:
         case SyntaxKind.ClassStaticBlockDeclaration:
         case SyntaxKind.ConditionalType:
-        case SyntaxKind.ExtensionExpression:
         case SyntaxKind.Constructor:
         case SyntaxKind.ConstructorType:
         case SyntaxKind.ConstructSignature:

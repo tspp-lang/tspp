@@ -27,7 +27,7 @@ test("is provided to plugins that depend on nominal-types", () => {
   const { TSPPPluginHost } = require("@tspp/plugin-sdk/host");
   const { nominalTypesPlugin } = require("../dist");
   const kinds = new Proxy({}, { get: () => 0 });
-  const compiler = new Proxy({ expressionSyntaxKinds: kinds }, {
+  const compiler = new Proxy({ typeSyntaxKinds: kinds }, {
     get: (target, name) => target[name] ?? (() => () => {}),
   });
   let received;

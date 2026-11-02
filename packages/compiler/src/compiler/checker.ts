@@ -1,8 +1,4 @@
-import type {
-    TSPPExpressionChecker,
-    TSPPReifiedTypeMatchArm,
-    TSPPTypeKind,
-} from "@tspp/plugin-sdk/compiler";
+import type { TSPPTypeKind } from "@tspp/plugin-sdk/compiler";
 import {
     __String,
     AccessExpression,
@@ -196,7 +192,6 @@ import {
     ExpressionStatement,
     ExpressionWithTypeArguments,
     Extension,
-    ExtensionExpression,
     ExternalEmitHelpers,
     externalHelpersModuleNameText,
     factory,
@@ -1157,14 +1152,12 @@ import {
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
-    getExtensionExpressionSyntax,
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
     hasInterfaceMemberContract,
     isExtensionTypeConstructor,
     isTSPPInterfaceStaticMember,
-    setSelectedExtensionExpression,
 } from "./tspp/registry.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
@@ -42262,8 +42255,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return checkFunctionExpressionOrObjectLiteralMethod(node as FunctionExpression | ArrowFunction, checkMode);
             case SyntaxKind.TypeOfExpression:
                 return checkTypeOfExpression(node as TypeOfExpression);
-            case SyntaxKind.ExtensionExpression:
-                return checkExtensionExpression(node as ExtensionExpression, checkMode);
             case SyntaxKind.TypeAssertionExpression:
             case SyntaxKind.AsExpression:
                 return checkAssertion(node as AssertionExpression, checkMode);
@@ -42311,129 +42302,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 Debug.fail("Shouldn't ever directly check a JsxOpeningElement");
         }
         return errorType;
-    }
-
-    function checkExtensionExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
-        function createReifiedType(typeNode: TypeNode): Type {
-            const representedType = getTypeFromTypeNode(typeNode);
-            const marker = createSymbol(SymbolFlags.Property, "__tspp_reified_type" as __String);
-            getSymbolLinks(marker).type = representedType;
-            const kind = createProperty("kind" as __String, getStringLiteralType("type"));
-            const text = createProperty("text" as __String, stringType);
-            return createAnonymousType(
-                /*symbol*/ undefined,
-                createSymbolTable([kind, text, marker]),
-                emptyArray,
-                emptyArray,
-                emptyArray,
-            );
-        }
-        function checkReifiedTypeMatch(
-            owner: ExtensionExpression,
-            scrutinee: Expression,
-            arms: readonly TSPPReifiedTypeMatchArm[],
-            mode: CheckMode | undefined,
-        ): Type {
-            const descriptorType = checkExpression(scrutinee, mode);
-            const marker = getPropertyOfType(descriptorType, "__tspp_reified_type" as __String);
-            const representedType = marker && getSymbolLinks(marker).type;
-            let selected = lastOrUndefined(arms);
-            let selectedCaptures = new Map<string, Type>();
-            if (representedType) {
-                for (const arm of arms) {
-                    if (!arm.pattern) continue;
-                    const pattern = arm.pattern as TypeNode;
-                    if (
-                        isTypeReferenceNode(pattern)
-                        && !!(representedType.flags & TypeFlags.Object)
-                        && !!((representedType as ObjectType).objectFlags & ObjectFlags.Reference)
-                    ) {
-                        const actualArguments = getTypeArguments(representedType as TypeReference);
-                        const patternArguments = pattern.typeArguments ?? emptyArray;
-                        const targetSymbol = (representedType as TypeReference).target.symbol;
-                        if (targetSymbol && getSymbolAtLocation(pattern.typeName) === targetSymbol && actualArguments.length === patternArguments.length) {
-                            const parameters: TypeParameter[] = [];
-                            const argumentsList: Type[] = [];
-                            let matches = true;
-                            for (let index = 0; index < patternArguments.length; index++) {
-                                const patternArgument = patternArguments[index];
-                                if (patternArgument.kind === SyntaxKind.InferType) {
-                                    const declaration = (patternArgument as InferTypeNode).typeParameter;
-                                    parameters.push(getDeclaredTypeOfTypeParameter(getSymbolOfDeclaration(declaration)));
-                                    argumentsList.push(actualArguments[index]);
-                                }
-                                else if (!isTypeIdenticalTo(actualArguments[index], getTypeFromTypeNode(patternArgument))) {
-                                    matches = false;
-                                    break;
-                                }
-                            }
-                            if (matches) {
-                                selected = arm;
-                                selectedCaptures = new Map(parameters.map((parameter, index) => [
-                                    symbolName(parameter.symbol),
-                                    argumentsList[index],
-                                ]));
-                                break;
-                            }
-                        }
-                    }
-                    else if (isTypeIdenticalTo(representedType, getTypeFromTypeNode(pattern))) {
-                        selected = arm;
-                        break;
-                    }
-                }
-            }
-            if (!selected) return errorType;
-            for (const arm of arms) {
-                if (arm !== selected) checkExpression(arm.result as Expression, mode);
-            }
-            setSelectedExtensionExpression(owner, selected.result);
-            const result = checkExpression(selected.result as Expression, mode);
-            if (!selectedCaptures.size) return result;
-            const resultParameters = new Map<string, TypeParameter>();
-            collectCapturedResultParameters(result, selectedCaptures, resultParameters, new Set());
-            const parameters = [...resultParameters.values()];
-            return parameters.length
-                ? instantiateType(result, createTypeMapper(parameters, parameters.map(parameter => selectedCaptures.get(symbolName(parameter.symbol))!)))
-                : result;
-        }
-        function collectCapturedResultParameters(
-            type: Type,
-            captures: ReadonlyMap<string, Type>,
-            result: Map<string, TypeParameter>,
-            seen: Set<number>,
-        ): void {
-            if (seen.has(type.id)) return;
-            seen.add(type.id);
-            if (type.flags & TypeFlags.TypeParameter) {
-                const parameter = type as TypeParameter;
-                const name = symbolName(parameter.symbol);
-                if (captures.has(name)) result.set(name, parameter);
-                return;
-            }
-            if (type.flags & TypeFlags.UnionOrIntersection) {
-                for (const member of (type as UnionOrIntersectionType).types) {
-                    collectCapturedResultParameters(member, captures, result, seen);
-                }
-            }
-            if (type.flags & TypeFlags.Object && (type as ObjectType).objectFlags & ObjectFlags.Reference) {
-                for (const argument of getTypeArguments(type as TypeReference)) {
-                    collectCapturedResultParameters(argument, captures, result, seen);
-                }
-            }
-        }
-        const pluginChecker: TSPPExpressionChecker = {
-            checkExpression: (expression, mode) => checkExpression(expression as Expression, mode as CheckMode | undefined),
-            createReifiedType: type => createReifiedType(type as TypeNode),
-            checkReifiedTypeMatch: (owner, scrutinee, arms, mode) =>
-                checkReifiedTypeMatch(
-                    owner as ExtensionExpression,
-                    scrutinee as Expression,
-                    arms,
-                    mode as CheckMode | undefined,
-                ),
-        };
-        return getExtensionExpressionSyntax(node).check(node, pluginChecker, checkMode) as Type;
     }
 
     // DECLARATION AND STATEMENT TYPE CHECKING

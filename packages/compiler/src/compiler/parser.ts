@@ -1,5 +1,4 @@
 import type {
-    TSPPExpressionParser,
     TSPPKindAnnotationParser,
     TSPPPostfixTypeParser,
     TSPPSyntaxCursor,
@@ -92,7 +91,6 @@ import {
     ExpressionStatement,
     ExpressionWithTypeArguments,
     Extension,
-    ExtensionExpression,
     ExternalModuleReference,
     fileExtensionIs,
     findIndex,
@@ -413,7 +411,6 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     expandTSPPListElement,
-    expressionSyntaxKinds,
     getTypeKindAnnotation,
     isExtensionTypeConstructor,
     isStartOfTSPPSyntax,
@@ -424,7 +421,6 @@ import {
     registerTypeUniverse,
     rewriteTSPPExpression,
     setTypeKindAnnotation,
-    tryParseExtensionExpression,
     tryParseExtensionType,
     tryParseKindAnnotation,
     tryParsePostfixType,
@@ -533,12 +529,6 @@ function isImportMeta(node: Node): boolean {
 type ForEachChildFunction<TNode> = <T>(node: TNode, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined) => T | undefined;
 type ForEachChildTable = { [TNode in ForEachChildNodes as TNode["kind"]]: ForEachChildFunction<TNode>; };
 const forEachChildTable: ForEachChildTable = {
-    [SyntaxKind.ExtensionExpression]: function forEachChildInExtensionExpression<T>(node: ExtensionExpression, cbNode: (node: Node) => T | undefined, _cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
-        // These children are ordered plugin slots, not one source-level syntax
-        // list. Visiting them individually lets navigation synthesize the
-        // feature's separator tokens from the gaps between child ranges.
-        return visitNodes(cbNode, /*cbNodes*/ undefined, node.extensionChildren);
-    },
     [SyntaxKind.QualifiedName]: function forEachChildInQualifiedName<T>(node: QualifiedName, cbNode: (node: Node) => T | undefined, _cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
         return visitNode(cbNode, node.left) ||
             visitNode(cbNode, node.right);
@@ -5797,8 +5787,6 @@ namespace Parser {
             return parseFunctionBlock(isAsync ? SignatureFlags.Await : SignatureFlags.None);
         }
 
-        const extensionExpression = tryParsePluginSyntax(() => tryParseExtensionExpression(token(), createExtensionParser));
-        if (extensionExpression) return extensionExpression;
         const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("expression", token(), createTSPPSyntaxCursor)) as Expression | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
 
@@ -6003,8 +5991,6 @@ namespace Parser {
      *      2) UpdateExpression[?Yield] ** ExponentiationExpression[?Yield]
      */
     function parseUnaryExpressionOrHigher(): UnaryExpression | BinaryExpression {
-        const extensionExpression = tryParsePluginSyntax(() => tryParseExtensionExpression(token(), createExtensionParser));
-        if (extensionExpression) return extensionExpression as UnaryExpression;
         const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("expression", token(), createTSPPSyntaxCursor)) as UnaryExpression | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
 
@@ -6049,26 +6035,6 @@ namespace Parser {
             }
         }
         return simpleUnaryExpression;
-    }
-
-    function createExtensionParser(pluginId: string): TSPPExpressionParser {
-        return {
-            kinds: expressionSyntaxKinds,
-            token,
-            tokenText: () => scanner.getTokenText(),
-            nextToken,
-            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
-            lookAhead,
-            getNodePos,
-            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-            parseType,
-            parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
-            finishExpression: (children, pos) =>
-                finishNode(
-                    factory.createExtensionExpression(pluginId, children as readonly Node[]),
-                    pos,
-                ),
-        };
     }
 
     /**

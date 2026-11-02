@@ -146,9 +146,7 @@ export class TSPPPluginHost {
                 registration.disposers.push(() => this.providedAPIs.delete(name));
             },
             compiler: {
-                expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
                 typeSyntaxKinds: this.environment.compiler.typeSyntaxKinds,
-                registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
                 registerTypeSyntax: syntax => this.environment.compiler.registerTypeSyntax(pluginId, syntax),
                 registerPostfixTypeSyntax: syntax => this.environment.compiler.registerPostfixTypeSyntax(pluginId, syntax),
                 registerKindAnnotationSyntax: syntax =>
