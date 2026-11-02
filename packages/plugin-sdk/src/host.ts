@@ -159,6 +159,7 @@ export class TSPPPluginHost {
                 registerProgramRebuilder: rebuilder => this.environment.compiler.registerProgramRebuilder(pluginId, rebuilder),
                 registerSyntaxExtension: extension => this.environment.compiler.registerSyntaxExtension(pluginId, extension),
                 registerDiagnosticProvider: provider => this.environment.compiler.registerDiagnosticProvider(pluginId, provider),
+                registerTypeExtension: extension => this.environment.compiler.registerTypeExtension(pluginId, extension),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

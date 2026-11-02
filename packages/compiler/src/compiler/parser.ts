@@ -410,6 +410,7 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
+    annotateTSPPSyntax,
     expandTSPPListElement,
     getTypeKindAnnotation,
     isExtensionTypeConstructor,
@@ -2188,10 +2189,11 @@ namespace Parser {
     }
 
     /** The parser at the current token, for plugin syntax. `functionFlags` is set when parsing a function body. */
-    function createTSPPSyntaxCursor(functionFlags?: SignatureFlags, modifiers?: NodeArray<ModifierLike>): TSPPSyntaxCursor { // TSPP-SLOT(syntax-extension)
+    function createTSPPSyntaxCursor(functionFlags?: SignatureFlags, modifiers?: NodeArray<ModifierLike>, precedingType?: TypeNode): TSPPSyntaxCursor { // TSPP-SLOT(syntax-extension)
         return {
             factory: factory as unknown as TSPPSyntaxCursor["factory"],
             modifiers: modifiers as unknown as TSPPSyntaxCursor["modifiers"],
+            precedingType: precedingType as unknown as TSPPSyntaxCursor["precedingType"],
             token: () => token() as never,
             tokenText: () => scanner.getTokenText(),
             nextToken: () => nextToken() as never,
@@ -2232,6 +2234,7 @@ namespace Parser {
             parseType: () => parseType() as never,
             parseIdentifier: () => parseIdentifier() as never,
             parseTypeParameters: () => parseTypeParameters() as never,
+            parseTypeArguments: () => parseTypeArgumentsOfTypeReference() as never,
             parseVariableDeclarationList: inForStatementInitializer => parseVariableDeclarationList(inForStatementInitializer) as never,
             finishNode: (node, pos, end) => finishNode(node as unknown as Node, pos, end) as unknown as typeof node,
             parseErrorAt: (start, end, message) => void parseErrorAt(start, end, Diagnostics._0, message),
@@ -4048,6 +4051,7 @@ namespace Parser {
         const pos = getNodePos();
         const modifiers = parseModifiers(/*allowDecorators*/ false, /*permitConstAsModifier*/ true);
         const name = parseIdentifier();
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax("type-parameter-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const kind = tryParsePluginSyntax(() => tryParseKindAnnotation(token(), createExtensionKindAnnotationParser));
         let constraint: TypeNode | undefined;
         let expression: Expression | undefined;
@@ -4076,7 +4080,7 @@ namespace Parser {
         node.expression = expression;
         const result = finishNode(node, pos);
         setTypeKindAnnotation(result, kind);
-        return result;
+        return annotateTSPPSyntax(result, annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseTypeParameters(): NodeArray<TypeParameterDeclaration> | undefined {
@@ -4838,6 +4842,11 @@ namespace Parser {
                     }
                     break;
                 default: {
+                    const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax("postfix-type", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, /*modifiers*/ undefined, type))) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
+                    if (syntaxType) { // TSPP-SLOT(syntax-extension)
+                        type = syntaxType;
+                        break;
+                    }
                     const extensionType = tryParsePluginSyntax(() => tryParsePostfixType(token(), type, createExtensionPostfixTypeParser));
                     if (extensionType) {
                         type = extensionType as TypeNode;
@@ -5042,6 +5051,8 @@ namespace Parser {
         if (contextFlags & NodeFlags.TypeExcludesFlags) {
             return doOutsideOfContext(NodeFlags.TypeExcludesFlags, parseType);
         }
+        const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax("type", token(), createTSPPSyntaxCursor)) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxType) return syntaxType; // TSPP-SLOT(syntax-extension)
         const extensionType = tryParsePluginSyntax(() => tryParseExtensionType(token(), createExtensionTypeParser));
         if (extensionType) return extensionType as TypeNode;
         if (isStartOfFunctionTypeOrConstructorType()) {
@@ -8523,6 +8534,7 @@ namespace Parser {
         }
         const name = parseIdentifier();
         const typeParameters = parseTypeParameters();
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax("type-alias-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const kind = tryParsePluginSyntax(() => tryParseKindAnnotation(token(), createExtensionKindAnnotationParser));
         parseExpected(SyntaxKind.EqualsToken);
         const type = token() === SyntaxKind.IntrinsicKeyword && tryParse(parseKeywordAndNoDot) || parseType();
@@ -8530,7 +8542,7 @@ namespace Parser {
         const node = factory.createTypeAliasDeclaration(modifiers, name, typeParameters, type);
         const result = withJSDoc(finishNode(node, pos), hasJSDoc);
         setTypeKindAnnotation(result, kind);
-        return result;
+        return annotateTSPPSyntax(result, annotation); // TSPP-SLOT(syntax-extension)
     }
 
     // In an ambient declaration, the grammar only allows integer literals as initializers.

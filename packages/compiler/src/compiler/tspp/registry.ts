@@ -13,9 +13,11 @@ import type {
     TSPPProgramAnalyzer,
     TSPPProgramRebuilder,
     TSPPSourcePreprocessor,
+    TSPPSyntaxAnnotation,
     TSPPSyntaxCursor,
     TSPPSyntaxExtension,
     TSPPSyntaxExtensionPosition,
+    TSPPTypeExtension,
     TSPPTypeKind,
     TSPPTypeScript,
     TSPPTypeSyntax,
@@ -54,6 +56,8 @@ const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const programRebuilders = new Map<string, TSPPProgramRebuilder>();
 const syntaxExtensions = new Map<TSPPSyntaxExtensionPosition, { pluginId: string; extension: TSPPSyntaxExtension; }[]>();
 const diagnosticProviders = new Map<string, TSPPDiagnosticProvider>();
+const typeExtensions = new Map<string, TSPPTypeExtension>();
+const typeExtensionList: TSPPTypeExtension[] = [];
 const syntaxNodes = new WeakSet<Node>();
 const additionalListElements = new WeakMap<Node, readonly Node[]>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
@@ -209,6 +213,15 @@ const compilerAPI: TSPPCompilerHostAPI = {
         diagnosticProviders.set(key, provider);
         return () => diagnosticProviders.delete(key);
     },
+    registerTypeExtension(pluginId, extension) {
+        if (typeExtensions.has(pluginId)) throw new Error(`TSPP plugin '${pluginId}' registered more than one type extension.`);
+        typeExtensions.set(pluginId, extension);
+        typeExtensionList.push(extension);
+        return () => {
+            typeExtensions.delete(pluginId);
+            typeExtensionList.splice(typeExtensionList.indexOf(extension), 1);
+        };
+    },
     registerProgramRebuilder(pluginId, rebuilder) {
         const key = `${pluginId}/${rebuilder.id}`;
         if (programRebuilders.has(key)) throw new Error(`Duplicate TSPP program rebuilder '${key}'.`);
@@ -261,34 +274,57 @@ export function expandTSPPListElement<T extends Node>(node: T): readonly T[] {
     return [node, ...rest as readonly T[]];
 }
 
+/** Hands a finished declaration to the plugin annotation parsed inside it; the declaration is never reused. @internal */
+export function annotateTSPPSyntax<T extends Node>(declaration: T, annotation: unknown): T {
+    if (typeof annotation === "function") {
+        (annotation as TSPPSyntaxAnnotation)(declaration as never);
+        syntaxNodes.add(declaration);
+    }
+    return declaration;
+}
+
 /** Plugin syntax is parsed again rather than reused by incremental parsing, so it never reuses a partial result. @internal */
 export function isTSPPSyntaxNode(node: Node): boolean {
     return syntaxNodes.has(node);
 }
 
-/** The authored text a plugin restores for one of its statements in feature-rich declaration output. @internal */
-export function getTSPPRestoredDeclaration(node: Node): string | undefined {
+/**
+ * The authored text a plugin restores for one of its nodes in feature-rich declaration output, or the text it gives
+ * the node in the TypeScript-compatible declaration output. @internal
+ */
+export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean): string | undefined {
     for (const candidates of syntaxExtensions.values()) {
         for (const { extension } of candidates) {
-            const restored = extension.restoreDeclaration?.(node as never);
+            const restored = compatibility ? extension.restoreCompatibilityDeclaration?.(node as never) : extension.restoreDeclaration?.(node as never);
             if (restored !== undefined) return restored;
         }
     }
     return undefined;
 }
 
+/** A diagnostic as every provider's filter leaves it: undefined when one drops it, or the last replacement. */
+function filterTSPPDiagnostic<T extends Diagnostic>(providers: readonly TSPPDiagnosticProvider[], diagnostic: T): T | undefined {
+    let result = diagnostic;
+    for (const provider of providers) {
+        const filtered = provider.filterDiagnostic?.(result as never) ?? true;
+        if (filtered === false) return undefined;
+        if (filtered !== true) result = filtered as unknown as T;
+    }
+    return result;
+}
+
 /** Diagnostics as plugins filter them, such as suggestions about code a plugin generated. @internal */
 export function filterTSPPDiagnostics<T extends Diagnostic>(diagnostics: readonly T[]): readonly T[] {
     if (!diagnosticProviders.size) return diagnostics;
     const providers = [...diagnosticProviders.values()];
-    return diagnostics.filter(diagnostic => providers.every(provider => provider.filterDiagnostic?.(diagnostic as never) ?? true));
+    return ts.mapDefined(diagnostics, diagnostic => filterTSPPDiagnostic(providers, diagnostic));
 }
 
 /** A source file's check diagnostics as plugins filter them, followed by the diagnostics plugins add. @internal */
 export function applyTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: TypeChecker, diagnostics: Diagnostic[]): Diagnostic[] {
     if (!diagnosticProviders.size) return diagnostics;
     const providers = [...diagnosticProviders.values()];
-    const result = diagnostics.filter(diagnostic => providers.every(provider => provider.filterDiagnostic?.(diagnostic as never) ?? true));
+    const result = ts.mapDefined(diagnostics, diagnostic => filterTSPPDiagnostic(providers, diagnostic));
     for (const provider of providers) {
         result.push(...provider.getSemanticDiagnostics(sourceFile as never, checker as never) as unknown as readonly Diagnostic[]);
     }
@@ -298,6 +334,11 @@ export function applyTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: Ty
 /** A member that an interface member contract moves to the implementing side, such as `static` in an interface. @internal */
 export function isTSPPInterfaceStaticMember(node: Node): boolean {
     return hasInterfaceMemberContract("static") && node.parent?.kind === SyntaxKind.InterfaceDeclaration && ts.hasStaticModifier(node);
+}
+
+/** @internal */
+export function getRegisteredTSPPTypeExtensions(): readonly TSPPTypeExtension[] {
+    return typeExtensionList;
 }
 
 /** @internal */

@@ -1159,6 +1159,13 @@ import {
     isExtensionTypeConstructor,
     isTSPPInterfaceStaticMember,
 } from "./tspp/registry.js";
+import {
+    createTSPPTypeState,
+    instantiateTSPPType,
+    isTSPPTypeParameterApplicable,
+    resolveTSPPTypeNode,
+    tsppTypeToTypeNode,
+} from "./tspp/types.js"; // TSPP-SLOT(type-extension)
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -1497,6 +1504,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     // See: https://github.com/microsoft/TypeScript/issues/52924
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
+    var tsppTypes = createTSPPTypeState(() => checker, { createType, getErrorType: () => errorType, getUnknownSymbol: () => unknownSymbol, error, resolveTypeReferenceName, resolveAlias, getDeclaredTypeOfSymbol, getSymbolLinks, getTypeAliasInstantiation, createTypeReference, createTypeMapper, combineTypeMappers, instantiateType, checkTypeAssignableTo }); // TSPP-SLOT(type-extension)
     interface ExtensionTypeConstructorData {
         readonly node: FunctionTypeNode;
         readonly typeParameters: readonly TypeParameter[];
@@ -6816,6 +6824,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return factory.createKeywordTypeNode(SyntaxKind.AnyKeyword);
             }
 
+            const extensionTypeNode = tsppTypeToTypeNode(tsppTypes, type); // TSPP-SLOT(type-extension)
+            if (extensionTypeNode) return extensionTypeNode; // TSPP-SLOT(type-extension)
             const universeLevel = typeUniverseLevels.get(type);
             if (universeLevel !== undefined) {
                 return factory.createTypeReferenceNode(`Type${universeLevel}`, /*typeArguments*/ undefined);
@@ -20701,6 +20711,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function getTypeFromTypeNodeWorker(node: TypeNode): Type {
+        const extensionType = resolveTSPPTypeNode(tsppTypes, node); // TSPP-SLOT(type-extension)
+        if (extensionType) return extensionType; // TSPP-SLOT(type-extension)
         const typeApplication = getTypeApplication(node);
         if (typeApplication) {
             const links = getNodeLinks(node);
@@ -21149,7 +21161,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 case SyntaxKind.ThisType:
                     return !!tp.isThisType;
                 case SyntaxKind.Identifier:
-                    return !tp.isThisType && isPartOfTypeNode(node) && maybeTypeParameterReference(node, tp) &&
+                    return !tp.isThisType && isPartOfTypeNode(node) && (maybeTypeParameterReference(node, tp) || isTSPPTypeParameterApplicable(tp)) &&
                         getTypeFromTypeNodeWorker(node as TypeNode) === tp; // use worker because we're looking for === equality
                 case SyntaxKind.TypeQuery:
                     const entityName = (node as TypeQueryNode).exprName;
@@ -21373,6 +21385,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
     function instantiateTypeWorker(type: Type, mapper: TypeMapper, aliasSymbol: Symbol | undefined, aliasTypeArguments: readonly Type[] | undefined): Type {
         const flags = type.flags;
+        const instantiatedExtensionType = instantiateTSPPType(tsppTypes, type, mapper); // TSPP-SLOT(type-extension)
+        if (instantiatedExtensionType) return instantiatedExtensionType; // TSPP-SLOT(type-extension)
         const higherKindedApplication = higherKindedApplications.get(type);
         if (higherKindedApplication) {
             return applyHigherKindedType(

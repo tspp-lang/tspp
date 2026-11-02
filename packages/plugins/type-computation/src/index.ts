@@ -1,7 +1,10 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
-import type { TSPPTypeMatchArm, TSPPTypeSyntax } from "@tspp/plugin-sdk/compiler";
+import type * as TS from "typescript-upstream";
 
-import { kindParameterOwner, registerHigherKindedTypes, universeQuickInfo } from "./kinds";
+import { createKindChecker } from "./checker";
+import { createDeclarationRestorers } from "./declarations";
+import { createTypeSyntaxModel, kindParameterOwner, universeQuickInfo } from "./kinds";
+import { createTypeSyntax } from "./syntax";
 
 const pluginId = "type-computation";
 
@@ -25,77 +28,29 @@ export const typeComputationPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
-                const kinds = context.compiler.typeSyntaxKinds;
-                const syntax: TSPPTypeSyntax = {
-                    startTokens: [kinds.letKeyword, kinds.identifier, kinds.lessThanToken],
-                    preserveDeclarationText: true,
-                    isStart: parser => {
-                        if (parser.token() === kinds.letKeyword) {
-                            return parser.lookAhead(() => {
-                                parser.nextToken();
-                                if (parser.token() !== kinds.identifier) return false;
-                                parser.nextToken();
-                                return parser.token() === kinds.equalsToken;
-                            });
-                        }
-                        if (parser.token() === kinds.identifier) {
-                            if (parser.tokenText() !== "match") return false;
-                            return parser.lookAhead(() => {
-                                parser.nextToken();
-                                if (parser.hasPrecedingLineBreak()) return false;
-                                parser.parseType();
-                                return parser.token() === kinds.openBraceToken;
-                            });
-                        }
-                        return parser.lookAhead(() => {
-                            const parameters = parser.parseTypeParameters();
-                            if (!parameters || parser.token() !== kinds.equalsGreaterThanToken) return false;
-                            parser.nextToken();
-                            return parser.token() === kinds.greaterThanToken;
-                        });
-                    },
-                    parse: parser => {
-                        const pos = parser.getNodePos();
-                        if (parser.token() === kinds.letKeyword) {
-                            parser.nextToken();
-                            const name = parser.parseIdentifier();
-                            parser.parseExpected(kinds.equalsToken);
-                            const value = parser.parseType();
-                            parser.parseExpected(kinds.inKeyword);
-                            return parser.finishScopedTypeBinding(name, value, parser.parseType(), pos);
-                        }
-                        if (parser.token() === kinds.identifier) {
-                            parser.nextToken();
-                            const scrutinee = parser.parseType();
-                            parser.parseExpected(kinds.openBraceToken);
-                            const arms: TSPPTypeMatchArm[] = [];
-                            while (
-                                parser.token() !== kinds.closeBraceToken
-                                && parser.token() !== kinds.endOfFileToken
-                            ) {
-                                const pattern = parser.parseTypeMatchPattern();
-                                parser.parseExpected(kinds.colonToken);
-                                arms.push({ pattern, result: parser.parseType() });
-                                if (parser.token() === kinds.commaToken || parser.token() === kinds.semicolonToken) {
-                                    parser.nextToken();
-                                }
-                                else break;
-                            }
-                            parser.parseExpected(kinds.closeBraceToken);
-                            return parser.finishOrderedTypeMatch(scrutinee, arms, pos);
-                        }
-                        const parameters = parser.parseTypeParameters();
-                        if (!parameters) throw new Error("Type constructor parameters were not parsed.");
-                        parser.parseExpected(kinds.equalsGreaterThanToken);
-                        parser.parseExpected(kinds.greaterThanToken);
-                        return parser.finishTypeConstructor(parameters, parser.parseType(), pos);
-                    },
-                };
-                const disposeTypeSyntax = context.compiler.registerTypeSyntax(syntax);
-                const disposeKinds = registerHigherKindedTypes(context.compiler);
+                const ts = context.ts;
+                const model = createTypeSyntaxModel();
+                const [typeSyntax, ...otherSyntax] = createTypeSyntax(ts, model);
+                const restorers = createDeclarationRestorers(ts, model);
+                const disposers = [
+                    context.compiler.registerSyntaxExtension({ ...typeSyntax, ...restorers }),
+                    ...otherSyntax.map(extension => context.compiler.registerSyntaxExtension(extension)),
+                    context.compiler.registerTypeExtension(createKindChecker(ts, model)),
+                    context.compiler.registerDiagnosticProvider({
+                        id: "let-bindings",
+                        getSemanticDiagnostics: () => [],
+                        // A `let` binding lowers to an `infer` with no source text of its own; report on its name.
+                        filterDiagnostic: diagnostic => {
+                            if (diagnostic.length !== 0 || !diagnostic.file || diagnostic.start === undefined) return true;
+                            const name = findLetBinding(ts, model, diagnostic.file, diagnostic.start);
+                            if (!name) return true;
+                            const length = ts.idText(name).length;
+                            return { ...diagnostic, start: name.end - length, length };
+                        },
+                    }),
+                ];
                 return () => {
-                    disposeKinds();
-                    disposeTypeSyntax();
+                    for (const dispose of disposers.reverse()) dispose();
                 };
             },
         },
@@ -280,4 +235,15 @@ function normalizeSource(source: string): string {
 
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function findLetBinding(ts: typeof TS, model: ReturnType<typeof createTypeSyntaxModel>, sourceFile: TS.SourceFile, position: number) {
+    let found: TS.Identifier | undefined;
+    const visit = (node: TS.Node): void => {
+        if (found || node.pos > position || node.end < position) return;
+        found = node.pos === position ? model.letBindings.get(node) : undefined;
+        if (!found) ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return found;
 }

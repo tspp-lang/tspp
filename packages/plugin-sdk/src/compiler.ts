@@ -157,10 +157,25 @@ export interface TSPPStatementReplacement {
 }
 
 /**
- * Where plugin syntax may start: a unary expression, a statement, a function body after its signature, or a
- * declaration, which may follow modifiers such as `export`.
+ * Where plugin syntax may start: a unary expression, a statement, a function body after its signature, a declaration,
+ * which may follow modifiers such as `export`, a type, the continuation of an already parsed type (`precedingType`),
+ * or an annotation after a type parameter's name or after a type alias's name and type parameters.
  */
-export type TSPPSyntaxExtensionPosition = "expression" | "statement" | "function-body" | "declaration";
+export type TSPPSyntaxExtensionPosition =
+    | "expression"
+    | "statement"
+    | "function-body"
+    | "declaration"
+    | "type"
+    | "postfix-type"
+    | "type-parameter-annotation"
+    | "type-alias-annotation";
+
+/**
+ * What an annotation position's `parse` returns: the parser calls it with the declaration the annotation belongs to,
+ * once that declaration is finished.
+ */
+export type TSPPSyntaxAnnotation = (declaration: import("typescript-upstream").Node) => void;
 
 /**
  * The parser at the start of plugin syntax. A plugin reads tokens, parses ordinary TypeScript parts, and builds its
@@ -195,6 +210,10 @@ export interface TSPPSyntaxCursor {
     parseType(): import("typescript-upstream").TypeNode;
     parseIdentifier(): import("typescript-upstream").Identifier;
     parseTypeParameters(): import("typescript-upstream").NodeArray<import("typescript-upstream").TypeParameterDeclaration> | undefined;
+    /** Type arguments `<...>` at the current token, if it is `<` on the same line. */
+    parseTypeArguments(): import("typescript-upstream").NodeArray<import("typescript-upstream").TypeNode> | undefined;
+    /** In the `postfix-type` position, the type parsed so far, which the result replaces. */
+    readonly precedingType?: import("typescript-upstream").TypeNode;
     parseVariableDeclarationList(inForStatementInitializer: boolean): import("typescript-upstream").VariableDeclarationList;
     finishNode<T extends import("typescript-upstream").Node>(node: T, pos: number, end?: number): T;
     /** Reports a syntax error for `start` to `end`. */
@@ -207,15 +226,80 @@ export interface TSPPSyntaxExtension {
     readonly startTokens: readonly import("typescript-upstream").SyntaxKind[];
     isStart(cursor: TSPPSyntaxCursor): boolean;
     /**
-     * Returns an expression, a statement, or a function body block, matching `position`. A statement or declaration
-     * may stand for several statements; the parser places the rest after the first in the enclosing list.
+     * Returns an expression, a statement, a function body block, or a type, matching `position`; an annotation
+     * position returns a `TSPPSyntaxAnnotation`. A statement or declaration may stand for several statements; the
+     * parser places the rest after the first in the enclosing list.
      */
-    parse(cursor: TSPPSyntaxCursor): import("typescript-upstream").Node | readonly import("typescript-upstream").Statement[];
+    parse(cursor: TSPPSyntaxCursor):
+        | import("typescript-upstream").Node
+        | readonly import("typescript-upstream").Statement[]
+        | TSPPSyntaxAnnotation;
     /**
-     * The text of a statement this syntax produced in feature-rich `.d.tspp` output, such as the authored
-     * declaration; an empty string omits the statement. `statement` is the declaration emitter's node.
+     * The text of a node in feature-rich `.d.tspp` output, such as the authored declaration or type; an empty string
+     * omits a statement. `node` is the declaration emitter's node, a statement or a type-level node.
      */
-    restoreDeclaration?(statement: import("typescript-upstream").Statement): string | undefined;
+    restoreDeclaration?(node: import("typescript-upstream").Node): string | undefined;
+    /** The text of a node in the TypeScript-compatible `.d.ts` output that accompanies `.d.tspp` output. */
+    restoreCompatibilityDeclaration?(node: import("typescript-upstream").Node): string | undefined;
+}
+
+/** A type the checker hands to a type extension's instantiation, mapping type parameters to types. Opaque. */
+export interface TSPPTypeMapper {
+    readonly __tsppTypeMapper: never;
+}
+
+/** Type operations of one type checker, for a type extension. */
+export interface TSPPTypeHost {
+    readonly checker: import("typescript-upstream").TypeChecker;
+    /** The type the checker uses after reporting an error, which suppresses further errors. */
+    readonly errorType: import("typescript-upstream").Type;
+    /**
+     * A new type owned by the calling extension. The checker treats it like a type parameter named by `symbol` and
+     * leaves its instantiation and printing to the extension.
+     */
+    createType(symbol?: import("typescript-upstream").Symbol): import("typescript-upstream").Type;
+    /** The type, alias resolved, that a type reference names, without reporting errors; undefined if none. */
+    resolveTypeReferenceName(node: import("typescript-upstream").TypeReferenceNode): import("typescript-upstream").Symbol | undefined;
+    /** The type parameters a generic type alias, class, or interface declares; undefined for other symbols. */
+    getTypeParametersOfSymbol(symbol: import("typescript-upstream").Symbol): readonly import("typescript-upstream").TypeParameter[] | undefined;
+    /** A generic type alias, class, or interface applied to type arguments. */
+    instantiateGenericType(
+        symbol: import("typescript-upstream").Symbol,
+        typeArguments: readonly import("typescript-upstream").Type[],
+    ): import("typescript-upstream").Type;
+    createMapper(
+        sources: readonly import("typescript-upstream").TypeParameter[],
+        targets: readonly import("typescript-upstream").Type[],
+    ): TSPPTypeMapper;
+    /** A mapper that applies `first`, when present, and then `second`. */
+    combineMappers(first: TSPPTypeMapper | undefined, second: TSPPTypeMapper): TSPPTypeMapper;
+    instantiate(type: import("typescript-upstream").Type, mapper: TSPPTypeMapper): import("typescript-upstream").Type;
+    /** Reports at `node` that a type argument does not satisfy its constraint, unless it does. */
+    checkTypeArgumentConstraint(
+        typeArgument: import("typescript-upstream").Type,
+        constraint: import("typescript-upstream").Type,
+        node: import("typescript-upstream").Node,
+    ): boolean;
+    /** Reports a semantic error at `node`. */
+    error(node: import("typescript-upstream").Node, message: string): void;
+}
+
+/**
+ * Lets a plugin give type nodes types that ordinary TypeScript cannot express. The checker asks the extension first
+ * whenever it resolves a type node, and leaves the types the extension created to it.
+ */
+export interface TSPPTypeExtension {
+    /** The type of `node`, or undefined to resolve it the ordinary way. Results are not cached by the checker. */
+    resolveTypeNode(node: import("typescript-upstream").TypeNode, host: TSPPTypeHost): import("typescript-upstream").Type | undefined;
+    /** Instantiates a type this extension created. */
+    instantiateType(type: import("typescript-upstream").Type, mapper: TSPPTypeMapper, host: TSPPTypeHost): import("typescript-upstream").Type;
+    /**
+     * Whether `typeParameter` may be named by a type reference that has type arguments, which ordinary TypeScript
+     * rules out when it decides what a type needs to be instantiated with.
+     */
+    isTypeParameterApplicable?(typeParameter: import("typescript-upstream").TypeParameter): boolean;
+    /** How a type this extension created is written in hovers and messages; undefined for the ordinary text. */
+    typeToTypeNode?(type: import("typescript-upstream").Type, host: TSPPTypeHost): import("typescript-upstream").TypeNode | undefined;
 }
 
 /** Semantic diagnostics a plugin adds to each source file; comment directives such as `@ts-expect-error` apply. */
@@ -225,8 +309,11 @@ export interface TSPPDiagnosticProvider {
         sourceFile: import("typescript-upstream").SourceFile,
         checker: import("typescript-upstream").TypeChecker,
     ): readonly import("typescript-upstream").Diagnostic[];
-    /** Return false to drop a diagnostic the checker reported, for example one about code this plugin generated. */
-    filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean;
+    /**
+     * Return false to drop a diagnostic the checker reported, for example one about code this plugin generated, or a
+     * diagnostic to report in its place, for example at the source text a generated node stands for.
+     */
+    filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean | import("typescript-upstream").Diagnostic;
 }
 
 /** Where an expression being rewritten was parsed, and the factory for nodes that should count as parsed source. */
@@ -382,6 +469,7 @@ export interface TSPPCompilerPluginAPI {
     registerProgramRebuilder(rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
     registerSyntaxExtension(extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
+    registerTypeExtension(extension: TSPPTypeExtension): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
@@ -396,6 +484,7 @@ export interface TSPPCompilerHostAPI {
     registerProgramRebuilder(pluginId: string, rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
     registerSyntaxExtension(pluginId: string, extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(pluginId: string, provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
+    registerTypeExtension(pluginId: string, extension: TSPPTypeExtension): TSPPPluginDisposer;
 }
 
 /** The public TypeScript API of the host compiler. Plugins use it instead of importing their own `typescript`. */

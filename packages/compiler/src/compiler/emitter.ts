@@ -238,7 +238,6 @@ import {
     isRecognizedTripleSlashComment,
     isSourceFile,
     isSourceFileNotJson,
-    isStatement,
     isStringLiteral,
     isTemplateLiteralKind,
     isTokenKind,
@@ -1626,8 +1625,8 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             Debug.assertNode(node, isEmptyStatement);
             return emitEmptyStatement(/*isEmbeddedStatement*/ true);
         }
-        if (hint === EmitHint.Unspecified && !tsppCompatibilityDeclaration && !tsppJavaScriptEmit && currentSourceFile?.isDeclarationFile && isStatement(node)) { // TSPP-SLOT(syntax-extension)
-            const restored = getTSPPRestoredDeclaration(node); // TSPP-SLOT(syntax-extension)
+        if (hint === EmitHint.Unspecified && !tsppJavaScriptEmit && currentSourceFile?.isDeclarationFile) { // TSPP-SLOT(syntax-extension)
+            const restored = getTSPPRestoredDeclaration(node, tsppCompatibilityDeclaration); // TSPP-SLOT(syntax-extension)
             if (restored !== undefined) return void write(restored); // TSPP-SLOT(syntax-extension)
         }
         if (hint === EmitHint.Unspecified && !tsppCompatibilityDeclaration && currentSourceFile) {
