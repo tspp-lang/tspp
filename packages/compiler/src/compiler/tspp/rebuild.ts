@@ -137,6 +137,8 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 }
 
 function createRebuiltProgram(program: Program, createProgramOptions: CreateProgramOptions, host: CompilerHost, rebuilds: readonly TSPPProgramRebuild[]): Program {
+    // Without replacements there is nothing to reparse: the program is kept and only gains the rebuilds' additions.
+    if (rebuilds.every(rebuild => !rebuild.replacements.size)) return addRebuildResults(program, rebuilds);
     const replacements = new Map<string, TSPPStatementReplacement[]>();
     for (const rebuild of rebuilds) {
         for (const [fileName, fileReplacements] of rebuild.replacements) {
@@ -166,7 +168,11 @@ function createRebuiltProgram(program: Program, createProgramOptions: CreateProg
         configFileParsingDiagnostics: createProgramOptions.configFileParsingDiagnostics,
         typeScriptVersion: createProgramOptions.typeScriptVersion,
     });
+    return addRebuildResults(rebuilt, rebuilds);
+}
 
+/** Adds the rebuilds' diagnostics, diagnostic filters, and transformers to `rebuilt`, then hands it to each rebuild. */
+function addRebuildResults(rebuilt: Program, rebuilds: readonly TSPPProgramRebuild[]): Program {
     const added = rebuilds.flatMap(rebuild => rebuild.diagnostics ?? []).map(diagnostic => {
         const file = diagnostic.file && rebuilt.getSourceFile(diagnostic.file.fileName);
         return { ...diagnostic, file } as Diagnostic;

@@ -7,6 +7,13 @@ export const matchedDescriptor = typecase stringDescriptor {
   _ => "fallback"
 };
 
+// `infer` captures in a pattern become type parameters of its arm.
+export const elements = typecase arrayDescriptor {
+  Array<infer Element> => [] as Element[],
+  _ => []
+};
+export const firstElement: string | undefined = elements[0];
+
 // Only the selected expression is emitted; the match itself has no runtime
 // dispatch cost. The descriptors remain ordinary serializable values.
 export const descriptorKind: "type" = stringDescriptor.kind;

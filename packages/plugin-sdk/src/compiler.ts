@@ -132,7 +132,11 @@ export interface TSPPProgramRebuildRequest {
 }
 
 export interface TSPPProgramRebuild {
-    /** Replacements by file name. Each covers one statement of the original program, matched by its start and end. */
+    /**
+     * Replacements by file name. Each covers one statement of the original program, matched by its start and end.
+     * When no rebuild has replacements, the host keeps the program and only adds the diagnostics, filters, and
+     * transformers below to it.
+     */
     readonly replacements: ReadonlyMap<string, readonly TSPPStatementReplacement[]>;
     /** Semantic diagnostics added to the rebuilt program; their files are matched by name. */
     readonly diagnostics?: readonly import("typescript-upstream").Diagnostic[];

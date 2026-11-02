@@ -41,6 +41,8 @@ export const pair: Pair = [4, 5];
 export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
 export type Chosen: Type0 = typecase number { number: string, _: boolean };
 export const chosen: Chosen = "dependent";
+export const descriptor = reify Shape;
+export const described = typecase descriptor { Shape => descriptor.text, _ => "other" };
 
 // static-interface-members
 interface Parser {
@@ -97,6 +99,7 @@ test("every plugin together type-checks, verifies, and runs", async () => {
   assert.deepEqual(exports.boxed, { value: "boxed" });
   assert.deepEqual(exports.pair, [4, 5]);
   assert.equal(exports.chosen, "dependent");
+  assert.equal(exports.described, "Shape");
   assert.equal(exports.parsed, 42);
   assert.equal(exports.clamp(20n), 10n);
   assert.equal(exports.accountName, "Account");

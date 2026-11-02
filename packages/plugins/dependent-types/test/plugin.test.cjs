@@ -1,5 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
+const { TSPPPluginHost } = require("@tspp/plugin-sdk/host");
+const { ts } = require("../../test-support/compile.cjs");
 const {
   dependentTypesPlugin,
   dependentTypesAnalyzer,
@@ -8,6 +10,8 @@ const {
   restoreDependentTypeAlias,
 } = require("../dist");
 const mltt = require("../dist/core/index.js");
+
+const logger = { debug() {}, info() {}, warn() {}, error() {} };
 
 function input(text) {
   return {
@@ -174,16 +178,29 @@ test("checks aliases annotated by terms as well as universes", async () => {
 });
 
 test("registers type projection, analysis, reification, and matching as one capsule", () => {
-  const registrations = [];
-  const compiler = {
-    expressionSyntaxKinds: { identifier: 1 },
-    registerExpressionSyntax(syntax) { registrations.push(["expression", syntax]); return () => {}; },
-    registerSourcePreprocessor(preprocessor) { registrations.push(["projection", preprocessor]); return () => {}; },
-    registerProgramAnalyzer(analyzer) { registrations.push(["analysis", analyzer]); return () => {}; },
+  const registered = [];
+  const register = kind => (_pluginId, value) => {
+    const key = `${kind}:${value.position ?? value.id}`;
+    registered.push(key);
+    return () => registered.splice(registered.indexOf(key), 1);
   };
-  const dispose = dependentTypesPlugin.facets.compiler.activate({ compiler });
-  assert.equal(registrations.filter(([kind]) => kind === "expression").length, 2);
-  assert.deepEqual(registrations.map(([kind]) => kind), ["expression", "expression", "projection", "analysis"]);
-  dispose();
+  const compiler = {
+    typeSyntaxKinds: {},
+    registerSyntaxExtension: register("syntax"),
+    registerProgramRebuilder: register("rebuilder"),
+    registerSourcePreprocessor: register("projection"),
+    registerProgramAnalyzer: register("analysis"),
+  };
+  const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts });
+  host.register(dependentTypesPlugin);
+  host.activateAll();
+  assert.deepEqual([...registered].sort(), [
+    "analysis:mltt-types",
+    "projection:mltt-projection",
+    "rebuilder:typecase-selection",
+    "syntax:expression",
+    "syntax:expression",
+  ]);
+  host.dispose();
+  assert.deepEqual(registered, []);
 });
-
