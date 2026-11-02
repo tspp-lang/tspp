@@ -6,7 +6,7 @@ packages and the TSPP compiler host.
 The SDK provides plugin identity, API compatibility, deterministic activation,
 logging, cleanup, and separate compiler, language-service, LSP, and editor
 facets. Expression, function-body, statement, declaration and type syntax;
-program analysis; source projection; macro execution; and semantic Quick Info
+program analysis; source projection; program rebuilding; and semantic Quick Info
 all have concrete feature consumers. The LSP facet remains a reserved lifecycle
 boundary until a capability cannot be represented through tsserver.
 

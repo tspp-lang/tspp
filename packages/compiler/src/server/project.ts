@@ -2268,7 +2268,7 @@ export abstract class Project implements LanguageServiceHost, ModuleResolutionHo
     }
 
     /** @internal */
-    onAsyncMacroExpansionComplete(): void {
+    onTSPPProgramInvalidated(): void { // TSPP-SLOT(program-rebuild)
         this.markAsDirty();
         this.refreshDiagnostics();
     }

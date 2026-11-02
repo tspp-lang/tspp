@@ -223,8 +223,7 @@ export const enum SyntaxKind {
     BigIntKeyword,
     OverrideKeyword,
     OfKeyword,
-    DeferKeyword,
-    MacroKeyword, // LastKeyword and LastToken and LastContextualKeyword
+    DeferKeyword, // LastKeyword and LastToken and LastContextualKeyword
 
     // Parse tree nodes
 
@@ -313,14 +312,11 @@ export const enum SyntaxKind {
     // Misc
     TemplateSpan,
     SemicolonClassElement,
-    WithClause,
-    WithProperty,
     // Element
     Block,
     EmptyStatement,
     VariableStatement,
     ExpressionStatement,
-    MacroInvocationStatement,
     IfStatement,
     DoStatement,
     WhileStatement,
@@ -469,7 +465,7 @@ export const enum SyntaxKind {
     FirstReservedWord = BreakKeyword,
     LastReservedWord = WithKeyword,
     FirstKeyword = BreakKeyword,
-    LastKeyword = MacroKeyword,
+    LastKeyword = DeferKeyword,
     FirstFutureReservedWord = ImplementsKeyword,
     LastFutureReservedWord = YieldKeyword,
     FirstTypeNode = TypePredicate,
@@ -632,7 +628,6 @@ export type KeywordSyntaxKind =
     | SyntaxKind.KeyOfKeyword
     | SyntaxKind.LetKeyword
     | SyntaxKind.ModuleKeyword
-    | SyntaxKind.MacroKeyword
     | SyntaxKind.NamespaceKeyword
     | SyntaxKind.NeverKeyword
     | SyntaxKind.NewKeyword
@@ -681,7 +676,6 @@ export type ModifierSyntaxKind =
     | SyntaxKind.DefaultKeyword
     | SyntaxKind.ExportKeyword
     | SyntaxKind.InKeyword
-    | SyntaxKind.MacroKeyword
     | SyntaxKind.PrivateKeyword
     | SyntaxKind.ProtectedKeyword
     | SyntaxKind.PublicKeyword
@@ -881,7 +875,6 @@ export const enum ModifierFlags {
 
     // JSDoc-only modifiers
     Deprecated =         1 << 16, // Deprecated tag.
-    Macro =              1 << 17, // Compile-time macro function.
 
     // Cache-only JSDoc-modifiers. Should match order of Syntactic/JSDoc modifiers, above.
     /** @internal */ JSDocPublic = 1 << 23, // if this value changes, `selectEffectiveModifierFlags` must change accordingly
@@ -891,7 +884,7 @@ export const enum ModifierFlags {
     /** @internal */ JSDocOverride = 1 << 27,
 
     /** @internal */ SyntacticOrJSDocModifiers = Public | Private | Protected | Readonly | Override,
-    /** @internal */ SyntacticOnlyModifiers = Export | Ambient | Abstract | Static | Accessor | Async | Default | Const | In | Out | Macro | Decorator,
+    /** @internal */ SyntacticOnlyModifiers = Export | Ambient | Abstract | Static | Accessor | Async | Default | Const | In | Out | Decorator,
     /** @internal */ SyntacticModifiers = SyntacticOrJSDocModifiers | SyntacticOnlyModifiers,
     /** @internal */ JSDocCacheOnlyModifiers = JSDocPublic | JSDocPrivate | JSDocProtected | JSDocReadonly | JSDocOverride,
     /** @internal */ JSDocOnlyModifiers = Deprecated,
@@ -905,9 +898,9 @@ export const enum ModifierFlags {
     ParameterPropertyModifier = AccessibilityModifier | Readonly | Override,
     NonPublicAccessibilityModifier = Private | Protected,
 
-    TypeScriptModifier = Ambient | Public | Private | Protected | Readonly | Abstract | Const | Override | In | Out | Macro,
+    TypeScriptModifier = Ambient | Public | Private | Protected | Readonly | Abstract | Const | Override | In | Out,
     ExportDefault = Export | Default,
-    All = Export | Ambient | Public | Private | Protected | Static | Readonly | Abstract | Accessor | Async | Default | Const | Deprecated | Override | In | Out | Macro | Decorator,
+    All = Export | Ambient | Public | Private | Protected | Static | Readonly | Abstract | Accessor | Async | Default | Const | Deprecated | Override | In | Out | Decorator,
     Modifier = All & ~Decorator,
 }
 
@@ -1143,9 +1136,6 @@ export type HasChildren =
     | Block
     | VariableStatement
     | ExpressionStatement
-    | WithClause
-    | WithProperty
-    | MacroInvocationStatement
     | IfStatement
     | DoStatement
     | WhileStatement
@@ -1659,7 +1649,6 @@ export type ReadonlyKeyword = ModifierToken<SyntaxKind.ReadonlyKeyword>;
 export type OutKeyword = ModifierToken<SyntaxKind.OutKeyword>;
 export type OverrideKeyword = ModifierToken<SyntaxKind.OverrideKeyword>;
 export type StaticKeyword = ModifierToken<SyntaxKind.StaticKeyword>;
-export type MacroKeyword = ModifierToken<SyntaxKind.MacroKeyword>;
 
 export type Modifier =
     | AbstractKeyword
@@ -1670,7 +1659,6 @@ export type Modifier =
     | DefaultKeyword
     | ExportKeyword
     | InKeyword
-    | MacroKeyword
     | PrivateKeyword
     | ProtectedKeyword
     | PublicKeyword
@@ -2103,7 +2091,6 @@ export interface FunctionDeclaration extends FunctionLikeDeclarationBase, Declar
     readonly kind: SyntaxKind.FunctionDeclaration;
     readonly modifiers?: NodeArray<ModifierLike>;
     readonly name?: Identifier;
-    readonly withClause?: WithClause;
     readonly body?: FunctionBody;
 }
 
@@ -3416,26 +3403,6 @@ export interface VariableStatement extends Statement, FlowContainer {
 export interface ExpressionStatement extends Statement, FlowContainer {
     readonly kind: SyntaxKind.ExpressionStatement;
     readonly expression: Expression;
-}
-
-/** A declaration-level block of statically checked configuration properties. */
-export interface WithClause extends Node {
-    readonly kind: SyntaxKind.WithClause;
-    readonly properties: NodeArray<WithProperty>;
-}
-
-/** A named entry in a declaration-level `with` block. */
-export interface WithProperty extends Node {
-    readonly kind: SyntaxKind.WithProperty;
-    readonly name: Identifier;
-    readonly value: Expression;
-}
-
-/** A compile-time macro invocation. The invocation is replaced by the statements returned by the macro. */
-export interface MacroInvocationStatement extends Statement {
-    readonly kind: SyntaxKind.MacroInvocationStatement;
-    readonly macro: EntityName;
-    readonly targets: NodeArray<EntityName>;
 }
 
 /** @internal */
@@ -4764,9 +4731,6 @@ export interface Program extends ScriptReferenceHost {
      */
     getSourceFiles(): readonly SourceFile[];
 
-    /** Returns source replacements produced by compile-time macro invocations. */
-    getMacroExpansions?(fileName?: string): readonly MacroExpansion[];
-
     /**
      * Get a list of file names that were passed to 'createProgram' or referenced in a
      * program source file but could not be located.
@@ -5123,62 +5087,6 @@ export interface WriterContextOut {
     /** Whether increasing the expansion depth will cause us to expand more types. */
     canIncreaseExpansionDepth: boolean;
     truncated: boolean;
-}
-
-/** A declaration passed to a compile-time macro. */
-export interface MacroTarget {
-    readonly name: string;
-    readonly symbol: Symbol;
-    readonly node: Declaration;
-    readonly declarations: readonly Declaration[];
-    readonly sourceFile: SourceFile;
-}
-
-export interface MacroDiagnostic {
-    readonly message: string;
-    readonly category?: DiagnosticCategory;
-}
-
-export interface MacroFailure {
-    readonly kind: "macro-failure";
-    readonly diagnostics: readonly MacroDiagnostic[];
-}
-
-export type MacroResult = void | Statement | readonly Statement[] | MacroFailure;
-export type MacroReturn = MacroResult | PromiseLike<MacroResult>;
-
-export type MacroTimeout =
-    | { readonly type: "fixed"; readonly value: number; readonly unit: "ms" | "s"; }
-    | { readonly type: "benchmark"; readonly multiplier: number; };
-
-/** Services available while a compile-time macro is running. */
-export interface MacroContext {
-    readonly program: Program;
-    readonly checker: TypeChecker;
-    readonly factory: NodeFactory;
-    readonly typescript: {
-        readonly factory: NodeFactory;
-        readonly SyntaxKind: {
-            readonly FunctionDeclaration: SyntaxKind.FunctionDeclaration;
-            readonly ExportKeyword: SyntaxKind.ExportKeyword;
-        };
-        readonly NodeFlags: { readonly Const: NodeFlags.Const; };
-    };
-    readonly sourceFile: SourceFile;
-    readonly macroInvocation: MacroInvocationStatement;
-    report(diagnostic: MacroDiagnostic): void;
-    fail(message: string): MacroFailure;
-}
-
-export type MacroFunction = (targets: readonly MacroTarget[], context: MacroContext) => MacroReturn;
-
-/** The source replacement produced for one compile-time macro invocation. */
-export interface MacroExpansion {
-    readonly fileName: string;
-    readonly start: number;
-    readonly length: number;
-    readonly macroName: string;
-    readonly text: string;
 }
 
 export interface TypeChecker {
@@ -7864,11 +7772,6 @@ export interface CreateProgramOptions {
     typeScriptVersion?: string;
 }
 
-/** @internal */
-export type AsyncMacroEvaluation =
-    | { readonly kind: "resolved"; readonly result: unknown; readonly reported: readonly MacroDiagnostic[]; }
-    | { readonly kind: "rejected"; readonly error: unknown; readonly reported: readonly MacroDiagnostic[]; };
-
 // dprint-ignore
 /** @internal */
 export interface CommandLineOptionBase {
@@ -8328,39 +8231,8 @@ export interface CompilerHost extends ModuleResolutionHost {
 
     jsDocParsingMode?: JSDocParsingMode;
 
-    /** Resolves a macro dependency already exposed by a non-Node host runtime. */
-    resolveMacroModule?(specifier: string, containingFile: string): unknown;
-    /** Evaluates emitted CommonJS macro code in a host-provided runtime. */
-    evaluateMacroModule?(
-        javascript: string,
-        fileName: string,
-        requireLocal: (specifier: string) => unknown,
-        module: { exports: Record<string, unknown>; },
-    ): void;
-
-    /** @internal */
-    getResolvedAsyncMacroEvaluation?(key: string): AsyncMacroEvaluation | undefined;
-    /** @internal */
-    isAsyncMacroEvaluationPending?(key: string): boolean;
-    /** @internal */
-    scheduleAsyncMacroEvaluation?(key: string, evaluation: Promise<AsyncMacroEvaluation>): void;
-    /** @internal Overrides the default Promise wait limit for compile-time macros. */
-    macroTimeoutMs?: number;
-    /** @internal Overrides the measured local benchmark duration for tests and specialized hosts. */
-    macroBenchmarkMs?: number;
-    /** @internal Prevents recursive worker creation while a macro worker rebuilds a program. */
-    disableMacroWorkers?: boolean;
-    /** @internal Reports the active macro budget to the worker supervisor. */
-    onMacroInvocationStart?(info: {
-        readonly timeoutMs: number;
-        readonly description: string;
-        readonly fileName: string;
-        readonly start: number;
-        readonly length: number;
-        readonly macroName: string;
-    }): void;
-    /** @internal Reports that the active macro has settled. */
-    onMacroInvocationEnd?(): void;
+    /** @internal Asks a long-lived host to rebuild its program later, for plugin work that settled after this one was built. */
+    invalidateTSPPProgram?(): void; // TSPP-SLOT(program-rebuild)
 }
 
 /** @internal */
@@ -9190,12 +9062,6 @@ export interface NodeFactory {
     createEmptyStatement(): EmptyStatement;
     createExpressionStatement(expression: Expression): ExpressionStatement;
     updateExpressionStatement(node: ExpressionStatement, expression: Expression): ExpressionStatement;
-    createWithClause(properties: readonly WithProperty[]): WithClause;
-    updateWithClause(node: WithClause, properties: readonly WithProperty[]): WithClause;
-    createWithProperty(name: Identifier, value: Expression): WithProperty;
-    updateWithProperty(node: WithProperty, name: Identifier, value: Expression): WithProperty;
-    createMacroInvocationStatement(macro: EntityName, targets: readonly EntityName[]): MacroInvocationStatement;
-    updateMacroInvocationStatement(node: MacroInvocationStatement, macro: EntityName, targets: readonly EntityName[]): MacroInvocationStatement;
     createIfStatement(expression: Expression, thenStatement: Statement, elseStatement?: Statement): IfStatement;
     updateIfStatement(node: IfStatement, expression: Expression, thenStatement: Statement, elseStatement: Statement | undefined): IfStatement;
     createDoStatement(statement: Statement, expression: Expression): DoStatement;
@@ -9229,8 +9095,8 @@ export interface NodeFactory {
     updateVariableDeclaration(node: VariableDeclaration, name: BindingName, exclamationToken: ExclamationToken | undefined, type: TypeNode | undefined, initializer: Expression | undefined): VariableDeclaration;
     createVariableDeclarationList(declarations: readonly VariableDeclaration[], flags?: NodeFlags): VariableDeclarationList;
     updateVariableDeclarationList(node: VariableDeclarationList, declarations: readonly VariableDeclaration[]): VariableDeclarationList;
-    createFunctionDeclaration(modifiers: readonly ModifierLike[] | undefined, asteriskToken: AsteriskToken | undefined, name: string | Identifier | undefined, typeParameters: readonly TypeParameterDeclaration[] | undefined, parameters: readonly ParameterDeclaration[], type: TypeNode | undefined, body: Block | undefined, withClause?: WithClause): FunctionDeclaration;
-    updateFunctionDeclaration(node: FunctionDeclaration, modifiers: readonly ModifierLike[] | undefined, asteriskToken: AsteriskToken | undefined, name: Identifier | undefined, typeParameters: readonly TypeParameterDeclaration[] | undefined, parameters: readonly ParameterDeclaration[], type: TypeNode | undefined, body: Block | undefined, withClause: WithClause | undefined): FunctionDeclaration;
+    createFunctionDeclaration(modifiers: readonly ModifierLike[] | undefined, asteriskToken: AsteriskToken | undefined, name: string | Identifier | undefined, typeParameters: readonly TypeParameterDeclaration[] | undefined, parameters: readonly ParameterDeclaration[], type: TypeNode | undefined, body: Block | undefined): FunctionDeclaration;
+    updateFunctionDeclaration(node: FunctionDeclaration, modifiers: readonly ModifierLike[] | undefined, asteriskToken: AsteriskToken | undefined, name: Identifier | undefined, typeParameters: readonly TypeParameterDeclaration[] | undefined, parameters: readonly ParameterDeclaration[], type: TypeNode | undefined, body: Block | undefined): FunctionDeclaration;
     createClassDeclaration(modifiers: readonly ModifierLike[] | undefined, name: string | Identifier | undefined, typeParameters: readonly TypeParameterDeclaration[] | undefined, heritageClauses: readonly HeritageClause[] | undefined, members: readonly ClassElement[]): ClassDeclaration;
     updateClassDeclaration(node: ClassDeclaration, modifiers: readonly ModifierLike[] | undefined, name: Identifier | undefined, typeParameters: readonly TypeParameterDeclaration[] | undefined, heritageClauses: readonly HeritageClause[] | undefined, members: readonly ClassElement[]): ClassDeclaration;
     createInterfaceDeclaration(modifiers: readonly ModifierLike[] | undefined, name: string | Identifier, typeParameters: readonly TypeParameterDeclaration[] | undefined, heritageClauses: readonly HeritageClause[] | undefined, members: readonly TypeElement[]): InterfaceDeclaration;

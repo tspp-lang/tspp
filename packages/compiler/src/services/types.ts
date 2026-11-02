@@ -319,7 +319,7 @@ export interface LanguageServiceHost extends GetEffectiveTypeRootsHost, MinimalR
     getNewLine?(): string;
     /** @internal */ updateFromProject?(): void;
     /** @internal */ updateFromProjectInProgress?: boolean;
-    /** @internal */ onAsyncMacroExpansionComplete?(): void;
+    /** @internal */ onTSPPProgramInvalidated?(): void; // TSPP-SLOT(program-rebuild)
 
     getProjectVersion?(): string;
     getScriptFileNames(): string[];

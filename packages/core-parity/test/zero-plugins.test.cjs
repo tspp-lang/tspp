@@ -43,7 +43,7 @@ const validSamples = {
 const pluginSyntaxSamples = {
   macroFunction: `macro function named([target], context) { return target; }`,
   macroInvocation: `interface Account {}\nmacro named(Account);`,
-  macroWith: `macro function slow() with { timeout: 1000; } { return undefined; }`,
+  macroOptions: `macro({ timeout: { type: "fixed", value: 1, unit: "s" } }) function slow() { return undefined; }`,
   contract: `function clamp(value: number) with { requires: value >= 0; }: number { return value; }`,
   data: `data Shape = Circle(radius: number) | Square(side: number);`,
   newtype: `newtype UserId = number;`,
@@ -114,12 +114,7 @@ for (const [name, source] of Object.entries(validSamples)) {
 
 // Syntax still built into the core. Each entry goes away when its plugin migrates (phase 2 of the plan); the test
 // fails once a sample matches upstream so that the entry is removed rather than left to hide a regression.
-const knownViolations = {
-  macroFunction: "macros: the `macro` keyword is core syntax",
-  macroInvocation: "macros: `MacroInvocationStatement` is core syntax",
-  macroWith: "macros: the `with` clause is core syntax",
-  contract: "macros and formal-verification: the `with` clause is core syntax",
-};
+const knownViolations = {};
 
 for (const [name, source] of Object.entries(pluginSyntaxSamples)) {
   test(`plugin syntax stays inactive without plugins: ${name}`, () => {

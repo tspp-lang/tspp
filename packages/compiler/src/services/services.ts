@@ -3,7 +3,6 @@ import {
     ApplicableRefactorInfo,
     ApplyCodeActionCommandResult,
     AssignmentDeclarationKind,
-    AsyncMacroEvaluation,
     BaseType,
     BinaryExpression,
     BlockLike,
@@ -184,7 +183,6 @@ import {
     isLabelName,
     isLiteralComputedPropertyDeclarationName,
     isLiteralKind,
-    isMacroInvocationStatement,
     isNamedExports,
     isNamedTupleMember,
     isNameOfModuleDeclaration,
@@ -1693,8 +1691,14 @@ export function createLanguageService(
     let program: Program;
     let lastProjectVersion: string;
     let lastTypesRootVersion = 0;
-    let hasResolvedAsyncMacroEvaluation = false;
-    const asyncMacroEvaluations = new Map<string, { readonly kind: "pending"; } | { readonly kind: "resolved"; readonly evaluation: AsyncMacroEvaluation; }>();
+    let programInvalidated = false; // TSPP-SLOT(program-rebuild)
+    // A program rebuilder settled work after the current program was built. Rebuild on the next request, but keep the
+    // current program until then: editor requests may arrive before the host has entered its update cycle.
+    const invalidateProgram = () => { // TSPP-SLOT(program-rebuild)
+        programInvalidated = true;
+        lastProjectVersion = undefined!;
+        host.onTSPPProgramInvalidated?.();
+    };
 
     const cancellationToken = host.getCancellationToken
         ? new CancellationTokenObject(host.getCancellationToken())
@@ -1782,14 +1786,7 @@ export function createLanguageService(
         const projectReferences = host.getProjectReferences?.();
         let parsedCommandLines: Map<Path, ParsedCommandLine | false> | undefined;
 
-        // Async macro evaluation completes outside a language-service request. Keep the
-        // current Program usable until the next request enters this synchronous rebuild;
-        // otherwise semantic tokens and code actions can observe an undefined Program.
-        // Clearing it here also prevents stale source files from being reused before the
-        // resolved macro result has been incorporated.
-        if (hasResolvedAsyncMacroEvaluation) {
-            program = undefined!;
-        }
+        if (programInvalidated) program = undefined!; // TSPP-SLOT(program-rebuild)
 
         // Now create a new compiler
         let compilerHost: CompilerHost | undefined = {
@@ -1833,30 +1830,7 @@ export function createLanguageService(
             getParsedCommandLine,
             jsDocParsingMode: host.jsDocParsingMode,
             getGlobalTypingsCacheLocation: maybeBind(host, host.getGlobalTypingsCacheLocation),
-            getResolvedAsyncMacroEvaluation: key => {
-                const entry = asyncMacroEvaluations.get(key);
-                if (entry?.kind !== "resolved") return undefined;
-                return entry.evaluation;
-            },
-            isAsyncMacroEvaluationPending: key => {
-                const entry = asyncMacroEvaluations.get(key);
-                return entry?.kind === "pending";
-            },
-            scheduleAsyncMacroEvaluation: (key, evaluation) => {
-                if (asyncMacroEvaluations.has(key)) return;
-                const pending = { kind: "pending" as const };
-                asyncMacroEvaluations.set(key, pending);
-                evaluation.then(result => {
-                    if (asyncMacroEvaluations.get(key) !== pending) return;
-                    asyncMacroEvaluations.set(key, { kind: "resolved", evaluation: result });
-                    // Rebuild on the next synchronous language-service request. Do not clear
-                    // the current Program here: editor requests may arrive before the project
-                    // host has entered its update cycle.
-                    hasResolvedAsyncMacroEvaluation = true;
-                    lastProjectVersion = undefined!;
-                    host.onAsyncMacroExpansionComplete?.();
-                });
-            },
+            invalidateTSPPProgram: invalidateProgram, // TSPP-SLOT(program-rebuild)
         };
 
         const originalGetSourceFile = compilerHost.getSourceFile;
@@ -1911,7 +1885,7 @@ export function createLanguageService(
             projectReferences,
         };
         program = createProgram(options);
-        hasResolvedAsyncMacroEvaluation = false;
+        programInvalidated = false; // TSPP-SLOT(program-rebuild)
 
         // 'getOrCreateSourceFile' depends on caching but should be used past this point.
         // After this point, the cache needs to be cleared to allow all collected snapshots to be released
@@ -2436,12 +2410,6 @@ export function createLanguageService(
             };
         }
         else {
-            const macroInvocation = findAncestor(nodeForQuickInfo, isMacroInvocationStatement);
-            const semanticMeaning = macroInvocation
-                ? macroInvocation.macro === nodeForQuickInfo || findAncestor(nodeForQuickInfo, ancestor => ancestor === macroInvocation.macro)
-                    ? SymbolFlags.Value
-                    : SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace
-                : undefined;
             const { symbolKind, displayParts, documentation, tags, canIncreaseVerbosityLevel } = typeChecker.runWithCancellationToken(
                 cancellationToken,
                 typeChecker =>
@@ -2451,7 +2419,7 @@ export function createLanguageService(
                         sourceFile,
                         getContainerNode(nodeForQuickInfo),
                         nodeForQuickInfo,
-                        semanticMeaning,
+                        /*semanticMeaning*/ undefined,
                         /*alias*/ undefined,
                         maximumLength ?? defaultHoverMaximumTruncationLength,
                         verbosityLevel,

@@ -12,10 +12,7 @@ const plugins = allPlugins();
 const manifests = plugins.map(({ plugin }) => plugin.manifest);
 const byId = new Map(manifests.map(manifest => [manifest.id, manifest]));
 
-const knownKeywordConflicts = {
-  // Phase 2 steps 6-7: macros move their options into `macro(...)`, leaving `with` to formal-verification.
-  "with @ function-clause": ["formal-verification", "macros"],
-};
+const knownKeywordConflicts = {};
 
 const knownUndeclaredTestDependencies = {};
 

@@ -1,5 +1,5 @@
 /** Compatibility version of the feature-owned macro authoring contract. */
-export const macroApiVersion = 1 as const;
+export const macroApiVersion = 2 as const;
 
 export interface MacroNode { readonly kind: number; }
 export interface MacroStatement extends MacroNode {}
@@ -50,3 +50,12 @@ export interface MacroContext {
 }
 
 export type MacroFunction = (targets: readonly MacroTarget[], context: MacroContext) => MacroReturn;
+
+/** The statements generated for one compile-time macro invocation, printed. */
+export interface MacroExpansion {
+  readonly fileName: string;
+  readonly start: number;
+  readonly length: number;
+  readonly macroName: string;
+  readonly text: string;
+}

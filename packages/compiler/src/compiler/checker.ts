@@ -875,7 +875,6 @@ import {
     LiteralExpression,
     LiteralType,
     LiteralTypeNode,
-    MacroInvocationStatement,
     map,
     mapDefined,
     MappedSymbol,
@@ -963,7 +962,6 @@ import {
     pathIsRelative,
     PatternAmbientModule,
     PlusToken,
-    positionIsSynthesized,
     PostfixUnaryExpression,
     PredicateSemantics,
     PrefixUnaryExpression,
@@ -45158,74 +45156,12 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function checkFunctionDeclaration(node: FunctionDeclaration): void {
-        const isMacro = hasSyntacticModifier(node, ModifierFlags.Macro);
-        checkFunctionWithClause(node, isMacro);
         addLazyDiagnostic(checkFunctionDeclarationDiagnostics);
 
         function checkFunctionDeclarationDiagnostics() {
             checkFunctionOrMethodDeclaration(node);
             checkGrammarForGenerator(node);
             checkCollisionsForDeclarationName(node, node.name);
-        }
-    }
-
-    function checkFunctionWithClause(node: FunctionDeclaration, isMacro: boolean): void {
-        if (!node.withClause) return;
-        const seen = new Set<string>();
-        for (const property of node.withClause.properties) {
-            const name = getTextOfNode(property.name);
-            if (seen.has(name)) {
-                error(property.name, Diagnostics.The_with_property_0_may_only_be_specified_once, name);
-                continue;
-            }
-            seen.add(name);
-            if (!isMacro || name !== "timeout") {
-                error(property.name, Diagnostics.The_with_property_0_is_not_supported_on_1, name, isMacro ? "a macro function" : "a regular function");
-                continue;
-            }
-            if (!isValidMacroTimeoutExpression(property.value)) {
-                error(property, Diagnostics.The_timeout_property_must_match_type_Colon_fixed_value_Colon_number_unit_Colon_ms_s_type_Colon_benchmark_multiplier_Colon_number);
-            }
-        }
-    }
-
-    function isValidMacroTimeoutExpression(expression: Expression): boolean {
-        if (!isObjectLiteralExpression(expression)) return false;
-        const properties = new Map<string, PropertyAssignment>();
-        for (const element of expression.properties) {
-            if (!isPropertyAssignment(element)) return false;
-            const name = isIdentifier(element.name) ? getTextOfNode(element.name) : isStringLiteralLike(element.name) ? element.name.text : undefined;
-            if (name === undefined || properties.has(name)) return false;
-            properties.set(name, element);
-        }
-        const typeInitializer = properties.get("type")?.initializer;
-        if (!typeInitializer || !isStringLiteralLike(typeInitializer)) return false;
-        if (typeInitializer.text === "fixed") {
-            if (properties.size !== 3 || !properties.has("value") || !properties.has("unit")) return false;
-            const value = properties.get("value")!.initializer;
-            const unit = properties.get("unit")!.initializer;
-            if (value.kind !== SyntaxKind.NumericLiteral || !isStringLiteralLike(unit) || unit.text !== "ms" && unit.text !== "s") return false;
-            const numericValue = Number(getTextOfNode(value));
-            return Number.isFinite(numericValue) && numericValue > 0 && numericValue * (unit.text === "s" ? 1000 : 1) <= 2_147_483_647;
-        }
-        if (typeInitializer.text === "benchmark") {
-            if (properties.size !== 2 || !properties.has("multiplier")) return false;
-            const multiplier = properties.get("multiplier")!.initializer;
-            const numericMultiplier = multiplier.kind === SyntaxKind.NumericLiteral ? Number(getTextOfNode(multiplier)) : NaN;
-            return Number.isFinite(numericMultiplier) && numericMultiplier > 0 && numericMultiplier <= 2_147_483_647;
-        }
-        return false;
-    }
-
-    function checkMacroInvocationStatement(node: MacroInvocationStatement): void {
-        const unresolvedSymbol = resolveEntityName(node.macro, SymbolFlags.Value | SymbolFlags.Alias, /*ignoreErrors*/ false);
-        const symbol = unresolvedSymbol && unresolvedSymbol.flags & SymbolFlags.Alias ? resolveAlias(unresolvedSymbol) : unresolvedSymbol;
-        const declarations = symbol?.declarations;
-        if (!some(declarations, declaration => declaration.kind === SyntaxKind.FunctionDeclaration && hasSyntacticModifier(declaration, ModifierFlags.Macro))) {
-            error(node.macro, Diagnostics._0_is_not_a_macro_function, getTextOfNode(node.macro));
-        }
-        for (const target of node.targets) {
-            resolveEntityName(target, SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace, /*ignoreErrors*/ false);
         }
     }
 
@@ -45633,8 +45569,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
             if (local.declarations) {
                 for (const declaration of local.declarations) {
-                    // Macro output has no source text to edit, so an unused generated declaration is not actionable.
-                    if (isValidUnusedLocalDeclaration(declaration) || positionIsSynthesized(declaration.pos)) {
+                    if (isValidUnusedLocalDeclaration(declaration)) {
                         continue;
                     }
 
@@ -50339,8 +50274,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return checkVariableStatement(node as VariableStatement);
             case SyntaxKind.ExpressionStatement:
                 return checkExpressionStatement(node as ExpressionStatement);
-            case SyntaxKind.MacroInvocationStatement:
-                return checkMacroInvocationStatement(node as MacroInvocationStatement);
             case SyntaxKind.IfStatement:
                 return checkIfStatement(node as IfStatement);
             case SyntaxKind.DoStatement:
@@ -51158,14 +51091,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
         while (isRightSideOfQualifiedNameOrPropertyAccessOrJSDocMemberName(name)) {
             name = name.parent as QualifiedName | PropertyAccessEntityNameExpression | JSDocMemberName;
-        }
-
-        if (isEntityName(name) && name.parent.kind === SyntaxKind.MacroInvocationStatement) {
-            const invocation = name.parent as MacroInvocationStatement;
-            const meaning = invocation.macro === name
-                ? SymbolFlags.Value | SymbolFlags.Alias
-                : SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace | SymbolFlags.Alias;
-            return resolveEntityName(name, meaning, /*ignoreErrors*/ true, /*dontResolveAlias*/ true);
         }
 
         if (isInNameOfExpressionWithTypeArguments(name)) {
@@ -53359,15 +53284,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                         flags |= inOutFlag;
                         break;
                     }
-                    case SyntaxKind.MacroKeyword:
-                        if (node.kind !== SyntaxKind.FunctionDeclaration) {
-                            return grammarErrorOnNode(modifier, Diagnostics.The_macro_modifier_can_only_appear_on_a_function_declaration);
-                        }
-                        if (flags & ModifierFlags.Macro) {
-                            return grammarErrorOnNode(modifier, Diagnostics._0_modifier_already_seen, "macro");
-                        }
-                        flags |= ModifierFlags.Macro;
-                        break;
                 }
             }
         }

@@ -2499,7 +2499,6 @@ export function transformES2015(context: TransformationContext): (x: SourceFile 
             parameters,
             /*type*/ undefined,
             body,
-            node.withClause,
         );
     }
 

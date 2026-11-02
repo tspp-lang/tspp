@@ -302,7 +302,6 @@ import {
     LiteralExpression,
     LiteralLikeNode,
     LiteralTypeNode,
-    MacroInvocationStatement,
     makeIdentifierFromModuleName,
     MappedTypeNode,
     memoize,
@@ -429,8 +428,6 @@ import {
     version,
     VoidExpression,
     WhileStatement,
-    WithClause,
-    WithProperty,
     WithStatement,
     writeCommentRange,
     writeFile,
@@ -440,6 +437,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     getExtensionDeclarationSyntax,
+    getPreprocessedFunctionPrefix,
     getPreprocessedFunctionWithClause,
     getPreprocessedTypeAliasDeclaration,
     getPreservedExtensionTypeRange,
@@ -1768,12 +1766,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
                     return emitEmptyStatement(/*isEmbeddedStatement*/ false);
                 case SyntaxKind.ExpressionStatement:
                     return emitExpressionStatement(node as ExpressionStatement);
-                case SyntaxKind.WithClause:
-                    return emitWithClause(node as WithClause);
-                case SyntaxKind.WithProperty:
-                    return emitWithProperty(node as WithProperty);
-                case SyntaxKind.MacroInvocationStatement:
-                    return emitMacroInvocationStatement(node as MacroInvocationStatement);
                 case SyntaxKind.IfStatement:
                     return emitIfStatement(node as IfStatement);
                 case SyntaxKind.DoStatement:
@@ -3249,36 +3241,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
     }
 
-    function emitMacroInvocationStatement(node: MacroInvocationStatement) {
-        writeKeyword("macro");
-        writeSpace();
-        emit(node.macro);
-        writePunctuation("(");
-        emitList(node, node.targets, ListFormat.CommaListElements);
-        writePunctuation(")");
-        writeTrailingSemicolon();
-    }
-
-    function emitWithClause(node: WithClause) {
-        writeKeyword("with");
-        writeSpace();
-        writePunctuation("{");
-        for (const property of node.properties) {
-            writeSpace();
-            emit(property);
-        }
-        if (node.properties.length) writeSpace();
-        writePunctuation("}");
-    }
-
-    function emitWithProperty(node: WithProperty) {
-        emit(node.name);
-        writePunctuation(":");
-        writeSpace();
-        emitExpression(node.value);
-        writeTrailingSemicolon();
-    }
-
     function emitIfStatement(node: IfStatement) {
         const openParenPos = emitTokenWithComment(SyntaxKind.IfKeyword, node.pos, writeKeyword, node);
         writeSpace();
@@ -3638,11 +3600,22 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
 
     function emitFunctionDeclarationOrExpression(node: FunctionDeclaration | FunctionExpression) {
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
+        emitRestoredFunctionPrefix(node); // TSPP-SLOT(source-projection)
         writeKeyword("function");
         emit(node.asteriskToken);
         writeSpace();
         emitIdentifierName(node.name);
         emitSignatureAndBody(node, emitSignatureHead, emitFunctionBody);
+    }
+
+    /** Declaration surfaces restore plugin syntax a source projection removed before the `function` keyword. */
+    function emitRestoredFunctionPrefix(node: FunctionDeclaration | FunctionExpression) {
+        if (tsppCompatibilityDeclaration || tsppJavaScriptEmit || !isFunctionDeclaration(node) || !node.name || !currentSourceFile) return;
+        const prefix = getPreprocessedFunctionPrefix(currentSourceFile.fileName, idText(node.name), node.pos);
+        if (prefix) {
+            write(prefix);
+            writeSpace();
+        }
     }
 
     function emitSignatureAndBody<T extends SignatureDeclaration>(node: T, emitSignatureHead: (node: T) => void, emitBody: (node: T) => void) {
@@ -3694,10 +3667,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         if (restoredWithClause) {
             writeSpace();
             write(restoredWithClause);
-        }
-        else if (isFunctionDeclaration(node) && node.withClause) {
-            writeSpace();
-            emit(node.withClause);
         }
         emitTypeAnnotation(node.type);
     }

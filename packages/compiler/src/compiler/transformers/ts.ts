@@ -998,11 +998,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
                 // Typescript function declarations can have modifiers, decorators, and type annotations.
                 return visitFunctionDeclaration(node as FunctionDeclaration);
 
-            case SyntaxKind.MacroInvocationStatement:
-                // Macro invocations are compile-time statements. Any generated statements are
-                // inserted before this transformer runs; the invocation itself never reaches JS.
-                return factory.createNotEmittedStatement(node);
-
             case SyntaxKind.FunctionExpression:
                 // TypeScript function expressions can have modifiers and type annotations.
                 return visitFunctionExpression(node as FunctionExpression);
@@ -1809,7 +1804,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
             visitParameterList(node.parameters, visitor, context),
             /*type*/ undefined,
             visitExtensionFunctionBody(node.body) || factory.createBlock([]),
-            /*withClause*/ undefined,
         );
         if (isExportOfNamespace(node)) {
             const statements: Statement[] = [updated];

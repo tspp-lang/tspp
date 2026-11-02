@@ -720,9 +720,7 @@ export function transformDeclarations(context: TransformationContext): Transform
     }
 
     function isDeclarationAndNotVisible(node: NamedDeclaration) {
-        // Macro expansion inserts synthesized declarations directly into the source tree. They do
-        // not have a parse-tree original, but still need the same visibility checks during .d.ts emit.
-        node = getParseTreeNode(node) as NamedDeclaration || node;
+        node = getParseTreeNode(node) as NamedDeclaration;
         switch (node.kind) {
             case SyntaxKind.FunctionDeclaration:
             case SyntaxKind.ModuleDeclaration:
@@ -1453,7 +1451,6 @@ export function transformDeclarations(context: TransformationContext): Transform
                     updateParamsList(input, input.parameters),
                     ensureType(input),
                     /*body*/ undefined,
-                    input.withClause,
                 ));
                 if (clean && resolver.isExpandoFunctionDeclaration(input) && shouldEmitFunctionProperties(input)) {
                     const props = resolver.getPropertiesOfContainerFunction(input);
@@ -1513,7 +1510,6 @@ export function transformDeclarations(context: TransformationContext): Transform
                         clean.parameters,
                         clean.type,
                         /*body*/ undefined,
-                        clean.withClause,
                     );
 
                     const namespaceDeclaration = factory.updateModuleDeclaration(

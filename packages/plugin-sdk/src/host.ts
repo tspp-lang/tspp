@@ -165,7 +165,7 @@ export class TSPPPluginHost {
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
                 registerExpressionRewriter: rewriter => this.environment.compiler.registerExpressionRewriter(pluginId, rewriter),
-                registerCompileTimeMacros: () => this.environment.compiler.registerCompileTimeMacros(pluginId),
+                registerProgramRebuilder: rebuilder => this.environment.compiler.registerProgramRebuilder(pluginId, rebuilder),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

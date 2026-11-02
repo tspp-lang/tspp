@@ -257,7 +257,6 @@ import {
     LiteralExpression,
     LiteralLikeNode,
     LiteralTypeNode,
-    MacroInvocationStatement,
     map,
     mapDefined,
     MappedTypeNode,
@@ -412,8 +411,6 @@ import {
     VariableStatement,
     VoidExpression,
     WhileStatement,
-    WithClause,
-    WithProperty,
     WithStatement,
     YieldExpression,
 } from "./_namespaces/ts.js";
@@ -701,18 +698,8 @@ const forEachChildTable: ForEachChildTable = {
             visitNode(cbNode, node.name) ||
             visitNodes(cbNode, cbNodes, node.typeParameters) ||
             visitNodes(cbNode, cbNodes, node.parameters) ||
-            visitNode(cbNode, node.withClause) ||
             visitNode(cbNode, node.type) ||
             visitNode(cbNode, node.body);
-    },
-    [SyntaxKind.MacroInvocationStatement]: function forEachChildInMacroInvocationStatement<T>(node: MacroInvocationStatement, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
-        return visitNode(cbNode, node.macro) || visitNodes(cbNode, cbNodes, node.targets);
-    },
-    [SyntaxKind.WithClause]: function forEachChildInWithClause<T>(node: WithClause, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
-        return visitNodes(cbNode, cbNodes, node.properties);
-    },
-    [SyntaxKind.WithProperty]: function forEachChildInWithProperty<T>(node: WithProperty, cbNode: (node: Node) => T | undefined): T | undefined {
-        return visitNode(cbNode, node.name) || visitNode(cbNode, node.value);
     },
     [SyntaxKind.FunctionExpression]: function forEachChildInFunctionExpression<T>(node: FunctionExpression, cbNode: (node: Node) => T | undefined, cbNodes?: (nodes: NodeArray<Node>) => T | undefined): T | undefined {
         return visitNodes(cbNode, cbNodes, node.modifiers) ||
@@ -2855,8 +2842,6 @@ namespace Parser {
 
     function nextTokenCanFollowModifier() {
         switch (token()) {
-            case SyntaxKind.MacroKeyword:
-                return nextToken() === SyntaxKind.FunctionKeyword;
             case SyntaxKind.ConstKeyword:
                 // 'const' is only a modifier if followed by 'enum'.
                 return nextToken() === SyntaxKind.EnumKeyword;
@@ -7801,8 +7786,6 @@ namespace Parser {
                 case SyntaxKind.TypeKeyword:
                 case SyntaxKind.DeferKeyword:
                     return nextTokenIsIdentifierOnSameLine();
-                case SyntaxKind.MacroKeyword:
-                    return nextToken() === SyntaxKind.FunctionKeyword;
                 case SyntaxKind.ModuleKeyword:
                 case SyntaxKind.NamespaceKeyword:
                     return nextTokenIsIdentifierOrStringLiteralOnSameLine();
@@ -7917,7 +7900,6 @@ namespace Parser {
             case SyntaxKind.TypeKeyword:
             case SyntaxKind.GlobalKeyword:
             case SyntaxKind.DeferKeyword:
-            case SyntaxKind.MacroKeyword:
                 // When these don't start a declaration, they're an identifier in an expression statement
                 return true;
 
@@ -8077,35 +8059,12 @@ namespace Parser {
             case SyntaxKind.StaticKeyword:
             case SyntaxKind.ReadonlyKeyword:
             case SyntaxKind.GlobalKeyword:
-            case SyntaxKind.MacroKeyword:
                 if (isStartOfDeclaration()) {
                     return parseDeclaration();
-                }
-                if (token() === SyntaxKind.MacroKeyword) {
-                    return parseMacroInvocationStatement();
                 }
                 break;
         }
         return parseExpressionOrLabeledStatement();
-    }
-
-    function parseMacroInvocationStatement(): MacroInvocationStatement {
-        const pos = getNodePos();
-        parseExpected(SyntaxKind.MacroKeyword);
-        const macro = parseEntityName(/*allowReservedWords*/ false);
-        parseExpected(SyntaxKind.OpenParenToken);
-        const targetsPos = getNodePos();
-        const targets: EntityName[] = [];
-        while (token() !== SyntaxKind.CloseParenToken && token() !== SyntaxKind.EndOfFileToken) {
-            targets.push(parseEntityName(/*allowReservedWords*/ false));
-            if (!parseOptional(SyntaxKind.CommaToken)) break;
-        }
-        const targetsEnd = getNodePos();
-        parseExpected(SyntaxKind.CloseParenToken);
-        parseSemicolon();
-        const node = factory.createMacroInvocationStatement(macro, targets);
-        setTextRangePosEnd(node.targets, targetsPos, targetsEnd);
-        return finishNode(node, pos);
     }
 
     function createExtensionDeclarationParser(
@@ -8527,33 +8486,11 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         if (modifierFlags & ModifierFlags.Export) setAwaitContext(/*value*/ true);
         const parameters = parseParameters(isGenerator | isAsync);
-        const withClause = parseWithClause();
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
         const body = parseFunctionBlockOrSemicolon(isGenerator | isAsync, Diagnostics.or_expected);
         setAwaitContext(savedAwaitContext);
-        const node = factory.createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body, withClause);
+        const node = factory.createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body);
         return withJSDoc(finishNode(node, pos), hasJSDoc);
-    }
-
-    function parseWithClause(): WithClause | undefined {
-        if (!parseOptional(SyntaxKind.WithKeyword)) return undefined;
-        const pos = getNodePos();
-        parseExpected(SyntaxKind.OpenBraceToken);
-        const propertiesPos = getNodePos();
-        const properties: WithProperty[] = [];
-        while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
-            const propertyPos = getNodePos();
-            const name = parseIdentifier(Diagnostics.Identifier_expected);
-            parseExpected(SyntaxKind.ColonToken);
-            const value = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
-            properties.push(finishNode(factory.createWithProperty(name, value), propertyPos));
-            parseSemicolon();
-        }
-        const propertiesEnd = getNodePos();
-        parseExpected(SyntaxKind.CloseBraceToken);
-        const node = factory.createWithClause(properties);
-        setTextRangePosEnd(node.properties, propertiesPos, propertiesEnd);
-        return finishNode(node, pos);
     }
 
     function parseConstructorName() {

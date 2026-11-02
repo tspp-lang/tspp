@@ -225,8 +225,7 @@ function verifyMacroDeclarations(outputDirectory) {
     const security = readFileSync(join(outputDirectory, "05-security.d.tspp"), "utf8");
     for (const [output, expected] of [
         [check, "export declare macro function requireFunction"],
-        [security, "export declare macro function exposePackageName"],
-        [security, "with { timeout: { type: \"fixed\", value: 2, unit: \"s\" }; }"],
+        [security, "export declare macro({ timeout: { type: \"fixed\", value: 2, unit: \"s\" } }) function exposePackageName"],
     ]) {
         if (!output.includes(expected)) throw new Error(`Feature-rich declaration lost macro syntax: ${expected}`);
     }

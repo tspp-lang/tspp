@@ -8,7 +8,7 @@ import * as ts from "ts-plus-plus/source";
 import type { TSPPPlugin } from "@tspp/plugin-sdk";
 import dependentTypesModule from "@tspp/plugin-dependent-types";
 import * as formalVerificationNamespace from "@tspp/plugin-formal-verification";
-import macrosModule from "@tspp/plugin-macros";
+import macrosModule, { getMacroExpansions } from "@tspp/plugin-macros";
 import modernSyntaxModule from "@tspp/plugin-modern-syntax";
 import nominalTypesModule from "@tspp/plugin-nominal-types";
 import operatorSectionsModule from "@tspp/plugin-operator-sections";
@@ -131,7 +131,7 @@ function resolveMacroModule(specifier: string, containingFile: string): unknown 
 }
 
 const host: ts.LanguageServiceHost & {
-  onAsyncMacroExpansionComplete(): void;
+  onTSPPProgramInvalidated(): void;
   setCompilerHost(compilerHost: ts.CompilerHost & {
     evaluateMacroModule?: typeof evaluateMacroModule;
     resolveMacroModule?: typeof resolveMacroModule;
@@ -159,7 +159,7 @@ const host: ts.LanguageServiceHost & {
     compilerHost.resolveMacroModule = resolveMacroModule;
   },
   // Macro expansion and verification finish after the request that started them.
-  onAsyncMacroExpansionComplete: () => post({ event: "analysisSettled" }),
+  onTSPPProgramInvalidated: () => post({ event: "analysisSettled" }),
 };
 
 function languageService(): ts.LanguageService {
@@ -266,7 +266,7 @@ function outputCategory(fileName: string): Pick<OutputItem, "category" | "langua
 
 function expandedSource(program: ts.Program, fileName: string): OutputItem | undefined {
   const source = files.get(fileName)?.text;
-  const expansions = [...program.getMacroExpansions?.(fileName) ?? []];
+  const expansions = [...getMacroExpansions(program, fileName)];
   if (source === undefined || !expansions.length) return undefined;
   let content = source;
   for (const expansion of expansions.sort((left, right) => right.start - left.start)) {
@@ -384,7 +384,7 @@ const api: WorkerApi = {
     const info = activeService.getQuickInfoAtPosition(fileName, offset);
     const normalized = normalizedTypeAt(fileName, offset);
     const program = activeService.getProgram();
-    const expansion = program?.getMacroExpansions?.(fileName).find(candidate => contains(candidate, offset));
+    const expansion = program && getMacroExpansions(program, fileName).find(candidate => contains(candidate, offset));
     const artifact = program && tspp.getTSPPAnalysisArtifacts(program, fileName).find(candidate => contains(candidate, offset));
     const span = info?.textSpan ?? normalized?.span ?? expansion ?? artifact;
     if (!span) return undefined;

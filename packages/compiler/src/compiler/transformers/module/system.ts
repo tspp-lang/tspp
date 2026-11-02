@@ -809,7 +809,6 @@ export function transformSystemModule(context: TransformationContext): (x: Sourc
                     visitNodes(node.parameters, visitor, isParameter),
                     /*type*/ undefined,
                     visitNode(node.body, visitor, isBlock),
-                    node.withClause,
                 ),
             );
         }

@@ -14,6 +14,7 @@ import type {
     TSPPPostfixTypeSyntax,
     TSPPPreprocessedTypeAlias,
     TSPPProgramAnalyzer,
+    TSPPProgramRebuilder,
     TSPPSourcePreprocessor,
     TSPPTrailingClosureBindingSyntax,
     TSPPTypeKind,
@@ -70,7 +71,7 @@ const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const expressionRewriters = new Map<string, TSPPExpressionRewriter>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
-const compileTimeMacroPlugins = new Set<string>();
+const programRebuilders = new Map<string, TSPPProgramRebuilder>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const projectedSources = new Map<string, { original: string; projected: string; }>();
 let pluginHost: TSPPPluginHost | undefined;
@@ -387,12 +388,11 @@ const compilerAPI: TSPPCompilerHostAPI = {
         expressionRewriters.set(pluginId, rewriter);
         return () => expressionRewriters.delete(pluginId);
     },
-    registerCompileTimeMacros(pluginId) {
-        if (compileTimeMacroPlugins.size && !compileTimeMacroPlugins.has(pluginId)) {
-            throw new Error(`Compile-time macros are already owned by TSPP plugin '${[...compileTimeMacroPlugins][0]}'.`);
-        }
-        compileTimeMacroPlugins.add(pluginId);
-        return () => compileTimeMacroPlugins.delete(pluginId);
+    registerProgramRebuilder(pluginId, rebuilder) {
+        const key = `${pluginId}/${rebuilder.id}`;
+        if (programRebuilders.has(key)) throw new Error(`Duplicate TSPP program rebuilder '${key}'.`);
+        programRebuilders.set(key, rebuilder);
+        return () => programRebuilders.delete(key);
     },
 };
 
@@ -407,8 +407,8 @@ const languageServiceAPI: TSPPLanguageServiceHostAPI = {
 };
 
 /** @internal */
-export function hasCompileTimeMacros(): boolean {
-    return compileTimeMacroPlugins.size > 0;
+export function getRegisteredTSPPProgramRebuilders(): readonly TSPPProgramRebuilder[] {
+    return [...programRebuilders.values()];
 }
 
 /** @internal */
@@ -898,6 +898,26 @@ export function getPreprocessedTypeAliasDeclaration(
     if (!entry) return undefined;
     for (const preprocessor of sourcePreprocessors.values()) {
         const restored = preprocessor.restoreTypeAliasDeclaration?.({
+            fileName,
+            sourceText: entry.original,
+            name,
+            declarationStart,
+        });
+        if (restored) return restored;
+    }
+    return undefined;
+}
+
+/** Restores plugin-owned syntax before a function's `function` keyword for feature-rich declaration emit. @internal */
+export function getPreprocessedFunctionPrefix(
+    fileName: string,
+    name: string,
+    declarationStart: number,
+): string | undefined {
+    const entry = projectedSources.get(fileName);
+    if (!entry) return undefined;
+    for (const preprocessor of sourcePreprocessors.values()) {
+        const restored = preprocessor.restoreFunctionPrefix?.({
             fileName,
             sourceText: entry.original,
             name,

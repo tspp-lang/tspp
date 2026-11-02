@@ -141,7 +141,6 @@ function getRefactorEditsToConvertOverloadsToOneSignature(context: RefactorConte
                 getNewParametersForCombinedSignature(signatureDecls),
                 lastDeclaration.type,
                 lastDeclaration.body,
-                lastDeclaration.withClause,
             );
             break;
         }

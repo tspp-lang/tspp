@@ -194,8 +194,19 @@ const scaled = scale({ size: 2 }, 3);
 function absolute(value: bigint) with { ensures: result >= 0n; }: bigint { if (value < 0n) return -value; return value; }`,
   },
   {
-    name: "macro with clause left to the compiler",
-    source: `macro function first([target], context) with { timeout: { type: "fixed", value: 1, unit: "s" }; } { return target; }`,
+    name: "unsupported return that hides a division",
+    source: `function f(a: bigint, b: bigint) { return [a / b]; }`,
+    rejects: /Unsupported proof expression/,
+  },
+  {
+    name: "contract-free functions returning values outside the model",
+    source: `function list() { return []; }
+function build(context: any) { return context.factory.createIdentifier("x"); }`,
+  },
+  {
+    name: "macro options beside verified code",
+    source: `macro({ timeout: { type: "fixed", value: 1, unit: "s" } }) function first([target], context) { return target; }
+function absolute(value: bigint) with { ensures: result >= 0n; }: bigint { if (value < 0n) return -value; return value; }`,
   },
   {
     name: "call uses callee return refinement",

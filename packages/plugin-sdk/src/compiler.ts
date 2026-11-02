@@ -87,6 +87,8 @@ export interface TSPPSourcePreprocessor {
     restoreTypeAliasDeclaration?(request: TSPPPreprocessedTypeAliasRequest): TSPPPreprocessedTypeAlias | undefined;
     /** Restores a preprocessed function `with` clause for `.d.tspp` output. */
     restoreFunctionWithClause?(request: TSPPPreprocessedFunctionRequest): string | undefined;
+    /** Restores preprocessed syntax written before a function's `function` keyword for `.d.tspp` output. */
+    restoreFunctionPrefix?(request: TSPPPreprocessedFunctionRequest): string | undefined;
 }
 
 export interface TSPPPreprocessedTypeAliasRequest {
@@ -106,6 +108,57 @@ export interface TSPPPreprocessedFunctionRequest {
     readonly sourceText: string;
     readonly name: string;
     readonly declarationStart: number;
+}
+
+/**
+ * Inspects a program after it is built and asks the host to build it again with some statements replaced. The host
+ * reparses each named file from the same text, swaps in the replacements, and builds the final program from those
+ * files; nested `createProgram` calls made while rebuilding are not rebuilt again.
+ */
+export interface TSPPProgramRebuilder {
+    readonly id: string;
+    /** Returns undefined to keep `program`. A promise is only allowed when `request.async` is true. */
+    rebuild(
+        program: import("typescript-upstream").Program,
+        request: TSPPProgramRebuildRequest,
+    ): TSPPProgramRebuild | undefined | PromiseLike<TSPPProgramRebuild | undefined>;
+}
+
+export interface TSPPProgramRebuildRequest {
+    readonly host: import("typescript-upstream").CompilerHost;
+    /** True when the caller awaits the rebuild (`createProgramAsync`). */
+    readonly async: boolean;
+    /**
+     * Present in long-lived hosts such as the language service: asks the host to build its program again later, for
+     * work that settled after a synchronous rebuild returned.
+     */
+    readonly invalidate?: () => void;
+    /** A module path that loads this compiler's public API, when it can be loaded again (for example in a worker). */
+    readonly compilerModulePath?: string;
+}
+
+export interface TSPPProgramRebuild {
+    /** Replacements by file name. Each covers one statement of the original program, matched by its start and end. */
+    readonly replacements: ReadonlyMap<string, readonly TSPPStatementReplacement[]>;
+    /** Semantic diagnostics added to the rebuilt program; their files are matched by name. */
+    readonly diagnostics?: readonly import("typescript-upstream").Diagnostic[];
+    /** Return false to drop a semantic or suggestion diagnostic of the rebuilt program. */
+    filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean;
+    /** Transformers added whenever the rebuilt program emits. */
+    readonly transformers?: import("typescript-upstream").CustomTransformers;
+    /** Receives the rebuilt program, so the plugin can associate its results with it. */
+    onRebuilt?(program: import("typescript-upstream").Program): void;
+}
+
+/**
+ * Replaces one statement, found by the start (after trivia) and end of its range, in the reparsed file. Nodes the
+ * replacement creates keep their positions when set (`ts.setTextRange`); the host places the others, zero-width,
+ * at the end of the replaced statement, and treats every replacement node as part of the parse tree.
+ */
+export interface TSPPStatementReplacement {
+    readonly start: number;
+    readonly end: number;
+    replace(statement: import("typescript-upstream").Statement, sourceFile: import("typescript-upstream").SourceFile): readonly import("typescript-upstream").Statement[];
 }
 
 /** Where an expression being rewritten was parsed, and the factory for nodes that should count as parsed source. */
@@ -521,8 +574,7 @@ export interface TSPPCompilerPluginAPI {
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
     registerExpressionRewriter(rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
-    /** Enables the compiler's isolated compile-time macro pipeline for this feature capsule. */
-    registerCompileTimeMacros(): TSPPPluginDisposer;
+    registerProgramRebuilder(rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
 }
 
 export interface TSPPCompilerHostAPI {
@@ -541,7 +593,7 @@ export interface TSPPCompilerHostAPI {
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
     registerExpressionRewriter(pluginId: string, rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
-    registerCompileTimeMacros(pluginId: string): TSPPPluginDisposer;
+    registerProgramRebuilder(pluginId: string, rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
 }
 
 /** The public TypeScript API of the host compiler. Plugins use it instead of importing their own `typescript`. */

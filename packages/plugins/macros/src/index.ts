@@ -1,5 +1,7 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 
+import { createMacroPreprocessor, createMacroRebuilder } from "./rebuilder";
+
 export const macrosPlugin = definePlugin({
   manifest: {
     id: "macros",
@@ -10,14 +12,18 @@ export const macrosPlugin = definePlugin({
       keywords: [
         { keyword: "macro", position: "declaration" },
         { keyword: "macro", position: "statement" },
-        { keyword: "with", position: "function-clause" },
       ],
     },
   },
   facets: {
     compiler: {
       activate(context) {
-        return context.compiler.registerCompileTimeMacros();
+        const disposePreprocessor = context.compiler.registerSourcePreprocessor(createMacroPreprocessor(context.ts));
+        const disposeRebuilder = context.compiler.registerProgramRebuilder(createMacroRebuilder(context.ts));
+        return () => {
+          disposeRebuilder();
+          disposePreprocessor();
+        };
       },
     },
     editor: { grammars: ["./editor/macros.tmLanguage.json"] },
@@ -27,3 +33,5 @@ export const macrosPlugin = definePlugin({
 export default macrosPlugin;
 export { macroApiVersion } from "./sdk";
 export type * from "./sdk";
+export type { MacroCompilerHost } from "./expand";
+export { expandInThisThread, getMacroExpansions } from "./rebuilder";

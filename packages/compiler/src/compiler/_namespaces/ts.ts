@@ -80,3 +80,4 @@ export { moduleSpecifiers };
 import * as performance from "./ts.performance.js";
 export { performance };
 export * from "../tspp/analysis.js";
+export * from "../tspp/rebuild.js";

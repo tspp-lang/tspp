@@ -8612,38 +8612,6 @@
         "category": "Error",
         "code": 18075
     },
-    "The 'macro' modifier can only appear on a function declaration.": {
-        "category": "Error",
-        "code": 18078
-    },
-    "'{0}' is not a macro function.": {
-        "category": "Error",
-        "code": 18079
-    },
-    "Macro '{0}' failed: {1}": {
-        "category": "Error",
-        "code": 18080
-    },
-    "Macro '{0}' returned a value that is not a statement, statement array, failure, or undefined.": {
-        "category": "Error",
-        "code": 18081
-    },
-    "Macro '{0}' returned a Promise. Asynchronous macros are not supported by this compiler version.": {
-        "category": "Error",
-        "code": 18082
-    },
-    "The 'with' property '{0}' is not supported on {1}.": {
-        "category": "Error",
-        "code": 18083
-    },
-    "The 'with' property '{0}' may only be specified once.": {
-        "category": "Error",
-        "code": 18084
-    },
-    "The 'timeout' property must match '{ type: \"fixed\"; value: number; unit: \"ms\" | \"s\"; } | { type: \"benchmark\"; multiplier: number; }'.": {
-        "category": "Error",
-        "code": 18085
-    },
     "{0}": {
         "category": "Error",
         "code": 18086

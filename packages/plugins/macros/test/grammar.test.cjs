@@ -8,7 +8,6 @@ const { macrosPlugin } = require("../dist");
 const grammars = loadGrammars(`${__dirname}/..`, macrosPlugin);
 const samples = new Map([
   ["macro", "macro function expose(targets, context) { return []; }"],
-  ["with", "macro function expose(targets, context) with { timeout: { type: \"fixed\", value: 2, unit: \"s\" }; } { return []; }"],
 ]);
 
 test("highlights every declared editor keyword in context", () => {
@@ -17,6 +16,11 @@ test("highlights every declared editor keyword in context", () => {
     if (!sample) throw new Error(`No grammar sample for declared keyword '${keyword}'.`);
     assertScoped(grammars, sample, keyword);
   }
+});
+
+test("highlights the keyword of a macro with options and of an invocation", () => {
+  assertScoped(grammars, 'export macro({ timeout: { type: "fixed", value: 2, unit: "s" } }) function expose() {}', "macro");
+  assertScoped(grammars, "macro expose(User);", "macro");
 });
 
 test("leaves angle-bracket classification to TypeScript", () => assertLeavesAngleBracketsToTypeScript(grammars));

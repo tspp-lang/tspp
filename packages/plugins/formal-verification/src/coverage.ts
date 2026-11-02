@@ -1,7 +1,6 @@
 import ts from "typescript";
-import { isMacroFunction } from "./proof-scope";
 import type { FunctionModel } from "./models";
-import { assignmentKey, assignmentOperators, diagnostic, isIncrementOrDecrement, type Context } from "./execution-state";
+import { assignmentKey, assignmentOperators, diagnostic, isIncrementOrDecrement, type Context, type State } from "./execution-state";
 
 export function countWrites(node: ts.Node, name: string): number {
     let count = 0;
@@ -47,14 +46,13 @@ export function isInsideSpecification(node: ts.Node, library: ReturnType<typeof 
 }
 
 /** Reports assertions, guarded calls, and contract returns the executor never reached, rather than letting them pass. */
-export function reportUnvisited(sourceFile: ts.SourceFile, context: Context, rejected: ReadonlySet<ts.Node>, sourceText: string): void {
+export function reportUnvisited(sourceFile: ts.SourceFile, context: Context, rejected: ReadonlySet<ts.Node>): void {
     const library = logicLibraryBindings(sourceFile);
     const reject = (node: ts.Node, what: string) => {
         if (!context.visited.has(node)) diagnostic(context, node, `${what} is outside the code the verifier can analyze, so it is not verified.`);
     };
     const visit = (node: ts.Node, owner: FunctionModel | undefined): void => {
         if (rejected.has(node)) return;
-        if (ts.isFunctionDeclaration(node) && isMacroFunction(node, sourceText, sourceFile)) return;
         if (ts.isLabeledStatement(node) && (node.label.text === "assert" || node.label.text === "assume")) reject(node, `This ${node.label.text}`);
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
             const model = context.functions.get(node.expression.text);
@@ -72,4 +70,28 @@ export function reportUnvisited(sourceFile: ts.SourceFile, context: Context, rej
         ts.forEachChild(node, child => visit(child, nextOwner));
     };
     visit(sourceFile, undefined);
+}
+
+/** Whether an expression contains an operation that creates a proof obligation: division, a call to a function with a
+ *  precondition, or arithmetic on a value the proof tracks. */
+export function mayCarryObligations(node: ts.Node, state: State, context: Context): boolean {
+    const tracked = (operand: ts.Expression) => {
+        const name = ts.isIdentifier(operand) ? operand.text
+            : ts.isPropertyAccessExpression(operand) && ts.isIdentifier(operand.expression) ? `${operand.expression.text}.${operand.name.text}` : undefined;
+        return name !== undefined && (name in state.variables || name in state.values) || ts.isNumericLiteral(operand) || ts.isBigIntLiteral(operand);
+    };
+    const visit = (current: ts.Node): boolean => {
+        if (ts.isBinaryExpression(current)) {
+            const operator = current.operatorToken.kind;
+            if (operator === ts.SyntaxKind.SlashToken || operator === ts.SyntaxKind.PercentToken) return true;
+            if ((operator === ts.SyntaxKind.PlusToken || operator === ts.SyntaxKind.MinusToken || operator === ts.SyntaxKind.AsteriskToken)
+                && (tracked(current.left) || tracked(current.right))) return true;
+        }
+        if (ts.isCallExpression(current) && ts.isIdentifier(current.expression)) {
+            const model = context.functions.get(current.expression.text);
+            if (model && (model.requires.length || Object.keys(model.parameterRefinements ?? {}).length)) return true;
+        }
+        return !!ts.forEachChild(current, child => visit(child) || undefined);
+    };
+    return visit(node);
 }

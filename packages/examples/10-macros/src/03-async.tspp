@@ -2,10 +2,10 @@ import type { MacroContext, MacroResult, MacroTarget } from "@tspp/plugin-macros
 
 export interface AsyncUser { id: number }
 
-export async macro function exposeLater(
+export async macro({ timeout: { type: "fixed", value: 2, unit: "s" } }) function exposeLater(
   [target]: readonly MacroTarget[],
   context: MacroContext,
-) with { timeout: { type: "fixed", value: 2, unit: "s" }; }: Promise<MacroResult> {
+): Promise<MacroResult> {
   await new Promise<void>(resolve => setTimeout(resolve, 10));
   const { factory, NodeFlags } = context.typescript;
   const literal = factory.createStringLiteral(target.name);

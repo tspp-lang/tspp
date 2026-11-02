@@ -6,7 +6,7 @@ import { matchingBrace, reportWithClauseIssues, parseProperties } from "./contra
 import type { PendingProof } from "./contracts";
 import type { RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
-import { collectTopLevelProofVariables, isMacroFunction } from "./proof-scope";
+import { collectTopLevelProofVariables } from "./proof-scope";
 import {
     fieldsFromType, participatesInVerification, refinementFromType, sortFromType, type Clause, type FunctionModel,
 } from "./models";
@@ -16,7 +16,7 @@ import {
     diagnostic, havoc, innermostLoop, isBound, isIncrementOrDecrement, lexicalNames, safeIntegerRange, unsupported,
     initialState, type Context, type JumpTarget, type State,
 } from "./execution-state";
-import { countTopLevelWrites, countWrites, reportUnvisited } from "./coverage";
+import { countTopLevelWrites, countWrites, mayCarryObligations, reportUnvisited } from "./coverage";
 
 function instantiate(
     clause: string, names: readonly string[], values: readonly Term[], logic: LogicLibrary,
@@ -286,6 +286,14 @@ function executeStatement(node: ts.Statement, state: State, context: Context): S
                 }
                 return [];
             }
+            if (!context.currentFunction?.ensures.length && !context.currentFunction?.returnRefinement) {
+                // Lowering still records the obligations of the returned expression (divisors, overflow). Only a
+                // postcondition or return refinement reads the value itself, so a value outside the model is fine
+                // unless it hides an obligation the verifier would then never check.
+                try { lowerExpression(node.expression, state, context); }
+                catch (error) { if (mayCarryObligations(node.expression, state, context)) throw error; }
+                return [];
+            }
             const structured = lowerStructuredResult(node.expression, state, context);
             const result = structured ? undefined : lowerExpression(node.expression, state, context);
             for (const ensure of context.currentFunction?.ensures ?? []) {
@@ -432,10 +440,6 @@ export function collectProgramProofs(
     const functions = new Map(prepared.functions);
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
-        if (isMacroFunction(statement, source.text, sourceFile)) {
-            functions.delete(statement.name.text);
-            continue;
-        }
         const existing = functions.get(statement.name.text);
         const variables: Record<string, Sort> = {};
         const parameters: string[] = [];
@@ -474,7 +478,6 @@ export function collectProgramProofs(
     const rejected = new Set<ts.Node>();
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name || !statement.body) continue;
-        if (isMacroFunction(statement, source.text, sourceFile)) continue;
         const model = functions.get(statement.name.text);
         if (!model) continue;
         const context: Context = { ...base, currentFunction: model };
@@ -520,6 +523,6 @@ export function collectProgramProofs(
         ts.forEachChild(node, visitCalls);
     };
     sourceFile.statements.forEach(visitCalls);
-    reportUnvisited(sourceFile, base as Context, rejected, source.text);
+    reportUnvisited(sourceFile, base as Context, rejected);
     return proofs;
 }

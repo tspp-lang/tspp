@@ -4,7 +4,7 @@ const { LanguageClient, TransportKind } = require("vscode-languageclient/node");
 const { getCodeDecorationSpans } = require("@tspp/plugin-sdk/editor");
 
 let languageClient;
-const activatedAnalysisPlugins = new Set();
+const activatedAnalysisPlugins = new Map();
 
 function resolveSdkPath(context) {
   const configuredPath = vscode.workspace.getConfiguration("tspp").get("sdkPath", "").trim();
@@ -126,7 +126,8 @@ async function activate(context) {
     const key = `${document.uri}:${document.version}`;
     if (expansionCache.has(key)) return expansionCache.get(key);
     const pending = createProgram(document).then(
-      result => result?.program.getMacroExpansions?.(document.fileName) ?? [],
+      // The macros plugin owns its expansions and publishes them per program.
+      result => result?.pluginModules.find(module => typeof module.getMacroExpansions === "function")?.getMacroExpansions(result.program, document.fileName) ?? [],
       () => [],
     );
     expansionCache.set(key, pending);
@@ -152,14 +153,17 @@ async function activate(context) {
     if (!configPath) return undefined;
     const config = ts.readConfigFile(configPath, ts.sys.readFile);
     if (config.error) return undefined;
+    const pluginModules = [];
     for (const entry of config.config.compilerOptions?.plugins ?? []) {
       if (!entry?.tspp || typeof entry.name !== "string") continue;
       const key = `${compilerPath}:${entry.name}`;
-      if (activatedAnalysisPlugins.has(key)) continue;
-      const modulePath = require.resolve(entry.name, { paths: [path.dirname(configPath), context.extensionPath] });
-      const pluginModule = require(modulePath);
-      ts.registerTSPPCompilerPlugin(pluginModule.default ?? pluginModule);
-      activatedAnalysisPlugins.add(key);
+      if (!activatedAnalysisPlugins.has(key)) {
+        const modulePath = require.resolve(entry.name, { paths: [path.dirname(configPath), context.extensionPath] });
+        const pluginModule = require(modulePath);
+        ts.registerTSPPCompilerPlugin(pluginModule.default ?? pluginModule);
+        activatedAnalysisPlugins.set(key, pluginModule);
+      }
+      pluginModules.push(activatedAnalysisPlugins.get(key));
     }
     const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath), undefined, configPath);
     const host = ts.createCompilerHost(parsed.options);
@@ -174,7 +178,7 @@ async function activate(context) {
       ? parsed.fileNames
       : [...parsed.fileNames, document.fileName];
     const program = await ts.createProgramAsync({ rootNames, options: parsed.options, host });
-    return { ts, program };
+    return { ts, program, pluginModules };
   }
 
   async function createAnalysisProgram(document) {

@@ -45,7 +45,7 @@
       "name": "support.type.smt-sort.tspp"
     },
     {
-      "match": "^(\\s*)(?:(export)(\\s+))?(?:(default)(\\s+))?(?:(declare)(\\s+))?(?:(async)(\\s+))?(macro)(\\s+)(?=function\\b)",
+      "match": "^(\\s*)(?:(export)(\\s+))?(?:(default)(\\s+))?(?:(declare)(\\s+))?(?:(async)(\\s+))?(macro)(?=\\s+function\\b|\\s*\\(.*\\)\\s*function\\b)",
       "captures": {
         "2": {
           "name": "keyword.control.export.ts"
@@ -69,14 +69,6 @@
       "captures": {
         "1": {
           "name": "keyword.control.macro.tspp"
-        }
-      }
-    },
-    {
-      "match": "\\b(with)\\b(?=\\s*\\{)",
-      "captures": {
-        "1": {
-          "name": "keyword.control.with.tspp"
         }
       }
     },

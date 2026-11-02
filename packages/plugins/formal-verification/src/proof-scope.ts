@@ -2,16 +2,6 @@ import ts from "typescript";
 import { refinementFromType } from "./models";
 import type { RefinementModel } from "./refinements";
 
-export function isMacroFunction(
-    statement: ts.FunctionDeclaration,
-    sourceText: string,
-    sourceFile: ts.SourceFile,
-): boolean {
-    const headerEnd = statement.body?.getStart(sourceFile) ?? statement.end;
-    const headerStart = Math.max(0, statement.getStart(sourceFile) - 32);
-    return /\bmacro\s+function\b/.test(sourceText.slice(headerStart, headerEnd));
-}
-
 export function collectTopLevelProofVariables(
     sourceFile: ts.SourceFile,
     refinements: ReadonlyMap<string, RefinementModel>,

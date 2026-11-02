@@ -97,14 +97,14 @@ manifest: {
 
 | 插槽 | 位置 | 说明 | 预期消费者 |
 |---|---|---|---|
-| 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法 | dependent-types、formal-verification |
+| 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法。`.d.tspp` 输出可通过 `restoreFunctionWithClause`（参数表之后）与 `restoreFunctionPrefix`（`function` 之前）恢复被投影掉的文本 | dependent-types、formal-verification、macros |
 | 语法扩展 | 表达式、语句、声明、类型、后缀类型、类成员等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点或 `ExtensionExpression` | 全部语法类插件 |
 | 表达式改写 | 括号表达式与调用实参解析完成后（`parseParenthesizedExpression`、`parseArgumentExpression`） | 插件用解析器自己的 factory 把表达式改写成普通 TS 语法；被改名的标识符按新名字输出（emitter 中一处调用点）。**已实现** | operator-sections |
 | 扩展节点检查 | checker | 对 `ExtensionExpression` 返回类型，插件可调用公共 checker API | modern-syntax、dependent-types、nominal-types |
 | 附加诊断 | checker 结束一个源文件时 | 插件遍历自己拥有的节点并报告诊断（穷尽性、静态成员契约、使用限制等） | nominal-types、static-interface-members |
 | 扩展节点降级 | `transformers/ts.ts` 之前 | 把扩展节点变成普通 TS AST | modern-syntax、dependent-types |
 | 声明输出 | `.d.tspp` 输出 | 插件为自己拥有的节点提供声明文本 | 有富语法的插件 |
-| 程序重建 | `createProgram` 外层 | 插件返回改写后的源码，宿主用新源码重建程序；宏的 worker 与展开策略归插件 | macros |
+| 程序重建 | `createProgram` 返回前（`program.ts` 一处调用点），以及 `createProgramAsync` | 插件检查建好的程序，返回按位置匹配的语句替换；宿主从同一源码重新解析这些文件、换入替换语句、重建程序，并可附加或过滤语义诊断、在输出时追加转换器。长期宿主（语言服务）提供 `invalidate`，插件异步完成后请求重建。宏的 worker、超时与展开策略归插件。**已实现** | macros |
 | 程序分析 | 已有 | 不可变快照 + 异步诊断 + artifact | dependent-types、formal-verification |
 | 类型层扩展 | checker 类型解析与实例化 | **待研究**：HKT、类型宇宙、类型构造器无法脱糖成 TS 类型，可能需要一个通用的"扩展类型节点 → 类型 / 实例化回调"插槽 | higher-kinded-types、type-computation |
 | Quick Info | language service | 已有 | 多个插件 |
@@ -183,16 +183,21 @@ manifest: {
 
 - 第 1 步 operator-sections：已完成（见阶段 1 记录）。
 - 第 5 步中的改名：`match mltt` → `typecase` 已完成；`reify` 与运行时类型匹配仍在核心。
-- 第 7 步中的 ADT 依赖：nominal-types 发布 `nominal-types/adt`，formal-verification 改用它，已完成；`with` 的归属等宏迁移。
+- 第 7 步中的 ADT 依赖：nominal-types 发布 `nominal-types/adt`，formal-verification 改用它，已完成。
 - 第 8 步中的合并：higher-kinded-types 已并入 type-computation；"类型层扩展"插槽尚未设计。
-- 已知违规只剩 `with @ function-clause`（macros 与 formal-verification），随第 6、7 步消除。
 - `core-diff`：40 个上游文件 +4885 −167，核心新增文件只剩 `macroWorker.ts`（338 行），无标记 hunk 422 个。
+
+**进度记录（2026-11-02）**
+
+- 第 6 步 macros：已完成。`macro function`、`macro({ timeout: ... }) function` 与调用 `macro m(T);` 都由插件的源码投影处理（调用投影成等长的 `void [m,T];`）；展开走"程序重建"插槽：调用被换成只在类型层引用宏与目标的语句（保留 hover、跳转、引用与未使用检查，JavaScript 输出前擦除），生成的语句零宽插在其后。worker、超时、宿主求值接口（`evaluateMacroModule`/`resolveMacroModule`）、语言服务里的异步缓存都移入插件；展开结果由插件导出的 `getMacroExpansions(program)` 提供。核心删除 `MacroKeyword`、`WithClause`/`WithProperty`、`MacroInvocationStatement`、`ModifierFlags.Macro`、`FunctionDeclaration.withClause`、宏诊断消息、`macroWorker.ts` 与 `program.ts` 中的展开代码，还原 `createFunctionDeclaration`/`updateFunctionDeclaration` 签名；原编译器单测 `unittests/tspp/macros.ts` 迁成插件测试。
+- 第 7 步中的 `with`：只归 formal-verification；删除 `isMacroWithClause` 与 `isMacroFunction`。宏函数此后作为普通函数被验证，暴露出无契约函数返回不可建模的值时误报的问题：现在只有返回值里含除法、带前置条件的调用或对被跟踪数值的算术时才报告。
+- 已知违规清空：关键字冲突与 core-parity 的已知违规都为空。
+- `core-diff`：31 个上游文件 +3436 −153，`compiler/tspp/` 之外没有新增文件，无标记 hunk 317 个。
 
 剩余各步都要把特性语义从 checker/parser/emitter 中迁出，其中几处需要先评审插槽设计（规则 6 与"类型层扩展"一行）：
 
 - static-interface-members：静态成员不进入接口实例类型（binder）、`static` 在接口成员上合法（语法检查）、implements 时检查类的静态侧（checker）。公共 API 无法从外部改变绑定与语法检查，源码投影也无法等长改写，所以需要决定是否把现有的声明式"接口成员契约"认定为通用插槽。
 - modern-syntax、nominal-types、dependent-types 的 `reify`：可用"扩展节点检查 / 降级 / 附加诊断"插槽实现，工作量大但不需要新的设计决定。
-- macros：用"程序重建"插槽，表中已登记，不需要新的设计决定；涉及 `program.ts` 约 860 行与同步、异步两条建程序路径。
 - type-computation：需要先设计并评审"类型层扩展"插槽。
 
 ### 阶段 3：逐文件还原与收口
