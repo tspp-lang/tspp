@@ -382,3 +382,27 @@ test("newtype constructors can only be called directly", () => {
   assert.deepEqual(lines, [5, 6, 7, 11]);
   assert.match(diagnosticMessages(program)[0], /The extension value 'UserId' can only be used as the target of a direct call/);
 });
+
+test("hover on imported nominal declarations names the brand instead of (Missing)", () => {
+  // The checker prints a symbol by its declaration's source text; a brand class without source text printed as
+  // `(Missing)` whenever a type was rebuilt from symbols, as in hover on an imported alias or a declaration file's constant.
+  const files = {
+    "/lib.tspp": "export newtype Id = number;\nexport declare data Option<T> = None | Some(value: T);\n",
+    "/main.tspp": "import { Id, None } from \"./lib\";\nexport const values = [Id(1), None];\n",
+  };
+  const service = ts.createLanguageService({
+    getScriptFileNames: () => ["/main.tspp"],
+    getScriptVersion: () => "1",
+    getScriptSnapshot: name => name in files ? ts.ScriptSnapshot.fromString(files[name]) : undefined,
+    getCurrentDirectory: () => "/",
+    getCompilationSettings: () => ({ noLib: true, strict: true, target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS }),
+    getDefaultLibFileName: () => "/lib.d.ts",
+    fileExists: name => name in files,
+    readFile: name => files[name],
+  });
+  const source = files["/main.tspp"];
+  const hover = text => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", source.indexOf(text))?.displayParts);
+  const id = hover("Id,");
+  assert.match(id, /type Id = number & Id\.Id/);
+  for (const display of [id, hover("None }")]) assert.doesNotMatch(display, /\(Missing\)|\bany\b/, display);
+});

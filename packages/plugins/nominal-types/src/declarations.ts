@@ -36,8 +36,8 @@ interface ParsedVariant {
 /**
  * `newtype` and `data` lower to ordinary declarations while they are parsed:
  *
- * - `newtype Id<T> = U;` becomes `type Id<T> = (U) & Id.Brand;`, a constructor `function Id<T>(value: U): Id<T>`,
- *   and `declare namespace Id { class Brand { private __tsppNominal; } }`. The private member keeps distinct
+ * - `newtype Id<T> = U;` becomes `type Id<T> = (U) & Id.Id;`, a constructor `function Id<T>(value: U): Id<T>`,
+ *   and `declare namespace Id { class Id { private __tsppNominal; } }`. The private member keeps distinct
  *   newtypes apart without adding a key that `keyof` or hover would show.
  * - `data D<T> = A | B(x: T);` becomes a union of `{ _tag, ...fields, _values }` object types, a constant for each
  *   variant without fields, and a constructor function for each variant with fields. `_values` holds the fields in
@@ -96,13 +96,18 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         return type;
     }
 
-    /** `Name.Brand`, the nominal brand of a `newtype` or `data` declaration. */
+    /** `Name.Name`, the nominal brand of a `newtype` or `data` declaration. */
     function brandReference(cursor: TSPPSyntaxCursor, text: string): TS.TypeReferenceNode {
         const f = cursor.factory;
-        return f.createTypeReferenceNode(f.createQualifiedName(f.createIdentifier(text), f.createIdentifier("Brand")));
+        return f.createTypeReferenceNode(f.createQualifiedName(f.createIdentifier(text), f.createIdentifier(text)));
     }
 
-    /** `declare namespace Name { export class Brand { private readonly __tsppNominal!: void; } }` */
+    /**
+     * `declare namespace Name { export class Name { private readonly __tsppNominal!: void; } }`. The brand class takes
+     * the authored name and its range: the checker prints a symbol by its declaration's source text, so a brand named
+     * without source text would print as `(Missing)` wherever a type is not shown through an alias (hover on an imported
+     * data constant, for example).
+     */
     function brandNamespace(cursor: TSPPSyntaxCursor, name: TS.Identifier, at: number): TS.ModuleDeclaration {
         const f = cursor.factory;
         const brandMember = f.createPropertyDeclaration(
@@ -112,7 +117,8 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             f.createKeywordTypeNode(kinds.VoidKeyword),
             undefined,
         );
-        const brand = f.createClassDeclaration([f.createModifier(kinds.ExportKeyword)], f.createIdentifier("Brand"), undefined, undefined, [brandMember]);
+        const brandName = range(f.createIdentifier(ts.idText(name)), name.pos, name.end);
+        const brand = f.createClassDeclaration([f.createModifier(kinds.ExportKeyword)], brandName, undefined, undefined, [brandMember]);
         const namespace = root(f.createModuleDeclaration(
             companionModifiers(cursor, at, /*ambient*/ true),
             range(f.createIdentifier(ts.idText(name)), name.pos, name.end),
