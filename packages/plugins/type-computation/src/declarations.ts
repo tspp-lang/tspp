@@ -90,7 +90,10 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
         }
         if (reference.typeArguments?.length) return false;
         if (genericGlobals.has(name)) return true;
-        return sourceFileOf(reference).statements.some(statement =>
+        // A reference the declaration emitter synthesized from a type has no source file and names no local alias.
+        let sourceFile: TS.Node | undefined = reference;
+        while (sourceFile && !ts.isSourceFile(sourceFile)) sourceFile = sourceFile.parent;
+        return !!sourceFile && ts.isSourceFile(sourceFile) && sourceFile.statements.some(statement =>
             (ts.isTypeAliasDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isClassDeclaration(statement))
             && statement.name !== undefined && ts.idText(statement.name) === name
             && (!!statement.typeParameters?.length || ts.isTypeAliasDeclaration(statement) && constructorAliasArity(statement) > 0)

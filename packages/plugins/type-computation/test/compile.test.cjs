@@ -275,3 +275,12 @@ test("hover shows explicit kinds for higher-kinded and type lambda parameters", 
   assert.equal(hover("<F"), "(type parameter) F in type Compose<F: Type => Type, G: (Type, Type) => Type>");
   assert.equal(hover("<T>"), "(type parameter) T in <T: Type0> =>>");
 });
+
+test("declarations of inferred types the emitter writes as references still emit", () => {
+  const { program, outputs } = createProgram({
+    "/main.tspp": "class User { name = \"\"; }\nexport const user = new User();",
+  }, { declaration: true, emitDeclarationOnly: true });
+  program.emit();
+  const compatibility = outputs.get("/main.d.ts") ?? "";
+  assert.match(compatibility, /export declare const user: User;/, compatibility);
+});
