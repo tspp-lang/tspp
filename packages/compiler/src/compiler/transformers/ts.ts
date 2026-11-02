@@ -1,8 +1,4 @@
-import type {
-    TSPPDeclarationCallTransformer,
-    TSPPDeclarationTransformer,
-    TSPPExpressionTransformer,
-} from "@tspp/plugin-sdk/compiler";
+import type { TSPPExpressionTransformer } from "@tspp/plugin-sdk/compiler";
 import {
     __String,
     AccessorDeclaration,
@@ -49,7 +45,6 @@ import {
     findSuperStatementIndexPath,
     flattenDestructuringAssignment,
     FlattenLevel,
-    forEachChild,
     FunctionDeclaration,
     FunctionExpression,
     FunctionLikeDeclaration,
@@ -85,7 +80,6 @@ import {
     isBindingName,
     isBindingPattern,
     isBlock,
-    isCallExpression,
     isCatchClause,
     isClassElement,
     isClassLike,
@@ -201,7 +195,6 @@ import {
     TransformationContext,
     Transformer,
     TransformFlags,
-    TypeAliasDeclaration,
     TypeNode,
     VariableDeclaration,
     VariableStatement,
@@ -214,16 +207,9 @@ import {
     VisitResult,
 } from "../_namespaces/ts.js";
 import {
-    getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
     getSelectedExtensionExpression,
-    hasExtensionDeclarationCallTransforms,
 } from "../tspp/registry.js";
-import {
-    getTaggedUnionData,
-    getTaggedUnionMatchData,
-    type TaggedUnionMatchData,
-} from "../tspp/taggedUnion.js";
 
 /**
  * Indicates whether to emit type metadata in the new format.
@@ -270,7 +256,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
     const moduleKind = getEmitModuleKind(compilerOptions);
     const legacyDecorators = !!compilerOptions.experimentalDecorators;
     const typeSerializer = compilerOptions.emitDecoratorMetadata ? createRuntimeTypeSerializer(context) : undefined;
-    const hasTSPPCallTransforms = hasExtensionDeclarationCallTransforms();
 
     // Save the previous transformation hooks.
     const previousOnEmitNode = context.onEmitNode;
@@ -414,10 +399,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
     function visitorWorker(node: Node): VisitResult<Node | undefined> {
         if (node.transformFlags & TransformFlags.ContainsTypeScript) {
             return visitTypeScript(node);
-        }
-        if (hasTSPPCallTransforms) {
-            if (isCallExpression(node)) return visitCallExpression(node);
-            return visitEachChild(node, visitor, context);
         }
         return node;
     }
@@ -662,9 +643,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
     }
 
     function transformExtensionExpression(node: ExtensionExpression): Expression {
-        const taggedUnionMatch = getTaggedUnionMatchData(node);
-        if (taggedUnionMatch) return transformTaggedUnionMatch(taggedUnionMatch);
-
         const pluginTransformer: TSPPExpressionTransformer = {
             visitExpression: expression => Debug.checkDefined(visitNode(expression as Expression, visitor, isExpression)),
             createReifiedTypeDescriptor: type => {
@@ -685,69 +663,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
             },
         };
         return getExtensionExpressionSyntax(node).transform(node, pluginTransformer) as Expression;
-    }
-
-    function createTaggedUnionStatements(node: TypeAliasDeclaration): readonly Statement[] {
-        const data = getTaggedUnionData(node);
-        if (!data) return [];
-        return data.variants.map(variant => {
-            const properties = [
-                factory.createPropertyAssignment("_tag", factory.createStringLiteral(idText(variant.name))),
-                factory.createPropertyAssignment(
-                    "_values",
-                    factory.createArrayLiteralExpression(
-                        variant.fields.map(field => factory.createIdentifier(idText(field.name))),
-                    ),
-                ),
-                ...variant.fields.map(field => factory.createShorthandPropertyAssignment(idText(field.name))),
-            ];
-            const object = factory.createObjectLiteralExpression(properties, /*multiLine*/ false);
-            if (variant.fields.length === 0) {
-                return factory.createVariableStatement(
-                    node.modifiers,
-                    factory.createVariableDeclarationList(
-                        [factory.createVariableDeclaration(
-                            idText(variant.name),
-                            /*exclamationToken*/ undefined,
-                            /*type*/ undefined,
-                            object,
-                        )],
-                        NodeFlags.Const,
-                    ),
-                );
-            }
-            return factory.createFunctionDeclaration(
-                node.modifiers,
-                /*asteriskToken*/ undefined,
-                idText(variant.name),
-                /*typeParameters*/ undefined,
-                variant.fields.map(field =>
-                    factory.createParameterDeclaration(
-                        /*modifiers*/ undefined,
-                        /*dotDotDotToken*/ undefined,
-                        idText(field.name),
-                        /*questionToken*/ undefined,
-                        /*type*/ undefined,
-                        /*initializer*/ undefined,
-                    )
-                ),
-                /*type*/ undefined,
-                factory.createBlock([factory.createReturnStatement(object)], /*multiLine*/ true),
-            );
-        });
-    }
-
-    function transformExtensionDeclaration(node: TypeAliasDeclaration): VisitResult<Statement> | undefined {
-        const syntax = getExtensionDeclarationSyntax(node);
-        if (!syntax?.transform) return undefined;
-        const pluginTransformer: TSPPDeclarationTransformer = {
-            createNotEmittedStatement: declaration => factory.createNotEmittedStatement(declaration as Node),
-            createTaggedUnionStatements: declaration => createTaggedUnionStatements(declaration as TypeAliasDeclaration),
-        };
-        const transformed = syntax.transform(node, pluginTransformer);
-        return Array.isArray(transformed)
-            ? transformed as readonly Statement[]
-            : visitNode(transformed as Statement, visitor, isStatement);
     }
 
     /**
@@ -819,7 +734,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
 
             case SyntaxKind.TypeAliasDeclaration:
                 // TypeScript type-only declarations are elided.
-                return transformExtensionDeclaration(node as TypeAliasDeclaration) ?? factory.createNotEmittedStatement(node);
+                return factory.createNotEmittedStatement(node);
 
             case SyntaxKind.NamespaceExportDeclaration:
                 // TypeScript namespace export declarations are elided.
@@ -1856,125 +1771,7 @@ export function transformTypeScript(context: TransformationContext): Transformer
         return factory.createPartiallyEmittedExpression(expression, node);
     }
 
-    function transformTaggedUnionMatch(data: TaggedUnionMatchData): Expression {
-        const matched = factory.createIdentifier(data.temporaryName);
-        const fieldAccess = (value: Expression, fieldIndex: number): Expression => {
-            const access = factory.createElementAccessExpression(
-                factory.createPropertyAccessExpression(value, "_values"),
-                factory.createNumericLiteral(fieldIndex),
-            );
-            setEmitFlags(access, getEmitFlags(access) | EmitFlags.NoSubstitution);
-            return access;
-        };
-        const lowerPattern = (
-            pattern: TaggedUnionMatchData["arms"][number]["patterns"][number],
-            value: Expression,
-        ): { readonly condition: Expression; readonly replacements: ReadonlyMap<string, Expression>; } => {
-            const tag = factory.createPropertyAccessExpression(value, "_tag");
-            setEmitFlags(tag, getEmitFlags(tag) | EmitFlags.NoSubstitution);
-            let condition = factory.createBinaryExpression(
-                tag,
-                factory.createToken(SyntaxKind.EqualsEqualsEqualsToken),
-                factory.createStringLiteral(pattern.variant),
-            );
-            const replacements = new Map<string, Expression>();
-            pattern.elements.forEach((element, fieldIndex) => {
-                const access = fieldAccess(factory.cloneNode(value), fieldIndex);
-                if (element.kind === "constructor") {
-                    const nested = lowerPattern(element, access);
-                    condition = factory.createLogicalAnd(condition, nested.condition);
-                    for (const [name, replacement] of nested.replacements) replacements.set(name, replacement);
-                }
-                else if (element.name !== "_") {
-                    replacements.set(element.name, access);
-                }
-            });
-            return { condition, replacements };
-        };
-        const substituteBindings = (expression: Expression, replacements: ReadonlyMap<string, Expression>): Expression => {
-            const visited = Debug.checkDefined(visitNode(expression, visitor, isExpression));
-            const substitute = (node: Node): Node => {
-                if (isIdentifier(node)) {
-                    const replacement = replacements.get(idText(node));
-                    if (replacement) return factory.cloneNode(replacement);
-                }
-                return visitEachChild(node, substitute, context);
-            };
-            return substitute(visited) as Expression;
-        };
-        let body: Expression = factory.createVoidZero();
-        for (let index = data.arms.length - 1; index >= 0; index--) {
-            const arm = data.arms[index];
-            const wildcard = arm.patterns.some(pattern => pattern.variant === "_");
-            const lowered = arm.patterns
-                .filter(pattern => pattern.variant !== "_")
-                .map(pattern => lowerPattern(pattern, factory.createIdentifier(data.temporaryName)));
-            const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
-            const result = substituteBindings(arm.result, replacements);
-            const guard = arm.guard && substituteBindings(arm.guard, replacements);
-            if (wildcard && !guard) {
-                body = result;
-                continue;
-            }
-            let condition = lowered[0]?.condition ?? factory.createTrue();
-            for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
-                condition = factory.createLogicalOr(condition, lowered[patternIndex].condition);
-            }
-            if (guard) condition = factory.createLogicalAnd(condition, guard);
-            body = factory.createConditionalExpression(
-                condition,
-                factory.createToken(SyntaxKind.QuestionToken),
-                result,
-                factory.createToken(SyntaxKind.ColonToken),
-                body,
-            );
-        }
-        const expression = factory.createCallExpression(
-            factory.createParenthesizedExpression(factory.createArrowFunction(
-                /*modifiers*/ undefined,
-                /*typeParameters*/ undefined,
-                [factory.createParameterDeclaration(
-                    /*modifiers*/ undefined,
-                    /*dotDotDotToken*/ undefined,
-                    matched,
-                    /*questionToken*/ undefined,
-                    /*type*/ undefined,
-                    /*initializer*/ undefined,
-                )],
-                /*type*/ undefined,
-                factory.createToken(SyntaxKind.EqualsGreaterThanToken),
-                body,
-            )),
-            /*typeArguments*/ undefined,
-            [Debug.checkDefined(visitNode(data.scrutinee, visitor, isExpression))],
-        );
-        const suppressGeneratedSubstitution = (node: Node): void => {
-            if ((isIdentifier(node) && idText(node) === data.temporaryName) || isAccessExpression(node)) {
-                setEmitFlags(node, getEmitFlags(node) | EmitFlags.NoSubstitution);
-            }
-            forEachChild(node, child => {
-                suppressGeneratedSubstitution(child);
-                return undefined;
-            });
-        };
-        suppressGeneratedSubstitution(expression);
-        return expression;
-    }
-
     function visitCallExpression(node: CallExpression) {
-        const taggedUnionMatch = getTaggedUnionMatchData(node);
-        if (taggedUnionMatch) return transformTaggedUnionMatch(taggedUnionMatch);
-        if (isIdentifier(node.expression)) {
-            const declaration = resolver.getReferencedExtensionDeclaration(node.expression);
-            const syntax = declaration && getExtensionDeclarationSyntax(declaration);
-            if (syntax?.transformCall && declaration) {
-                const pluginTransformer: TSPPDeclarationCallTransformer = {
-                    getArguments: call => (call as CallExpression).arguments,
-                    visitExpression: expression => Debug.checkDefined(visitNode(expression as Expression, visitor, isExpression)),
-                };
-                return syntax.transformCall(node, declaration, pluginTransformer) as Expression;
-            }
-        }
         return factory.updateCallExpression(
             node,
             Debug.checkDefined(visitNode(node.expression, visitor, isExpression)),
@@ -2982,7 +2779,6 @@ export function transformTypeScript(context: TransformationContext): Transformer
     }
 
     function shouldEmitAliasDeclaration(node: Node): boolean {
-        return compilerOptions.verbatimModuleSyntax || isInJSFile(node) ||
-            (!resolver.isErasedExtensionValueAliasDeclaration(node) && resolver.isReferencedAliasDeclaration(node));
+        return compilerOptions.verbatimModuleSyntax || isInJSFile(node) || resolver.isReferencedAliasDeclaration(node);
     }
 }

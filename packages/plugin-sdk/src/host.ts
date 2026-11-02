@@ -147,10 +147,8 @@ export class TSPPPluginHost {
             },
             compiler: {
                 expressionSyntaxKinds: this.environment.compiler.expressionSyntaxKinds,
-                declarationSyntaxKinds: this.environment.compiler.declarationSyntaxKinds,
                 typeSyntaxKinds: this.environment.compiler.typeSyntaxKinds,
                 registerExpressionSyntax: syntax => this.environment.compiler.registerExpressionSyntax(pluginId, syntax),
-                registerDeclarationSyntax: syntax => this.environment.compiler.registerDeclarationSyntax(pluginId, syntax),
                 registerTypeSyntax: syntax => this.environment.compiler.registerTypeSyntax(pluginId, syntax),
                 registerPostfixTypeSyntax: syntax => this.environment.compiler.registerPostfixTypeSyntax(pluginId, syntax),
                 registerKindAnnotationSyntax: syntax =>

@@ -14,7 +14,7 @@ test("registers its declaration and match syntax and its diagnostics, and remove
     return () => registered.delete(key);
   };
   const compiler = {
-    expressionSyntaxKinds: {}, declarationSyntaxKinds: {}, typeSyntaxKinds: {},
+    expressionSyntaxKinds: {}, typeSyntaxKinds: {},
     registerSyntaxExtension: register("syntax"),
     registerDiagnosticProvider: register("diagnostics"),
   };

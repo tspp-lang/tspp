@@ -1,10 +1,8 @@
 import type {
-    TSPPDeclarationParser,
     TSPPExpressionParser,
     TSPPKindAnnotationParser,
     TSPPPostfixTypeParser,
     TSPPSyntaxCursor,
-    TSPPTaggedUnionVariant,
     TSPPTypeKind,
     TSPPTypeParser,
 } from "@tspp/plugin-sdk/compiler";
@@ -418,7 +416,6 @@ import {
     expressionSyntaxKinds,
     getTypeKindAnnotation,
     isExtensionTypeConstructor,
-    isStartOfExtensionDeclaration,
     isStartOfTSPPSyntax,
     isTSPPSyntaxNode,
     projectTSPPSource,
@@ -427,7 +424,6 @@ import {
     registerTypeUniverse,
     rewriteTSPPExpression,
     setTypeKindAnnotation,
-    tryParseExtensionDeclaration,
     tryParseExtensionExpression,
     tryParseExtensionType,
     tryParseKindAnnotation,
@@ -435,11 +431,6 @@ import {
     tryParseTSPPSyntax,
     typeSyntaxKinds,
 } from "./tspp/registry.js";
-import {
-    setTaggedUnionData,
-    setTaggedUnionMatchData,
-    type TaggedUnionMatchPattern,
-} from "./tspp/taggedUnion.js";
 
 const enum SignatureFlags {
     None = 0,
@@ -478,20 +469,6 @@ export const parseBaseNodeFactory: BaseNodeFactory = {
 
 /** @internal */
 export const parseNodeFactory: NodeFactory = createNodeFactory(NodeFactoryFlags.NoParenthesizerRules, parseBaseNodeFactory);
-
-const synthesizedParseBaseNodeFactory: BaseNodeFactory = {
-    createBaseSourceFileNode: kind => markSynthesized(parseBaseNodeFactory.createBaseSourceFileNode(kind)),
-    createBaseIdentifierNode: kind => markSynthesized(parseBaseNodeFactory.createBaseIdentifierNode(kind)),
-    createBasePrivateIdentifierNode: kind => markSynthesized(parseBaseNodeFactory.createBasePrivateIdentifierNode(kind)),
-    createBaseTokenNode: kind => markSynthesized(parseBaseNodeFactory.createBaseTokenNode(kind)),
-    createBaseNode: kind => markSynthesized(parseBaseNodeFactory.createBaseNode(kind)),
-};
-const synthesizedParseNodeFactory = createNodeFactory(NodeFactoryFlags.NoParenthesizerRules, synthesizedParseBaseNodeFactory);
-
-function markSynthesized<T extends Node>(node: T): T {
-    (node as Mutable<T>).flags |= NodeFlags.Synthesized;
-    return node;
-}
 
 function visitNode<T>(cbNode: (node: Node) => T, node: Node | undefined): T | undefined {
     return node && cbNode(node);
@@ -6075,236 +6052,6 @@ namespace Parser {
     }
 
     function createExtensionParser(pluginId: string): TSPPExpressionParser {
-        function parseTaggedUnionMatchExpression(): Expression {
-            // This checker-only tree has no source tokens to finish its ranges from. Use the
-            // synthesized factory so zero-width parser nodes are not mistaken for missing syntax.
-            const generated = synthesizedParseNodeFactory;
-            const pos = getNodePos();
-            nextToken();
-            const scrutinee = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
-            parseExpected(SyntaxKind.OpenBraceToken);
-            interface ParsedPattern {
-                readonly kind: "pattern";
-                readonly variant: Identifier;
-                readonly elements: readonly (Identifier | ParsedPattern)[];
-            }
-            const isParsedPattern = (element: Identifier | ParsedPattern): element is ParsedPattern => element.kind === "pattern";
-            const parsePattern = (): ParsedPattern => {
-                const variant = parseIdentifier();
-                const elements: (Identifier | ParsedPattern)[] = [];
-                if (parseOptional(SyntaxKind.OpenParenToken)) {
-                    while (token() !== SyntaxKind.CloseParenToken && token() !== SyntaxKind.EndOfFileToken) {
-                        const nested = lookAhead(() => {
-                            parseIdentifier();
-                            return token() === SyntaxKind.OpenParenToken;
-                        });
-                        elements.push(nested ? parsePattern() : parseIdentifier());
-                        if (!parseOptional(SyntaxKind.CommaToken)) break;
-                    }
-                    parseExpected(SyntaxKind.CloseParenToken);
-                }
-                return { kind: "pattern", variant, elements };
-            };
-            const arms: {
-                readonly patterns: readonly ParsedPattern[];
-                readonly guard?: Expression;
-                readonly result: Expression;
-            }[] = [];
-            while (token() !== SyntaxKind.CloseBraceToken && token() !== SyntaxKind.EndOfFileToken) {
-                const armStart = getNodePos();
-                const patterns = [parsePattern()];
-                while (parseOptional(SyntaxKind.BarToken)) patterns.push(parsePattern());
-                const guard = parseOptional(SyntaxKind.IfKeyword)
-                    ? parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true)
-                    : undefined;
-                parseExpected(SyntaxKind.EqualsGreaterThanToken);
-                const result = parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true);
-                arms.push({ patterns, guard, result });
-                if (!parseOptional(SyntaxKind.CommaToken)) parseOptional(SyntaxKind.SemicolonToken);
-                // An arm that consumed no token would be parsed again at the same token forever.
-                if (getNodePos() === armStart) nextToken();
-            }
-            parseExpected(SyntaxKind.CloseBraceToken);
-
-            const temporaryName = `__tspp_match_${pos}`;
-            const cloneWithRange = <T extends Node>(node: T): T => setTextRange(factory.cloneNode(node), node);
-            const fieldAccess = (
-                value: Expression,
-                fieldIndex: number,
-                location: Node,
-                preserveRanges: boolean,
-            ) => {
-                const index = generated.createNumericLiteral(fieldIndex);
-                const access = generated.createElementAccessExpression(
-                    generated.createPropertyAccessExpression(value, "_values"),
-                    preserveRanges ? setTextRange(index, location) : index,
-                );
-                return preserveRanges
-                    ? setTextRange(generated.createNonNullExpression(setTextRange(access, location)), location)
-                    : access;
-            };
-            const bindPatternValues = (expression: Expression, replacements: ReadonlyMap<string, Expression>) => {
-                if (replacements.size === 0) return expression;
-                const parameters = [...replacements].map(([name, replacement]) =>
-                    generated.createParameterDeclaration(
-                        /*modifiers*/ undefined,
-                        /*dotDotDotToken*/ undefined,
-                        name,
-                        /*questionToken*/ undefined,
-                        /*type*/ undefined,
-                        cloneWithRange(replacement),
-                    )
-                );
-                const arrow = generated.createArrowFunction(
-                    /*modifiers*/ undefined,
-                    /*typeParameters*/ undefined,
-                    parameters,
-                    /*type*/ undefined,
-                    generated.createToken(SyntaxKind.EqualsGreaterThanToken),
-                    expression,
-                );
-                return generated.createCallExpression(
-                    generated.createParenthesizedExpression(arrow),
-                    /*typeArguments*/ undefined,
-                    emptyArray,
-                );
-            };
-            const lowerPattern = (pattern: ParsedPattern, value: Expression, preserveRanges: boolean): {
-                readonly condition: Expression;
-                readonly replacements: ReadonlyMap<string, Expression>;
-            } => {
-                let condition = generated.createBinaryExpression(
-                    generated.createPropertyAccessExpression(cloneWithRange(value), "_tag"),
-                    generated.createToken(SyntaxKind.EqualsEqualsEqualsToken),
-                    generated.createStringLiteral(idText(pattern.variant)),
-                );
-                const replacements = new Map<string, Expression>();
-                pattern.elements.forEach((element, fieldIndex) => {
-                    const access = fieldAccess(cloneWithRange(value), fieldIndex, pattern.variant, preserveRanges);
-                    if (isParsedPattern(element)) {
-                        const nested = lowerPattern(element, access, preserveRanges);
-                        condition = generated.createBinaryExpression(
-                            condition,
-                            generated.createToken(SyntaxKind.AmpersandAmpersandToken),
-                            nested.condition,
-                        );
-                        for (const [name, replacement] of nested.replacements) replacements.set(name, replacement);
-                    }
-                    else if (idText(element) !== "_") {
-                        replacements.set(idText(element), access);
-                    }
-                });
-                return { condition, replacements };
-            };
-            const lowerArms = (createMatched: () => Expression, preserveRanges: boolean) =>
-                arms.map(arm => {
-                    const wildcard = arm.patterns.some(pattern => idText(pattern.variant) === "_");
-                    const lowered = arm.patterns
-                        .filter(pattern => idText(pattern.variant) !== "_")
-                        .map(pattern => lowerPattern(pattern, createMatched(), preserveRanges));
-                    const replacements = lowered[0]?.replacements ?? new Map<string, Expression>();
-                    const result = bindPatternValues(arm.result, replacements);
-                    const guard = arm.guard && bindPatternValues(arm.guard, replacements);
-                    let condition = lowered[0]?.condition;
-                    for (let patternIndex = 1; patternIndex < lowered.length; patternIndex++) {
-                        condition = generated.createBinaryExpression(
-                            Debug.checkDefined(condition),
-                            generated.createToken(SyntaxKind.BarBarToken),
-                            lowered[patternIndex].condition,
-                        );
-                    }
-                    return { arm, wildcard, condition, guard, result };
-                });
-            const checkerArms = lowerArms(
-                () => setTextRange(generated.createIdentifier(temporaryName), scrutinee),
-                /*preserveRanges*/ true,
-            );
-            let body: Expression = generated.createAsExpression(
-                generated.createVoidZero(),
-                generated.createKeywordTypeNode(SyntaxKind.NeverKeyword),
-            );
-            for (let index = checkerArms.length - 1; index >= 0; index--) {
-                const { wildcard, guard, result } = checkerArms[index];
-                if (wildcard && !guard) {
-                    body = result;
-                    continue;
-                }
-                let condition = checkerArms[index].condition ?? generated.createTrue();
-                if (guard) condition = generated.createLogicalAnd(condition, guard);
-                body = generated.createConditionalExpression(
-                    condition,
-                    generated.createToken(SyntaxKind.QuestionToken),
-                    result,
-                    generated.createToken(SyntaxKind.ColonToken),
-                    body,
-                );
-            }
-            const checkerBody = generated.createCallExpression(
-                generated.createParenthesizedExpression(generated.createArrowFunction(
-                    /*modifiers*/ undefined,
-                    /*typeParameters*/ undefined,
-                    [generated.createParameterDeclaration(
-                        /*modifiers*/ undefined,
-                        /*dotDotDotToken*/ undefined,
-                        temporaryName,
-                        /*questionToken*/ undefined,
-                        /*type*/ undefined,
-                        scrutinee,
-                    )],
-                    /*type*/ undefined,
-                    generated.createToken(SyntaxKind.EqualsGreaterThanToken),
-                    body,
-                )),
-                /*typeArguments*/ undefined,
-                emptyArray,
-            );
-            const giveGeneratedNodesSourceRange = (node: Node): undefined => {
-                if (node.pos < 0) setTextRangePosEnd(node, pos, pos + 1);
-                forEachChild(node, giveGeneratedNodesSourceRange, nodes => {
-                    if (nodes.pos < 0) setTextRangePosEnd(nodes, pos, pos + 1);
-                    for (const child of nodes) giveGeneratedNodesSourceRange(child);
-                    return undefined;
-                });
-                return undefined;
-            };
-            giveGeneratedNodesSourceRange(checkerBody);
-            const matchExpression = finishNode(
-                factory.createExtensionExpression(pluginId, [getSynthesizedDeepClone(scrutinee), checkerBody]),
-                pos,
-            );
-            // Pattern bindings are not tree nodes; link each to the parameter that types it in the checker tree.
-            const boundParameter = (armIndex: number, name: string) => {
-                const result = checkerArms[armIndex].result;
-                if (result.kind !== SyntaxKind.CallExpression) return undefined;
-                const callee = (result as CallExpression).expression;
-                if (callee.kind !== SyntaxKind.ParenthesizedExpression) return undefined;
-                const arrow = (callee as ParenthesizedExpression).expression;
-                if (arrow.kind !== SyntaxKind.ArrowFunction) return undefined;
-                return (arrow as ArrowFunction).parameters.find(parameter => isIdentifierNode(parameter.name) && idText(parameter.name) === name);
-            };
-            setTaggedUnionMatchData(matchExpression, {
-                scrutinee,
-                temporaryName,
-                arms: arms.map((arm, armIndex) => ({
-                    patterns: arm.patterns.map(function convert(pattern): TaggedUnionMatchPattern {
-                        return {
-                            kind: "constructor",
-                            variant: idText(pattern.variant),
-                            variantNode: pattern.variant,
-                            elements: pattern.elements.map(element =>
-                                isParsedPattern(element)
-                                    ? convert(element)
-                                    : { kind: "binding", name: idText(element), node: element, declaration: boundParameter(armIndex, idText(element)) }
-                            ),
-                        };
-                    }),
-                    guard: arm.guard,
-                    result: arm.result,
-                })),
-            });
-            return matchExpression;
-        }
-
         return {
             kinds: expressionSyntaxKinds,
             token,
@@ -6316,7 +6063,6 @@ namespace Parser {
             parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
             parseType,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true),
-            parseTaggedUnionMatchExpression,
             finishExpression: (children, pos) =>
                 finishNode(
                     factory.createExtensionExpression(pluginId, children as readonly Node[]),
@@ -7808,16 +7554,7 @@ namespace Parser {
 
                 default:
                     if (isStartOfTSPPSyntax("declaration", token(), createTSPPSyntaxCursor)) return true; // TSPP-SLOT(syntax-extension)
-                    return isStartOfExtensionDeclaration(
-                        token(),
-                        pluginId =>
-                            createExtensionDeclarationParser(
-                                pluginId,
-                                /*modifiers*/ undefined,
-                                getNodePos(),
-                                hasPrecedingJSDocComment(),
-                            ),
-                    );
+                    return false;
             }
         }
     }
@@ -7941,19 +7678,6 @@ namespace Parser {
     function parseStatement(): Statement {
         const syntaxStatement = tryParsePluginSyntax(() => tryParseTSPPSyntax("statement", token(), createTSPPSyntaxCursor) ?? tryParseTSPPSyntax("declaration", token(), createTSPPSyntaxCursor)) as Statement | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxStatement) return syntaxStatement; // TSPP-SLOT(syntax-extension)
-        const extensionDeclaration = tryParsePluginSyntax(() =>
-            tryParseExtensionDeclaration(
-                token(),
-                pluginId =>
-                    createExtensionDeclarationParser(
-                        pluginId,
-                        /*modifiers*/ undefined,
-                        getNodePos(),
-                        hasPrecedingJSDocComment(),
-                    ),
-            )
-        );
-        if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
             case SyntaxKind.SemicolonToken:
                 return parseEmptyStatement();
@@ -8036,133 +7760,6 @@ namespace Parser {
         return parseExpressionOrLabeledStatement();
     }
 
-    function createExtensionDeclarationParser(
-        _pluginId: string,
-        modifiers: NodeArray<ModifierLike> | undefined,
-        declarationPos: number,
-        hasJSDoc: boolean,
-    ): TSPPDeclarationParser {
-        function finishTaggedUnionDeclaration(
-            nameIn: object,
-            typeParametersIn: object | undefined,
-            variantsIn: readonly TSPPTaggedUnionVariant[],
-            pos: number,
-        ): TypeAliasDeclaration {
-            const name = nameIn as Identifier;
-            const typeParameters = typeParametersIn as NodeArray<TypeParameterDeclaration> | undefined;
-            const variants = variantsIn.map(variant => {
-                const fields = variant.fields.map(field => ({
-                    name: field.name as Identifier,
-                    type: field.type as TypeNode,
-                }));
-                const variantType = factory.createTypeLiteralNode([
-                    factory.createPropertySignature(
-                        [factory.createModifier(SyntaxKind.ReadonlyKeyword)],
-                        "_tag",
-                        /*questionToken*/ undefined,
-                        factory.createLiteralTypeNode(factory.createStringLiteral(idText(variant.name as Identifier))),
-                    ),
-                    factory.createPropertySignature(
-                        [factory.createModifier(SyntaxKind.ReadonlyKeyword)],
-                        "_values",
-                        /*questionToken*/ undefined,
-                        factory.createTupleTypeNode(factory.createNodeArray(
-                            fields.map(field => getSynthesizedDeepClone(field.type)),
-                        )),
-                    ),
-                    ...fields.map(field =>
-                        factory.createPropertySignature(
-                            [factory.createModifier(SyntaxKind.ReadonlyKeyword)],
-                            idText(field.name),
-                            /*questionToken*/ undefined,
-                            field.type,
-                        )
-                    ),
-                ]);
-                return { name: variant.name as Identifier, fields, type: variantType };
-            });
-            const unionType = variants.length === 1
-                ? variants[0].type
-                : factory.createUnionTypeNode(factory.createNodeArray(variants.map(variant => variant.type)));
-            const declaration = withJSDoc(
-                finishNode(factory.createTypeAliasDeclaration(modifiers, name, typeParameters, unionType), pos),
-                hasJSDoc,
-            );
-            const aliasTypeArguments = typeParameters?.map(parameter => factory.createTypeReferenceNode(idText(parameter.name), /*typeArguments*/ undefined));
-            const emptyTypeArguments = typeParameters?.map(() => factory.createKeywordTypeNode(SyntaxKind.NeverKeyword));
-            const registeredVariants = variants.map(variant => {
-                const generic = variant.fields.length > 0;
-                const aliasReference = factory.createTypeReferenceNode(
-                    idText(name),
-                    generic ? aliasTypeArguments : emptyTypeArguments,
-                );
-                const returnType = factory.createIntersectionTypeNode(factory.createNodeArray([
-                    aliasReference,
-                    getSynthesizedDeepClone(variant.type),
-                ]));
-                const declaration = factory.createFunctionDeclaration(
-                    modifiers,
-                    /*asteriskToken*/ undefined,
-                    idText(variant.name),
-                    generic
-                        ? typeParameters?.map(parameter =>
-                            factory.createTypeParameterDeclaration(
-                                /*modifiers*/ undefined,
-                                idText(parameter.name),
-                                getSynthesizedDeepClone(parameter.constraint),
-                                getSynthesizedDeepClone(parameter.default),
-                            )
-                        )
-                        : undefined,
-                    variant.fields.map(field =>
-                        factory.createParameterDeclaration(
-                            /*modifiers*/ undefined,
-                            /*dotDotDotToken*/ undefined,
-                            idText(field.name),
-                            /*questionToken*/ undefined,
-                            getSynthesizedDeepClone(field.type),
-                            /*initializer*/ undefined,
-                        )
-                    ),
-                    returnType,
-                    /*body*/ undefined,
-                );
-                return { ...variant, declaration };
-            });
-            setTaggedUnionData(declaration, { variants: registeredVariants });
-            return declaration;
-        }
-
-        return {
-            token,
-            tokenText: () => scanner.getTokenText(),
-            nextToken,
-            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
-            lookAhead,
-            getNodePos: () => declarationPos,
-            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-            parseIdentifier,
-            parseTypeParameters,
-            parseType,
-            parseSemicolon,
-            parseErrorAtCurrentToken: message => void parseErrorAtCurrentToken(Diagnostics._0, message),
-            finishTaggedUnionDeclaration,
-            finishTypeAliasDeclaration: (name, typeParameters, type, pos) =>
-                withJSDoc(
-                    finishNode(
-                        factory.createTypeAliasDeclaration(
-                            modifiers,
-                            name as Identifier,
-                            typeParameters as NodeArray<TypeParameterDeclaration> | undefined,
-                            type as TypeNode,
-                        ),
-                        pos,
-                    ),
-                    hasJSDoc,
-                ),
-        };
-    }
-
     function isDeclareModifier(modifier: ModifierLike) {
         return modifier.kind === SyntaxKind.DeclareKeyword;
     }
@@ -8205,13 +7802,6 @@ namespace Parser {
     function parseDeclarationWorker(pos: number, hasJSDoc: boolean, modifiersIn: NodeArray<ModifierLike> | undefined): Statement {
         const syntaxDeclaration = tryParsePluginSyntax(() => tryParseTSPPSyntax("declaration", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, modifiersIn))) as Statement | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxDeclaration) return syntaxDeclaration; // TSPP-SLOT(syntax-extension)
-        const extensionDeclaration = tryParsePluginSyntax(() =>
-            tryParseExtensionDeclaration(
-                token(),
-                pluginId => createExtensionDeclarationParser(pluginId, modifiersIn, pos, hasJSDoc),
-            )
-        );
-        if (extensionDeclaration) return extensionDeclaration;
         switch (token()) {
             case SyntaxKind.VarKeyword:
             case SyntaxKind.LetKeyword:

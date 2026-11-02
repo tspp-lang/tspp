@@ -1,7 +1,4 @@
-import type {
-    TSPPDeclarationEmitter,
-    TSPPTypeKind,
-} from "@tspp/plugin-sdk/compiler";
+import type { TSPPTypeKind } from "@tspp/plugin-sdk/compiler";
 import * as ts from "./_namespaces/ts.js";
 import {
     AccessorDeclaration,
@@ -437,7 +434,6 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
-    getExtensionDeclarationSyntax,
     getPreprocessedFunctionPrefix,
     getPreprocessedFunctionWithClause,
     getPreprocessedTypeAliasDeclaration,
@@ -449,7 +445,6 @@ import {
     isExtensionTypeConstructor,
     isTSPPRewrittenIdentifier,
 } from "./tspp/registry.js";
-import { getTaggedUnionData } from "./tspp/taggedUnion.js";
 
 const brackets = createBracketsMap();
 
@@ -1208,7 +1203,6 @@ export const notImplementedResolver: EmitResolver = {
     getReferencedDeclarationWithCollidingName: notImplemented,
     isDeclarationWithCollidingName: notImplemented,
     isValueAliasDeclaration: notImplemented,
-    isErasedExtensionValueAliasDeclaration: notImplemented,
     isReferencedAliasDeclaration: notImplemented,
     isTopLevelValueImportEqualsWithEntityName: notImplemented,
     hasNodeCheckFlag: notImplemented,
@@ -1230,7 +1224,6 @@ export const notImplementedResolver: EmitResolver = {
     getConstantValue: notImplemented,
     getEnumMemberValue: notImplemented,
     getReferencedValueDeclaration: notImplemented,
-    getReferencedExtensionDeclaration: notImplemented,
     getReferencedValueDeclarations: notImplemented,
     getTypeReferenceSerializationKind: notImplemented,
     isOptionalParameter: notImplemented,
@@ -3830,152 +3823,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             compatibilityKindedTypeParameterNames = getCompatibilityKindedTypeParameterNames(node.typeParameters);
             compatibilityTypeParameterNames = new Set(node.typeParameters?.map(parameter => idText(parameter.name)) ?? emptyArray);
         }
-        const syntax = getExtensionDeclarationSyntax(node);
-        const extensionEmitter = syntax && (tsppCompatibilityDeclaration ? syntax.emitCompatibilityDeclaration : syntax.emitDeclaration);
-        if (extensionEmitter) {
-            const pluginEmitter: TSPPDeclarationEmitter = {
-                emitTypeAliasDeclaration: (declaration, keyword) => {
-                    const alias = declaration as TypeAliasDeclaration;
-                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
-                    writeKeyword(keyword);
-                    writeSpace();
-                    emit(alias.name);
-                    emitTypeParameters(alias, alias.typeParameters);
-                    writeSpace();
-                    writePunctuation("=");
-                    writeSpace();
-                    emit(alias.type);
-                    writeTrailingSemicolon();
-                },
-                emitTaggedUnionDeclaration: (declaration, keyword) => {
-                    const alias = declaration as TypeAliasDeclaration;
-                    const data = getTaggedUnionData(alias);
-                    if (!data) return;
-                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
-                    writeKeyword(keyword);
-                    writeSpace();
-                    emit(alias.name);
-                    emitTypeParameters(alias, alias.typeParameters);
-                    writeSpace();
-                    writePunctuation("=");
-                    writeSpace();
-                    data.variants.forEach((variant, variantIndex) => {
-                        if (variantIndex > 0) {
-                            writeSpace();
-                            writePunctuation("|");
-                            writeSpace();
-                        }
-                        emit(variant.name);
-                        if (variant.fields.length > 0) {
-                            writePunctuation("(");
-                            variant.fields.forEach((field, fieldIndex) => {
-                                if (fieldIndex > 0) {
-                                    writePunctuation(",");
-                                    writeSpace();
-                                }
-                                emit(field.name);
-                                writePunctuation(":");
-                                writeSpace();
-                                emit(field.type);
-                            });
-                            writePunctuation(")");
-                        }
-                    });
-                    writeTrailingSemicolon();
-                },
-                emitCompatibilityNominalDeclaration: declaration => {
-                    const alias = declaration as TypeAliasDeclaration;
-                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
-                    writeKeyword("type");
-                    writeSpace();
-                    emit(alias.name);
-                    emitTypeParameters(alias, alias.typeParameters);
-                    writeSpace();
-                    writePunctuation("=");
-                    writeSpace();
-                    emit(alias.type);
-                    writeTrailingSemicolon();
-                    writeLine();
-                    emitExportModifier(alias);
-                    writeKeyword("declare");
-                    writeSpace();
-                    writeKeyword("function");
-                    writeSpace();
-                    emit(alias.name);
-                    emitTypeParameters(alias, alias.typeParameters);
-                    writePunctuation("(");
-                    write("value");
-                    writePunctuation(":");
-                    writeSpace();
-                    emit(alias.type);
-                    writePunctuation(")");
-                    writePunctuation(":");
-                    writeSpace();
-                    emit(alias.name);
-                    emitTypeParameterReferences(alias.typeParameters);
-                    writeTrailingSemicolon();
-                },
-                emitCompatibilityTaggedUnionDeclaration: declaration => {
-                    const alias = declaration as TypeAliasDeclaration;
-                    const data = getTaggedUnionData(alias);
-                    if (!data) return;
-                    emitDecoratorsAndModifiers(alias, alias.modifiers, /*allowDecorators*/ false);
-                    writeKeyword("type");
-                    writeSpace();
-                    emit(alias.name);
-                    emitTypeParameters(alias, alias.typeParameters);
-                    writeSpace();
-                    writePunctuation("=");
-                    data.variants.forEach((variant, variantIndex) => {
-                        if (variantIndex > 0) write(" |");
-                        writeSpace();
-                        emitCompatibilityVariantObject(variant);
-                    });
-                    writeTrailingSemicolon();
-                    for (const variant of data.variants) {
-                        writeLine();
-                        emitExportModifier(alias);
-                        writeKeyword("declare");
-                        writeSpace();
-                        if (variant.fields.length === 0) {
-                            writeKeyword("const");
-                            writeSpace();
-                            emit(variant.name);
-                            writePunctuation(":");
-                            writeSpace();
-                            emitCompatibilityVariantObject(variant);
-                        }
-                        else {
-                            writeKeyword("function");
-                            writeSpace();
-                            emit(variant.name);
-                            emitTypeParameters(alias, alias.typeParameters);
-                            writePunctuation("(");
-                            variant.fields.forEach((field, fieldIndex) => {
-                                if (fieldIndex > 0) {
-                                    writePunctuation(",");
-                                    writeSpace();
-                                }
-                                emit(field.name);
-                                writePunctuation(":");
-                                writeSpace();
-                                emit(field.type);
-                            });
-                            writePunctuation(")");
-                            writePunctuation(":");
-                            writeSpace();
-                            emit(alias.name);
-                            emitTypeParameterReferences(alias.typeParameters);
-                        }
-                        writeTrailingSemicolon();
-                    }
-                },
-            };
-            extensionEmitter(node, pluginEmitter);
-            compatibilityKindedTypeParameterNames = previousKindedNames;
-            compatibilityTypeParameterNames = previousTypeNames;
-            return;
-        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
         writeKeyword("type");
         writeSpace();
@@ -4012,13 +3859,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         compatibilityTypeParameterNames = previousTypeNames;
     }
 
-    function emitExportModifier(node: TypeAliasDeclaration) {
-        if (node.modifiers?.some(modifier => modifier.kind === SyntaxKind.ExportKeyword)) {
-            writeKeyword("export");
-            writeSpace();
-        }
-    }
-
     function getCompatibilityKindedTypeParameterNames(parameters: NodeArray<TypeParameterDeclaration> | undefined) {
         const names = new Set<string>();
         for (const parameter of parameters ?? emptyArray) {
@@ -4041,42 +3881,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             writeKeyword("unknown");
         }
         writePunctuation(">");
-    }
-
-    function emitTypeParameterReferences(typeParameters: NodeArray<TypeParameterDeclaration> | undefined) {
-        if (!typeParameters?.length) return;
-        writePunctuation("<");
-        typeParameters.forEach((parameter, index) => {
-            if (index > 0) {
-                writePunctuation(",");
-                writeSpace();
-            }
-            emit(parameter.name);
-        });
-        writePunctuation(">");
-    }
-
-    function emitCompatibilityVariantObject(variant: NonNullable<ReturnType<typeof getTaggedUnionData>>["variants"][number]) {
-        writePunctuation("{");
-        writeSpace();
-        writeKeyword("readonly");
-        writeSpace();
-        write("_tag");
-        writePunctuation(":");
-        writeSpace();
-        emit(factory.createStringLiteral(idText(variant.name)));
-        for (const field of variant.fields) {
-            writePunctuation(";");
-            writeSpace();
-            writeKeyword("readonly");
-            writeSpace();
-            emit(field.name);
-            writePunctuation(":");
-            writeSpace();
-            emit(field.type);
-        }
-        writeSpace();
-        writePunctuation("}");
     }
 
     function emitEnumDeclaration(node: EnumDeclaration) {

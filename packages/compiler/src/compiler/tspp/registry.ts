@@ -4,7 +4,6 @@ import {
 } from "@tspp/plugin-sdk";
 import type {
     TSPPCompilerHostAPI,
-    TSPPDeclarationSyntax,
     TSPPDiagnosticProvider,
     TSPPExpressionRewriter,
     TSPPExpressionSyntax,
@@ -38,19 +37,14 @@ import type {
     Node,
     NodeFactory,
     SourceFile,
-    Statement,
     TypeChecker,
 } from "../types.js";
 import { SyntaxKind } from "../types.js";
-import { getTaggedUnionSyntheticDeclarations } from "./taggedUnion.js";
 
 const expressionSyntaxByPluginId = new Map<string, TSPPExpressionSyntax[]>();
 const expressionSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPExpressionSyntax; }[]>();
 const expressionSyntaxByNode = new WeakMap<object, TSPPExpressionSyntax>();
 const selectedExtensionExpressions = new WeakMap<object, object>();
-const declarationSyntaxByPluginId = new Map<string, TSPPDeclarationSyntax[]>();
-const declarationSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPDeclarationSyntax; }[]>();
-const declarationSyntaxByNode = new WeakMap<object, TSPPDeclarationSyntax>();
 const typeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTypeSyntax; }[]>();
 const typeSyntaxByNode = new WeakMap<object, TSPPTypeSyntax>();
 const postfixTypeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPPostfixTypeSyntax; }[]>();
@@ -122,24 +116,6 @@ export const expressionSyntaxKinds: {
     whileKeyword: SyntaxKind.WhileKeyword,
 };
 
-const declarationSyntaxKinds: {
-    readonly identifier: SyntaxKind;
-    readonly equalsToken: SyntaxKind;
-    readonly barToken: SyntaxKind;
-    readonly openParenToken: SyntaxKind;
-    readonly closeParenToken: SyntaxKind;
-    readonly commaToken: SyntaxKind;
-    readonly colonToken: SyntaxKind;
-} = {
-    identifier: SyntaxKind.Identifier,
-    equalsToken: SyntaxKind.EqualsToken,
-    barToken: SyntaxKind.BarToken,
-    openParenToken: SyntaxKind.OpenParenToken,
-    closeParenToken: SyntaxKind.CloseParenToken,
-    commaToken: SyntaxKind.CommaToken,
-    colonToken: SyntaxKind.ColonToken,
-};
-
 /** @internal */
 export const typeSyntaxKinds: {
     readonly endOfFileToken: SyntaxKind;
@@ -179,7 +155,6 @@ export const typeSyntaxKinds: {
 
 const compilerAPI: TSPPCompilerHostAPI = {
     expressionSyntaxKinds,
-    declarationSyntaxKinds,
     typeSyntaxKinds,
     registerExpressionSyntax(pluginId, syntax) {
         if (syntax.startTokens.length === 0) {
@@ -207,33 +182,6 @@ const compilerAPI: TSPPCompilerHostAPI = {
                 const index = candidates.indexOf(registration);
                 if (index >= 0) candidates.splice(index, 1);
                 if (candidates.length === 0) expressionSyntaxByStartToken.delete(token);
-            }
-        };
-    },
-    registerDeclarationSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP declaration plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        const syntaxes = declarationSyntaxByPluginId.get(pluginId);
-        if (syntaxes) syntaxes.push(syntax);
-        else declarationSyntaxByPluginId.set(pluginId, [syntax]);
-        for (const token of syntax.startTokens) {
-            const candidates = declarationSyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else declarationSyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            const syntaxes = declarationSyntaxByPluginId.get(pluginId);
-            const syntaxIndex = syntaxes?.indexOf(syntax) ?? -1;
-            if (syntaxes && syntaxIndex >= 0) syntaxes.splice(syntaxIndex, 1);
-            if (syntaxes?.length === 0) declarationSyntaxByPluginId.delete(pluginId);
-            for (const token of syntax.startTokens) {
-                const candidates = declarationSyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) declarationSyntaxByStartToken.delete(token);
             }
         };
     },
@@ -722,63 +670,6 @@ export function getSelectedExtensionExpression(owner: object): object | undefine
         current = current.original;
     }
     return undefined;
-}
-
-/** @internal */
-export function isStartOfExtensionDeclaration(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): boolean {
-    const candidates = declarationSyntaxByStartToken.get(token);
-    if (!candidates) return false;
-    return candidates.some(({ pluginId, syntax }) => syntax.isStart(createParser(pluginId)));
-}
-
-/** @internal */
-export function tryParseExtensionDeclaration(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): Statement | undefined {
-    const candidates = declarationSyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (!syntax.isStart(parser)) continue;
-        const declaration = syntax.parse(parser) as Statement;
-        declarationSyntaxByNode.set(declaration, syntax);
-        for (const synthetic of getTaggedUnionSyntheticDeclarations(declaration)) {
-            declarationSyntaxByNode.set(synthetic, syntax);
-        }
-        return declaration;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function getExtensionDeclarationSyntax(node: object): any {
-    let current: { readonly original?: object; } | undefined = node;
-    while (current) {
-        const syntax = declarationSyntaxByNode.get(current);
-        if (syntax) return syntax;
-        current = current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function hasExtensionDeclarationCallTransforms(): boolean {
-    for (const syntaxes of declarationSyntaxByPluginId.values()) {
-        if (syntaxes.some(syntax => syntax.transformCall)) return true;
-    }
-    return false;
-}
-
-/** @internal */
-export function hasExtensionDeclarationValueUseRestrictions(): boolean {
-    for (const syntaxes of declarationSyntaxByPluginId.values()) {
-        if (syntaxes.some(syntax => syntax.valueUse === "call-only")) return true;
-    }
-    return false;
 }
 
 /** @internal */

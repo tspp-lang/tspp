@@ -1,5 +1,4 @@
 import type {
-    TSPPDeclarationChecker,
     TSPPExpressionChecker,
     TSPPReifiedTypeMatchArm,
     TSPPTypeKind,
@@ -1158,24 +1157,15 @@ import {
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
-    getExtensionDeclarationSyntax,
     getExtensionExpressionSyntax,
     getTypeApplication,
     getTypeKindAnnotation,
     getTypeUniverseLevel,
-    hasExtensionDeclarationValueUseRestrictions,
     hasInterfaceMemberContract,
     isExtensionTypeConstructor,
     isTSPPInterfaceStaticMember,
     setSelectedExtensionExpression,
 } from "./tspp/registry.js";
-import {
-    getTaggedUnionData,
-    getTaggedUnionMatchData,
-    getTaggedUnionVariantData,
-    type TaggedUnionMatchPattern,
-    type TaggedUnionVariant,
-} from "./tspp/taggedUnion.js";
 
 const ambientModuleSymbolRegex = /^".+"$/;
 const anon = "(anonymous)" as __String & string;
@@ -1514,7 +1504,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     // See: https://github.com/microsoft/TypeScript/issues/52924
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
-    var hasTSPPValueUseRestrictions = hasExtensionDeclarationValueUseRestrictions();
     interface ExtensionTypeConstructorData {
         readonly node: FunctionTypeNode;
         readonly typeParameters: readonly TypeParameter[];
@@ -3290,8 +3279,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         nameNotFoundMessage: DiagnosticMessage,
     ) {
         const name = isString(nameArg) ? nameArg : (nameArg as Identifier).escapedText;
-        // Identifiers the language service scans beside TS++ extension syntax have no name to report.
-        if (name === undefined) return;
         addLazyDiagnostic(() => {
             if (
                 !errorLocation ||
@@ -7732,9 +7719,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 let i = 0;
                 for (const propertySymbol of properties) {
                     if (isExpanding(context) && propertySymbol.flags & SymbolFlags.Prototype) {
-                        continue;
-                    }
-                    if (isTSPPNominalBrandPropertyName(propertySymbol.escapedName)) {
                         continue;
                     }
                     i++;
@@ -12863,10 +12847,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
     function getTypeOfFuncClassEnumModuleWorker(symbol: Symbol): Type {
         const declaration = symbol.valueDeclaration;
-        const extension = declaration && getExtensionDeclarationSyntax(declaration);
-        if (extension?.getValueType && declaration) {
-            return extension.getValueType(declaration, createExtensionDeclarationChecker(declaration)) as Type;
-        }
         if (symbol.flags & SymbolFlags.Module && isShorthandAmbientModuleSymbol(symbol)) {
             return anyType;
         }
@@ -13759,10 +13739,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 : errorType;
             if (popTypeResolution()) {
                 const typeParameters = getLocalTypeParametersOfClassOrInterfaceOrTypeAlias(symbol);
-                const extension = getExtensionDeclarationSyntax(declaration);
-                if (extension?.getDeclaredType && isTypeAliasDeclaration(declaration)) {
-                    type = extension.getDeclaredType(declaration, createExtensionDeclarationChecker(declaration, typeParameters), type) as Type;
-                }
                 if (typeParameters) {
                     // Initialize the instantiation cache for generic type aliases. The declared type corresponds to
                     // an instantiation of the type alias with the type parameters supplied as type arguments.
@@ -24772,7 +24748,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
 
         function reportUnmatchedProperty(source: Type, target: Type, unmatchedProperty: Symbol, requireOptionalProperties: boolean) {
-            if (isTSPPNominalBrandPropertyName(unmatchedProperty.escapedName)) return;
             let shouldSkipElaboration = false;
             // give specific error in case where private names have the same description
             if (
@@ -24796,8 +24771,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     return;
                 }
             }
-            const props = arrayFrom(getUnmatchedProperties(source, target, requireOptionalProperties, /*matchDiscriminantProperties*/ false))
-                .filter(property => !isTSPPNominalBrandPropertyName(property.escapedName));
+            const props = arrayFrom(getUnmatchedProperties(source, target, requireOptionalProperties, /*matchDiscriminantProperties*/ false));
             if (
                 !headMessage || (headMessage.code !== Diagnostics.Class_0_incorrectly_implements_interface_1.code &&
                     headMessage.code !== Diagnostics.Class_0_incorrectly_implements_class_1_Did_you_mean_to_extend_1_and_inherit_its_members_as_a_subclass.code)
@@ -31484,18 +31458,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         const symbol = getResolvedSymbol(node);
         if (symbol === unknownSymbol) {
             return errorType;
-        }
-
-        const extensionDeclaration = hasTSPPValueUseRestrictions
-            ? getExtensionDeclarationFromSymbol(symbol)
-            : undefined;
-        const extensionSyntax = extensionDeclaration && getExtensionDeclarationSyntax(extensionDeclaration);
-        if (
-            extensionSyntax?.valueUse === "call-only" &&
-            !isInTypeQuery(node) &&
-            !(isCallExpression(node.parent) && node.parent.expression === node)
-        ) {
-            error(node, Diagnostics.The_extension_value_0_can_only_be_used_as_the_target_of_a_direct_call, idText(node));
         }
 
         checkIdentifierCalculateNodeCheckFlags(node, symbol);
@@ -42351,189 +42313,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return errorType;
     }
 
-    interface TaggedUnionMatchVariantInfo {
-        readonly type: Type;
-        readonly variant?: TaggedUnionVariant;
-    }
-
-    function getTaggedUnionMatchVariants(type: Type): Map<string, TaggedUnionMatchVariantInfo> {
-        const constituents = type.flags & TypeFlags.Union ? (type as UnionType).types : [type];
-        const variants = new Map<string, TaggedUnionMatchVariantInfo>();
-        const declaration = type.aliasSymbol?.declarations?.find(isTypeAliasDeclaration);
-        const data = declaration && getTaggedUnionData(declaration);
-        for (const constituent of constituents) {
-            const tag = getPropertyOfType(constituent, "_tag" as __String);
-            const tagType = tag && getTypeOfSymbol(tag);
-            if (!tagType || !(tagType.flags & TypeFlags.StringLiteral)) continue;
-            const name = (tagType as StringLiteralType).value;
-            variants.set(name, {
-                type: constituent,
-                variant: data?.variants.find(variant => idText(variant.name) === name),
-            });
-        }
-        for (const variant of data?.variants ?? emptyArray) {
-            const name = idText(variant.name);
-            if (!variants.has(name)) variants.set(name, { type, variant });
-        }
-        return variants;
-    }
-
-    function checkTaggedUnionMatchPattern(
-        node: ExtensionExpression,
-        pattern: TaggedUnionMatchPattern,
-        info: TaggedUnionMatchVariantInfo,
-        invalid: { value: boolean; },
-    ): boolean {
-        const fields = info.variant?.fields ?? emptyArray;
-        if (pattern.elements.length !== fields.length) {
-            invalid.value = true;
-            error(
-                node,
-                Diagnostics.Pattern_0_expects_1_fields_but_received_2,
-                pattern.variant,
-                fields.length,
-                pattern.elements.length,
-            );
-        }
-        let irrefutable = true;
-        const count = Math.min(pattern.elements.length, fields.length);
-        for (let index = 0; index < count; index++) {
-            const element = pattern.elements[index];
-            if (element.kind !== "constructor") continue;
-            irrefutable = false;
-            const field = fields[index];
-            const fieldType = getTypeOfPropertyOfType(info.type, field.name.escapedText);
-            const nested = fieldType && getTaggedUnionMatchVariants(fieldType).get(element.variant);
-            if (!nested) {
-                invalid.value = true;
-                error(
-                    node,
-                    Diagnostics.Pattern_0_does_not_belong_to_data_type_1,
-                    element.variant,
-                    idText(field.name),
-                );
-                continue;
-            }
-            checkTaggedUnionMatchPattern(node, element, nested, invalid);
-        }
-        return irrefutable;
-    }
-
-    function isTaggedUnionVariantCovered(
-        patterns: readonly TaggedUnionMatchPattern[],
-        info: TaggedUnionMatchVariantInfo,
-    ): boolean {
-        if (patterns.length === 0) return false;
-        if (patterns.some(pattern => !pattern.elements.some(element => element.kind === "constructor"))) return true;
-        const fields = info.variant?.fields ?? emptyArray;
-        for (let fieldIndex = 0; fieldIndex < fields.length; fieldIndex++) {
-            const nestedPatterns: TaggedUnionMatchPattern[] = [];
-            let onlyThisFieldIsRefutable = true;
-            for (const pattern of patterns) {
-                pattern.elements.forEach((element, index) => {
-                    if (element.kind !== "constructor") return;
-                    if (index === fieldIndex) nestedPatterns.push(element);
-                    else onlyThisFieldIsRefutable = false;
-                });
-            }
-            if (!onlyThisFieldIsRefutable || nestedPatterns.length === 0) continue;
-            const field = fields[fieldIndex];
-            const fieldType = getTypeOfPropertyOfType(info.type, field.name.escapedText);
-            if (!fieldType) continue;
-            const nestedVariants = getTaggedUnionMatchVariants(fieldType);
-            if (
-                nestedVariants.size > 0 &&
-                [...nestedVariants].every(([name, nested]) =>
-                    isTaggedUnionVariantCovered(
-                        nestedPatterns.filter(pattern => pattern.variant === name),
-                        nested,
-                    )
-                )
-            ) return true;
-        }
-        return false;
-    }
-
-    function checkTaggedUnionMatchExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
-        const taggedUnionMatch = getTaggedUnionMatchData(node);
-        if (taggedUnionMatch) {
-            const matchedType = checkExpression(taggedUnionMatch.scrutinee);
-            const variants = getTaggedUnionMatchVariants(matchedType);
-            const covered = new Set<string>();
-            const unguardedPatterns = new Map<string, TaggedUnionMatchPattern[]>();
-            const invalid = { value: false };
-            let hasWildcard = false;
-            for (const arm of taggedUnionMatch.arms) {
-                const wildcard = arm.patterns.find(pattern => pattern.variant === "_");
-                if (hasWildcard) {
-                    error(node, Diagnostics.A_branch_after_the_wildcard_pattern_is_unreachable);
-                    invalid.value = true;
-                    continue;
-                }
-                if (wildcard) {
-                    if (arm.patterns.length > 1) {
-                        error(node, Diagnostics.The_wildcard_pattern_cannot_be_combined_with_other_patterns);
-                        invalid.value = true;
-                    }
-                    if (wildcard.elements.length > 0) {
-                        error(node, Diagnostics.The_wildcard_pattern_cannot_contain_nested_patterns);
-                        invalid.value = true;
-                    }
-                    if (!arm.guard) hasWildcard = true;
-                    continue;
-                }
-                if (
-                    arm.patterns.length > 1 &&
-                    arm.patterns.some(pattern => pattern.elements.length > 0)
-                ) {
-                    error(node, Diagnostics.Or_patterns_support_only_variants_without_fields);
-                    invalid.value = true;
-                }
-                const seenInArm = new Set<string>();
-                for (const pattern of arm.patterns) {
-                    const info = variants.get(pattern.variant);
-                    if (!info) {
-                        error(
-                            node,
-                            Diagnostics.Pattern_0_does_not_belong_to_data_type_1,
-                            pattern.variant,
-                            typeToString(matchedType),
-                        );
-                        invalid.value = true;
-                        continue;
-                    }
-                    if (covered.has(pattern.variant) || seenInArm.has(pattern.variant)) {
-                        error(node, Diagnostics.Duplicate_match_branch_for_pattern_0, pattern.variant);
-                        invalid.value = true;
-                        continue;
-                    }
-                    seenInArm.add(pattern.variant);
-                    const irrefutable = checkTaggedUnionMatchPattern(node, pattern, info, invalid);
-                    if (!arm.guard) {
-                        if (irrefutable) covered.add(pattern.variant);
-                        else {
-                            const patterns = unguardedPatterns.get(pattern.variant);
-                            if (patterns) patterns.push(pattern);
-                            else unguardedPatterns.set(pattern.variant, [pattern]);
-                        }
-                    }
-                }
-            }
-            if (!hasWildcard && variants.size > 0) {
-                const missing = [...variants].filter(([name, info]) =>
-                    !covered.has(name) &&
-                    !isTaggedUnionVariantCovered(unguardedPatterns.get(name) ?? emptyArray, info)
-                ).map(([name]) => name);
-                if (missing.length) {
-                    error(node, Diagnostics.Non_exhaustive_match_Missing_patterns_Colon_0, missing.join(", "));
-                }
-            }
-            // The lowered tag tests of an invalid match only restate its errors as comparison and narrowing noise.
-            if (invalid.value) return errorType;
-        }
-        return checkExpression(node.extensionChildren[1] as Expression, checkMode);
-    }
-
     function checkExtensionExpression(node: ExtensionExpression, checkMode: CheckMode | undefined): Type {
         function createReifiedType(typeNode: TypeNode): Type {
             const representedType = getTypeFromTypeNode(typeNode);
@@ -42645,7 +42424,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
         const pluginChecker: TSPPExpressionChecker = {
             checkExpression: (expression, mode) => checkExpression(expression as Expression, mode as CheckMode | undefined),
-            checkTaggedUnionMatch: (expression, mode) => checkTaggedUnionMatchExpression(expression as ExtensionExpression, mode as CheckMode | undefined),
             createReifiedType: type => createReifiedType(type as TypeNode),
             checkReifiedTypeMatch: (owner, scrutinee, arms, mode) =>
                 checkReifiedTypeMatch(
@@ -42656,105 +42434,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 ),
         };
         return getExtensionExpressionSyntax(node).check(node, pluginChecker, checkMode) as Type;
-    }
-
-    function createExtensionDeclarationChecker(
-        declaration: Declaration,
-        typeParameters?: readonly TypeParameter[],
-    ): TSPPDeclarationChecker {
-        const symbol = getSymbolOfDeclaration(declaration);
-        return {
-            getTypeNode: node => (node as TypeAliasDeclaration).type,
-            getTypeFromTypeNode: node => getTypeFromTypeNode(node as TypeNode),
-            getDeclaredType: node => getDeclaredTypeOfSymbol(getSymbolOfDeclaration(node as Declaration)),
-            createNominalType: (node, underlyingType) => {
-                // The brand would be absorbed by these types, so the result could not stay nominal.
-                if ((underlyingType as Type).flags & (TypeFlags.Any | TypeFlags.Unknown | TypeFlags.Never)) {
-                    const declaration = node as Node as Node & { readonly type?: TypeNode; };
-                    error(declaration.type ?? declaration, Diagnostics.A_nominal_type_cannot_use_any_unknown_or_never_as_its_underlying_type);
-                }
-                const brand = createSymbol(
-                    SymbolFlags.Property,
-                    `__@tsppNominal@${getSymbolId(symbol)}` as __String,
-                    CheckFlags.Readonly,
-                );
-                brand.links.type = trueType;
-                const brandType = createAnonymousType(
-                    /*symbol*/ undefined,
-                    createSymbolTable([brand]),
-                    emptyArray,
-                    emptyArray,
-                    emptyArray,
-                );
-                const parameters = typeParameters ?? getSymbolLinks(symbol).typeParameters;
-                brandType.aliasSymbol = symbol;
-                brandType.aliasTypeArguments = parameters;
-                return getIntersectionType([underlyingType as Type, brandType], IntersectionFlags.None, symbol, parameters);
-            },
-            createIdentityConstructorType: (_node, parameterType, returnType) => {
-                const value = createSymbol(SymbolFlags.FunctionScopedVariable, "value" as __String);
-                value.links.type = parameterType as Type;
-                const parameters = getSymbolLinks(symbol).typeParameters;
-                const signature = createSignature(
-                    /*declaration*/ undefined,
-                    parameters,
-                    /*thisParameter*/ undefined,
-                    [value],
-                    returnType as Type,
-                    /*resolvedTypePredicate*/ undefined,
-                    /*minArgumentCount*/ 1,
-                    SignatureFlags.None,
-                );
-                return createAnonymousType(/*symbol*/ undefined, emptySymbols, [signature], emptyArray, emptyArray);
-            },
-            createTaggedUnionConstructorType: node => {
-                const data = getTaggedUnionVariantData(node as Declaration);
-                if (!data) return errorType;
-                const aliasSymbol = getSymbolOfDeclaration(data.declaration);
-                const declaredType = getDeclaredTypeOfSymbol(aliasSymbol);
-                const aliasParameters = getTypeParametersFromDeclaration(data.declaration) ?? emptyArray;
-                const variantType = getTypeFromTypeNode(data.variant.type);
-                let returnType = getIntersectionType(
-                    [declaredType, variantType],
-                    IntersectionFlags.None,
-                    aliasSymbol,
-                    aliasParameters,
-                );
-                if (data.variant.fields.length === 0) {
-                    if (aliasParameters.length > 0) {
-                        returnType = instantiateType(
-                            returnType,
-                            createTypeMapper(aliasParameters, aliasParameters.map(() => anyType)),
-                        );
-                    }
-                    return returnType;
-                }
-                const constructor = data.variant.declaration;
-                const parameters = getTypeParametersFromDeclaration(constructor) ?? emptyArray;
-                const mapper = createTypeMapper(aliasParameters, parameters);
-                returnType = instantiateType(returnType, mapper);
-                const fields = data.variant.fields.map(field => {
-                    const parameter = createSymbol(SymbolFlags.FunctionScopedVariable, field.name.escapedText);
-                    parameter.links.type = instantiateType(getTypeFromTypeNode(field.type), mapper);
-                    return parameter;
-                });
-                const signature = createSignature(
-                    /*declaration*/ undefined,
-                    parameters,
-                    /*thisParameter*/ undefined,
-                    fields,
-                    returnType,
-                    /*resolvedTypePredicate*/ undefined,
-                    data.variant.fields.length,
-                    SignatureFlags.None,
-                );
-                return createAnonymousType(/*symbol*/ undefined, emptySymbols, [signature], emptyArray, emptyArray);
-            },
-        };
-    }
-
-    function isTSPPNominalBrandPropertyName(name: __String): boolean {
-        return typeof name === "string" && name.startsWith("__@tsppNominal@");
     }
 
     // DECLARATION AND STATEMENT TYPE CHECKING
@@ -48751,8 +48430,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             checkSourceElement(node.type);
             registerForUnusedIdentifiersCheck(node);
         }
-        // Plugin-declared types report their own diagnostics while being built, even if nothing references them.
-        if (getExtensionDeclarationSyntax(node)?.getDeclaredType) getDeclaredTypeOfSymbol(getSymbolOfDeclaration(node));
     }
 
     function computeEnumMemberValues(node: EnumDeclaration) {
@@ -51254,11 +50931,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         }
     }
 
-    /**
-     * In .tspp files the language service scans identifiers that extension syntax keeps beside the tree (such as
-     * match pattern bindings). They have no text identity, so checking them as expressions would resolve nothing
-     * and queue diagnostics that cannot be reported.
-     */
     function getTypeOfNode(node: Node): Type {
         if (isSourceFile(node) && !isExternalModule(node)) {
             return errorType;
@@ -52158,25 +51830,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return undefined;
     }
 
-    function getReferencedExtensionDeclaration(referenceIn: Identifier): Declaration | undefined {
-        if (!isGeneratedIdentifier(referenceIn)) {
-            const reference = getParseTreeNode(referenceIn, isIdentifier);
-            if (reference) {
-                const symbol = getReferencedValueSymbol(reference);
-                if (symbol) return getExtensionDeclarationFromSymbol(symbol);
-            }
-        }
-
-        return undefined;
-    }
-
-    function getExtensionDeclarationFromSymbol(symbol: Symbol): Declaration | undefined {
-        const target = getExportSymbolOfValueSymbolIfExported(
-            symbol.flags & SymbolFlags.Alias ? resolveAlias(symbol) : symbol,
-        );
-        return target.declarations?.find(declaration => getExtensionDeclarationSyntax(declaration)?.binding === "type-and-value");
-    }
-
     function getReferencedValueDeclarations(referenceIn: Identifier): Declaration[] | undefined {
         if (!isGeneratedIdentifier(referenceIn)) {
             const reference = getParseTreeNode(referenceIn, isIdentifier);
@@ -52287,13 +51940,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 // Synthesized nodes are always treated like values.
                 return node && canCollectSymbolAliasAccessabilityData ? isValueAliasDeclaration(node) : true;
             },
-            isErasedExtensionValueAliasDeclaration: nodeIn => {
-                const node = getParseTreeNode(nodeIn);
-                if (!node || !isAliasSymbolDeclaration(node)) return false;
-                const symbol = getSymbolOfDeclaration(node as Declaration);
-                const declaration = symbol && getExtensionDeclarationFromSymbol(symbol);
-                return !!declaration && getExtensionDeclarationSyntax(declaration)?.runtime === "erased";
-            },
             hasGlobalName,
             isReferencedAliasDeclaration: (nodeIn, checkChildren?) => {
                 const node = getParseTreeNode(nodeIn);
@@ -52331,7 +51977,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return node && markLinkedReferences(node, ReferenceHint.Unspecified);
             },
             getReferencedValueDeclaration,
-            getReferencedExtensionDeclaration,
             getReferencedValueDeclarations,
             getTypeReferenceSerializationKind,
             isOptionalParameter,

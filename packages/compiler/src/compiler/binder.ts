@@ -310,11 +310,7 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import {
-    getExtensionDeclarationSyntax,
-    isTSPPInterfaceStaticMember,
-} from "./tspp/registry.js";
-import { getTaggedUnionSyntheticDeclarations } from "./tspp/taggedUnion.js";
+import { isTSPPInterfaceStaticMember } from "./tspp/registry.js";
 
 /** @internal */
 export const enum ModuleInstanceState {
@@ -3038,24 +3034,8 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
                 return bindClassLikeDeclaration(node as ClassLikeDeclaration);
             case SyntaxKind.InterfaceDeclaration:
                 return bindBlockScopedDeclaration(node as Declaration, SymbolFlags.Interface, SymbolFlags.InterfaceExcludes);
-            case SyntaxKind.TypeAliasDeclaration: {
-                const extension = getExtensionDeclarationSyntax(node);
-                const taggedUnionDeclarations = getTaggedUnionSyntheticDeclarations(node);
-                if (extension?.binding === "type-and-value") {
-                    return bindBlockScopedDeclaration(
-                        node as Declaration,
-                        SymbolFlags.TypeAlias | SymbolFlags.Function,
-                        SymbolFlags.TypeAliasExcludes | SymbolFlags.FunctionExcludes,
-                    );
-                }
-                bindBlockScopedDeclaration(node as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
-                for (const declaration of taggedUnionDeclarations) {
-                    (declaration as Mutable<Node>).parent = node.parent;
-                    setParentRecursive(declaration, /*incremental*/ false);
-                    bind(declaration);
-                }
-                return;
-            }
+            case SyntaxKind.TypeAliasDeclaration:
+                return bindBlockScopedDeclaration(node as Declaration, SymbolFlags.TypeAlias, SymbolFlags.TypeAliasExcludes);
             case SyntaxKind.EnumDeclaration:
                 return bindEnumDeclaration(node as EnumDeclaration);
             case SyntaxKind.ModuleDeclaration:

@@ -55,7 +55,6 @@ import {
     Diagnostic,
     DiagnosticWithLocation,
     directoryProbablyExists,
-    displayPart,
     DocCommentTemplateOptions,
     DocumentHighlights,
     DocumentRegistry,
@@ -124,7 +123,6 @@ import {
     getSnapshotText,
     getSourceFileOfNode,
     getSourceMapper,
-    getTaggedUnionMatchData,
     getTokenPosOfNode,
     getTouchingPropertyName,
     getTouchingToken,
@@ -258,7 +256,6 @@ import {
     OrganizeImportsMode,
     OutliningElementsCollector,
     OutliningSpan,
-    ParameterDeclaration,
     ParseConfigFileHost,
     ParsedCommandLine,
     parseJsonSourceFileConfigFileContent,
@@ -274,7 +271,6 @@ import {
     Program,
     PropertyName,
     PropertySignature,
-    punctuationPart,
     QuickInfo,
     refactor,
     RefactorContext,
@@ -313,7 +309,6 @@ import {
     SourceFile,
     SourceFileLike,
     SourceMapSource,
-    spacePart,
     startsWith,
     Statement,
     StringLiteral,
@@ -322,7 +317,6 @@ import {
     Symbol,
     SymbolDisplay,
     SymbolDisplayPart,
-    SymbolDisplayPartKind,
     SymbolFlags,
     SymbolLinks,
     symbolName,
@@ -330,13 +324,10 @@ import {
     SyntaxKind,
     SyntaxList,
     sys,
-    TaggedUnionMatchBinding,
-    TaggedUnionMatchPattern,
     tagNamesAreEquivalent,
     TextChange,
     TextChangeRange,
     TextInsertion,
-    textPart,
     TextRange,
     textRangeContainsTextSpan,
     textRangeIntersectsWithTextSpan,
@@ -2336,34 +2327,6 @@ export function createLanguageService(
         return Completions.getCompletionEntrySymbol(program, log, getValidSourceFile(fileName), position, { name, source }, host, preferences);
     }
 
-    /** The generated parameter for a match pattern binding scanned beside the tree, if `node` is one. */
-    function getTaggedUnionMatchBindingDeclaration(node: Node): ParameterDeclaration | undefined {
-        // Pattern bindings are names outside the parse tree, which the services mark as synthesized.
-        if (node.kind !== SyntaxKind.Identifier || !(node.flags & NodeFlags.Synthesized)) return undefined;
-        for (let current = node.parent as Node | undefined; current; current = current.parent) {
-            const match = getTaggedUnionMatchData(current);
-            if (!match) continue;
-            for (const arm of match.arms) {
-                for (const pattern of arm.patterns) {
-                    const found = findBinding(pattern.elements);
-                    if (found) return found;
-                }
-            }
-            return undefined;
-        }
-        return undefined;
-
-        function findBinding(elements: readonly (TaggedUnionMatchBinding | TaggedUnionMatchPattern)[]): ParameterDeclaration | undefined {
-            for (const element of elements) {
-                const found = element.kind === "binding"
-                    ? element.node.end === node.end ? element.declaration : undefined
-                    : findBinding(element.elements);
-                if (found) return found;
-            }
-            return undefined;
-        }
-    }
-
     function getQuickInfoAtPosition(fileName: string, position: number, maximumLength?: number, verbosityLevel?: number): QuickInfo | undefined {
         synchronizeHostData();
 
@@ -2376,29 +2339,9 @@ export function createLanguageService(
 
         const typeChecker = program.getTypeChecker();
         const nodeForQuickInfo = getNodeForQuickInfo(node);
-        // A TS++ match pattern binding is described by the parameter that carries it in the checker tree.
-        const matchBinding = getTaggedUnionMatchBindingDeclaration(nodeForQuickInfo);
         const symbol = getSymbolAtLocationForQuickInfo(nodeForQuickInfo, typeChecker);
         let upstream: QuickInfo | undefined;
-        if (matchBinding?.symbol) {
-            const type = typeChecker.getTypeOfSymbol(matchBinding.symbol);
-            upstream = {
-                kind: ScriptElementKind.parameterElement,
-                kindModifiers: ScriptElementKindModifier.none,
-                textSpan: createTextSpanFromNode(nodeForQuickInfo, sourceFile),
-                displayParts: [
-                    punctuationPart(SyntaxKind.OpenParenToken),
-                    textPart("parameter"),
-                    punctuationPart(SyntaxKind.CloseParenToken),
-                    spacePart(),
-                    displayPart(symbolName(matchBinding.symbol), SymbolDisplayPartKind.parameterName),
-                    punctuationPart(SyntaxKind.ColonToken),
-                    spacePart(),
-                    ...typeToDisplayParts(typeChecker, type, getContainerNode(nodeForQuickInfo), /*flags*/ undefined, verbosityLevel),
-                ],
-            };
-        }
-        else if (!symbol || typeChecker.isUnknownSymbol(symbol)) {
+        if (!symbol || typeChecker.isUnknownSymbol(symbol)) {
             const type = shouldGetType(sourceFile, nodeForQuickInfo, position) ? typeChecker.getTypeAtLocation(nodeForQuickInfo) : undefined;
             upstream = type && {
                 kind: ScriptElementKind.unknown,
@@ -2441,7 +2384,7 @@ export function createLanguageService(
             cancellationToken,
             checker =>
                 checker.typeToString(
-                    matchBinding?.symbol ? checker.getTypeOfSymbol(matchBinding.symbol) : checker.getTypeAtLocation(nodeForQuickInfo),
+                    checker.getTypeAtLocation(nodeForQuickInfo),
                     getContainerNode(nodeForQuickInfo),
                 ),
         );

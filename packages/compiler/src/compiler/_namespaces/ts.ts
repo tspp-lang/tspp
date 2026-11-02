@@ -6,7 +6,6 @@ export * from "../debug.js";
 export * from "../semver.js";
 export * from "../performanceCore.js";
 export * from "../tspp/registry.js";
-export * from "../tspp/taggedUnion.js";
 export * from "../tracing.js";
 export * from "../types.js";
 export * from "../sys.js";

@@ -8556,42 +8556,6 @@
         "category": "Error",
         "code": 18061
     },
-    "The extension value '{0}' can only be used as the target of a direct call.": {
-        "category": "Error",
-        "code": 18062
-    },
-    "Pattern '{0}' does not belong to data type '{1}'.": {
-        "category": "Error",
-        "code": 18063
-    },
-    "Pattern '{0}' expects {1} fields, but received {2}.": {
-        "category": "Error",
-        "code": 18064
-    },
-    "Non-exhaustive match. Missing patterns: {0}.": {
-        "category": "Error",
-        "code": 18065
-    },
-    "A branch after the wildcard pattern is unreachable.": {
-        "category": "Error",
-        "code": 18066
-    },
-    "The wildcard pattern cannot be combined with other patterns.": {
-        "category": "Error",
-        "code": 18067
-    },
-    "The wildcard pattern cannot contain nested patterns.": {
-        "category": "Error",
-        "code": 18068
-    },
-    "Or-patterns support only variants without fields.": {
-        "category": "Error",
-        "code": 18069
-    },
-    "Duplicate match branch for pattern '{0}'.": {
-        "category": "Error",
-        "code": 18070
-    },
     "A trailing-closure binding is only allowed directly inside a completion-valued block.": {
         "category": "Error",
         "code": 18071
@@ -8607,10 +8571,6 @@
     "Class static side '{0}' incorrectly implements static side of interface '{1}'.": {
         "category": "Error",
         "code": 18074
-    },
-    "A nominal type cannot use 'any', 'unknown', or 'never' as its underlying type.": {
-        "category": "Error",
-        "code": 18075
     },
     "{0}": {
         "category": "Error",

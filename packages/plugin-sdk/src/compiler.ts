@@ -4,12 +4,9 @@ import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger } fro
 export type TSPPSyntaxNode = object;
 export type TSPPExpression = TSPPSyntaxNode;
 export type TSPPStatement = TSPPSyntaxNode;
-export type TSPPDeclaration = TSPPSyntaxNode;
-export type TSPPCallExpression = TSPPExpression;
 export type TSPPIdentifier = TSPPSyntaxNode;
 export type TSPPTypeNode = TSPPSyntaxNode;
 export type TSPPTypeParameterList = TSPPSyntaxNode;
-export type TSPPTaggedUnionStatement = TSPPSyntaxNode;
 export type TSPPType = object;
 export type TSPPSyntaxKind = number;
 
@@ -410,13 +407,11 @@ export interface TSPPExpressionParser {
     parseExpected(kind: TSPPSyntaxKind): boolean;
     parseType(): TSPPTypeNode;
     parseAssignmentExpression(): TSPPExpression;
-    parseTaggedUnionMatchExpression(): TSPPExpression;
     finishExpression(children: readonly TSPPSyntaxNode[], pos: number): TSPPExtensionExpression;
 }
 
 export interface TSPPExpressionChecker {
     checkExpression(node: TSPPExpression, checkMode: number | undefined): TSPPType;
-    checkTaggedUnionMatch(node: TSPPExtensionExpression, checkMode: number | undefined): TSPPType;
     /** Creates an opaque runtime descriptor type that retains its represented static type. */
     createReifiedType(type: TSPPTypeNode): TSPPType;
     checkReifiedTypeMatch(
@@ -448,113 +443,10 @@ export interface TSPPExpressionSyntax {
     transform(node: TSPPExtensionExpression, transformer: TSPPExpressionTransformer): TSPPExpression;
 }
 
-export interface TSPPDeclarationParser {
-    token(): TSPPSyntaxKind;
-    tokenText(): string;
-    nextToken(): TSPPSyntaxKind;
-    hasPrecedingLineBreak(): boolean;
-    lookAhead<T>(callback: () => T): T;
-    getNodePos(): number;
-    parseExpected(kind: TSPPSyntaxKind): boolean;
-    parseIdentifier(): TSPPIdentifier;
-    parseTypeParameters(): TSPPTypeParameterList | undefined;
-    parseType(): TSPPTypeNode;
-    parseSemicolon(): boolean;
-    /** Reports a plugin-authored syntax error at the current token. */
-    parseErrorAtCurrentToken(message: string): void;
-    finishTaggedUnionDeclaration(
-        name: TSPPIdentifier,
-        typeParameters: TSPPTypeParameterList | undefined,
-        variants: readonly TSPPTaggedUnionVariant[],
-        pos: number,
-    ): TSPPDeclaration;
-    finishTypeAliasDeclaration(
-        name: TSPPIdentifier,
-        typeParameters: TSPPTypeParameterList | undefined,
-        type: TSPPTypeNode,
-        pos: number,
-    ): TSPPDeclaration;
-}
-
-export interface TSPPDeclarationSyntaxKinds {
-    readonly identifier: TSPPSyntaxKind;
-    readonly equalsToken: TSPPSyntaxKind;
-    readonly barToken: TSPPSyntaxKind;
-    readonly openParenToken: TSPPSyntaxKind;
-    readonly closeParenToken: TSPPSyntaxKind;
-    readonly commaToken: TSPPSyntaxKind;
-    readonly colonToken: TSPPSyntaxKind;
-}
-
-export interface TSPPTaggedUnionField {
-    readonly name: TSPPIdentifier;
-    readonly type: TSPPTypeNode;
-}
-
-export interface TSPPTaggedUnionVariant {
-    readonly name: TSPPIdentifier;
-    readonly fields: readonly TSPPTaggedUnionField[];
-}
-
-export interface TSPPDeclarationChecker {
-    getTypeNode(node: TSPPDeclaration): TSPPTypeNode;
-    getTypeFromTypeNode(node: TSPPTypeNode): TSPPType;
-    getDeclaredType(node: TSPPDeclaration): TSPPType;
-    createNominalType(node: TSPPDeclaration, underlyingType: TSPPType): TSPPType;
-    createIdentityConstructorType(node: TSPPDeclaration, parameterType: TSPPType, returnType: TSPPType): TSPPType;
-    createTaggedUnionConstructorType(node: TSPPDeclaration): TSPPType;
-}
-
-export interface TSPPDeclarationTransformer {
-    createNotEmittedStatement(node: TSPPDeclaration): TSPPSyntaxNode;
-    createTaggedUnionStatements(node: TSPPDeclaration): readonly TSPPTaggedUnionStatement[];
-}
-
-export interface TSPPDeclarationCallTransformer {
-    getArguments(node: TSPPCallExpression): readonly TSPPExpression[];
-    visitExpression(node: TSPPExpression): TSPPExpression;
-}
-
-export interface TSPPDeclarationEmitter {
-    emitTypeAliasDeclaration(node: TSPPDeclaration, keyword: string): void;
-    emitTaggedUnionDeclaration(node: TSPPDeclaration, keyword: string): void;
-    /** Emits an erased nominal alias plus its value constructor for upstream TypeScript. */
-    emitCompatibilityNominalDeclaration(node: TSPPDeclaration): void;
-    /** Emits a tagged union and its constructors using ordinary TypeScript declarations. */
-    emitCompatibilityTaggedUnionDeclaration(node: TSPPDeclaration): void;
-}
-
-export interface TSPPDeclarationSyntax {
-    readonly startTokens: readonly TSPPSyntaxKind[];
-    readonly binding: "type" | "type-and-value";
-    /** Controls whether imports that only reference this declaration need a JavaScript binding. */
-    readonly runtime?: "emitted" | "erased";
-    /** Restricts an erased value to direct calls so it cannot escape into emitted JavaScript. */
-    readonly valueUse?: "unrestricted" | "call-only";
-    isStart(parser: TSPPDeclarationParser): boolean;
-    parse(parser: TSPPDeclarationParser): TSPPDeclaration;
-    getDeclaredType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker, underlyingType: TSPPType): TSPPType;
-    getValueType?(node: TSPPDeclaration, checker: TSPPDeclarationChecker): TSPPType;
-    transform?(
-        node: TSPPDeclaration,
-        transformer: TSPPDeclarationTransformer,
-    ): TSPPSyntaxNode | readonly TSPPSyntaxNode[];
-    transformCall?(
-        node: TSPPCallExpression,
-        declaration: TSPPDeclaration,
-        transformer: TSPPDeclarationCallTransformer,
-    ): TSPPExpression;
-    emitDeclaration?(node: TSPPDeclaration, emitter: TSPPDeclarationEmitter): void;
-    /** Projects this declaration onto syntax accepted by upstream TypeScript. */
-    emitCompatibilityDeclaration?(node: TSPPDeclaration, emitter: TSPPDeclarationEmitter): void;
-}
-
 export interface TSPPCompilerPluginAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
-    readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
     registerExpressionSyntax(syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
-    registerDeclarationSyntax(syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerTypeSyntax(syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
     registerKindAnnotationSyntax(syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;
@@ -569,10 +461,8 @@ export interface TSPPCompilerPluginAPI {
 
 export interface TSPPCompilerHostAPI {
     readonly expressionSyntaxKinds: TSPPExpressionSyntaxKinds;
-    readonly declarationSyntaxKinds: TSPPDeclarationSyntaxKinds;
     readonly typeSyntaxKinds: TSPPTypeSyntaxKinds;
     registerExpressionSyntax(pluginId: string, syntax: TSPPExpressionSyntax): TSPPPluginDisposer;
-    registerDeclarationSyntax(pluginId: string, syntax: TSPPDeclarationSyntax): TSPPPluginDisposer;
     registerTypeSyntax(pluginId: string, syntax: TSPPTypeSyntax): TSPPPluginDisposer;
     registerPostfixTypeSyntax(pluginId: string, syntax: TSPPPostfixTypeSyntax): TSPPPluginDisposer;
     registerKindAnnotationSyntax(pluginId: string, syntax: TSPPKindAnnotationSyntax): TSPPPluginDisposer;

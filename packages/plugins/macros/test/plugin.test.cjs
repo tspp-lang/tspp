@@ -11,7 +11,7 @@ test("registers its source projection and program rebuilder, and removes both on
     return () => registered.delete(key);
   };
   const compiler = {
-    expressionSyntaxKinds: {}, declarationSyntaxKinds: {}, typeSyntaxKinds: {},
+    expressionSyntaxKinds: {}, typeSyntaxKinds: {},
     registerSourcePreprocessor: register("preprocessor"),
     registerProgramRebuilder: register("rebuilder"),
   };
