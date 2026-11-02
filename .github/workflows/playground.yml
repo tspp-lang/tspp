@@ -37,6 +37,9 @@ jobs:
           pnpm build:plugins
       - name: Build playground
         run: pnpm build:playground
+      # A failure here keeps the last working playground deployed.
+      - name: Run every example in a browser
+        run: pnpm test:playground
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -36,6 +36,24 @@ jobs:
       - run: pnpm test:features
       - run: pnpm test:examples
 
+  playground-smoke:
+    name: Playground smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 22.22.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter ts-plus-plus exec hereby generate-diagnostics
+      - run: pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:playground
+      # Opens the built playground in the runner's Chrome and runs every example's JavaScript.
+      - run: pnpm test:playground
+
   core-drift:
     name: Core drift gate
     runs-on: ubuntu-latest
