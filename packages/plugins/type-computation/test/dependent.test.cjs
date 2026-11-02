@@ -52,7 +52,7 @@ test("computed terms reach TypeScript as their values", () => {
     type Two: Nat = NatAdd<One, One>;
     type Four: Nat = NatAdd<Two, Two>;
     export const four: Four = 4;
-    export const flag: If<True, Ann<Lam<(ignored: Bool) -> Type0>, (ignored: Bool) -> Type1>, string, number> = "text";`), []);
+    export const flag: If<True, <ignored: Bool> =>> Type0, string, number> = "text";`), []);
   assert.deepEqual(check(`
     type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
     export const bad: Two = 3;`), ["Type '3' is not assignable to type '2'."]);
@@ -73,6 +73,77 @@ test("a match on types is decided by TypeScript, never falling back to any", () 
     export const outside: Outside = 1;
     declare const inside: Inside;
     export const value: 1 = inside(null!);`), []);
+});
+
+test("the kernel never decides a match on types against TypeScript", () => {
+  // TypeScript takes the first arm, by assignability; identical-looking types are all the kernel can vouch for.
+  const messages = check(`type Wrong: Eq<Type0, match "a" { string: 1, _: 2 }, 2> = Refl<Type0, 2>;`);
+  assert.equal(messages.length, 1, messages.join("\\n"));
+  assert.match(messages[0], /Expected Eq/);
+  assert.deepEqual(check(`
+    type Same: Eq<Type0, match number { number: string, _: boolean }, string> = Refl<Type0, string>;`), []);
+  assert.equal(mltt.normalizeMlttTerm(parseDependentType(`match "a" { string: 1, _: 2 }`)).kind, "type-match");
+});
+
+test("functions over values compute where they are applied", () => {
+  assert.deepEqual(check(`
+    type Inc: Nat => Nat = <n: Nat> =>> Succ<n>;
+    type Two: Nat = Succ<Succ<Zero>>;
+    export const three: Inc<Two> = 3;
+    export const flag: If<True, <b: Bool> =>> Type0, string, number> = "text";`), []);
+  assert.deepEqual(check(`
+    type Inc: Nat => Nat = <n: Nat> =>> Succ<n>;
+    export const bad: Inc<Zero> = 5;`), ["Type '5' is not assignable to type '1'."]);
+  assert.deepEqual(check(`type Bad: Nat => Nat = <b: Bool> =>> Zero;`).length, 1);
+});
+
+test("binders over type constructors are kinded type parameters", async () => {
+  assert.deepEqual(check(`
+    type Induction: Type1 = (P: Nat => Type0) -> {N: Nat} -> (base: P<Zero>) -> P<N>;
+    interface Boxes { value: number }
+    declare const induct: Induction;`), []);
+  const { program } = createProgram(`
+    export type Induction: Type1 = (P: (N: Nat) -> Type0) -> (zero: P<Zero>) -> (N: Nat) -> P<N>;`, options);
+  assert.deepEqual(diagnosticMessages(program), []);
+  assert.deepEqual((await ts.runTSPPProgramAnalyzers(program)).map(diagnostic => diagnostic.message), []);
+});
+
+test("warns where a term has no TypeScript type", async () => {
+  const { program } = createProgram(`
+    export type Stuck: Type1 = (P: (x: Nat) -> (y: Nat) -> Eq<Nat, x, y>) -> (N: Nat) -> P<N, N>;`, options);
+  const analysis = await ts.runTSPPProgramAnalyzers(program);
+  assert.equal(analysis.length, 1);
+  assert.equal(analysis[0].category, "warning");
+  assert.match(analysis[0].message, /only the kernel checks it/);
+});
+
+const files = {
+  "/lib.tspp": `export type Two: Nat = Succ<Succ<Zero>>;\nexport type Plain = string;\nexport type Yes: Bool = True;`,
+};
+
+test("terms see aliases of other files", () => {
+  const compile = main => diagnosticMessages(createProgram({ ...files, "/main.tspp": main }, options).program);
+  assert.deepEqual(compile(`
+    import type { Two, Yes } from "./lib";
+    type Four: Nat = NatAdd<Two, Two>;
+    type Proof: Eq<Nat, Four, Succ<Succ<Two>>> = Refl<Nat, Four>;
+    export const four: Four = 4;
+    export const yes: If<Yes, <b: Bool> =>> Type0, string, number> = "text";`), []);
+  assert.deepEqual(compile(`
+    import type { Two } from "./lib";
+    type Four: Nat = NatAdd<Two, Two>;
+    export const bad: Four = 5;`), ["Type '5' is not assignable to type '4'."]);
+  assert.match(compile(`
+    import type { Plain } from "./lib";
+    export type Bad: Nat = Succ<Plain>;`)[0], /Expected Nat/);
+});
+
+test("terms see later aliases of the same file, and the kinds of type parameters", () => {
+  assert.deepEqual(check(`
+    type Four: Nat = NatAdd<Two, Two>;
+    type Two: Nat = Succ<Succ<Zero>>;
+    export const four: Four = 4;
+    type Vec: Nat => Type = <N: Nat> =>> { next: Succ<N> };`), []);
 });
 
 test("reports the kernel's errors as type errors", () => {
@@ -142,7 +213,7 @@ test("publishes normalized terms and their normalized MLTT types", async () => {
 
 test("parses and normalizes all built-in eliminators", () => {
   const trueResult = parseDependentType(
-    "If<True, Ann<Lam<(ignored: Bool) -> Type0>, (ignored: Bool) -> Type1>, string, number>",
+    "If<True, <ignored: Bool> =>> Type0, string, number>",
   );
   assert.equal(mltt.normalizeMlttTerm(trueResult).displayName, "string");
 

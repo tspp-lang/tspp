@@ -231,6 +231,10 @@ export function inferMlttType(term: MlttTerm, context: MlttContext = []): MlttTe
     }
 
     case "lambda":
+      if (term.parameterType) {
+        inferMlttUniverseLevel(term.parameterType, context);
+        return mlttPi(term.parameterName, term.parameterType, inferMlttType(term.body, extendContext(context, term.parameterType)));
+      }
       throw new MlttTypeError("cannot-infer-lambda", "Cannot infer a lambda type without an expected Pi type or an annotation.");
 
     case "application": {

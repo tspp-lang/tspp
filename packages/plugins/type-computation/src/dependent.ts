@@ -1,5 +1,5 @@
 import { maskNonCode } from "@tspp/plugin-sdk";
-import type { TSPPAnalysisArtifact, TSPPDiagnosticProvider, TSPPProgramAnalyzer, TSPPSourcePreprocessor, TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
+import type { TSPPAnalysisArtifact, TSPPAnalysisDiagnostic, TSPPDiagnosticProvider, TSPPProgramAnalyzer, TSPPSourcePreprocessor, TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import {
@@ -12,7 +12,7 @@ import {
     type MlttTerm,
 } from "./core";
 import { keywordTypes, lowerTermToTypeNode } from "./lower";
-import type { TypeSyntaxModel } from "./kinds";
+import { termToKind, type TypeSyntaxModel } from "./kinds";
 import { parseDependentTypeText, startsBuiltinTerm, TermParser, type TermLocation, type TermTokens } from "./term-parser";
 
 // Terms of the dependent type theory inside ordinary type syntax: the parts of an alias TypeScript has no spelling for.
@@ -89,11 +89,97 @@ export function fileAliases(model: TypeSyntaxModel, sourceText: string): Map<str
 export function isTermStart(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor): boolean {
     const kinds = ts.SyntaxKind;
     if (cursor.token() === kinds.OpenParenToken || cursor.token() === kinds.OpenBraceToken) return isBinderStart(cursor, kinds);
+    if (cursor.token() === kinds.LessThanToken) return isTermLambdaStart(ts, model, cursor);
     if (cursor.token() !== kinds.Identifier) return false;
     const name = cursor.tokenText();
+    // An earlier alias with a term of its own, applied: `Inc<Two>` computes.
+    if (fileAliases(model, cursor.getSourceText()).get(name)?.kind === "lambda") return cursor.lookAhead(() => cursor.nextToken() === kinds.LessThanToken);
     if (!startsBuiltinTerm(name, "<")) return false;
     if (fileDeclaredNames(model, cursor.getSourceText()).has(name)) return false;
     return startsBuiltinTerm(name, cursor.lookAhead(() => (cursor.nextToken(), cursor.tokenText())));
+}
+
+/**
+ * `<n: Nat> =>> Succ<n>`, a function over values that the kernel computes. A constructor over types, or one whose body
+ * is no term, such as `<N: Nat> =>> { length: N }`, stays a type constructor, which TypeScript instantiates.
+ */
+function isTermLambdaStart(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor): boolean {
+    const kinds = ts.SyntaxKind;
+    return cursor.lookAhead(() => {
+        const sourceText = cursor.getSourceText();
+        try {
+            const term = new TermParser(cursorTokens(ts, cursor), {
+                aliases: fileAliases(model, sourceText),
+                shadowed: fileDeclaredNames(model, sourceText),
+            }).parseOne();
+            if (term.kind !== "lambda") return false;
+            for (let current: MlttTerm = term; current.kind === "lambda"; current = current.body) {
+                if (!current.parameterType || termToKind(current.parameterType).kind !== "term") return false;
+            }
+            return cursor.token() === kinds.SemicolonToken || cursor.token() === kinds.EndOfFileToken || cursor.hasPrecedingLineBreak();
+        }
+        catch {
+            return false;
+        }
+    });
+}
+
+/**
+ * A term with the TypeScript types it names replaced by what the checker knows of them: an alias anywhere, with a term
+ * of its own, by that term, and a declaration with a kind, by a value of that kind. Parsing only knows earlier aliases
+ * of the same file. Returns `term` itself when nothing changed.
+ */
+export function resolveTermNames(ts: TSPPTypeScript, model: TypeSyntaxModel, checker: TS.TypeChecker, term: MlttTerm, location: TS.Node): MlttTerm {
+    const visiting = new Set<TS.Symbol>();
+    const resolve = (current: MlttTerm): MlttTerm => {
+        const external = current.kind === "external" && current.identity ? current : undefined;
+        if (external && !keywordTypes.has(external.key)) {
+            let symbol = checker.resolveName(external.key, location, ts.SymbolFlags.Type | ts.SymbolFlags.Alias, /*excludeGlobals*/ false);
+            if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+            const declaration = symbol?.declarations?.[0];
+            if (symbol && declaration && !visiting.has(symbol)) {
+                const body = ts.isTypeAliasDeclaration(declaration) ? model.terms.get(declaration.type) : undefined;
+                if (body) {
+                    visiting.add(symbol);
+                    const resolved = resolve(body);
+                    visiting.delete(symbol);
+                    return resolved;
+                }
+                const kind = model.declarationKinds.get(declaration);
+                if (kind?.kind === "term") return { ...external, type: kind.term };
+            }
+        }
+        return mapChildren(current, resolve);
+    };
+    return resolve(term);
+}
+
+/** A term with `visit` applied to its direct subterms; the term itself when none of them changed. */
+function mapChildren(term: MlttTerm, visit: (term: MlttTerm) => MlttTerm): MlttTerm {
+    let changed = false;
+    const mapped = Object.fromEntries(Object.entries(term).map(([key, value]) => {
+        const next = mapValue(value, child => visit(child));
+        if (next !== value) changed = true;
+        return [key, next];
+    }));
+    return changed ? mapped as unknown as MlttTerm : term;
+}
+
+function mapValue(value: unknown, visit: (term: MlttTerm) => MlttTerm): unknown {
+    if (Array.isArray(value)) {
+        const next = value.map(item => mapValue(item, visit));
+        return next.some((item, index) => item !== value[index]) ? next : value;
+    }
+    if (!value || typeof value !== "object") return value;
+    if ("kind" in value) return visit(value as MlttTerm);
+    // A case of a match on types, or one of its captures.
+    let changed = false;
+    const mapped = Object.fromEntries(Object.entries(value).map(([key, child]) => {
+        const next = mapValue(child, visit);
+        if (next !== child) changed = true;
+        return [key, next];
+    }));
+    return changed ? mapped : value;
 }
 
 /** `(name: ...) ->` or `{name: ...} ->`, which an object or function type cannot continue into. */
@@ -132,7 +218,7 @@ export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor
         skipToEndOfDeclaration(ts, cursor);
     }
     // Empty, like every generated node: the authored text is no node's, and parent nodes span it.
-    const node = term ? lowerTermToTypeNode(ts, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
+    const node = term ? lowerTermToTypeNode(ts, model, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
     if (term) model.terms.set(node, term);
     model.authored.set(node, start);
     model.authoredEnds.set(node, cursor.getNodePos());
@@ -145,7 +231,7 @@ function skipToEndOfDeclaration(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): v
     while (cursor.token() !== kinds.SemicolonToken && cursor.token() !== kinds.EndOfFileToken && !cursor.hasPrecedingLineBreak()) cursor.nextToken();
 }
 
-const diagnosticCodes = { syntax: 19101, typeError: 19102 } as const;
+const diagnosticCodes = { syntax: 19101, typeError: 19102, unchecked: 19103 } as const;
 /** TypeScript's own code for the same message. */
 const cannotFindName = 2304;
 const cannotFindNamespace = 2503;
@@ -200,7 +286,8 @@ export function createTermDiagnostics(ts: TSPPTypeScript, model: TypeSyntaxModel
                 reportUnknownNames(term, alias ?? node);
                 try {
                     const annotation = alias && model.termAnnotations.get(alias);
-                    checkTerm(term, annotation, alias && ts.idText(alias.name));
+                    const resolvedAnnotation = annotation && resolveTermNames(ts, model, checker, annotation, node);
+                    checkTerm(resolveTermNames(ts, model, checker, term, node), resolvedAnnotation, alias && ts.idText(alias.name));
                 }
                 catch (error) {
                     const start = model.authored.get(node) ?? node.pos;
@@ -227,10 +314,23 @@ export function createNormalFormAnalyzer(ts: TSPPTypeScript, model: TypeSyntaxMo
         id: "mltt-types",
         async analyze(input) {
             const artifacts: TSPPAnalysisArtifact[] = [];
+            const warnings: TSPPAnalysisDiagnostic[] = [];
             for (const { fileName, text } of input.sourceFiles) {
                 if (!fileName.endsWith(".tspp")) continue;
                 const sourceFile = ts.createSourceFile(`${fileName}.normal-forms.tspp`, text, ts.ScriptTarget.Latest, /*setParentNodes*/ true, ts.ScriptKind.TS);
                 forEachTerm(ts, model, sourceFile, (node, term, alias) => {
+                    if (model.unchecked.has(node)) {
+                        const start = model.authored.get(node) ?? node.pos;
+                        warnings.push({
+                            fileName,
+                            start,
+                            length: Math.max(1, (model.authoredEnds.get(node) ?? node.end) - start),
+                            code: diagnosticCodes.unchecked,
+                            category: "warning",
+                            source: "TS++ dependent types",
+                            message: "Part of this term has no type in TypeScript: it is 'unknown' there, and only the kernel checks it.",
+                        });
+                    }
                     if (!alias) return;
                     const name = ts.idText(alias.name);
                     try {
@@ -252,9 +352,8 @@ export function createNormalFormAnalyzer(ts: TSPPTypeScript, model: TypeSyntaxMo
                     }
                 });
             }
-            const diagnostics = [] as never[] & { artifacts?: readonly TSPPAnalysisArtifact[]; };
-            Object.defineProperty(diagnostics, "artifacts", { value: artifacts });
-            return diagnostics;
+            Object.defineProperty(warnings, "artifacts", { value: artifacts });
+            return warnings;
         },
     };
 }

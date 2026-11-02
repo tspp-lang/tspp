@@ -2,6 +2,7 @@ import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import { normalizeMlttTerm, type MlttTerm } from "./core";
+import { termToKind, type TypeSyntaxModel } from "./kinds";
 import { getDependentBinderMode, unionKeyPrefix } from "./term-parser";
 
 interface Binder {
@@ -16,9 +17,11 @@ export const keywordTypes: ReadonlySet<string> = new Set(["any", "bigint", "bool
  * Builds the ordinary TypeScript type a term stands for, as nodes the checker reads like any other: numbers for
  * naturals, generic signatures for Pi types, and references for the TypeScript types embedded in the term. Matches on
  * types become conditional types, so TypeScript decides them, the same way it decides a `match` on ordinary types and
- * whether or not a binder is still open. What only the kernel can state, such as a universe, is `unknown`.
+ * whether or not a binder is still open. A binder over type constructors is a kinded type parameter, and applying it
+ * is the same application a higher-kinded parameter gets anywhere else. What only the kernel can state is `unknown`:
+ * nothing for a universe, which says nothing about a value, but otherwise `model.unchecked` records it for a warning.
  */
-export function lowerTermToTypeNode(ts: TSPPTypeScript, term: MlttTerm, position: number): TS.TypeNode {
+export function lowerTermToTypeNode(ts: TSPPTypeScript, model: TypeSyntaxModel, term: MlttTerm, position: number): TS.TypeNode {
     const factory = ts.factory;
     const kinds = ts.SyntaxKind;
     const reference = (name: string, typeArguments?: readonly TS.TypeNode[]) => factory.createTypeReferenceNode(name, typeArguments);
@@ -28,8 +31,16 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, term: MlttTerm, position
     const conditional = (check: TS.TypeNode, extendsType: TS.TypeNode, whenTrue: TS.TypeNode, whenFalse: TS.TypeNode) =>
         factory.createConditionalTypeNode(check, extendsType, whenTrue, whenFalse);
     const unknownType = () => keyword(kinds.UnknownKeyword);
+    let unchecked = false;
+    const uncheckedType = () => {
+        unchecked = true;
+        return unknownType();
+    };
 
-    return asParseTreeNodes(lower(term, []));
+    const constructorBinders = new Set<string>();
+    const lowered = asParseTreeNodes(lower(term, []));
+    if (unchecked) model.unchecked.add(lowered);
+    return lowered;
 
     /**
      * Makes generated nodes part of the parse tree, which declaration output asks about and editor services walk: no
@@ -82,11 +93,32 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, term: MlttTerm, position
             case "first": return factory.createIndexedAccessTypeNode(lower(current.pair, scope), numeric(0));
             case "second": return factory.createIndexedAccessTypeNode(lower(current.pair, scope), numeric(1));
             case "annotation": return lower(current.term, scope);
-            case "lambda": return unknownType();
-            case "application":
+            case "lambda": return uncheckedType();
+            case "application": return lowerApplication(current, scope);
             case "nat-elim":
             case "identity-elim": return lowerReduced(current, scope);
         }
+    }
+
+    /** `P<a>` of a constructor parameter `P`, as the type extension reads it; anything else must reduce first. */
+    function lowerApplication(current: Extract<MlttTerm, { kind: "application"; }>, scope: readonly string[]): TS.TypeNode {
+        const reduced = normalizeSafely(current);
+        if (reduced.kind !== "application") return lower(reduced, scope);
+        if (!isConstructorApplication(reduced, scope)) return uncheckedType();
+        const target = lower(reduced.functionTerm, scope);
+        const argument = lower(reduced.argument, scope);
+        const parameters = [target, argument].map((type, index) =>
+            factory.createParameterDeclaration(/*modifiers*/ undefined, /*dotDotDotToken*/ undefined, index === 0 ? "__tsppTarget" : "__tsppArgument0", /*questionToken*/ undefined, type)
+        );
+        const node = factory.createFunctionTypeNode(/*typeParameters*/ undefined, parameters, keyword(kinds.NeverKeyword));
+        model.applications.set(node, { target, typeArguments: factory.createNodeArray([argument]) });
+        return node;
+    }
+
+    function isConstructorApplication(current: MlttTerm, scope: readonly string[]): boolean {
+        let head = current;
+        while (head.kind === "application") head = head.functionTerm;
+        return head.kind === "variable" && constructorBinders.has(scope[head.index]);
     }
 
     function property(name: string, type: TS.TypeNode) {
@@ -153,11 +185,23 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, term: MlttTerm, position
         const typeParameters: TS.TypeParameterDeclaration[] = [];
         const parameters: TS.ParameterDeclaration[] = [];
         binders.forEach((binder, index) => {
+            const kind = termToKind(binder.domain);
+            // A type constructor has no value to pass, so its binder is only a type parameter.
+            if (kind.kind === "function") {
+                const parameter = factory.createTypeParameterDeclaration(/*modifiers*/ undefined, binder.name);
+                model.declarationKinds.set(parameter, kind);
+                typeParameters.push(parameter);
+                constructorBinders.add(binder.name);
+                scope.unshift(binder.name);
+                return;
+            }
             const domain = lower(binder.domain, scope);
             const dependent = binder.mode === "implicit" || isReferencedByRemainder(binders, result, index);
             if (dependent) {
                 const constraint = domain.kind === kinds.UnknownKeyword ? undefined : domain;
-                typeParameters.push(factory.createTypeParameterDeclaration(/*modifiers*/ undefined, binder.name, constraint));
+                const parameter = factory.createTypeParameterDeclaration(/*modifiers*/ undefined, binder.name, constraint);
+                if (kind.kind === "term") model.declarationKinds.set(parameter, kind);
+                typeParameters.push(parameter);
             }
             if (binder.mode === "explicit") {
                 parameters.push(factory.createParameterDeclaration(/*modifiers*/ undefined, /*dotDotDotToken*/ undefined, binder.name, /*questionToken*/ undefined, dependent ? reference(binder.name) : domain));
@@ -201,7 +245,7 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, term: MlttTerm, position
     function lowerReduced(term: MlttTerm, scope: readonly string[]): TS.TypeNode {
         const normalized = normalizeSafely(term);
         // Still the same kind of term, so it is stuck on an open binder; TypeScript has no type for that.
-        return normalized.kind === term.kind ? unknownType() : lower(normalized, scope);
+        return normalized.kind === term.kind ? uncheckedType() : lower(normalized, scope);
     }
 }
 

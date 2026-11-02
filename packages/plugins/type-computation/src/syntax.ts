@@ -30,6 +30,7 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
             cursor.parseType();
             return cursor.token() === kinds.OpenBraceToken;
         });
+    // A function over values is a term (`isTermStart`, which is asked first when parsing).
     const isConstructorStart = (cursor: TSPPSyntaxCursor) =>
         cursor.token() === kinds.LessThanToken && cursor.lookAhead(() => {
             const parameters = cursor.parseTypeParameters();

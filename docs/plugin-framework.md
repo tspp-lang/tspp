@@ -238,9 +238,12 @@ Pi types into generic signatures, and a `match` into a conditional type, so
 TypeScript decides it whether or not a binder is still open. There is no fallback
 to `any`. Kind equality is the kernel's definitional equality, which lets a kind be
 a term: `Vec: Nat => Type`. The kernel's errors are reported by a diagnostic
-provider, like the checker's, and the analyzer only publishes normal forms. Terms
-see the earlier aliases of their own file; an alias from another file is an opaque
-TypeScript type to the kernel.
+provider, like the checker's, and the analyzer publishes normal forms and warns
+where a term has no TypeScript type. Names in a term resolve through the checker
+when it is checked, so a term sees aliases of other files; when a term needs one to
+compute, its value is worked out then, if it is a natural or a boolean. The kernel
+never calls two different TypeScript types apart, so it cannot contradict
+TypeScript's decision on a `match`.
 `reify T` desugars to a descriptor object whose static type carries `T` in a
 phantom property, and expression-level `typecase` desugars to a call whose
 overloads are its arms, so TypeScript's overload resolution selects the arm and

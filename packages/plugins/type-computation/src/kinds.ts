@@ -162,6 +162,8 @@ export interface TypeSyntaxModel {
     readonly letBindings: WeakMap<TS.Node, TS.Identifier>;
     /** Type nodes lowered from a term of the type theory, with that term; the kernel checks them, not the kinds. */
     readonly terms: WeakMap<TS.Node, MlttTerm>;
+    /** Lowered terms with a part TypeScript cannot type, which only the kernel checks. */
+    readonly unchecked: WeakSet<TS.Node>;
     /** An alias's annotation as a term, for the kernel to check its body against. */
     readonly termAnnotations: WeakMap<TS.Node, MlttTerm>;
     /** The file being parsed: its earlier aliases, and the names it declares itself. */
@@ -180,6 +182,7 @@ export function createTypeSyntaxModel(): TypeSyntaxModel {
         authoredEnds: new WeakMap(),
         letBindings: new WeakMap(),
         terms: new WeakMap(),
+        unchecked: new WeakSet(),
         termAnnotations: new WeakMap(),
         used: false,
     };

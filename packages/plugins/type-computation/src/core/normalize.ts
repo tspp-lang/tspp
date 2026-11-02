@@ -263,6 +263,12 @@ export function areMlttTermsDefinitionallyEqual(
   );
 }
 
+function hasMlttExternal(term: unknown): boolean {
+  if (!term || typeof term !== "object") return false;
+  if ((term as MlttTerm).kind === "external") return true;
+  return Object.values(term).some(child => Array.isArray(child) ? child.some(hasMlttExternal) : hasMlttExternal(child));
+}
+
 /** Decide equality when possible without treating an open neutral term as unequal. */
 export function compareMlttTermsDefinitionally(
   left: MlttTerm,
@@ -273,7 +279,10 @@ export function compareMlttTermsDefinitionally(
   const normalizedLeft = normalizeMlttTerm(left, compareExternal, matchExternalPattern);
   const normalizedRight = normalizeMlttTerm(right, compareExternal, matchExternalPattern);
   if (structurallyEqualMlttTerms(normalizedLeft, normalizedRight, compareExternal)) return "equal";
-  return hasFreeMlttVariable(normalizedLeft) || hasFreeMlttVariable(normalizedRight) ? "stuck" : "apart";
+  if (hasFreeMlttVariable(normalizedLeft) || hasFreeMlttVariable(normalizedRight)) return "stuck";
+  // Two different host types may still be related in ways only the host knows, so without its comparer the core does
+  // not call them apart: a proof may fail to go through, but it never contradicts the host.
+  return !compareExternal && (hasMlttExternal(normalizedLeft) || hasMlttExternal(normalizedRight)) ? "stuck" : "apart";
 }
 
 

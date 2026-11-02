@@ -1,6 +1,8 @@
 import type { TSPPTypeExtension, TSPPTypeHost, TSPPTypeMapper, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
+import { normalizeMlttTerm, type MlttTerm } from "./core";
+import { resolveTermNames } from "./dependent";
 import { kindsEqual, kindToString, ordinaryKind, type TypeKind, type TypeSyntaxModel, universeLevel } from "./kinds";
 
 /** The codes of this plugin's kind errors; `notGeneric` is TypeScript's own code for the same message. */
@@ -139,6 +141,8 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
 
     /** The type of syntax this plugin owns, or of a reference that applies a type constructor or names a universe. */
     function resolveOwn(node: TS.TypeNode, host: TSPPTypeHost, state: CheckerState): TS.Type | undefined {
+        const term = model.terms.get(node);
+        if (term) return computedValue(term, node, host);
         const application = model.applications.get(node);
         if (application) {
             const target = host.checker.getTypeFromTypeNode(application.target);
@@ -157,6 +161,30 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         const target = host.checker.getDeclaredTypeOfSymbol(symbol);
         if (getKind(state, target).kind !== "function") return undefined;
         return apply(host, state, target, node.typeArguments.map(argument => host.checker.getTypeFromTypeNode(argument)), node);
+    }
+
+    /**
+     * What a term computes once the checker can say what its names are, when parsing could not: a term over an alias
+     * of another file lowered to `number`, and is the literal it adds up to here. Other terms stay as they lowered.
+     */
+    function computedValue(term: MlttTerm, node: TS.Node, host: TSPPTypeHost): TS.Type | undefined {
+        const resolved = resolveTermNames(ts, model, host.checker, term, node);
+        if (resolved === term) return undefined;
+        let current: MlttTerm;
+        try {
+            current = normalizeMlttTerm(resolved);
+        }
+        catch {
+            return undefined;
+        }
+        if (current.kind === "true") return host.checker.getTrueType();
+        if (current.kind === "false") return host.checker.getFalseType();
+        let value = 0;
+        while (current.kind === "successor") {
+            value++;
+            current = current.predecessor;
+        }
+        return current.kind === "zero" ? host.checker.getNumberLiteralType(value) : undefined;
     }
 
     /** The kind a type node must have where it appears: as a type argument, or as the body of an annotated alias. */
@@ -200,8 +228,13 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         if (expected.kind !== "term") return kindsEqual(getKind(state, type), expected);
         const declared = state.kinds.get(type) ?? declarationKind(type.symbol);
         if (declared) return kindsEqual(declared, expected);
-        if (expected.term.kind === "nat-type") return type.isNumberLiteral() && Number.isInteger(type.value) && type.value >= 0;
-        if (expected.term.kind === "bool-type") return !!(type.flags & ts.TypeFlags.BooleanLiteral);
+        // A natural or boolean an open binder leaves undecided lowers to `number` or `boolean`.
+        if (expected.term.kind === "nat-type") {
+            if (!(type.flags & ts.TypeFlags.NumberLiteral)) return !!(type.flags & ts.TypeFlags.Number);
+            const { value } = type as TS.NumberLiteralType;
+            return Number.isInteger(value) && value >= 0;
+        }
+        if (expected.term.kind === "bool-type") return !!(type.flags & ts.TypeFlags.BooleanLike);
         return true;
     }
 

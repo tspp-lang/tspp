@@ -113,7 +113,7 @@ function tokenize(text: string): Token[] {
 const atomTerms: Readonly<Record<string, () => MlttTerm>> = {
     Bool: mlttBoolType, True: mlttTrue, False: mlttFalse, Nat: mlttNatType, Zero: mlttZero,
 };
-const appliedTerms = new Set(["Succ", "NatAdd", "BoolElim", "If", "NatElim", "Eq", "Refl", "J", "Pair", "First", "Second", "Ann", "Lam", "Sigma"]);
+const appliedTerms = new Set(["Succ", "NatAdd", "BoolElim", "If", "NatElim", "Eq", "Refl", "J", "Pair", "First", "Second", "Ann", "Sigma"]);
 
 /** The built-in terms: `Nat` and the like on their own, and `Succ` and the like when applied. */
 export const builtinTermNames: readonly string[] = [...Object.keys(atomTerms), ...appliedTerms];
@@ -147,6 +147,7 @@ export class TermParser {
 
     private parseTerm(stop?: string): MlttTerm {
         if (this.at("match")) return this.parseTypeMatch();
+        if (this.at("<")) return this.parseLambda(stop);
         if ((this.at("(") || this.at("{")) && this.isBinder()) return this.parseBinder(stop);
         const term = this.parseUnion(stop);
         if (!this.at("=>")) return term;
@@ -156,6 +157,30 @@ export class TermParser {
         const codomain = this.parseTerm(stop);
         this.scope.shift();
         return mlttPi("_", term, codomain);
+    }
+
+    /** `<x: A, y: B> =>> body`; a parameter without a kind is an ordinary type, as it is in any type constructor. */
+    private parseLambda(stop?: string): MlttTerm {
+        this.expect("<");
+        const parameters: { readonly name: string; readonly type: MlttTerm; }[] = [];
+        while (!this.at(">")) {
+            const name = this.identifier();
+            let type: MlttTerm = mlttUniverse(0);
+            if (this.at(":")) {
+                this.take();
+                type = this.parseTerm(">");
+            }
+            parameters.push({ name, type });
+            this.scope.unshift(name);
+            if (!this.at(",")) break;
+            this.take();
+        }
+        this.expect(">");
+        this.expect("=>");
+        this.expect(">");
+        const body = this.parseTerm(stop);
+        for (let index = 0; index < parameters.length; index++) this.scope.shift();
+        return parameters.reduceRight<MlttTerm>((result, parameter) => mlttLambda(parameter.name, result, parameter.type), body);
     }
 
     private parseBinder(stop?: string): MlttTerm {
@@ -257,12 +282,6 @@ export class TermParser {
             case "First": count(1); return mlttFirst(args[0]);
             case "Second": count(1); return mlttSecond(args[0]);
             case "Ann": count(2); return mlttAnnotation(args[0], args[1]);
-            case "Lam": {
-                count(1);
-                const binder = args[0];
-                if (binder.kind !== "pi") this.fail("Lam expects a binder expression.");
-                return mlttLambda(binder.parameterName, binder.codomain, binder.domain);
-            }
             case "Sigma": {
                 count(1);
                 const binder = args[0];
