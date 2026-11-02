@@ -284,3 +284,13 @@ test("declarations of inferred types the emitter writes as references still emit
   const compatibility = outputs.get("/main.d.ts") ?? "";
   assert.match(compatibility, /export declare const user: User;/, compatibility);
 });
+
+test("editor requests on the arrow of a kind annotation do not take it for a function", () => {
+  const source = "type Apply<F: Type => Type, X> = F<X>;\ntype Arrays: Type => Type = Array;";
+  const service = createLanguageService("/main.tspp", source);
+  for (const position of [source.indexOf("=>"), source.lastIndexOf("=>")]) {
+    assert.doesNotThrow(() => service.getQuickInfoAtPosition("/main.tspp", position));
+    assert.deepEqual(service.getDocumentHighlights("/main.tspp", position, ["/main.tspp"]) ?? [], []);
+    assert.deepEqual(service.getDefinitionAtPosition("/main.tspp", position) ?? [], []);
+  }
+});

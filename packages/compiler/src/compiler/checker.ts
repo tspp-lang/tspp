@@ -50329,7 +50329,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             case SyntaxKind.FunctionKeyword:
             case SyntaxKind.EqualsGreaterThanToken:
             case SyntaxKind.ClassKeyword:
-                return node.kind === SyntaxKind.EqualsGreaterThanToken && !isFunctionLike(node.parent) ? undefined : getSymbolOfNode(node.parent); // TSPP-SLOT(syntax-extension): plugin syntax also writes `=>` outside functions
+                return getSymbolOfNode(node.parent);
             case SyntaxKind.ImportType:
                 return isLiteralImportTypeNode(node) ? getSymbolAtLocation(node.argument.literal, ignoreErrors) : undefined;
 

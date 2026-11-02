@@ -112,6 +112,11 @@ function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node
                 else (node as Mutable<LiteralLikeNode>).text = scanner.getTokenValue();
                 (node as Mutable<Node>).flags |= NodeFlags.Synthesized;
             }
+            else if (isTSPPSyntaxNode(parent)) {
+                // So are the punctuation and keywords that plugin syntax writes between its nodes, such as `=>` in a
+                // kind annotation, which the checker would otherwise take for the arrow of a function.
+                (node as Mutable<Node>).flags |= NodeFlags.Synthesized;
+            }
             nodes.push(node);
         }
         pos = textPos;
