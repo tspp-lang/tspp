@@ -10,12 +10,6 @@ export interface ExpressionEnvironment {
 
 const tokenPattern = /\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|\d+(?:\.\d+)?n?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|true|false|===|!==|<=|>=|&&|\|\||[(),+\-*\/%<>!])\s*/gy;
 
-export function expressionToSmt(text: string, environment: ExpressionEnvironment = {}): string {
-    const result = expressionToSmtTerm(text, environment);
-    if (result.sort !== "Bool") throw new Error(`Expected Bool, received ${result.sort}.`);
-    return result.smt;
-}
-
 export function expressionToSmtTerm(text: string, environment: ExpressionEnvironment = {}): Term {
     const tokens: string[] = [];
     let offset = 0;

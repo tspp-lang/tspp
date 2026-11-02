@@ -16,7 +16,7 @@ import {
     toInvocation,
 } from "./runtime";
 import type { MacroDiagnostic } from "./sdk";
-import type { MacroDeclarationSyntax, MacroEntityName, MacroInvocationSyntax, MacroSourceSyntax } from "./syntax";
+import type { MacroDeclarationSyntax, MacroInvocationSyntax, MacroSourceSyntax } from "./syntax";
 
 const defaultMacroTimeoutMs = 10_000;
 const maximumNestedMacroExpansionDepth = 32;
