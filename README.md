@@ -55,8 +55,8 @@ dependencies and static editor contributions. New ports are added only when a
 real feature demonstrates the boundary it needs.
 
 Feature projects select capsules through `compilerOptions.plugins`. The host
-validates required, optional and conflicting relationships, activates capsules
-in dependency order, and keeps feature code out of the LSP and VS Code clients.
+validates required and optional relationships, refuses plugins that claim the same
+syntax, activates capsules in dependency order, and keeps feature code out of the LSP and VS Code clients.
 
 During repository development, build the compiler before invoking its generated
 outputs. The root scripts delegate to the `ts-plus-plus` workspace.

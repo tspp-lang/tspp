@@ -38,4 +38,5 @@ Kinds and universes are one concept with them, so they now live here too.
 Higher-kinded types used to be a separate package; they share the type-constructor and kind machinery with type-level
 `let` and constructors, so they now live here.
 
-The package owns the surface syntax. It uses the compiler SDK's generic scoped binding, ordered matching, and type-constructor operations; the compiler core contains no feature id or keyword-specific branch.
+The package owns the surface syntax and lowers it to ordinary type nodes; the compiler core contains no feature id or
+keyword-specific branch.

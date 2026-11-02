@@ -70,7 +70,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     }
 
     /** Modifiers for a companion statement: fresh nodes of the same kinds, so no node has two parents. */
-    function companionModifiers(cursor: TSPPSyntaxCursor, at: number, ambient: boolean): TS.ModifierLike[] {
+    function companionModifiers(cursor: TSPPSyntaxCursor, ambient: boolean): TS.ModifierLike[] {
         const f = cursor.factory;
         const modifiers: TS.ModifierLike[] = [];
         for (const modifier of cursor.modifiers ?? []) {
@@ -80,12 +80,12 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         return modifiers;
     }
 
-    function typeArgumentsFor(cursor: TSPPSyntaxCursor, typeParameters: readonly TS.TypeParameterDeclaration[] | undefined, at: number): TS.NodeArray<TS.TypeNode> | undefined {
+    function typeArgumentsFor(cursor: TSPPSyntaxCursor, typeParameters: readonly TS.TypeParameterDeclaration[] | undefined): TS.NodeArray<TS.TypeNode> | undefined {
         return typeParameters && cursor.factory.createNodeArray(typeParameters.map(parameter =>
             cursor.factory.createTypeReferenceNode(cursor.factory.createIdentifier(ts.idText(parameter.name)))));
     }
 
-    function readonlyModifier(cursor: TSPPSyntaxCursor, at: number) {
+    function readonlyModifier(cursor: TSPPSyntaxCursor) {
         return [cursor.factory.createModifier(kinds.ReadonlyKeyword)];
     }
 
@@ -108,7 +108,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
      * without source text would print as `(Missing)` wherever a type is not shown through an alias (hover on an imported
      * data constant, for example).
      */
-    function brandNamespace(cursor: TSPPSyntaxCursor, name: TS.Identifier, at: number): TS.ModuleDeclaration {
+    function brandNamespace(cursor: TSPPSyntaxCursor, name: TS.Identifier): TS.ModuleDeclaration {
         const f = cursor.factory;
         const brandMember = f.createPropertyDeclaration(
             [f.createModifier(kinds.PrivateKeyword), f.createModifier(kinds.ReadonlyKeyword)],
@@ -120,7 +120,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         const brandName = range(f.createIdentifier(ts.idText(name)), name.pos, name.end);
         const brand = f.createClassDeclaration([f.createModifier(kinds.ExportKeyword)], brandName, undefined, undefined, [brandMember]);
         const namespace = root(f.createModuleDeclaration(
-            companionModifiers(cursor, at, /*ambient*/ true),
+            companionModifiers(cursor, /*ambient*/ true),
             range(f.createIdentifier(ts.idText(name)), name.pos, name.end),
             f.createModuleBlock([brand]),
             ts.NodeFlags.Namespace,
@@ -165,15 +165,15 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         const alias = range(f.createTypeAliasDeclaration(cursor.modifiers, name, typeParameters, aliasType), pos, end);
 
         const valueParameter = f.createParameterDeclaration(undefined, undefined, f.createIdentifier("value"), undefined, copy.type);
-        const returnType = f.createTypeReferenceNode(nameAgain(), typeArgumentsFor(cursor, copy.typeParameters, at));
+        const returnType = f.createTypeReferenceNode(nameAgain(), typeArgumentsFor(cursor, copy.typeParameters));
         const body = ambient ? undefined : f.createBlock([
             f.createReturnStatement(brandAs(cursor,
                 f.createIdentifier("value"),
-                f.createTypeReferenceNode(nameAgain(), typeArgumentsFor(cursor, copy.typeParameters, at)),
+                f.createTypeReferenceNode(nameAgain(), typeArgumentsFor(cursor, copy.typeParameters)),
             )),
         ]);
         const constructor = root(f.createFunctionDeclaration(
-            companionModifiers(cursor, at, ambient),
+            companionModifiers(cursor, ambient),
             undefined,
             nameAgain(),
             copy.typeParameters,
@@ -182,7 +182,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             body,
         ));
 
-        const namespace = brandNamespace(cursor, name, at);
+        const namespace = brandNamespace(cursor, name);
 
         authored.set(alias, {
             keyword: "newtype",
@@ -242,16 +242,16 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     }
 
     /** `{ readonly _tag: "V"; readonly field: T; ...; readonly _values: readonly [T, ...] }` */
-    function variantType(cursor: TSPPSyntaxCursor, variant: ParsedVariant, valueTypes: readonly TS.TypeNode[], at: number, positioned = true): TS.TypeLiteralNode {
+    function variantType(cursor: TSPPSyntaxCursor, variant: ParsedVariant, valueTypes: readonly TS.TypeNode[], positioned = true): TS.TypeLiteralNode {
         const f = cursor.factory;
-        const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor, at), f.createIdentifier("_tag"), undefined,
+        const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier("_tag"), undefined,
             f.createLiteralTypeNode(f.createStringLiteral(ts.idText(variant.name)))), variant.start);
-        const fields = variant.fields.map(field => range(f.createPropertySignature(readonlyModifier(cursor, at), field.name, undefined, field.type), field.name.pos, field.type.end));
+        const fields = variant.fields.map(field => range(f.createPropertySignature(readonlyModifier(cursor), field.name, undefined, field.type), field.name.pos, field.type.end));
         // Without fields, `readonly never[]` makes a read of a field never, as in an arm a narrowed scrutinee cannot reach.
         const valuesTuple = f.createTypeOperatorNode(kinds.ReadonlyKeyword, variant.fields.length
             ? f.createTupleTypeNode(f.createNodeArray(valueTypes))
             : f.createArrayTypeNode(f.createKeywordTypeNode(kinds.NeverKeyword)));
-        const values = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor, at), f.createIdentifier("_values"), undefined, valuesTuple), variant.valuesAt);
+        const values = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier("_values"), undefined, valuesTuple), variant.valuesAt);
         const literal = f.createTypeLiteralNode([tag, ...fields, values]);
         return positioned ? range(literal, variant.name.pos, variant.valuesAt) : literal;
     }
@@ -280,7 +280,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         const text = ts.idText(name);
 
         const union = range(f.createUnionTypeNode(f.createNodeArray(variants.map((variant, index) =>
-            variantType(cursor, variant, valuesCopy.variants[index]?.fields.map(field => field.type) ?? [], at)))), variants[0]?.name.pos ?? at, at);
+            variantType(cursor, variant, valuesCopy.variants[index]?.fields.map(field => field.type) ?? [])))), variants[0]?.name.pos ?? at, at);
         // Data values are nominal: a structural lookalike lacks the brand.
         const branded = range(f.createIntersectionTypeNode(f.createNodeArray([
             range(f.createParenthesizedType(union), union.pos, union.end),
@@ -288,14 +288,14 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         ])), union.pos, at);
         const alias = range(f.createTypeAliasDeclaration(cursor.modifiers, name, typeParameters, branded), pos, end);
 
-        const statements: TS.Statement[] = [alias, brandNamespace(cursor, name, at)];
+        const statements: TS.Statement[] = [alias, brandNamespace(cursor, name)];
         variants.forEach((variant, index) => {
             const variantName = ts.idText(variant.name);
             const tag = f.createPropertyAssignment(f.createIdentifier("_tag"), f.createStringLiteral(variantName));
             const constructorCopy = constructorCopies[index];
             if (!variant.fields.length || !constructorCopy) {
                 const type = f.createIntersectionTypeNode(f.createNodeArray([
-                    variantType(cursor, { start: keywordStart, valuesAt: keywordStart, name: f.createIdentifier(variantName), fields: [] }, [], at, /*positioned*/ false),
+                    variantType(cursor, { start: keywordStart, valuesAt: keywordStart, name: f.createIdentifier(variantName), fields: [] }, [], /*positioned*/ false),
                     brandReference(cursor, text),
                 ]));
                 const value = f.createObjectLiteralExpression([
@@ -306,7 +306,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
                 const declaration = ambient
                     ? f.createVariableDeclaration(constantName, undefined, type)
                     : f.createVariableDeclaration(constantName, undefined, undefined, brandAs(cursor, value, type));
-                const constant = root(f.createVariableStatement(companionModifiers(cursor, at, ambient), f.createVariableDeclarationList([declaration], ts.NodeFlags.Const)));
+                const constant = root(f.createVariableStatement(companionModifiers(cursor, ambient), f.createVariableDeclarationList([declaration], ts.NodeFlags.Const)));
                 companions.add(constant);
                 statements.push(constant);
                 return;
@@ -314,7 +314,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             const fields = constructorCopy.variants[index]?.fields ?? [];
             const parameters = fields.map(field => f.createParameterDeclaration(undefined, undefined, f.createIdentifier(ts.idText(field.name)), undefined, field.type));
             const reference = (fieldName: TS.Identifier) => f.createIdentifier(ts.idText(fieldName));
-            const dataType = () => f.createTypeReferenceNode(range(f.createIdentifier(text), name.pos, name.end), typeArgumentsFor(cursor, typeParameters, at));
+            const dataType = () => f.createTypeReferenceNode(range(f.createIdentifier(text), name.pos, name.end), typeArgumentsFor(cursor, typeParameters));
             const body = ambient ? undefined : f.createBlock([
                 f.createReturnStatement(brandAs(cursor, f.createObjectLiteralExpression([
                     tag,
@@ -325,7 +325,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             const constructorTypeParameters = constructorCopy.typeParameters;
             const returnType = dataType();
             const constructor = root(f.createFunctionDeclaration(
-                companionModifiers(cursor, at, ambient),
+                companionModifiers(cursor, ambient),
                 undefined,
                 range(f.createIdentifier(variantName), variant.name.pos, variant.name.end),
                 constructorTypeParameters,

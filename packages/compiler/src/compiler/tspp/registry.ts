@@ -480,7 +480,7 @@ function checkProjection(id: string, original: string, next: string): void {
  * @internal
  */
 export function projectTSPPSource(fileName: string, sourceText: string): string {
-    if (!sourceProjectionApplies(fileName)) return sourceText;
+    if (!sourcePreprocessors.size || !isTSPPFileName(fileName)) return sourceText;
     const existing = projectedSources.get(fileName);
     if (existing?.projected === sourceText) return sourceText;
     const characters = sourceText.split("");
@@ -508,10 +508,6 @@ export function projectTSPPSource(fileName: string, sourceText: string): string 
     if (projected !== sourceText || conflicts.length) projectedSources.set(fileName, { original: sourceText, projected, spans, conflicts });
     else projectedSources.delete(fileName);
     return projected;
-}
-
-function sourceProjectionApplies(fileName: string): boolean {
-    return sourcePreprocessors.size !== 0 && isTSPPFileName(fileName);
 }
 
 /** Recovers the user-authored text corresponding to a projected parse tree. @internal */

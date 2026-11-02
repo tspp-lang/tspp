@@ -1,7 +1,7 @@
 import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import type { MacroCompilerHost, MacroInvocationEvents } from "./expand";
+import type { MacroCompilerHost } from "./expand";
 
 export interface SerializedMacroExpansion {
     readonly fileName: string;
@@ -37,13 +37,6 @@ export interface MacroWorkerData {
     readonly macroTimeoutMs: number | undefined;
     readonly macroBenchmarkMs: number | undefined;
 }
-
-/** Expands the macros of a program in this thread and returns serializable results. */
-export type InProcessExpansion = (
-    program: TS.Program,
-    host: MacroCompilerHost,
-    events: MacroInvocationEvents,
-) => Promise<MacroWorkerResult>;
 
 type MacroWorkerMessage =
     | { readonly type: "macro-start"; readonly timeoutMs: number; readonly description: string; readonly fileName: string; readonly start: number; readonly length: number; readonly macroName: string; }

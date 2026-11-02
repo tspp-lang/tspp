@@ -84,22 +84,19 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
         cursor.nextToken();
         const scrutinee = cursor.parseAssignmentExpression();
         cursor.parseExpected(kinds.OpenBraceToken);
-        const parsedArms: { patterns: MatchPattern[]; guard?: TS.Expression; guardStart: number; result: TS.Expression; resultStart: number; start: number; }[] = [];
+        const parsedArms: { patterns: MatchPattern[]; guard?: TS.Expression; result: TS.Expression; start: number; }[] = [];
         while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) {
             const start = cursor.getNodePos();
             const patterns = [parsePattern(cursor)];
             while (cursor.parseOptional(kinds.BarToken)) patterns.push(parsePattern(cursor));
             let guard: TS.Expression | undefined;
-            let guardStart = 0;
             if (cursor.token() === kinds.IfKeyword) {
                 cursor.nextToken();
-                guardStart = cursor.getTokenStart();
                 guard = cursor.parseAssignmentExpression();
             }
             cursor.parseExpected(kinds.EqualsGreaterThanToken);
-            const resultStart = cursor.getTokenStart();
             const result = cursor.parseAssignmentExpression();
-            parsedArms.push({ patterns, guard, guardStart, result, resultStart, start });
+            parsedArms.push({ patterns, guard, result, start });
             if (!cursor.parseOptional(kinds.CommaToken)) break;
         }
         // Generated nodes sit, zero-width, at token starts, where a diagnostic on one has a valid span.
@@ -127,36 +124,36 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
         /** A reference to the scrutinee the checker binds, for the diagnostics; the scrutinee itself only when it is in the tree. */
         let checkedScrutinee: TS.Expression = scrutinee;
         let firstCopy: TS.Expression | undefined;
-        const temporary = (_at: number) => {
+        const temporary = () => {
             const copy = copyOf(scrutinee);
             if (copy) firstCopy ??= copy;
             return copy ?? f.createIdentifier(temporaryName);
         };
         /** `$m._values[0]._values[1]` */
-        const fieldOf = (reference: TS.Expression, index: number, _at: number): TS.Expression =>
+        const fieldOf = (reference: TS.Expression, index: number): TS.Expression =>
             f.createElementAccessExpression(f.createPropertyAccessExpression(reference, f.createIdentifier("_values")), f.createNumericLiteral(index));
-        const tagTest = (reference: TS.Expression, pattern: MatchPattern, _at: number): TS.Expression =>
+        const tagTest = (reference: TS.Expression, pattern: MatchPattern): TS.Expression =>
             f.createBinaryExpression(f.createPropertyAccessExpression(reference, f.createIdentifier("_tag")), f.createToken(kinds.EqualsEqualsEqualsToken), f.createStringLiteral(pattern.variant));
-        const and = (left: TS.Expression, right: TS.Expression, _at: number): TS.Expression => {
+        const and = (left: TS.Expression, right: TS.Expression): TS.Expression => {
             const both = f.createBinaryExpression(left, f.createToken(kinds.AmpersandAmpersandToken), right);
             return right.pos >= 0 ? range(both, right.pos, right.end) : both;
         };
         /** The tag tests of a pattern and its nested constructor patterns, reading the scrutinee anew each time. */
-        const condition = (pattern: MatchPattern, read: (at: number) => TS.Expression, at: number): TS.Expression => {
-            let test = tagTest(read(at), pattern, at);
+        const condition = (pattern: MatchPattern, read: () => TS.Expression): TS.Expression => {
+            let test = tagTest(read(), pattern);
             pattern.elements.forEach((element, index) => {
-                if (element.kind === "constructor") test = and(test, condition(element, nestedAt => fieldOf(read(nestedAt), index, nestedAt), at), at);
+                if (element.kind === "constructor") test = and(test, condition(element, () => fieldOf(read(), index)));
             });
             return test;
         };
         /** Each binding of a pattern with the expression that reads its field. */
-        const bindings = (pattern: MatchPattern, read: (at: number) => TS.Expression): { name: TS.Identifier; read: (at: number) => TS.Expression; }[] =>
+        const bindings = (pattern: MatchPattern, read: () => TS.Expression): { name: TS.Identifier; read: () => TS.Expression; }[] =>
             pattern.elements.flatMap((element, index) => {
-                const field = (at: number) => fieldOf(read(at), index, at);
+                const field = () => fieldOf(read(), index);
                 return element.kind === "binding" ? [{ name: element.name, read: field }] : bindings(element, field);
             });
-        /** `((a, b) => body)(field0, field1)`, or `body` when nothing is bound; `bodyStart` is the body's token start. */
-        const bind = (bound: readonly { name: TS.Identifier; read: (at: number) => TS.Expression; }[], names: readonly TS.Identifier[], body: TS.Expression, bodyStart: number): TS.Expression => {
+        /** `((a, b) => body)(field0, field1)`, or `body` when nothing is bound. */
+        const bind = (bound: readonly { name: TS.Identifier; read: () => TS.Expression; }[], names: readonly TS.Identifier[], body: TS.Expression): TS.Expression => {
             if (!bound.length) return body;
             const parameters = names.map(name => name.pos >= 0 ? range(f.createParameterDeclaration(undefined, undefined, name), name.pos, name.end) : f.createParameterDeclaration(undefined, undefined, name));
             const positioned = names[0].pos >= 0;
@@ -167,7 +164,7 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
                 positioned ? names[0].pos : body.pos, body.end);
             const callee = range(f.createParenthesizedExpression(arrow), arrow.pos, arrow.end);
             // The field reads follow the body, empty, so the call's children stay in source order.
-            const reads = range(f.createNodeArray(bound.map(binding => markGenerated(ts, binding.read(body.end), body.end))), body.end, body.end);
+            const reads = range(f.createNodeArray(bound.map(binding => markGenerated(ts, binding.read(), body.end))), body.end, body.end);
             return range(f.createCallExpression(callee, undefined, reads), arrow.pos, body.end);
         };
 
@@ -184,18 +181,18 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
             const at = arm.patterns[0].start;
             const tests = arm.patterns
                 .filter(pattern => pattern.variant !== "_")
-                .map(pattern => condition(pattern, temporary, at));
+                .map(pattern => condition(pattern, temporary));
             let test = markGenerated(ts, tests.length
                 ? tests.reduce((left, right) => f.createBinaryExpression(left, f.createToken(kinds.BarBarToken), right))
                 : f.createTrue(), at);
             const bound = arm.patterns.length === 1 ? bindings(arm.patterns[0], temporary) : [];
             let resultNames = bound.map(binding => binding.name);
             if (arm.guard) {
-                test = markGenerated(ts, and(test, bind(bound, bound.map(binding => binding.name), arm.guard, arm.guardStart), at), at);
+                test = markGenerated(ts, and(test, bind(bound, bound.map(binding => binding.name), arm.guard)), at);
                 // The pattern's names belong to the guard; the result binds the same fields under fresh names.
                 resultNames = bound.map(binding => range(f.createIdentifier(ts.idText(binding.name)), -1, -1));
             }
-            const whenTrue = bind(bound, resultNames, arm.result, arm.resultStart);
+            const whenTrue = bind(bound, resultNames, arm.result);
             chain = range(f.createConditionalExpression(test, range(f.createToken(kinds.QuestionToken), whenTrue.pos, whenTrue.pos), whenTrue,
                 range(f.createToken(kinds.ColonToken), whenTrue.end, whenTrue.end), chain),
                 arm.start, chain.end > whenTrue.end ? chain.end : whenTrue.end);
