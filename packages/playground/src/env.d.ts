@@ -30,6 +30,12 @@ declare module "virtual:tspp-package-types" {
   export default files;
 }
 
+declare module "virtual:tspp-plugins" {
+  /** The module of every feature capsule this package depends on. */
+  const modules: readonly unknown[];
+  export default modules;
+}
+
 declare module "virtual:tspp-editor-keywords" {
   /** Word-like lexical tokens contributed by the same feature capsules used by VS Code. */
   const keywords: readonly string[];

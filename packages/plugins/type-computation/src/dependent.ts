@@ -56,7 +56,12 @@ export function cursorTokens(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): Term
     };
 }
 
-const declaredNames = /\b(?:type|interface|class|enum|data|newtype)\s+([A-Za-z_$][\w$]*)/g;
+/** A declaration keyword followed by the name it declares: TypeScript's own, and those active plugins claim. */
+function declaredNames(model: TypeSyntaxModel): RegExp {
+    const keywords = ["type", "interface", "class", "enum", ...model.getDeclarationKeywords().filter(keyword => /^[A-Za-z]\w*$/.test(keyword))];
+    return new RegExp(`\\b(?:${keywords.join("|")})\\s+([A-Za-z_$][\\w$]*)`, "g");
+}
+
 const namedImports = /\bimport\s+(?:type\s+)?(?:([A-Za-z_$][\w$]*)\s*,?\s*)?(?:\{([^}]*)\})?\s*from\b/g;
 
 /** The names a file declares or imports itself; a type named `Pair` there is that type, not the built-in term. */
@@ -65,7 +70,7 @@ export function fileDeclaredNames(model: TypeSyntaxModel, sourceText: string): R
     if (file.declared) return file.declared;
     const code = maskNonCode(sourceText);
     const names = new Set<string>();
-    for (const match of code.matchAll(declaredNames)) names.add(match[1]);
+    for (const match of code.matchAll(declaredNames(model))) names.add(match[1]);
     for (const match of code.matchAll(namedImports)) {
         if (match[1]) names.add(match[1]);
         for (const part of match[2]?.split(",") ?? []) {
@@ -337,7 +342,7 @@ export function createNormalFormAnalyzer(ts: TSPPTypeScript, model: TypeSyntaxMo
                         const normalType = normalizeMlttTerm(inferMlttType(term));
                         const start = model.authored.get(node) ?? node.pos;
                         artifacts.push({
-                            kind: "dependent-types/normal-form",
+                            kind: "type-computation/normal-form",
                             fileName,
                             start,
                             length: Math.max(1, (model.authoredEnds.get(node) ?? node.end) - start),

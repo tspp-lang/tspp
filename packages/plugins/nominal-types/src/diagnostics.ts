@@ -43,8 +43,10 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
 
     function checkMatch(match: LoweredMatch, checker: TS.TypeChecker, report: (code: number, message: string) => void): void {
         // A variable's declared type lists every variant; its narrowed type after an assignment may list only one.
-        const entity = ts.isIdentifier(match.scrutinee) ? match.scrutinee : ts.isPropertyAccessExpression(match.scrutinee) ? match.scrutinee.name : undefined;
-        const symbol = entity && checker.getSymbolAtLocation(entity);
+        // The scrutinee is a generated copy, whose property name the checker has no symbol for, so look the property up.
+        const symbol = ts.isIdentifier(match.scrutinee) ? checker.getSymbolAtLocation(match.scrutinee)
+            : ts.isPropertyAccessExpression(match.scrutinee) ? checker.getPropertyOfType(checker.getTypeAtLocation(match.scrutinee.expression), ts.idText(match.scrutinee.name as TS.Identifier))
+            : undefined;
         const matchedType = symbol && symbol.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property) ? checker.getTypeOfSymbol(symbol) : checker.getTypeAtLocation(match.scrutinee);
         const variantsOf = (type: TS.Type): Map<string, VariantInfo> => {
             const result = new Map<string, VariantInfo>();

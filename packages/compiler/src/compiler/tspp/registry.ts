@@ -46,7 +46,8 @@ const programRebuilders = new Map<string, TSPPProgramRebuilder>();
 const syntaxExtensions = new Map<TSPPSyntaxExtensionPosition, { pluginId: string; extension: TSPPSyntaxExtension; }[]>();
 const diagnosticProviders = new Map<string, { pluginId: string; provider: TSPPDiagnosticProvider; }>();
 const typeExtensions = new Map<string, TSPPTypeExtension>();
-const typeExtensionList: TSPPTypeExtension[] = [];
+/** The active plugins, in activation order. */
+const activePlugins: TSPPPlugin[] = [];
 /** The plugin that parsed each syntax node or annotation. */
 const syntaxOwners = new WeakMap<object, string>();
 /** Who claims each `keyword @ position`, so that a second plugin is refused when it registers. */
@@ -144,17 +145,16 @@ const compilerAPI: TSPPCompilerHostAPI = {
     registerTypeExtension(pluginId, extension) {
         if (typeExtensions.has(pluginId)) throw new Error(`TSPP plugin '${pluginId}' registered more than one type extension.`);
         typeExtensions.set(pluginId, extension);
-        typeExtensionList.push(extension);
-        return () => {
-            typeExtensions.delete(pluginId);
-            typeExtensionList.splice(typeExtensionList.indexOf(extension), 1);
-        };
+        return () => typeExtensions.delete(pluginId);
     },
     registerProgramRebuilder(pluginId, rebuilder) {
         const key = `${pluginId}/${rebuilder.id}`;
         if (programRebuilders.has(key)) throw new Error(`Duplicate TSPP program rebuilder '${key}'.`);
         programRebuilders.set(key, rebuilder);
         return () => programRebuilders.delete(key);
+    },
+    getSyntaxKeywords(position) {
+        return [...syntaxClaims.values()].filter(claim => claim.position === position).map(claim => claim.keyword).sort();
     },
 };
 
@@ -338,7 +338,7 @@ export function getRegisteredTSPPSyntaxClaims(): readonly { readonly pluginId: s
 
 /** @internal */
 export function getRegisteredTSPPTypeExtensions(): readonly TSPPTypeExtension[] {
-    return typeExtensionList;
+    return sortedByKey(typeExtensions);
 }
 
 /** @internal */
@@ -377,7 +377,24 @@ export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
         return false;
     }
     pluginHost!.registerAndActivate(capsule);
+    activePlugins.push(capsule);
     return true;
+}
+
+/**
+ * The module paths of the active plugins, found among the loaded modules because tsserver hands the host a plugin's
+ * exports, not its path. Undefined when one was not loaded as a module, as in a browser or from a bundle. @internal
+ */
+export function getTSPPPluginModulePaths(): readonly string[] | undefined {
+    if (typeof require !== "function" || !require.cache) return undefined;
+    const loaded = Object.values(require.cache) as ({ readonly filename: string; readonly exports?: { readonly default?: unknown; }; } | undefined)[];
+    const paths: string[] = [];
+    for (const plugin of activePlugins) {
+        const found = loaded.find(module => module && (module.exports === plugin as unknown || module.exports?.default === plugin));
+        if (!found) return undefined;
+        paths.push(found.filename);
+    }
+    return paths;
 }
 
 /** Extracts a feature capsule from either CommonJS or ESM-shaped package exports. @internal */
@@ -528,7 +545,7 @@ export function getPreprocessedTypeAliasDeclaration(
 ): TSPPPreprocessedTypeAlias | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sourcePreprocessors.values()) {
+    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreTypeAliasDeclaration?.({
             fileName,
             sourceText: entry.original,
@@ -548,7 +565,7 @@ export function getPreprocessedFunctionPrefix(
 ): string | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sourcePreprocessors.values()) {
+    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreFunctionPrefix?.({
             fileName,
             sourceText: entry.original,
@@ -568,7 +585,7 @@ export function getPreprocessedFunctionClause(
 ): string | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sourcePreprocessors.values()) {
+    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreFunctionClause?.({
             fileName,
             sourceText: entry.original,

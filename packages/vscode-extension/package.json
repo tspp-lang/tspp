@@ -24,7 +24,7 @@
   "scripts": {
     "build": "node scripts/build-plugin-grammar.mjs && node --check extension.js",
     "lint": "eslint extension.js scripts",
-    "test": "node --check extension.js"
+    "test": "node --check extension.js && node scripts/build-plugin-grammar.mjs --check"
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*",
@@ -32,6 +32,7 @@
     "tspp-language-server": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
+    "@tspp/plugin-modern-syntax": "workspace:*",
     "@tspp/plugin-nominal-types": "workspace:*",
     "@tspp/plugin-operator-sections": "workspace:*",
     "@tspp/plugin-static-interface-members": "workspace:*",

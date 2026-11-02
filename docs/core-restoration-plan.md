@@ -279,6 +279,21 @@ dependent-types 并入 type-computation（"互相依赖就合并"，HKT 是先�
 
 已知限制：导入的函数别名（`Inc`）不能在别的文件里应用，因为应用是解析时算的；计算结果不是自然数或布尔值时，导入别名只作为 TS 类型参与；全局声明的同名类型仍被内置项盖住（文件内声明和导入的不会）。
 
+**进度记录（2026-11-02，加法关系的第二轮评估）**
+
+用真实 CLI 跑组合，发现进程内测试看不到的问题，都已修复：
+
+- **宏 worker 只加载宏插件。** worker 从原文重新解析项目，却读不懂其他插件的语法：宏作用在 `data`/`newtype` 上报 `Target could not be resolved`，宏函数体里写 `let`、`match` 报语法错误。进程内测试不走 worker，所以一直是绿的。程序重建请求新增 `pluginModulePaths`（宿主从已加载模块里找到激活插件的路径），worker 先加载它们；找不到路径时在当前线程展开。
+- **形式验证把 `as never` 都当作不可达。** 这本来是为 `match` 的降级准备的，但用户写的 `v > 3n ? 10n : (0n as never)` 也能"证明"错误的后置条件。nominal-types API 新增 `isMatchEnd`，只有 `match` 生成的结尾才算不可达；用户写的断言现在报不支持。
+- **`match` 的对象是属性访问时必定误报。** `match v.a { A(x) => x, B => 0 }` 报 `Pattern 'A' does not belong`，与其他插件无关。诊断用的引用取自最后一个分支，已被前面的分支收窄，属性名上也取不到符号。现在取第一个分支测试里的引用，并按对象类型查属性。
+- **type-computation 写死 `data|newtype`。** 改用 SDK 新增的 `getSyntaxKeywords("declaration")`。
+- **编辑器知道具体插件。** `editor` facet 的 `commands` 换成 `artifactViews` 与 `overlayViews`；VS Code 与 playground 由它们生成命令、输出标签和悬停，`getMacroExpansions` 不再被宿主直接调用。产物类型 `dependent-types/normal-form` 改为 `type-computation/normal-form`。playground 的插件列表来自 `package.json`。
+- **加载顺序。** 声明恢复和类型扩展也按插件 id 排序。
+
+新增护栏见 `docs/plugin-framework.md` 的 "What keeps plugins additive"；CI 新增 TS++ 编译器单测、编译器 lint、ESLint 规则测试和 knip。
+
+已知限制：形式验证读作者原文，看不到宏生成的代码，引用宏生成的变量时报 `Unknown proof variable`（不会证明出错误结论）。
+
 ## 风险与待定
 
 - **类型层特性可能无法完全迁出。** HKT、类型宇宙、类型构造器需要介入 checker 的类型解析和实例化。若通用插槽设计不出来，需要明确记录为"受控例外"，并限定在一个文件内。结果：第 8 步用通用的"类型层扩展"插槽完成，没有使用受控例外（见进度记录）。

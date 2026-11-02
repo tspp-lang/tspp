@@ -119,8 +119,9 @@ export function lowerConditional(node: TS.ConditionalExpression, state: State, c
     const whenFalse = cloneState(state);
     whenFalse.facts.push(`(not ${condition.smt})`);
     const trueValue = lowerExpression(node.whenTrue, whenTrue, context);
-    // `... as never` marks a branch the program claims is unreachable, such as the end of an exhaustive match.
-    if (isNeverAssertion(node.whenFalse)) {
+    // The end of a `match` is unreachable because its plugin checks exhaustiveness. An `as never` someone wrote proves
+    // nothing, so it goes on to be lowered, and refused, like any other assertion.
+    if (context.nominalTypes?.isMatchEnd(node.whenFalse)) {
         for (const declaration of whenTrue.declarations) state.declarations.add(declaration);
         return trueValue;
     }
@@ -128,11 +129,6 @@ export function lowerConditional(node: TS.ConditionalExpression, state: State, c
     if (trueValue.sort !== falseValue.sort) throw new Error("Both branches of a condition must have the same proof sort.");
     for (const declaration of [...whenTrue.declarations, ...whenFalse.declarations]) state.declarations.add(declaration);
     return { smt: `(ite ${condition.smt} ${trueValue.smt} ${falseValue.smt})`, sort: trueValue.sort };
-}
-
-function isNeverAssertion(node: TS.Expression): boolean {
-    while (ts.isParenthesizedExpression(node)) node = node.expression;
-    return ts.isAsExpression(node) && node.type.kind === ts.SyntaxKind.NeverKeyword;
 }
 
 /** What a return of a data value or record proves about `result`, field by field. */

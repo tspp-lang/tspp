@@ -1,4 +1,4 @@
-import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger, TSPPSyntaxKeyword } from "./index";
+import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger, TSPPSyntaxKeyword, TSPPSyntaxPosition } from "./index";
 
 /** The authored text of a source file, as supplied to background analyzers. */
 export interface TSPPAnalysisSourceFile {
@@ -112,6 +112,11 @@ export interface TSPPProgramRebuildRequest {
     readonly invalidate?: () => void;
     /** A module path that loads this compiler's public API, when it can be loaded again (for example in a worker). */
     readonly compilerModulePath?: string;
+    /**
+     * The module paths of the active plugins, in activation order. A rebuilder that parses in another thread loads them
+     * there, so it reads every plugin's syntax. Undefined when some active plugin cannot be loaded again.
+     */
+    readonly pluginModulePaths?: readonly string[];
 }
 
 export interface TSPPProgramRebuild {
@@ -363,6 +368,12 @@ export interface TSPPCompilerPluginAPI {
     registerSyntaxExtension(extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
     registerTypeExtension(extension: TSPPTypeExtension): TSPPPluginDisposer;
+    /**
+     * The words active plugins claim at a syntax position, such as the keywords that declare a name at `declaration`.
+     * Read them while working, since plugins may activate later. A plugin that must tell authored syntax apart uses this
+     * instead of naming another plugin's keywords.
+     */
+    getSyntaxKeywords(position: TSPPSyntaxPosition): readonly string[];
 }
 
 export interface TSPPCompilerHostAPI {
@@ -373,6 +384,7 @@ export interface TSPPCompilerHostAPI {
     registerSyntaxExtension(pluginId: string, extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(pluginId: string, provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
     registerTypeExtension(pluginId: string, extension: TSPPTypeExtension): TSPPPluginDisposer;
+    getSyntaxKeywords(position: TSPPSyntaxPosition): readonly string[];
 }
 
 /** The public TypeScript API of the host compiler. Plugins use it instead of importing their own `typescript`. */

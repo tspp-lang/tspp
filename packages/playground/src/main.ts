@@ -64,6 +64,7 @@ catch (error) {
   throw error;
 }
 const { version, features: definitions } = initialization;
+outputs.addFeatureOutputs(definitions);
 status.textContent = `TypeScript ${version} base`;
 bootOverlay.hidden = true;
 

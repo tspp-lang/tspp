@@ -1,5 +1,7 @@
 import { maskNonCode } from "@tspp/plugin-sdk";
+import type * as TS from "typescript-upstream";
 import type { NominalDataField, NominalDataType, NominalTypesADTAPI } from "./api";
+import { isMatchEnd } from "./match";
 
 export const nominalTypesADTAPIName = "nominal-types/adt";
 
@@ -66,5 +68,6 @@ export const nominalTypesADTAPI: NominalTypesADTAPI = {
     tagProperty: "_tag",
     valuesProperty: "_values",
     tagOf: variant => variant.name,
+    isMatchEnd: node => isMatchEnd(node as TS.Node),
     getDataTypes,
 };

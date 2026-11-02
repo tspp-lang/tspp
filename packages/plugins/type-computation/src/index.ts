@@ -40,7 +40,7 @@ export const typeComputationPlugin = definePlugin({
         compiler: {
             activate(context) {
                 const ts = context.ts;
-                const model = createTypeSyntaxModel();
+                const model = createTypeSyntaxModel(() => context.compiler.getSyntaxKeywords("declaration"));
                 const [typeSyntax, ...otherSyntax] = createTypeSyntax(ts, model);
                 const restorers = createDeclarationRestorers(ts, model);
                 const reification = createReification(ts);
@@ -136,7 +136,13 @@ export const typeComputationPlugin = definePlugin({
         },
         editor: {
             keywords: ["in", "infer"],
-            commands: [{ id: "tspp.showMlttNormalForms", title: "TS++: Show MLTT Normal Forms" }],
+            artifactViews: [{
+                commandId: "tspp.showMlttNormalForms",
+                title: "TS++: Show MLTT Normal Forms",
+                label: "MLTT normal forms",
+                artifactKind: "type-computation/normal-form",
+                emptyMessage: "This file has no MLTT normal forms.",
+            }],
             grammars: ["./editor/type-computation.tmLanguage.json", "./editor/higher-kinded-types.tmLanguage.json", "./editor/dependent-types.tmLanguage.json"],
         },
     },

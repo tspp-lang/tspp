@@ -69,7 +69,7 @@
     "size-limit": "^14.0.0",
     "source-map-support": "^0.5.21",
     "tempy": "^3.2.0",
-    "typescript": "5.9.2",
+    "typescript": "5.9.3",
     "typescript-eslint": "^8.70.0",
     "vitest": "^4.1.11",
     "vscode-jsonrpc": "9.0.3",

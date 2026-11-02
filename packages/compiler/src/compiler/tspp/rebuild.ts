@@ -38,6 +38,7 @@ import { NodeFlags } from "../types.js";
 import {
     getOriginalTSPPSource,
     getRegisteredTSPPProgramRebuilders,
+    getTSPPPluginModulePaths,
 } from "./registry.js";
 
 type PublicProgram = Parameters<TSPPProgramRebuild["onRebuilt"] & {}>[0];
@@ -108,6 +109,7 @@ function createRequest(host: CompilerHost, async: boolean): TSPPProgramRebuildRe
         async,
         invalidate: host.invalidateTSPPProgram && (() => host.invalidateTSPPProgram!()),
         compilerModulePath: getCompilerModulePath(),
+        pluginModulePaths: getTSPPPluginModulePaths(),
     };
 }
 

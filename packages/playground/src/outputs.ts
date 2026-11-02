@@ -1,20 +1,20 @@
 import type { LanguageClient } from "./client";
 import * as monaco from "./monaco";
-import type { OutputCategory, OutputItem, OutputSnapshot, RunnableProgram } from "./protocol";
+import type { FeatureDefinition, OutputCategory, OutputItem, OutputSnapshot, RunnableProgram } from "./protocol";
 import { languageId } from "./tsppLanguage";
 
 /** `feature` is the capsule that produces the artifact; without it there is nothing to ask the compiler for. */
-const categories: readonly { id: OutputCategory; label: string; feature?: string }[] = [
+const categories: { id: OutputCategory; label: string; feature?: string }[] = [
   { id: "javascript", label: "JavaScript" },
   { id: "dts", label: ".d.ts" },
   { id: "dtspp", label: ".d.tspp" },
-  { id: "macro", label: "Macro expansion", feature: "macros" },
-  { id: "smt", label: "SMT-LIB2", feature: "formal-verification/z3" },
 ];
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
 export interface OutputController {
+  /** Adds the output tabs of the features the compiler offers, once it has loaded. */
+  addFeatureOutputs(features: readonly FeatureDefinition[]): void;
   setFile(fileName: string, force?: boolean): void;
   markStale(): void;
   dispose(): void;
@@ -51,7 +51,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   });
 
   const categoryButtons = new Map<OutputCategory, HTMLButtonElement>();
-  for (const definition of categories) {
+  function addCategoryButton(definition: typeof categories[number]): void {
     const button = document.createElement("button");
     button.type = "button";
     button.dataset.category = definition.id;
@@ -60,6 +60,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     categoryButtons.set(definition.id, button);
     outputTabs.append(button);
   }
+  categories.forEach(addCategoryButton);
 
   function itemsForCategory(): readonly OutputItem[] {
     return loaded.get(category)?.items ?? [];
@@ -283,6 +284,15 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   renderItems();
   updateRunButton();
   return {
+    addFeatureOutputs(features) {
+      for (const feature of features) {
+        for (const output of feature.outputs) {
+          const definition = { ...output, feature: feature.id };
+          categories.push(definition);
+          addCategoryButton(definition);
+        }
+      }
+    },
     setFile,
     markStale,
     dispose() {

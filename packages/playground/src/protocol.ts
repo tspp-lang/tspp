@@ -5,6 +5,8 @@ export interface FeatureDefinition {
   readonly name: string;
   readonly dependencies: readonly string[];
   readonly description?: string;
+  /** The output tabs this feature adds, from its editor contribution. */
+  readonly outputs: readonly { readonly id: string; readonly label: string }[];
 }
 
 export interface Span {
@@ -30,8 +32,8 @@ export interface QuickInfo {
   readonly tags: readonly string[];
   /** TS++ type computation result, when it differs from the written type. */
   readonly normalized?: { readonly text: string; readonly label: string; readonly classification: string };
-  /** The statements a macro invocation under the cursor expands to. */
-  readonly macroExpansion?: { readonly macroName: string; readonly text: string };
+  /** What a plugin puts in place of the source under the cursor. */
+  readonly overlay?: { readonly hoverTitle: string; readonly hoverWhenEmpty: string; readonly text: string };
   /** The formal-contract obligation under the cursor. */
   readonly verification?: { readonly status: string; readonly message: string; readonly counterexample?: string };
 }
@@ -70,7 +72,8 @@ export interface Location {
   readonly span: Span;
 }
 
-export type OutputCategory = "javascript" | "dts" | "dtspp" | "macro" | "smt";
+/** A compiler output, or the id of an output a feature adds. */
+export type OutputCategory = string;
 
 /** One read-only compiler or plugin artifact shown beside the source editor. */
 export interface OutputItem {

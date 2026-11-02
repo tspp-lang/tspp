@@ -15,19 +15,17 @@ const normalizedCompilerSource = compilerSource.replaceAll("\\", "/");
 const z3Build = dirname(require.resolve("z3-solver"));
 const examplesRoot = resolve(import.meta.dirname, "../examples");
 const monacoRoot = join(dirname(require.resolve("monaco-editor")), "..", "..");
+/** The feature capsules are this package's dependencies; nothing else lists them. */
+const pluginPackages = Object.keys((JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")) as {
+  dependencies: Record<string, string>;
+}).dependencies).filter(name => name.startsWith("@tspp/plugin-") && name !== "@tspp/plugin-sdk").sort();
 const browserPackages = [
   "@tspp/plugin-sdk",
   "@tspp/plugin-sdk/compiler",
   "@tspp/plugin-sdk/editor",
   "@tspp/plugin-sdk/host",
   "@tspp/plugin-sdk/language-service",
-  "@tspp/plugin-formal-verification",
-  "@tspp/plugin-macros",
-  "@tspp/plugin-modern-syntax",
-  "@tspp/plugin-nominal-types",
-  "@tspp/plugin-operator-sections",
-  "@tspp/plugin-static-interface-members",
-  "@tspp/plugin-type-computation",
+  ...pluginPackages,
 ];
 const declarationPackages = [...new Set(browserPackages.filter(name => name.startsWith("@tspp/")).map(name =>
   name.split("/").slice(0, 2).join("/")
@@ -167,7 +165,20 @@ function editorKeywords(): Plugin {
   };
 }
 
-const workerPlugins = () => [compilerSources(), compilerLibraries(), packageTypes(), editorKeywords()];
+function featurePlugins(): Plugin {
+  const id = "virtual:tspp-plugins";
+  return {
+    name: "tspp:plugins",
+    resolveId(source) { return source === id ? `\0${id}` : undefined; },
+    load(source) {
+      if (source !== `\0${id}`) return undefined;
+      const imports = pluginPackages.map((name, index) => `import plugin${index} from ${JSON.stringify(name)};`);
+      return `${imports.join("\n")}\nexport default [${pluginPackages.map((_, index) => `plugin${index}`).join(", ")}];`;
+    },
+  };
+}
+
+const workerPlugins = () => [compilerSources(), compilerLibraries(), packageTypes(), editorKeywords(), featurePlugins()];
 
 function listFiles(directory: string, prefix = ""): string[] {
   if (!existsSync(directory)) return [];
@@ -179,10 +190,9 @@ function listFiles(directory: string, prefix = ""): string[] {
 }
 
 function exampleFeature(packageName: string): string | undefined {
-  const names: Record<string, string> = {
-    "@tspp/plugin-formal-verification": "formal-verification/z3",
-  };
-  return names[packageName] ?? packageName.match(/^@tspp\/plugin-(.+)$/)?.[1];
+  if (!pluginPackages.includes(packageName)) return undefined;
+  const loaded = require(packageName) as { default?: unknown };
+  return ((loaded.default ?? loaded) as TSPPPlugin).manifest.id;
 }
 
 function examplesPlugin(): Plugin {

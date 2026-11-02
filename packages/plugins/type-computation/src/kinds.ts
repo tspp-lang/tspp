@@ -146,6 +146,8 @@ export function kindParameterOwner(sourceText: string, position: number, name: s
 
 /** Nodes this plugin produced or annotated while parsing, shared by its checker and declaration output. */
 export interface TypeSyntaxModel {
+    /** The keywords active plugins claim for declarations. */
+    readonly getDeclarationKeywords: () => readonly string[];
     /** Kind annotations of type parameters and type aliases. */
     readonly declarationKinds: WeakMap<TS.Node, TypeKind>;
     /** Where an authored kind annotation, from its `:` to the end of the kind, is written for a declaration. */
@@ -172,8 +174,9 @@ export interface TypeSyntaxModel {
     used: boolean;
 }
 
-export function createTypeSyntaxModel(): TypeSyntaxModel {
+export function createTypeSyntaxModel(getDeclarationKeywords: () => readonly string[]): TypeSyntaxModel {
     return {
+        getDeclarationKeywords,
         declarationKinds: new WeakMap(),
         kindAnnotations: new WeakMap(),
         constructors: new WeakSet(),

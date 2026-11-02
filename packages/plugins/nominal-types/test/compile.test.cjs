@@ -406,3 +406,21 @@ test("hover on imported nominal declarations names the brand instead of (Missing
   assert.match(id, /type Id = number & Id\.Id/);
   for (const display of [id, hover("None }")]) assert.doesNotMatch(display, /\(Missing\)|\bany\b/, display);
 });
+
+test("a match over a property sees every variant, however the property was written", () => {
+  const data = "data S = A(x: number) | B;";
+  const arms = "{ A(x) => x, B => 0 }";
+  for (const source of [
+    `${data} const v = { a: A(1) }; export const r = match v.a ${arms};`,
+    `${data} export function f(v: { a: S }) { return match v.a ${arms}; }`,
+    `${data} export function f(v: { a: { b: S } }) { return match v.a.b ${arms}; }`,
+    `${data} export function f(v: { a: S }) { return match (v.a) ${arms}; }`,
+    `${data} export class C { s: S = B; m() { return match this.s ${arms}; } }`,
+  ]) {
+    assert.deepEqual(diagnosticMessages(createProgram(source, { noLib: false, lib: ["lib.es2022.d.ts"] }).program), [], source);
+  }
+  assert.deepEqual(
+    diagnosticMessages(createProgram(`${data} export function f(v: { a: S }) { return match v.a { A(x) => x }; }`, { noLib: false, lib: ["lib.es2022.d.ts"] }).program),
+    ["Non-exhaustive match. Missing patterns: B."],
+  );
+});

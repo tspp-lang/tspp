@@ -73,6 +73,16 @@ export function reportUnvisited(sourceFile: TS.SourceFile, context: Context, rej
     visit(sourceFile, undefined);
 }
 
+/** Whether evaluating an expression may write a value proofs read: an assignment in it, or a function it could run. */
+export function mayWriteValues(node: TS.Node): boolean {
+    const visit = (current: TS.Node): boolean => {
+        if (ts.isBinaryExpression(current) && assignmentOperators().has(current.operatorToken.kind)) return true;
+        if (isIncrementOrDecrement(current) || ts.isFunctionLike(current)) return true;
+        return !!ts.forEachChild(current, child => visit(child) || undefined);
+    };
+    return visit(node);
+}
+
 /** Whether an expression contains an operation that creates a proof obligation: division, a call to a function with a
  *  precondition, or arithmetic on a value the proof tracks. */
 export function mayCarryObligations(node: TS.Node, state: State, context: Context): boolean {

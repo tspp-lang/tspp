@@ -130,8 +130,8 @@ export function createMacroRebuilder(ts: TSPPTypeScript): TSPPProgramRebuilder {
                 invalidate: request.invalidate,
             };
             if (!request.async) return finish(expandCompileTimeMacros(expansion, /*allowAsync*/ false));
-            if (request.compilerModulePath && !host.disableMacroWorkers && !host.evaluateMacroModule && canUseMacroWorkers()) {
-                return runMacroExpansionWorker(program, request.compilerModulePath, host, sourceFile => getSyntax(sourceFile)?.original ?? sourceFile.text).then(
+            if (request.compilerModulePath && request.pluginModulePaths && !host.disableMacroWorkers && !host.evaluateMacroModule && canUseMacroWorkers()) {
+                return runMacroExpansionWorker(program, request.compilerModulePath, request.pluginModulePaths, host, sourceFile => getSyntax(sourceFile)?.original ?? sourceFile.text).then(
                     result => finish(restoreWorkerResult(ts, program, result)),
                     error => {
                         if (!(error instanceof MacroWorkerError)) throw error;

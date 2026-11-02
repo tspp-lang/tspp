@@ -56,12 +56,9 @@ export function registerProviders(client: LanguageClient) {
         const { text, label, classification } = info.normalized;
         contents.push({ value: `Normalized: \`${text}\` · ${label}: \`${classification}\`` });
       }
-      if (info.macroExpansion) {
-        const { macroName, text } = info.macroExpansion;
-        contents.push({
-          value: `**TS++ macro expansion: \`${macroName}\`**\n\n`
-            + (text.trim() ? codeBlock(text) : "This is a validation-only macro; it emits no statements."),
-        });
+      if (info.overlay) {
+        const { hoverTitle, hoverWhenEmpty, text } = info.overlay;
+        contents.push({ value: `**${hoverTitle}**\n\n${text.trim() ? codeBlock(text) : hoverWhenEmpty}` });
       }
       if (info.verification) {
         const { status, message, counterexample } = info.verification;

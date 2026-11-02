@@ -3,15 +3,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { usePlugins } = require("../../test-support/compile.cjs");
 
-const packageNames = [
-  "@tspp/plugin-formal-verification",
-  "@tspp/plugin-macros",
-  "@tspp/plugin-modern-syntax",
-  "@tspp/plugin-nominal-types",
-  "@tspp/plugin-operator-sections",
-  "@tspp/plugin-static-interface-members",
-  "@tspp/plugin-type-computation",
-];
+const pluginsRoot = path.resolve(__dirname, "..", "..");
+// Every package under packages/plugins except these helpers is a feature plugin.
+const helpers = new Set(["integration", "test-support"]);
+const packageNames = fs.readdirSync(pluginsRoot, { withFileTypes: true })
+  .filter(entry => entry.isDirectory() && !helpers.has(entry.name) && fs.existsSync(path.join(pluginsRoot, entry.name, "package.json")))
+  .map(entry => JSON.parse(fs.readFileSync(path.join(pluginsRoot, entry.name, "package.json"), "utf8")).name)
+  .sort();
 
 // Plugin packages do not export `./package.json`, so walk up from the entry point instead.
 function packageDirectoryOf(file) {
@@ -40,4 +38,4 @@ function pluginOrder(items, step) {
   return items.map((_, index) => items[index * step % items.length]);
 }
 
-module.exports = { allPlugins, useAllPlugins, pluginOrder };
+module.exports = { allPlugins, useAllPlugins, pluginOrder, pluginsRoot };

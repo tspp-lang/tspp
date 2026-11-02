@@ -154,6 +154,7 @@ export class TSPPPluginHost {
                 registerSyntaxExtension: extension => this.environment.compiler.registerSyntaxExtension(pluginId, extension),
                 registerDiagnosticProvider: provider => this.environment.compiler.registerDiagnosticProvider(pluginId, provider),
                 registerTypeExtension: extension => this.environment.compiler.registerTypeExtension(pluginId, extension),
+                getSyntaxKeywords: position => this.environment.compiler.getSyntaxKeywords(position),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

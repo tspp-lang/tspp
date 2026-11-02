@@ -1,3 +1,4 @@
+import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import type { TSPPAnalysisDiagnostic } from "@tspp/plugin-sdk/compiler";
@@ -30,6 +31,7 @@ export interface Context {
     readonly refinements: ReadonlyMap<string, RefinementModel>;
     readonly records: ReadonlyMap<string, ReadonlyMap<string, Sort>>;
     readonly constructors: ReadonlyMap<string, DataConstructor>;
+    readonly nominalTypes: NominalTypesADTAPI | undefined;
     readonly logic: LogicLibrary;
     readonly proofs: PendingProof[];
     readonly diagnostics: TSPPAnalysisDiagnostic[];

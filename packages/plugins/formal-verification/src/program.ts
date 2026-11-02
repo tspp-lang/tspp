@@ -18,7 +18,7 @@ import {
     diagnostic, havoc, innermostLoop, isBound, isIncrementOrDecrement, lexicalNames, safeIntegerRange, unsupported,
     initialState, type Context, type JumpTarget, type State,
 } from "./execution-state";
-import { countTopLevelWrites, countWrites, mayCarryObligations, reportUnvisited } from "./coverage";
+import { countTopLevelWrites, countWrites, mayCarryObligations, mayWriteValues, reportUnvisited } from "./coverage";
 
 function instantiate(
     clause: string, names: readonly string[], values: readonly Term[], logic: LogicLibrary,
@@ -209,8 +209,15 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
                         .includes(nameText(declaration.initializer.expression.name))) continue;
                 // A shadowing binding would overwrite the outer value that later code still reads.
                 if (lexical && isBound(state, nameText(declaration.name))) unsupported(state, declaration, context);
-                const value = declaration.initializer ? lowerExpression(declaration.initializer, state, context) : undefined;
                 const refinement = refinementFromType(declaration.type, context.refinements);
+                let value: Term | undefined;
+                // A value outside the model is fine until something reads the name, which then reports it as unknown,
+                // unless a refinement reads it now, or it hides an obligation or a write the verifier would then never see.
+                try { value = declaration.initializer && lowerExpression(declaration.initializer, state, context); }
+                catch (error) {
+                    if (refinement || mayCarryObligations(declaration.initializer!, state, context) || mayWriteValues(declaration.initializer!)) throw error;
+                    delete state.values[nameText(declaration.name)];
+                }
                 const sort = refinement?.sort
                     ?? sortFromType(declaration.type, context.refinements, context.currentFunction?.numberModel)
                     ?? value?.sort;
@@ -451,7 +458,7 @@ export function collectProgramProofs(
     }
     const proofs: PendingProof[] = [];
     const base: Omit<Context, "currentFunction"> = {
-        fileName: source.fileName, sourceFile, sourceText: source.text, functions, refinements, records, constructors,
+        fileName: source.fileName, sourceFile, sourceText: source.text, functions, refinements, records, constructors, nominalTypes,
         logic, proofs, diagnostics, visited: new Set(), jumpTargets: [], nextTemporary: 0,
     };
     const rejected = new Set<TS.Node>();

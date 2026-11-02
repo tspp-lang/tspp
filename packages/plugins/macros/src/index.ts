@@ -1,6 +1,6 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 
-import { createMacroPreprocessor, createMacroRebuilder } from "./rebuilder";
+import { createMacroPreprocessor, createMacroRebuilder, getMacroExpansions } from "./rebuilder";
 
 export const macrosPlugin = definePlugin({
   manifest: {
@@ -26,7 +26,24 @@ export const macrosPlugin = definePlugin({
         };
       },
     },
-    editor: { grammars: ["./editor/macros.tmLanguage.json"] },
+    editor: {
+      grammars: ["./editor/macros.tmLanguage.json"],
+      overlayViews: [{
+        id: "macros/expansion",
+        commandId: "tspp.showExpandedSource",
+        title: "TS++: Show Macro Expansion",
+        label: "Macro expansion",
+        progressTitle: "TS++: Generating macro expansion…",
+        emptyMessage: "This file contains no compile-time macro invocations.",
+        getOverlays: (program, fileName) => getMacroExpansions(program, fileName).map(expansion => ({
+          start: expansion.start,
+          length: expansion.length,
+          text: expansion.text,
+          hoverTitle: `TS++ macro expansion: \`${expansion.macroName}\``,
+          hoverWhenEmpty: "This validation-only macro emits no statements.",
+        })),
+      }],
+    },
   },
 });
 

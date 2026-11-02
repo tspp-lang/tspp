@@ -2,9 +2,9 @@ name: TS++
 
 on:
   push:
-    branches: [master]
+    branches: [master, dev]
   pull_request:
-    branches: [master]
+    branches: [master, dev]
   merge_group:
 
 permissions:
@@ -102,6 +102,43 @@ jobs:
       - run: pnpm build:plugin-sdk
       - run: pnpm build:plugins
       - run: pnpm lint:packages
+
+  compiler-units:
+    name: Compiler TS++ unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 22.22.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build:plugin-sdk && pnpm build:plugins
+      # The unit tests of what TS++ added to the compiler. The full upstream suite does not run here.
+      - run: pnpm test:compiler:tspp
+
+  repository-quality:
+    name: Lint, unused exports, formatting
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.2
+          run_install: false
+      - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 22.22.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter ts-plus-plus exec hereby generate-diagnostics
+      - run: pnpm build:plugin-sdk && pnpm build:plugins
+      - run: pnpm lint:compiler
+      - run: pnpm lint:language-server
+      - run: pnpm test:eslint-rules
+      - run: pnpm knip
 
   windows-launcher:
     name: Windows launcher smoke test

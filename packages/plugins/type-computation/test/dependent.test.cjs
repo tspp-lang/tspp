@@ -205,7 +205,7 @@ test("publishes normalized terms and their normalized MLTT types", async () => {
   assert.deepEqual(await ts.runTSPPProgramAnalyzers(program), []);
   const artifacts = ts.getTSPPAnalysisArtifacts(program);
   assert.equal(artifacts.length, 2);
-  assert.equal(artifacts[0].kind, "dependent-types/normal-form");
+  assert.equal(artifacts[0].kind, "type-computation/normal-form");
   assert.match(artifacts[0].content, /One : Nat/);
   assert.match(artifacts[0].content, /One = Succ<Zero>/);
   assert.match(artifacts[1].content, /Eq<Nat, Succ<Zero>, Succ<Zero>>/);

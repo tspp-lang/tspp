@@ -26,6 +26,11 @@ export interface NominalTypesADTAPI {
     readonly valuesProperty: string;
     /** The run-time value of `tagProperty` for a variant. */
     tagOf(variant: NominalDataVariant): string;
+    /**
+     * Whether a node of a parsed file is the end of a lowered `match`, the expression reached when no arm applies. It
+     * cannot be reached in a program without errors, because the exhaustiveness check rejects such a `match`.
+     */
+    isMatchEnd(node: unknown): boolean;
     /** The `data` declarations of a source text, in source order. */
     getDataTypes(sourceText: string): readonly NominalDataType[];
 }

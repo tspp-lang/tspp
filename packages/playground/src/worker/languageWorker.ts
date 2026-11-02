@@ -7,14 +7,10 @@
 import * as ts from "ts-plus-plus/source";
 import { createRunnableProgram } from "./runnable";
 import type { TSPPPlugin } from "@tspp/plugin-sdk";
+import type { TSPPSourceOverlayView } from "@tspp/plugin-sdk/editor";
 import * as formalVerificationNamespace from "@tspp/plugin-formal-verification";
-import macrosModule, { getMacroExpansions } from "@tspp/plugin-macros";
-import modernSyntaxModule from "@tspp/plugin-modern-syntax";
-import nominalTypesModule from "@tspp/plugin-nominal-types";
-import operatorSectionsModule from "@tspp/plugin-operator-sections";
-import staticInterfaceMembersModule from "@tspp/plugin-static-interface-members";
-import typeComputationModule from "@tspp/plugin-type-computation";
 import libs from "virtual:tspp-libs";
+import pluginModules from "virtual:tspp-plugins";
 import type { Cancel, CompletionEntry, DiagnosticInfo, Location, OutputCategory, OutputItem, OutputSnapshot, QuickInfo, Request, Response, SignatureHelp, Span, WorkerApi, WorkerEvent } from "../protocol";
 import { createBrowserZ3Solver } from "../z3Bridge";
 
@@ -48,21 +44,19 @@ function pluginDefault(module: unknown): TSPPPlugin {
 const formalVerification = ("formalVerificationPlugin" in formalVerificationNamespace
   ? formalVerificationNamespace
   : (formalVerificationNamespace as unknown as { default: typeof formalVerificationNamespace }).default);
-const plugins: readonly TSPPPlugin[] = [
-  pluginDefault(modernSyntaxModule),
-  pluginDefault(nominalTypesModule),
-  pluginDefault(typeComputationModule),
-  pluginDefault(staticInterfaceMembersModule),
-  formalVerification.formalVerificationPlugin,
-  pluginDefault(macrosModule),
-  pluginDefault(operatorSectionsModule),
-];
+const plugins: readonly TSPPPlugin[] = pluginModules.map(pluginDefault);
+const artifactViews = plugins.flatMap(plugin => plugin.facets.editor?.artifactViews ?? []);
+const overlayViews = plugins.flatMap(plugin => plugin.facets.editor?.overlayViews ?? []);
 const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin]));
 const featureDefinitions = plugins.map(plugin => ({
   id: plugin.manifest.id,
   name: plugin.manifest.displayName ?? plugin.manifest.id,
-  dependencies: plugin.manifest.id === "formal-verification/z3" ? ["nominal-types"] : [],
+  dependencies: [...plugin.manifest.requires ?? [], ...plugin.manifest.optionalDependencies ?? []],
   description: plugin.manifest.capabilities?.join(" · "),
+  outputs: [
+    ...(plugin.facets.editor?.overlayViews ?? []).map(view => ({ id: view.id, label: view.label })),
+    ...(plugin.facets.editor?.artifactViews ?? []).map(view => ({ id: view.artifactKind, label: view.label })),
+  ],
 }));
 
 const files = new Map<string, { text: string; version: number }>();
@@ -263,17 +257,17 @@ function outputCategory(fileName: string): Pick<OutputItem, "category" | "langua
   return undefined;
 }
 
-function expandedSource(program: ts.Program, fileName: string): OutputItem | undefined {
+function overlaidSource(program: ts.Program, fileName: string, view: TSPPSourceOverlayView): OutputItem | undefined {
   const source = files.get(fileName)?.text;
-  const expansions = [...getMacroExpansions(program, fileName)];
-  if (source === undefined || !expansions.length) return undefined;
+  const overlays = [...view.getOverlays(program, fileName)];
+  if (source === undefined || !overlays.length) return undefined;
   let content = source;
-  for (const expansion of expansions.sort((left, right) => right.start - left.start)) {
-    content = content.slice(0, expansion.start) + expansion.text + content.slice(expansion.start + expansion.length);
+  for (const overlay of overlays.sort((left, right) => right.start - left.start)) {
+    content = content.slice(0, overlay.start) + overlay.text + content.slice(overlay.start + overlay.length);
   }
   return {
-    id: `macro:${fileName}`,
-    category: "macro",
+    id: `${view.id}:${fileName}`,
+    category: view.id,
     label: fileName.slice(fileName.lastIndexOf("/") + 1),
     language: "tspp",
     content,
@@ -300,17 +294,18 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
     // whole-program diagnostics only tell whether emitted files may be wrong
     diagnostics = [...emit.diagnostics, ...program.getOptionsDiagnostics(), ...program.getSyntacticDiagnostics(), ...program.getSemanticDiagnostics()];
   }
-  if (requested === "macro") {
-    const macro = expandedSource(program, fileName);
-    if (macro) items.push(macro);
+  const overlayView = overlayViews.find(view => view.id === requested);
+  if (overlayView) {
+    const overlaid = overlaidSource(program, fileName, overlayView);
+    if (overlaid) items.push(overlaid);
   }
-  if (requested === "smt") {
+  if (artifactViews.some(view => view.artifactKind === requested)) {
     await tspp.runTSPPProgramAnalyzers(program);
     for (const artifact of tspp.getTSPPAnalysisArtifacts(program, fileName)) {
-      if (artifact.kind !== "formal-verification/smt") continue;
+      if (artifact.kind !== requested) continue;
       items.push({
-        id: `smt:${artifact.fileName}:${artifact.start}:${artifact.name}`,
-        category: "smt",
+        id: `${requested}:${artifact.fileName}:${artifact.start}:${artifact.name}`,
+        category: requested,
         label: artifact.name,
         language: "plaintext",
         content: artifact.content,
@@ -394,9 +389,9 @@ const api: WorkerApi = {
     const info = activeService.getQuickInfoAtPosition(fileName, offset);
     const normalized = normalizedTypeAt(fileName, offset);
     const program = activeService.getProgram();
-    const expansion = program && getMacroExpansions(program, fileName).find(candidate => contains(candidate, offset));
+    const overlay = program && overlayViews.flatMap(view => view.getOverlays(program, fileName)).find(candidate => contains(candidate, offset));
     const artifact = program && tspp.getTSPPAnalysisArtifacts(program, fileName).find(candidate => contains(candidate, offset));
-    const span = info?.textSpan ?? normalized?.span ?? expansion ?? artifact;
+    const span = info?.textSpan ?? normalized?.span ?? overlay ?? artifact;
     if (!span) return undefined;
     return {
       span: { start: span.start, length: span.length },
@@ -404,7 +399,7 @@ const api: WorkerApi = {
       documentation: info && ts.displayPartsToString(info.documentation),
       tags: info?.tags?.map(tagToString) ?? [],
       normalized: normalized && { text: normalized.text, label: normalized.label, classification: normalized.classification },
-      macroExpansion: expansion && { macroName: expansion.macroName, text: expansion.text },
+      overlay: overlay && { hoverTitle: overlay.hoverTitle, hoverWhenEmpty: overlay.hoverWhenEmpty, text: overlay.text },
       verification: artifact && { status: artifact.status ?? "unknown", message: artifact.name, counterexample: artifact.content },
     };
   },

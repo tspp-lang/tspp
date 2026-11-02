@@ -28,6 +28,7 @@ export interface MacroWorkerResult {
 export interface MacroWorkerData {
     readonly compilerPath: string;
     readonly pluginPath: string;
+    readonly pluginModulePaths: readonly string[];
     readonly rootNames: readonly string[];
     readonly options: TS.CompilerOptions;
     readonly projectReferences: readonly TS.ProjectReference[] | undefined;
@@ -83,13 +84,14 @@ let maximum: number | undefined;
 export function runMacroExpansionWorker(
     program: TS.Program,
     compilerPath: string,
+    pluginModulePaths: readonly string[],
     host: MacroCompilerHost,
     getAuthoredText: (sourceFile: TS.SourceFile) => string,
 ): Promise<MacroWorkerResult> {
     return new Promise<MacroWorkerResult>((resolve, reject) => {
         queue.push(() => {
             active++;
-            void startWorker(program, compilerPath, host, getAuthoredText).then(resolve, reject).finally(() => {
+            void startWorker(program, compilerPath, pluginModulePaths, host, getAuthoredText).then(resolve, reject).finally(() => {
                 active--;
                 schedule();
             });
@@ -110,7 +112,7 @@ function schedule(): void {
     }
 }
 
-function startWorker(program: TS.Program, compilerPath: string, host: MacroCompilerHost, getAuthoredText: (sourceFile: TS.SourceFile) => string): Promise<MacroWorkerResult> {
+function startWorker(program: TS.Program, compilerPath: string, pluginModulePaths: readonly string[], host: MacroCompilerHost, getAuthoredText: (sourceFile: TS.SourceFile) => string): Promise<MacroWorkerResult> {
     const path = nodeRequire!("node:path") as typeof import("node:path");
     const { Worker } = nodeRequire!("node:worker_threads") as typeof import("node:worker_threads");
     const currentDirectory = program.getCurrentDirectory();
@@ -127,6 +129,7 @@ function startWorker(program: TS.Program, compilerPath: string, host: MacroCompi
     const data: MacroWorkerData = {
         compilerPath,
         pluginPath: path.join(__dirname, "index.js"),
+        pluginModulePaths,
         rootNames: program.getRootFileNames(),
         options,
         projectReferences: program.getProjectReferences(),
@@ -212,7 +215,7 @@ function startWorker(program: TS.Program, compilerPath: string, host: MacroCompi
     });
 }
 
-/** The worker side: loads the compiler and this plugin, rebuilds the program from the snapshots, and expands it. */
+/** The worker side: loads the compiler and the active plugins, rebuilds the program from the snapshots, and expands it. */
 export function runInMacroWorker(): void {
     const { parentPort, workerData } = nodeRequire!("node:worker_threads") as typeof import("node:worker_threads");
     if (!parentPort) throw new Error("The macro worker is missing its parent port.");
@@ -221,6 +224,11 @@ export function runInMacroWorker(): void {
     const run = async (): Promise<MacroWorkerResult> => {
         const ts = nodeRequire!(data.compilerPath) as TSPPTypeScript & { registerTSPPCompilerPlugin(plugin: unknown): boolean; };
         const plugin = nodeRequire!(data.pluginPath) as typeof import("./index");
+        // The snapshots hold every active plugin's syntax, and macros run on what it lowers to.
+        for (const modulePath of data.pluginModulePaths) {
+            const loaded = nodeRequire!(modulePath) as { readonly default?: unknown; };
+            ts.registerTSPPCompilerPlugin(loaded.default ?? loaded);
+        }
         ts.registerTSPPCompilerPlugin(plugin.macrosPlugin);
         const normalize = (fileName: string) => {
             const normalized = path.resolve(data.currentDirectory, fileName).replace(/\\/g, "/");

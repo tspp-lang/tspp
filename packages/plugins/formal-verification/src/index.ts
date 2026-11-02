@@ -142,7 +142,13 @@ export const formalVerificationPlugin = definePlugin({
         },
         editor: {
             keywords: ["requires", "ensures", "invariant", "predicate", "numberModel"],
-            commands: [{ id: "tspp.showSmtSource", title: "TS++: Show SMT Source" }],
+            artifactViews: [{
+                commandId: "tspp.showSmtSource",
+                title: "TS++: Show SMT Source",
+                label: "SMT-LIB2",
+                artifactKind: "formal-verification/smt",
+                emptyMessage: "This file has no SMT source.",
+            }],
             grammars: ["./editor/verification.tmLanguage.json"],
         },
     },

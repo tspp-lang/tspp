@@ -38,7 +38,10 @@ A feature package may expose four facets:
   the first concrete port;
 - `lsp`: reserved for capabilities that cannot be represented by tsserver; no
   current feature needs this escape hatch;
-- `editor`: optional static editor metadata such as commands and snippets.
+- `editor`: optional editor metadata: grammars, keywords, and views. An artifact
+  view names a kind of analysis artifact; an overlay view reads a program for text
+  that stands in for ranges of a file. Hosts turn views into commands, output tabs,
+  and hovers, so no host knows which plugin a view belongs to.
 
 Plugins depend on `@tspp/plugin-sdk` and on the public TypeScript API the host
 hands them as `context.ts`, never on compiler internals, a TypeScript package of
@@ -68,8 +71,8 @@ belongs to, and nothing depends on the order plugins were loaded in:
   plugin's nodes, and at most one plugin may answer for any other node. Quick Info
   asks the owners first, then the other plugins by id, and tells each provider
   whether it owns the position (`request.owned`).
-- **Order.** Preprocessors, diagnostic providers, rebuilders, and analyzers run in
-  plugin id order, not load order.
+- **Order.** Preprocessors, their declaration restorers, diagnostic providers,
+  rebuilders, analyzers, and type extensions run in plugin id order, not load order.
 
 ## Project declaration
 
@@ -139,7 +142,9 @@ return acquire(arg, value => { return rest(value); })
 ## Rules
 
 - no feature ID conditionals in compiler, tsserver, LSP, or editor code;
-- no plugin-to-plugin implementation imports;
+- no plugin-to-plugin implementation imports, and no plugin spelling another's id
+  or keywords, even in a string or a regular expression (`getSyntaxKeywords` answers
+  what a plugin needs to know about active syntax);
 - no compiler-internal imports from feature packages;
 - registrations return disposers and are owned by a host lifecycle;
 - duplicate IDs and incompatible API versions fail at activation;
@@ -195,14 +200,34 @@ MLTT forms without adding feature branches to the compiler or editor.
 
 The VS Code client exposes generic views for active capsule manifests, projected
 TypeScript, and analyzer artifacts. It does not import feature implementations.
-Feature packages declare static command and grammar metadata; all runtime data
-crosses compiler-neutral SDK shapes.
+Feature packages declare grammars and views in their `editor` facet;
+`scripts/build-plugin-grammar.mjs` merges them into the files the extension ships
+and checks that `package.json`, which VS Code reads first, repeats each command. All
+runtime data crosses compiler-neutral SDK shapes. The playground reads the same
+views for its output tabs and hovers, and finds the plugins through its package
+dependencies.
 
 The browser playground starts a fresh Web Worker whenever its selected capsule
 set changes. That makes the current process-wide parser boundary explicit and
-prevents registrations from one configuration leaking into another. Node-only
-execution adapters such as Z3 and compile-time macro workers remain available in
-CLI, tsserver, LSP, and VS Code while their browser adapters are still absent.
+prevents registrations from one configuration leaking into another. A host may
+still need an adapter for what only it can supply: the playground runs Z3 in a
+browser worker and evaluates macro modules itself, which are the only places a host
+names a plugin.
+
+A rebuilder that parses in another thread loads the plugins named by
+`request.pluginModulePaths` first, because a project's text holds every active
+plugin's syntax. The compile-time macro worker is the first consumer.
+
+## What keeps plugins additive
+
+- `integration/test/cli-matrix.test.cjs` runs every plugin alone, every pair, every
+  set without one plugin, and all of them through the real command line, and each
+  must keep reporting its own errors. Describing a new plugin there is required: the
+  test fails otherwise, and every combination then follows.
+- `integration/test/boundaries.test.cjs` scans the strings and regular expressions
+  of plugins and hosts for other plugins' ids and keywords, which ESLint cannot see.
+- `integration/test/composition.test.cjs` holds the interactions worth stating by
+  hand, such as a `match` inside a section or a contract over a lowered `do`.
 
 ## Semantic kernels are not one universal IR
 

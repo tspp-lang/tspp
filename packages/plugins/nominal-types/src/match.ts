@@ -31,6 +31,13 @@ export interface LoweredMatch {
     readonly patternRanges: readonly { readonly start: number; readonly end: number; }[];
 }
 
+/** The expressions that end a lowered `match`: reaching one means no arm applied, which the exhaustiveness check rules out. */
+const matchEnds = new WeakSet<TS.Node>();
+
+export function isMatchEnd(node: TS.Node): boolean {
+    return matchEnds.has(node);
+}
+
 export interface ValueMatches {
     readonly extension: TSPPSyntaxExtension;
     /** Lowered matches by the call expression they became. */
@@ -123,10 +130,12 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
         // reads after their arm. Diagnostics on them are empty and dropped as restatements of pattern errors.
         /** A reference to the scrutinee the checker binds, for the diagnostics; the scrutinee itself only when it is in the tree. */
         let checkedScrutinee: TS.Expression = scrutinee;
-        let firstCopy: TS.Expression | undefined;
+        /** The first reference of the arm being lowered. Arms lower last to first, so the last one kept is in the first arm's test, which no earlier test narrows. */
+        let armCopy: TS.Expression | undefined;
+        let unnarrowedCopy: TS.Expression | undefined;
         const temporary = () => {
             const copy = copyOf(scrutinee);
-            if (copy) firstCopy ??= copy;
+            if (copy) armCopy ??= copy;
             return copy ?? f.createIdentifier(temporaryName);
         };
         /** `$m._values[0]._values[1]` */
@@ -169,6 +178,7 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
         };
 
         let chain: TS.Expression = markGenerated(ts, f.createAsExpression(f.createVoidZero(), f.createKeywordTypeNode(kinds.NeverKeyword)), closeStart);
+        matchEnds.add(chain);
         const arms: MatchArm[] = [];
         for (let index = parsedArms.length - 1; index >= 0; index--) {
             const arm = parsedArms[index];
@@ -179,9 +189,11 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
                 continue;
             }
             const at = arm.patterns[0].start;
+            armCopy = undefined;
             const tests = arm.patterns
                 .filter(pattern => pattern.variant !== "_")
                 .map(pattern => condition(pattern, temporary));
+            unnarrowedCopy = armCopy ?? unnarrowedCopy;
             let test = markGenerated(ts, tests.length
                 ? tests.reduce((left, right) => f.createBinaryExpression(left, f.createToken(kinds.BarBarToken), right))
                 : f.createTrue(), at);
@@ -206,7 +218,7 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
             range(f.createToken(kinds.EqualsGreaterThanToken), scrutinee.end, scrutinee.end), chain), pos, end);
         const callee = range(f.createParenthesizedExpression(arrow), pos, end);
         const call = range(f.createCallExpression(callee, undefined, f.createNodeArray<TS.Expression>([])), pos, end);
-        if (direct && firstCopy) checkedScrutinee = firstCopy;
+        if (direct && unnarrowedCopy) checkedScrutinee = unnarrowedCopy;
         matches.set(call, { scrutinee: checkedScrutinee, arms, start: pos, end, patternRanges: parsedArms.map(arm => ({ start: arm.patterns[0].start, end: arm.patterns[arm.patterns.length - 1].end })) });
         count++;
         return markGenerated(ts, call, closeStart);

@@ -1,13 +1,46 @@
 import type { TSPPPlugin } from "./index";
 
-/** Static editor metadata. Hosts merge these declarations at package time. */
+/** A view of this plugin's analysis artifacts of one kind. Editor hosts turn it into a command or an output tab. */
+export interface TSPPArtifactView {
+    readonly commandId: string;
+    readonly title: string;
+    /** A short name for hosts that list views, such as an output tab. */
+    readonly label: string;
+    readonly artifactKind: string;
+    readonly emptyMessage: string;
+}
+
+/** Text a program puts in place of a range of a file's authored source. */
+export interface TSPPSourceOverlay {
+    readonly start: number;
+    readonly length: number;
+    readonly text: string;
+    readonly hoverTitle: string;
+    /** Shown on hover instead of the text when the text is blank. */
+    readonly hoverWhenEmpty: string;
+}
+
+/** A view of a file with this plugin's overlays applied, which editor hosts also show on hover. */
+export interface TSPPSourceOverlayView {
+    readonly id: string;
+    readonly commandId: string;
+    readonly title: string;
+    /** A short name for hosts that list views, such as an output tab. */
+    readonly label: string;
+    readonly progressTitle: string;
+    readonly emptyMessage: string;
+    getOverlays(program: object, fileName: string): readonly TSPPSourceOverlay[];
+}
+
+/** Editor metadata. Hosts merge the static parts at package time and read `overlayViews` from the active plugins. */
 export interface TSPPEditorContribution {
     /**
      * Additional word-like tokens for lightweight editor hosts such as Monaco, such as `in` after `let`. The words that
      * start syntax come from the manifest's `syntax.keywords`; see `getTSPPEditorKeywords`.
      */
     readonly keywords?: readonly string[];
-    readonly commands?: readonly { readonly id: string; readonly title: string; }[];
+    readonly artifactViews?: readonly TSPPArtifactView[];
+    readonly overlayViews?: readonly TSPPSourceOverlayView[];
     readonly grammars?: readonly string[];
     readonly snippets?: readonly string[];
     readonly configuration?: Readonly<Record<string, unknown>>;

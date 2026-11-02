@@ -235,6 +235,23 @@ test("formal-verification names no other plugin's syntax when it cannot model th
   assert.ok(typecase.analysis.every(message => !message.includes("Unknown proof variable")), typecase.analysis.join("\n"));
 });
 
+test("formal-verification: an authored `as never` proves nothing, while the end of a match needs no proof", async () => {
+  const authored = await verify(`export function f(v: bigint) with { ensures: result >= 5n; }: bigint { return v > 3n ? 10n : (0n as never); }`);
+  assert.ok(!authored.proofs.includes("f postcondition: proved"), authored.proofs.join("\n"));
+  assert.ok(authored.analysis.length > 0);
+  const exhaustive = await verify(`
+    data S = A | B;
+    export function f(s: S) with { ensures: result >= 5n; }: bigint { return match s { A => 6n, B => 7n }; }`);
+  assert.deepEqual(exhaustive.proofs, ["f postcondition: proved"]);
+});
+
+test("formal-verification leaves a value outside its model alone until a proof reads it", async () => {
+  const ordinary = await verify(`export function g(target) { const name = target.name + "x"; return name; }`);
+  assert.deepEqual(ordinary.analysis, []);
+  const read = await verify(`export function g(target, v: bigint) with { ensures: result >= v; }: bigint { const n: any = target.name + "x"; return n; }`);
+  assert.ok(read.analysis.some(message => message.includes("'n'")), read.analysis.join("\n"));
+});
+
 test("source projections leave strings and comments alone", () => {
   const source = `
     export const a = "macro m(T);";

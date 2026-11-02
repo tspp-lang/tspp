@@ -1,0 +1,22 @@
+{
+  "artifactViews": [
+    {
+      "commandId": "tspp.showSmtSource",
+      "artifactKind": "formal-verification/smt",
+      "emptyMessage": "This file has no SMT source."
+    },
+    {
+      "commandId": "tspp.showMlttNormalForms",
+      "artifactKind": "type-computation/normal-form",
+      "emptyMessage": "This file has no MLTT normal forms."
+    }
+  ],
+  "overlayViews": [
+    {
+      "id": "macros/expansion",
+      "commandId": "tspp.showExpandedSource",
+      "progressTitle": "TS++: Generating macro expansion…",
+      "emptyMessage": "This file contains no compile-time macro invocations."
+    }
+  ]
+}
