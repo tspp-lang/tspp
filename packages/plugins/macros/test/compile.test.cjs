@@ -565,3 +565,37 @@ test("does not report generated declarations as unused", () => {
   `, { noUnusedLocals: true });
   assert.deepEqual(messages(program), []);
 });
+
+test("a language service keeps its program until a file changes, and then expands macros again", () => {
+  const source = target => `
+    macro function named([target], context) {
+      return context.factory.createVariableStatement(undefined, context.factory.createVariableDeclarationList([
+        context.factory.createVariableDeclaration(target.name + "Name", undefined, undefined, context.factory.createStringLiteral(target.name))]));
+    }
+    interface ${target} { a: number }
+    macro named(${target});
+    export const name = ${target}Name;`;
+  let text = source("First");
+  let version = 1;
+  const options = { noLib: true, target: ts.ScriptTarget.ES2022 };
+  const service = ts.createLanguageService({
+    getScriptFileNames: () => ["/main.tspp"],
+    getScriptVersion: () => String(version),
+    getScriptSnapshot: name => name === "/main.tspp" ? ts.ScriptSnapshot.fromString(text) : undefined,
+    getCurrentDirectory: () => "/",
+    getCompilationSettings: () => options,
+    getDefaultLibFileName: () => "/lib.d.ts",
+    fileExists: name => name === "/main.tspp",
+    readFile: name => name === "/main.tspp" ? text : undefined,
+  });
+  const program = service.getProgram();
+  assert.equal(getMacroExpansions(program, "/main.tspp").length, 1);
+  service.getQuickInfoAtPosition("/main.tspp", text.indexOf("First"));
+  assert.equal(service.getProgram(), program);
+
+  text = source("Second");
+  version++;
+  const changed = service.getProgram();
+  assert.notEqual(changed, program);
+  assert.match(getMacroExpansions(changed, "/main.tspp")[0].text, /SecondName/);
+});

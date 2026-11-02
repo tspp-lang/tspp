@@ -155,7 +155,11 @@ function createRebuiltProgram(program: Program, createProgramOptions: CreateProg
     const getReplacedSourceFile = (fileName: string, languageVersionOrOptions: ScriptTarget | CreateSourceFileOptions) => {
         const fileReplacements = replacements.get(normalizePath(fileName));
         const original = fileReplacements && program.getSourceFile(fileName);
-        return original && createReplacedSourceFile(fileName, getOriginalTSPPSource(original.fileName, original.text), fileReplacements, languageVersionOrOptions);
+        if (!original) return undefined;
+        const replaced = createReplacedSourceFile(fileName, getOriginalTSPPSource(original.fileName, original.text), fileReplacements, languageVersionOrOptions);
+        // A language service compares this with the host's script version to tell whether its program is up to date.
+        (replaced as SourceFile & { version?: string; }).version = (original as SourceFile & { version?: string; }).version;
+        return replaced;
     };
     rebuiltHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => getReplacedSourceFile(fileName, languageVersionOrOptions) ?? host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
     // Caching hosts, such as the command line's, read through this method first.
