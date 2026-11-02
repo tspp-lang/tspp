@@ -8560,14 +8560,6 @@
         "category": "Error",
         "code": 18071
     },
-    "Type '{0}' has kind '{1}', but kind '{2}' was expected.": {
-        "category": "Error",
-        "code": 18072
-    },
-    "Type constructor '{0}' must be applied to {1} type argument(s).": {
-        "category": "Error",
-        "code": 18073
-    },
     "Class static side '{0}' incorrectly implements static side of interface '{1}'.": {
         "category": "Error",
         "code": 18074

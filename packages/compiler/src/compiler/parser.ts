@@ -1,10 +1,4 @@
-import type {
-    TSPPKindAnnotationParser,
-    TSPPPostfixTypeParser,
-    TSPPSyntaxCursor,
-    TSPPTypeKind,
-    TSPPTypeParser,
-} from "@tspp/plugin-sdk/compiler";
+import type { TSPPSyntaxCursor } from "@tspp/plugin-sdk/compiler"; // TSPP-SLOT(syntax-extension)
 import {
     AccessorDeclaration,
     addRange,
@@ -115,7 +109,6 @@ import {
     getLastChild,
     getLeadingCommentRanges,
     getSpellingSuggestion,
-    getSynthesizedDeepClone,
     getTextOfNodeFromSourceText,
     HasJSDoc,
     hasJSDocNodes,
@@ -412,22 +405,12 @@ import * as performance from "./_namespaces/ts.performance.js";
 import {
     annotateTSPPSyntax,
     expandTSPPListElement,
-    getTypeKindAnnotation,
-    isExtensionTypeConstructor,
     isStartOfTSPPSyntax,
     isTSPPSyntaxNode,
     projectTSPPSource,
-    registerTypeApplication,
-    registerTypeConstructor,
-    registerTypeUniverse,
     rewriteTSPPExpression,
-    setTypeKindAnnotation,
-    tryParseExtensionType,
-    tryParseKindAnnotation,
-    tryParsePostfixType,
     tryParseTSPPSyntax,
-    typeSyntaxKinds,
-} from "./tspp/registry.js";
+} from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
 
 const enum SignatureFlags {
     None = 0,
@@ -1650,7 +1633,7 @@ namespace Parser {
             return result;
         }
 
-        sourceText = projectTSPPSource(fileName, sourceText);
+        sourceText = projectTSPPSource(fileName, sourceText); // TSPP-SLOT(source-projection)
         initializeState(fileName, sourceText, languageVersion, syntaxCursor, scriptKind, jsDocParsingMode);
 
         const result = parseSourceFileWorker(languageVersion, setParentNodes, scriptKind, setExternalModuleIndicatorOverride || setExternalModuleIndicator, jsDocParsingMode);
@@ -4052,7 +4035,6 @@ namespace Parser {
         const modifiers = parseModifiers(/*allowDecorators*/ false, /*permitConstAsModifier*/ true);
         const name = parseIdentifier();
         const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax("type-parameter-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
-        const kind = tryParsePluginSyntax(() => tryParseKindAnnotation(token(), createExtensionKindAnnotationParser));
         let constraint: TypeNode | undefined;
         let expression: Expression | undefined;
         if (parseOptional(SyntaxKind.ExtendsKeyword)) {
@@ -4078,9 +4060,7 @@ namespace Parser {
         const defaultType = parseOptional(SyntaxKind.EqualsToken) ? parseType() : undefined;
         const node = factory.createTypeParameterDeclaration(modifiers, name, constraint, defaultType);
         node.expression = expression;
-        const result = finishNode(node, pos);
-        setTypeKindAnnotation(result, kind);
-        return annotateTSPPSyntax(result, annotation); // TSPP-SLOT(syntax-extension)
+        return annotateTSPPSyntax(finishNode(node, pos), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseTypeParameters(): NodeArray<TypeParameterDeclaration> | undefined {
@@ -4841,19 +4821,11 @@ namespace Parser {
                         type = finishNode(factory.createArrayTypeNode(type), pos);
                     }
                     break;
-                default: {
+                default: { // TSPP-SLOT(syntax-extension)
                     const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax("postfix-type", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, /*modifiers*/ undefined, type))) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
-                    if (syntaxType) { // TSPP-SLOT(syntax-extension)
-                        type = syntaxType;
-                        break;
-                    }
-                    const extensionType = tryParsePluginSyntax(() => tryParsePostfixType(token(), type, createExtensionPostfixTypeParser));
-                    if (extensionType) {
-                        type = extensionType as TypeNode;
-                        break;
-                    }
-                    return type;
-                }
+                    if (!syntaxType) return type; // TSPP-SLOT(syntax-extension)
+                    type = syntaxType; // TSPP-SLOT(syntax-extension)
+                } // TSPP-SLOT(syntax-extension)
             }
         }
         return type;
@@ -5053,8 +5025,6 @@ namespace Parser {
         }
         const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax("type", token(), createTSPPSyntaxCursor)) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxType) return syntaxType; // TSPP-SLOT(syntax-extension)
-        const extensionType = tryParsePluginSyntax(() => tryParseExtensionType(token(), createExtensionTypeParser));
-        if (extensionType) return extensionType as TypeNode;
         if (isStartOfFunctionTypeOrConstructorType()) {
             return parseFunctionOrConstructorType();
         }
@@ -5070,155 +5040,6 @@ namespace Parser {
             return finishNode(factory.createConditionalTypeNode(type, extendsType, trueType, falseType), pos);
         }
         return type;
-    }
-
-    function createExtensionTypeParser(_pluginId: string): TSPPTypeParser {
-        // Lowered conditionals keep their children in source order so that position lookups reach the names inside
-        // authored types. Later arms check a clone of the scrutinee, which keeps the scrutinee's own range.
-        const createNonDistributiveConditional = (
-            checkType: TypeNode,
-            pattern: TypeNode,
-            trueType: TypeNode,
-            falseType: TypeNode,
-        ) => factory.createConditionalTypeNode(
-            createSingletonTuple(checkType),
-            createSingletonTuple(pattern),
-            trueType,
-            falseType,
-        );
-        const createSingletonTuple = (type: TypeNode) => setTextRange(factory.createTupleTypeNode(setTextRange(factory.createNodeArray([type]), type)), type);
-        // An empty range would make a name "missing" to the checker, so only the `never` fallback gets one.
-        const createEmptyNever = (pos: number) => setTextRange(factory.createKeywordTypeNode(SyntaxKind.NeverKeyword), { pos, end: pos });
-
-        return {
-            kinds: typeSyntaxKinds,
-            token,
-            tokenText: () => scanner.getTokenValue(),
-            nextToken,
-            hasPrecedingLineBreak: () => scanner.hasPrecedingLineBreak(),
-            lookAhead,
-            getNodePos,
-            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-            parseIdentifier,
-            parseTypeParameters,
-            parseType,
-            parseTypeMatchPattern: () => {
-                if (token() === SyntaxKind.Identifier && scanner.getTokenValue() === "_") {
-                    const wildcardPos = getNodePos();
-                    nextToken();
-                    return finishNode(factory.createKeywordTypeNode(SyntaxKind.UnknownKeyword), wildcardPos);
-                }
-                return parseType();
-            },
-            finishScopedTypeBinding: (nameIn, valueIn, bodyIn, pos) => {
-                const name = nameIn as Identifier;
-                const value = valueIn as TypeNode;
-                const body = bodyIn as TypeNode;
-                if (isExtensionTypeConstructor(value)) {
-                    // An `infer` variable cannot be applied, so bind a type constructor as the redex
-                    // `(<Name: kind> =>> body)<value>`, which gives `Name<...>` in the body the constructor's kind.
-                    const kindedParameter = finishNode(
-                        factory.createTypeParameterDeclaration(/*modifiers*/ undefined, name, /*constraint*/ undefined, /*defaultType*/ undefined),
-                        name.pos,
-                    );
-                    setTypeKindAnnotation(kindedParameter, getTypeConstructorKind(value as FunctionTypeNode));
-                    const constructor = createTypeConstructorNode(createNodeArray([kindedParameter], name.pos), body, pos);
-                    return createTypeApplicationNode(constructor, [value], pos);
-                }
-                const parameter = setTextRange(
-                    factory.createTypeParameterDeclaration(/*modifiers*/ undefined, name, /*constraint*/ undefined, /*defaultType*/ undefined),
-                    { pos: value.end, end: value.end },
-                );
-                const infer = setTextRange(factory.createInferTypeNode(parameter), parameter);
-                return finishNode(createNonDistributiveConditional(value, infer, body, createEmptyNever(body.end)), pos);
-            },
-            finishOrderedTypeMatch: (scrutineeIn, armsIn, pos) => {
-                const scrutinee = scrutineeIn as TypeNode;
-                const arms = armsIn;
-                const lastArm = arms[arms.length - 1];
-                let result: TypeNode = createEmptyNever(lastArm ? (lastArm.result as TypeNode).end : pos);
-                for (let index = arms.length - 1; index >= 0; index--) {
-                    const arm = arms[index];
-                    const pattern = arm.pattern as TypeNode;
-                    const end = result.end;
-                    result = createNonDistributiveConditional(
-                        index === 0 ? scrutinee : getSynthesizedDeepClone(scrutinee),
-                        pattern,
-                        arm.result as TypeNode,
-                        result,
-                    );
-                    // Each later arm's conditional spans its arms, keeping the outer conditional's children in order.
-                    if (index > 0) setTextRange(result, { pos: pattern.pos, end });
-                }
-                return finishNode(result, pos);
-            },
-            finishTypeConstructor: (typeParametersIn, bodyIn, pos) => createTypeConstructorNode(typeParametersIn as NodeArray<TypeParameterDeclaration>, bodyIn as TypeNode, pos),
-            finishTypeUniverse: (level, pos) => {
-                const text = level === 0 ? "Type0" : `Type${level}`;
-                const node = finishNode(factory.createTypeReferenceNode(text, /*typeArguments*/ undefined), pos);
-                registerTypeUniverse(node, level);
-                return node;
-            },
-        };
-    }
-
-    function createExtensionPostfixTypeParser(_pluginId: string): TSPPPostfixTypeParser {
-        return {
-            kinds: typeSyntaxKinds,
-            token,
-            getNodePos,
-            parseTypeArguments: parseTypeArgumentsOfTypeReference,
-            finishTypeApplication: (targetIn, typeArgumentsIn, pos) => createTypeApplicationNode(targetIn as TypeNode, typeArgumentsIn as readonly TypeNode[], pos),
-        };
-    }
-
-    function createTypeConstructorNode(typeParameters: NodeArray<TypeParameterDeclaration>, body: TypeNode, pos: number): FunctionTypeNode {
-        const node = finishNode(factory.createFunctionTypeNode(typeParameters, factory.createNodeArray([]), body), pos);
-        registerTypeConstructor(node);
-        return node;
-    }
-
-    function createTypeApplicationNode(target: TypeNode, typeArguments: readonly TypeNode[], pos: number): FunctionTypeNode {
-        const parameters = [target, ...typeArguments].map((type, index) =>
-            factory.createParameterDeclaration(
-                /*modifiers*/ undefined,
-                /*dotDotDotToken*/ undefined,
-                index === 0 ? "__tsppTarget" : `__tsppArgument${index - 1}`,
-                /*questionToken*/ undefined,
-                type,
-                /*initializer*/ undefined,
-            )
-        );
-        const node = finishNode(
-            factory.createFunctionTypeNode(
-                /*typeParameters*/ undefined,
-                factory.createNodeArray(parameters),
-                factory.createKeywordTypeNode(SyntaxKind.NeverKeyword),
-            ),
-            pos,
-        );
-        registerTypeApplication(node, target, typeArguments);
-        return node;
-    }
-
-    /** The kind of a type constructor, read from its parameters' kind annotations; parameters default to `Type0`. */
-    function getTypeConstructorKind(node: FunctionTypeNode): TSPPTypeKind {
-        const ordinary: TSPPTypeKind = { kind: "type", level: 0 };
-        return {
-            kind: "function",
-            parameters: map(node.typeParameters, parameter => getTypeKindAnnotation(parameter) ?? ordinary) ?? [],
-            result: isExtensionTypeConstructor(node.type) ? getTypeConstructorKind(node.type as FunctionTypeNode) : ordinary,
-        };
-    }
-
-    function createExtensionKindAnnotationParser(_pluginId: string): TSPPKindAnnotationParser {
-        return {
-            kinds: typeSyntaxKinds,
-            token,
-            tokenText: () => scanner.getTokenValue(),
-            nextToken,
-            parseExpected: kind => parseExpected(kind as PunctuationOrKeywordSyntaxKind),
-        };
     }
 
     function parseTypeAnnotation(): TypeNode | undefined {
@@ -8535,14 +8356,11 @@ namespace Parser {
         const name = parseIdentifier();
         const typeParameters = parseTypeParameters();
         const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax("type-alias-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
-        const kind = tryParsePluginSyntax(() => tryParseKindAnnotation(token(), createExtensionKindAnnotationParser));
         parseExpected(SyntaxKind.EqualsToken);
         const type = token() === SyntaxKind.IntrinsicKeyword && tryParse(parseKeywordAndNoDot) || parseType();
         parseSemicolon();
         const node = factory.createTypeAliasDeclaration(modifiers, name, typeParameters, type);
-        const result = withJSDoc(finishNode(node, pos), hasJSDoc);
-        setTypeKindAnnotation(result, kind);
-        return annotateTSPPSyntax(result, annotation); // TSPP-SLOT(syntax-extension)
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     // In an ambient declaration, the grammar only allows integer literals as initializers.

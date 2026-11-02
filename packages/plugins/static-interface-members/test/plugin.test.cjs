@@ -7,7 +7,6 @@ test("registers a class-static interface contract", () => {
   let registration;
   let disposed = false;
   const compiler = {
-    typeSyntaxKinds: {},
     registerInterfaceMemberContract(pluginId, contract) {
       registration = { pluginId, contract };
       return () => { disposed = true; };

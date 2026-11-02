@@ -1,4 +1,3 @@
-import type { TSPPTypeKind } from "@tspp/plugin-sdk/compiler";
 import * as ts from "./_namespaces/ts.js";
 import {
     AccessorDeclaration,
@@ -57,7 +56,6 @@ import {
     createTextWriter,
     Debug,
     DebuggerStatement,
-    Declaration,
     DeclarationName,
     Decorator,
     DefaultClause,
@@ -198,7 +196,6 @@ import {
     isBinaryExpression,
     isBindingPattern,
     isBlock,
-    isClassDeclaration,
     isDeclarationFileName,
     isDecorator,
     isEmptyStatement,
@@ -215,7 +212,6 @@ import {
     isImportEqualsDeclaration,
     isIncrementalCompilation,
     isInJsonFile,
-    isInterfaceDeclaration,
     isJSDocLikeText,
     isJsonSourceFile,
     isJsxClosingElement,
@@ -241,9 +237,7 @@ import {
     isStringLiteral,
     isTemplateLiteralKind,
     isTokenKind,
-    isTypeAliasDeclaration,
     isTypeParameterDeclaration,
-    isTypeReferenceNode,
     isVarAwaitUsing,
     isVarConst,
     isVarUsing,
@@ -436,12 +430,7 @@ import {
     getPreprocessedFunctionPrefix,
     getPreprocessedFunctionWithClause,
     getPreprocessedTypeAliasDeclaration,
-    getPreservedExtensionTypeRange,
     getTSPPRestoredDeclaration,
-    getTypeApplication,
-    getTypeKindAnnotation,
-    getTypeUniverseLevel,
-    isExtensionTypeConstructor,
     isTSPPRewrittenIdentifier,
 } from "./tspp/registry.js";
 
@@ -1279,9 +1268,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     var extendedDiagnostics = !!printerOptions.extendedDiagnostics;
     var tsppCompatibilityDeclaration = !!printerOptions.tsppCompatibilityDeclaration;
     var tsppJavaScriptEmit = !!printerOptions.tsppJavaScriptEmit;
-    var compatibilityKindedTypeParameterNames = new Set<string>();
-    var compatibilityTypeParameterNames = new Set<string>();
-    var compatibilityGenericTypeNames = new Set(["Array", "ReadonlyArray", "Promise", "Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]);
     var omitBraceSourcePositions = !!printerOptions.omitBraceSourceMapPositions;
     var newLine = getNewLineCharacter(printerOptions);
     var moduleKind = getEmitModuleKind(printerOptions);
@@ -1628,13 +1614,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         if (hint === EmitHint.Unspecified && !tsppJavaScriptEmit && currentSourceFile?.isDeclarationFile) { // TSPP-SLOT(syntax-extension)
             const restored = getTSPPRestoredDeclaration(node, tsppCompatibilityDeclaration); // TSPP-SLOT(syntax-extension)
             if (restored !== undefined) return void write(restored); // TSPP-SLOT(syntax-extension)
-        }
-        if (hint === EmitHint.Unspecified && !tsppCompatibilityDeclaration && currentSourceFile) {
-            const range = getPreservedExtensionTypeRange(node);
-            if (range && range.pos >= 0 && range.end <= currentSourceFile.text.length) {
-                write(currentSourceFile.text.slice(range.pos, range.end).trimStart());
-                return;
-            }
         }
         if (hint === EmitHint.Unspecified) {
             switch (node.kind) {
@@ -2271,12 +2250,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     function emitTypeParameter(node: TypeParameterDeclaration) {
         emitModifierList(node, node.modifiers);
         emit(node.name);
-        const kind = getTypeKindAnnotation(node);
-        if (kind && !tsppCompatibilityDeclaration) {
-            writePunctuation(":");
-            writeSpace();
-            emitTSPPTypeKind(kind);
-        }
         if (node.constraint) {
             writeSpace();
             writeKeyword("extends");
@@ -2289,28 +2262,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             writeSpace();
             emit(node.default);
         }
-    }
-
-    function emitTSPPTypeKind(kind: TSPPTypeKind): void {
-        if (kind.kind === "type") {
-            writeKeyword(`Type${kind.level}`);
-            return;
-        }
-        if (kind.parameters.length !== 1) writePunctuation("(");
-        kind.parameters.forEach((parameter, index) => {
-            if (index > 0) {
-                writePunctuation(",");
-                writeSpace();
-            }
-            if (parameter.kind === "function") writePunctuation("(");
-            emitTSPPTypeKind(parameter);
-            if (parameter.kind === "function") writePunctuation(")");
-        });
-        if (kind.parameters.length !== 1) writePunctuation(")");
-        writeSpace();
-        writePunctuation("=>");
-        writeSpace();
-        emitTSPPTypeKind(kind.result);
     }
 
     function emitParameter(node: ParameterDeclaration) {
@@ -2446,67 +2397,11 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitTypeReference(node: TypeReferenceNode) {
-        const universeLevel = getTypeUniverseLevel(node);
-        if (universeLevel !== undefined) {
-            if (tsppCompatibilityDeclaration) writeKeyword("unknown");
-            else writeKeyword(`Type${universeLevel}`);
-            return;
-        }
-        if (tsppCompatibilityDeclaration && isUnsupportedCompatibilityTypeReference(node)) {
-            writeKeyword("unknown");
-            return;
-        }
         emit(node.typeName);
         emitTypeArguments(node, node.typeArguments);
     }
 
-    function isUnsupportedCompatibilityTypeReference(node: TypeReferenceNode) {
-        if (getTypeUniverseLevel(node) !== undefined) return true;
-        if (!isIdentifier(node.typeName)) return false;
-        const name = idText(node.typeName);
-        if (/^Type\d*$/u.test(name)) return true;
-        if (compatibilityKindedTypeParameterNames.has(name)) return true;
-        if (compatibilityTypeParameterNames.has(name)) return false;
-        if (node.typeArguments?.length) return false;
-        if (compatibilityGenericTypeNames.has(name)) return true;
-        let current: TypeReferenceNode | undefined = node;
-        let declarations: readonly Declaration[] | undefined;
-        while (current && !declarations?.length) {
-            declarations = isIdentifier(current.typeName) ? current.typeName.symbol?.declarations : undefined;
-            current = current.original && isTypeReferenceNode(current.original) ? current.original : undefined;
-        }
-        if (!declarations?.length) return false;
-        return declarations.some(declaration => {
-            if (!isTypeAliasDeclaration(declaration) && !isInterfaceDeclaration(declaration) && !isClassDeclaration(declaration)) return false;
-            if (declaration.typeParameters?.length) return true;
-            const kind = getTypeKindAnnotation(declaration);
-            return kind?.kind === "function" || isTypeAliasDeclaration(declaration) && isExtensionTypeConstructor(declaration.type);
-        });
-    }
-
     function emitFunctionType(node: FunctionTypeNode) {
-        const application = getTypeApplication(node);
-        if (application) {
-            if (tsppCompatibilityDeclaration) {
-                writeKeyword("unknown");
-                return;
-            }
-            emit(application.target as Node);
-            emitTypeArguments(node, application.typeArguments as NodeArray<TypeNode>);
-            return;
-        }
-        if (isExtensionTypeConstructor(node)) {
-            if (tsppCompatibilityDeclaration) {
-                writeKeyword("unknown");
-                return;
-            }
-            emitTypeParameters(node, node.typeParameters);
-            writeSpace();
-            writePunctuation("=>>");
-            writeSpace();
-            emit(node.type);
-            return;
-        }
         emitSignatureAndBody(node, emitFunctionTypeHead, emitFunctionTypeBody);
     }
 
@@ -3617,12 +3512,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitSignatureAndBody<T extends SignatureDeclaration>(node: T, emitSignatureHead: (node: T) => void, emitBody: (node: T) => void) {
-        const previousKindedNames = compatibilityKindedTypeParameterNames;
-        const previousTypeNames = compatibilityTypeParameterNames;
-        if (tsppCompatibilityDeclaration && node.typeParameters?.length) {
-            compatibilityKindedTypeParameterNames = new Set([...previousKindedNames, ...getCompatibilityKindedTypeParameterNames(node.typeParameters)]);
-            compatibilityTypeParameterNames = new Set([...previousTypeNames, ...node.typeParameters.map(parameter => idText(parameter.name))]);
-        }
         const indentedFlag = getEmitFlags(node) & EmitFlags.Indented;
         if (indentedFlag) {
             increaseIndent();
@@ -3637,8 +3526,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         if (indentedFlag) {
             decreaseIndent();
         }
-        compatibilityKindedTypeParameterNames = previousKindedNames;
-        compatibilityTypeParameterNames = previousTypeNames;
     }
 
     function emitFunctionBody<T extends Exclude<FunctionLikeDeclaration, ArrowFunction>>(node: T) {
@@ -3751,9 +3638,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitClassDeclarationOrExpression(node: ClassDeclaration | ClassExpression) {
-        if (tsppCompatibilityDeclaration && node.name && node.typeParameters?.length) {
-            compatibilityGenericTypeNames.add(idText(node.name));
-        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ true);
         emitTokenWithComment(SyntaxKind.ClassKeyword, moveRangePastModifiers(node).pos, writeKeyword, node);
         if (node.name) {
@@ -3784,15 +3668,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitInterfaceDeclaration(node: InterfaceDeclaration) {
-        if (tsppCompatibilityDeclaration && node.typeParameters?.length) {
-            compatibilityGenericTypeNames.add(idText(node.name));
-        }
-        const previousKindedNames = compatibilityKindedTypeParameterNames;
-        const previousTypeNames = compatibilityTypeParameterNames;
-        if (tsppCompatibilityDeclaration) {
-            compatibilityKindedTypeParameterNames = getCompatibilityKindedTypeParameterNames(node.typeParameters);
-            compatibilityTypeParameterNames = new Set(node.typeParameters?.map(parameter => idText(parameter.name)) ?? emptyArray);
-        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
         writeKeyword("interface");
         writeSpace();
@@ -3808,78 +3683,22 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         popNameGenerationScope(node);
 
         writePunctuation("}");
-        compatibilityKindedTypeParameterNames = previousKindedNames;
-        compatibilityTypeParameterNames = previousTypeNames;
     }
 
     function emitTypeAliasDeclaration(node: TypeAliasDeclaration) {
-        if (tsppCompatibilityDeclaration && node.typeParameters?.length) {
-            compatibilityGenericTypeNames.add(idText(node.name));
-        }
-        const previousKindedNames = compatibilityKindedTypeParameterNames;
-        const previousTypeNames = compatibilityTypeParameterNames;
-        if (tsppCompatibilityDeclaration) {
-            compatibilityKindedTypeParameterNames = getCompatibilityKindedTypeParameterNames(node.typeParameters);
-            compatibilityTypeParameterNames = new Set(node.typeParameters?.map(parameter => idText(parameter.name)) ?? emptyArray);
-        }
         emitDecoratorsAndModifiers(node, node.modifiers, /*allowDecorators*/ false);
         writeKeyword("type");
         writeSpace();
         emit(node.name);
         emitTypeParameters(node, node.typeParameters);
-        const restored = !tsppCompatibilityDeclaration && currentSourceFile
-            ? getPreprocessedTypeAliasDeclaration(currentSourceFile.fileName, idText(node.name), node.pos)
-            : undefined;
-        const kind = getTypeKindAnnotation(node);
-        const syntheticTypeParameterCount = tsppCompatibilityDeclaration && !node.typeParameters?.length
-            ? kind?.kind === "function" ? kind.parameters.length
-                : isExtensionTypeConstructor(node.type) ? (node.type as FunctionTypeNode).typeParameters?.length ?? 0
-                : 0
-            : 0;
-        if (syntheticTypeParameterCount) emitCompatibilitySyntheticTypeParameters(syntheticTypeParameterCount);
-        if (restored?.annotation) {
-            writePunctuation(":");
-            writeSpace();
-            write(restored.annotation);
-        }
-        else if (kind && !tsppCompatibilityDeclaration) {
-            writePunctuation(":");
-            writeSpace();
-            emitTSPPTypeKind(kind);
-        }
+        const restored = !tsppCompatibilityDeclaration && currentSourceFile ? getPreprocessedTypeAliasDeclaration(currentSourceFile.fileName, idText(node.name), node.pos) : undefined; // TSPP-SLOT(source-projection)
+        if (restored?.annotation) write(`: ${restored.annotation}`); // TSPP-SLOT(source-projection)
         writeSpace();
         writePunctuation("=");
         writeSpace();
-        if (restored) write(restored.type);
-        else if (syntheticTypeParameterCount) writeKeyword("unknown");
-        else emit(node.type);
+        if (restored) write(restored.type); // TSPP-SLOT(source-projection)
+        else emit(node.type); // TSPP-SLOT(source-projection)
         writeTrailingSemicolon();
-        compatibilityKindedTypeParameterNames = previousKindedNames;
-        compatibilityTypeParameterNames = previousTypeNames;
-    }
-
-    function getCompatibilityKindedTypeParameterNames(parameters: NodeArray<TypeParameterDeclaration> | undefined) {
-        const names = new Set<string>();
-        for (const parameter of parameters ?? emptyArray) {
-            if (getTypeKindAnnotation(parameter)?.kind === "function") names.add(idText(parameter.name));
-        }
-        return names;
-    }
-
-    function emitCompatibilitySyntheticTypeParameters(count: number) {
-        writePunctuation("<");
-        for (let index = 0; index < count; index++) {
-            if (index > 0) {
-                writePunctuation(",");
-                writeSpace();
-            }
-            write(`T${index}`);
-            writeSpace();
-            writePunctuation("=");
-            writeSpace();
-            writeKeyword("unknown");
-        }
-        writePunctuation(">");
     }
 
     function emitEnumDeclaration(node: EnumDeclaration) {

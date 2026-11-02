@@ -98,14 +98,14 @@ manifest: {
 | 插槽 | 位置 | 说明 | 预期消费者 |
 |---|---|---|---|
 | 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法。`.d.tspp` 输出可通过 `restoreFunctionWithClause`（参数表之后）与 `restoreFunctionPrefix`（`function` 之前）恢复被投影掉的文本 | dependent-types、formal-verification、macros |
-| 语法扩展 | 表达式、语句、声明、类型、后缀类型、类成员等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点。表达式、语句、函数体、声明四个位置的通用游标（`registerSyntaxExtension`，解析器自己的 factory、`finishNode`、普通解析函数）**已实现** | modern-syntax、nominal-types、dependent-types；类型位置待 type-computation |
+| 语法扩展 | 表达式、语句、声明、类型、后缀类型、类型参数名之后、类型别名的类型参数表之后等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点。表达式、语句、函数体、声明、类型（`type`）、后缀类型（`postfix-type`，游标带 `precedingType`）八个位置的通用游标（`registerSyntaxExtension`，解析器自己的 factory、`finishNode`、普通解析函数，含 `parseTypeArguments`）**已实现**；两个注解位置（`type-parameter-annotation`、`type-alias-annotation`）的 `parse` 返回一个回调，声明建好后宿主把声明节点交给它，该声明不参与增量复用 | modern-syntax、nominal-types、dependent-types、type-computation |
 | 表达式改写 | 括号表达式与调用实参解析完成后（`parseParenthesizedExpression`、`parseArgumentExpression`） | 插件用解析器自己的 factory 把表达式改写成普通 TS 语法；被改名的标识符按新名字输出（emitter 中一处调用点）。**已实现** | operator-sections |
-| 附加诊断 | 源文件的绑定与检查诊断合并处（`program.ts` 一处调用点） | 插件为每个源文件补充语义诊断，`@ts-expect-error` 等注释指令照常生效（`registerDiagnosticProvider`）。**已实现** | modern-syntax；nominal-types 待迁移 |
+| 附加诊断 | 源文件的绑定与检查诊断合并处（`program.ts` 一处调用点） | 插件为每个源文件补充语义诊断，`@ts-expect-error` 等注释指令照常生效（`registerDiagnosticProvider`）；`filterDiagnostic` 可以丢弃检查器报告的诊断，也可以返回一个替代诊断（例如把生成节点上的诊断移到它代表的源码上）。**已实现** | modern-syntax、nominal-types、type-computation |
 | 接口成员契约 | binder 成员归属、名字解析的静态性、修饰符语法检查、`implements` 的静态侧检查 | 声明式契约（`registerInterfaceMemberContract`）：带指定修饰符的接口成员移到实现方的静态侧。经评审认定为通用插槽：公共 API 无法改变绑定与语法检查，源码投影也无法等长改写。调用点都是带标记的一行；静态侧类型的构造需要 checker 内部函数，留在 `checker.ts` 并标记 | static-interface-members |
-| 声明输出 | `.d.tspp` 输出 | 插件为自己拥有的节点提供声明文本 | 有富语法的插件 |
+| 声明输出 | `.d.tspp` 与随附的兼容 `.d.ts` 输出（emitter 一处调用点，属"语法扩展"） | 插件为自己拥有的节点提供声明文本：`restoreDeclaration` 给 `.d.tspp`，`restoreCompatibilityDeclaration` 给兼容 `.d.ts`；两者都能处理语句与类型层节点。**已实现** | nominal-types、type-computation |
 | 程序重建 | `createProgram` 返回前（`program.ts` 一处调用点），以及 `createProgramAsync` | 插件检查建好的程序，返回按位置匹配的语句替换；宿主从同一源码重新解析这些文件、换入替换语句、重建程序，并可附加或过滤语义诊断、在输出时追加转换器。长期宿主（语言服务）提供 `invalidate`，插件异步完成后请求重建。宏的 worker、超时与展开策略归插件。没有任何替换时宿主不重建，只把诊断、过滤与转换器加到原程序上（实现在 `compiler/tspp/rebuild.ts`，不增加调用点）。**已实现** | macros；dependent-types（`typecase` 只输出被选中的分支） |
 | 程序分析 | 已有 | 不可变快照 + 异步诊断 + artifact | dependent-types、formal-verification |
-| 类型层扩展 | checker 类型解析与实例化 | **待研究**：HKT、类型宇宙、类型构造器无法脱糖成 TS 类型，可能需要一个通用的"扩展类型节点 → 类型 / 实例化回调"插槽 | higher-kinded-types、type-computation |
+| 类型层扩展 | checker 类型解析、实例化与打印（`checker.ts` 五处带标记的调用点，宿主在 `compiler/tspp/types.ts`） | 插件为类型节点给出类型、实例化并打印自己创建的类型（`registerTypeExtension`）：`resolveTypeNode` 在 `getTypeFromTypeNodeWorker` 开头先问插件；插件用宿主的 `createType` 创建归自己所有的类型，`instantiateTypeWorker` 遇到这些类型时交给插件的 `instantiateType`，节点构造器遇到时交给 `typeToTypeNode`；`isTypeParameterApplicable` 让带类型实参的引用也能指向某个类型参数（决定匿名类型需要带哪些外层类型参数实例化）。宿主（每个 checker 一个）只提供与特性无关的类型操作：解析引用名、取泛型符号的类型参数、实例化泛型别名或类与接口、创建与组合 mapper、按 mapper 实例化、检查类型实参约束、报告错误。**已实现** | type-computation |
 | Quick Info | language service | 已有 | 多个插件 |
 
 现有的单消费者原语（`finish*`、`checkTaggedUnionMatch`、`createNominalType`、`registerCompileTimeMacros`、`registerPlaceholderExpressionSyntax`、`registerInterfaceMemberContract` 等）在对应插件迁移完成后从 SDK 删除。
@@ -194,11 +194,13 @@ manifest: {
 - `core-diff`：31 个上游文件 +3436 −153，`compiler/tspp/` 之外没有新增文件，无标记 hunk 317 个。
 - 第 5 步 dependent-types：已完成。`reify T` 与表达式层 `typecase` 改用"语法扩展"插槽在解析时脱糖。`reify T` 变成 `({ kind: "type", text: "T" } as { kind: "type"; text: string; __tspp_reified_type: T })`，静态类型经幻影属性携带 `T`；`typecase d { P => r, ..., _ => r0 }` 变成一个立即调用的箭头函数，各分支是默认参数里的箭头函数 `(s: { __tspp_reified_type: P }) => r`（`infer X` 变成该分支的类型参数，声明保留源码位置），调用 `(a0 as typeof a0 & typeof a1 & ...)(s)` 由 TypeScript 的重载解析选出第一个模式接受描述符类型的分支并推断捕获。选择仍是静态的：插件经"程序重建"插槽（无替换，见上表）加一个输出转换器，按 `getResolvedSignature` 只输出被选中分支的结果，被检查值与其他分支都不运行。与旧实现的差异：匹配从类型同一改为可赋值（与重载一致）；分支结果按函数返回值推断，字面量会拓宽（`"text"` 得到 `string`）；分支结果里不能用 `await`/`yield`。核心删除 `ExtensionExpression`（`SyntaxKind`、factory、visitor、`forEachChild`、binder、utilities）、`checkExtensionExpression`/`createReifiedType`/`checkReifiedTypeMatch`、`transformExtensionExpression`、`createExtensionParser` 与 registry 中的表达式语法表；SDK 删除 `registerExpressionSyntax`、`expressionSyntaxKinds` 及 `TSPPExpressionParser`/`Checker`/`Transformer`/`Syntax`、`TSPPReifiedTypeMatchArm`、`TSPPExtensionExpression`。`transformers/ts.ts`、`nodeFactory.ts`、`visitorPublic.ts`、`utilitiesPublic.ts` 回到基线原文，`SyntaxKind` 与上游一致。
 - `core-diff`：27 个上游文件 +1534 −139，无标记 hunk 216 个（第 5 步前为 31 个文件 +1793 −140、244 个）。
-
-剩余各步都要把特性语义从 checker/parser/emitter 中迁出，其中几处需要先评审插槽设计（规则 6 与"类型层扩展"一行）：
-
-- static-interface-members：静态成员不进入接口实例类型（binder）、`static` 在接口成员上合法（语法检查）、implements 时检查类的静态侧（checker）。公共 API 无法从外部改变绑定与语法检查，源码投影也无法等长改写，所以需要决定是否把现有的声明式"接口成员契约"认定为通用插槽。
-- type-computation：需要先设计并评审"类型层扩展"插槽。
+- 第 8 步 type-computation（已吸收 higher-kinded-types）：已完成，未使用受控例外。
+  - 脱糖：类型层 `let X = A in B` 降级为 `[A] extends [infer X] ? B : never`（`A` 是类型构造器时降级为 redex `(<X: kind> =>> B)<A>`），有序 `match` 降级为嵌套的非分配条件类型（后续分支检查被检查类型的生成副本）。这些 `finish*` 从解析器移到插件，改用"语法扩展"插槽新增的 `type` 位置与游标、`ts.factory` 构造；类型构造器 `<T> =>> B` 与后缀应用 `F<A>`（`postfix-type` 位置）同样在插件里降级为函数类型节点，kind 注解（`F: Type => Type`、`type X: K = ...`）走两个注解位置。宇宙 `Type0`、`Type1`…不再有语法，按无法解析的同名类型引用处理。
+  - 无法脱糖的部分（kind、宇宙、类型构造器的应用、类型参数应用的延迟实例化、命名泛型类型作为构造器实参）在插件里基于新的"类型层扩展"插槽实现（见上表）。检查器里只剩五处带标记的调用点：创建宿主、`getTypeFromTypeNodeWorker` 开头、`instantiateTypeWorker` 开头、节点构造器、`isTypeParameterPossiblyReferenced`。实参与别名主体的 kind 检查在插件解析类型节点时完成；实例化时不再报告错误（只在解析节点时报告），因此不会在被实例化的声明处出现连带错误。
+  - `.d.tspp` 输出由插件的 `restoreDeclaration` 按源码文本恢复插件类型节点、带 kind 注解的类型参数与类型别名；兼容 `.d.ts` 里无法表达的部分（构造器、应用、宇宙、带 kind 的类型参数引用、裸写的构造器名）由 `restoreCompatibilityDeclaration` 写成 `unknown`，构造器别名得到占位类型参数。`let` 绑定未使用的诊断原来落在零宽的 `infer` 上，现在由插件的诊断过滤器移到绑定名上（不再需要检查器里的改动）；`fixUnusedIdentifier` 改为对插件语法里的类型参数一律不提供删除修复（通用判断 `isTSPPSyntaxNode`）。
+  - 核心删除：检查器里的 kind 机制（`applyHigherKindedType`、`getTypeKind`、`checkTypeKind`、`typeUniverses`、`extensionTypeConstructors`、`getMappedHigherKindedTarget` 等，以及 `maybeTypeParameterReference`、`checkUnusedInferTypeParameter` 的改动；`getSymbolAtLocation` 中"`=>` 的父节点不是函数时不声明任何东西"保留为一行带标记的语法扩展调用点，因为 kind 注解把 `=>` 写在类型参数里，编辑器服务会在那里取符号），解析器的 `createExtensionTypeParser`/`createExtensionPostfixTypeParser`/`createExtensionKindAnnotationParser` 与 `finish*`，emitter 的 kind 打印、`getPreservedExtensionTypeRange` 与兼容 `.d.ts` 中的 HKT 规则，registry 的类型语法表与节点标记，诊断 18072、18073（插件改用通用的 `{0}` 诊断报告同样的文字）。SDK 删除 `registerTypeSyntax`、`registerPostfixTypeSyntax`、`registerKindAnnotationSyntax`、`typeSyntaxKinds` 以及 `TSPPTypeSyntax`、`TSPPTypeParser`、`TSPPPostfixTypeSyntax`、`TSPPPostfixTypeParser`、`TSPPKindAnnotationSyntax`、`TSPPKindAnnotationParser`、`TSPPTypeKind`、`TSPPTypeSyntaxKinds`、`TSPPTypeMatchArm` 与不透明节点别名 `TSPPSyntaxNode` 等。
+  - 行为差异：kind 错误与"必须应用 N 个类型实参"的错误码从 18072/18073 变为 18086（文字不变）；实例化过程中发现的 kind/约束错误不再报告（只在写出应用的位置报告）；构造器形参约束只在直接应用处检查；`Foo<F>` 这类把构造器传给普通类型参数的写法只在被传入处是类型引用或插件节点时检查；后缀应用节点的范围从目标类型开始（原来从 `<` 开始）。插件单测 `plugin.test.cjs` 原来断言旧注册接口与 `finishTypeUniverse`/`finishTypeApplication` 的调用形状，改为断言新的注册位置与 `parseKind`。
+- `core-diff`：27 个上游文件 +812 −130，无标记 hunk 159 个（第 8 步前为 +1532 −139、216 个）；特性词 `higherKinded`、`typeConstructor`、`universe`、`typeMatch` 在新增行中归零。
 
 ### 阶段 3：逐文件还原与收口
 
@@ -209,7 +211,7 @@ manifest: {
 
 ## 风险与待定
 
-- **类型层特性可能无法完全迁出。** HKT、类型宇宙、类型构造器需要介入 checker 的类型解析和实例化。若通用插槽设计不出来，需要明确记录为"受控例外"，并限定在一个文件内。
+- **类型层特性可能无法完全迁出。** HKT、类型宇宙、类型构造器需要介入 checker 的类型解析和实例化。若通用插槽设计不出来，需要明确记录为"受控例外"，并限定在一个文件内。结果：第 8 步用通用的"类型层扩展"插槽完成，没有使用受控例外（见进度记录）。
 - **插件开始依赖 TS 公共 API。** 升级上游 TS 时插件可能需要适配；但这本来就是"只和 TS 耦合"的含义，且比现在核心里的改动好升级得多。
 - **脱糖可能改变编辑器体验。** 悬停文本、诊断位置、重命名等以前修过不少问题，迁移时必须有 language-server 测试兜底。
 - **进程级注册表。** 现在一个 tsserver 进程只能有一套插件。推迟到阶段 3 之后处理，但新插槽的接口不得进一步依赖全局状态。

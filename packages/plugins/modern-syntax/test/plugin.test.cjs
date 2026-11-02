@@ -12,7 +12,6 @@ test("registers its syntax extensions and diagnostics, and removes them on dispo
     return () => registered.delete(key);
   };
   const compiler = {
-    typeSyntaxKinds: {},
     registerSyntaxExtension: register("syntax"),
     registerDiagnosticProvider: register("diagnostics"),
   };

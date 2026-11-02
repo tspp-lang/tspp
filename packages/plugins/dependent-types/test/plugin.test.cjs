@@ -185,7 +185,6 @@ test("registers type projection, analysis, reification, and matching as one caps
     return () => registered.splice(registered.indexOf(key), 1);
   };
   const compiler = {
-    typeSyntaxKinds: {},
     registerSyntaxExtension: register("syntax"),
     registerProgramRebuilder: register("rebuilder"),
     registerSourcePreprocessor: register("projection"),

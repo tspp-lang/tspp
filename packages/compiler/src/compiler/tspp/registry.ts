@@ -7,8 +7,6 @@ import type {
     TSPPDiagnosticProvider,
     TSPPExpressionRewriter,
     TSPPInterfaceMemberContract,
-    TSPPKindAnnotationSyntax,
-    TSPPPostfixTypeSyntax,
     TSPPPreprocessedTypeAlias,
     TSPPProgramAnalyzer,
     TSPPProgramRebuilder,
@@ -18,9 +16,7 @@ import type {
     TSPPSyntaxExtension,
     TSPPSyntaxExtensionPosition,
     TSPPTypeExtension,
-    TSPPTypeKind,
     TSPPTypeScript,
-    TSPPTypeSyntax,
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 import type {
@@ -41,14 +37,6 @@ import type {
 } from "../types.js";
 import { SyntaxKind } from "../types.js";
 
-const typeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPTypeSyntax; }[]>();
-const typeSyntaxByNode = new WeakMap<object, TSPPTypeSyntax>();
-const postfixTypeSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPPostfixTypeSyntax; }[]>();
-const typeConstructors = new WeakSet<object>();
-const typeUniverseLevels = new WeakMap<object, number>();
-const typeApplications = new WeakMap<object, { readonly target: object; readonly typeArguments: readonly object[]; }>();
-const kindSyntaxByStartToken = new Map<number, { pluginId: string; syntax: TSPPKindAnnotationSyntax; }[]>();
-const kindAnnotations = new WeakMap<object, TSPPTypeKind>();
 const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
 const expressionRewriters = new Map<string, TSPPExpressionRewriter>();
@@ -71,105 +59,7 @@ const silentLogger: TSPPPluginLogger = {
     error() {},
 };
 
-/** @internal */
-export const typeSyntaxKinds: {
-    readonly endOfFileToken: SyntaxKind;
-    readonly identifier: SyntaxKind;
-    readonly letKeyword: SyntaxKind;
-    readonly inKeyword: SyntaxKind;
-    readonly inferKeyword: SyntaxKind;
-    readonly lessThanToken: SyntaxKind;
-    readonly greaterThanToken: SyntaxKind;
-    readonly equalsToken: SyntaxKind;
-    readonly equalsGreaterThanToken: SyntaxKind;
-    readonly openBraceToken: SyntaxKind;
-    readonly closeBraceToken: SyntaxKind;
-    readonly colonToken: SyntaxKind;
-    readonly commaToken: SyntaxKind;
-    readonly semicolonToken: SyntaxKind;
-    readonly openParenToken: SyntaxKind;
-    readonly closeParenToken: SyntaxKind;
-} = {
-    endOfFileToken: SyntaxKind.EndOfFileToken,
-    identifier: SyntaxKind.Identifier,
-    letKeyword: SyntaxKind.LetKeyword,
-    inKeyword: SyntaxKind.InKeyword,
-    inferKeyword: SyntaxKind.InferKeyword,
-    lessThanToken: SyntaxKind.LessThanToken,
-    greaterThanToken: SyntaxKind.GreaterThanToken,
-    equalsToken: SyntaxKind.EqualsToken,
-    equalsGreaterThanToken: SyntaxKind.EqualsGreaterThanToken,
-    openBraceToken: SyntaxKind.OpenBraceToken,
-    closeBraceToken: SyntaxKind.CloseBraceToken,
-    colonToken: SyntaxKind.ColonToken,
-    commaToken: SyntaxKind.CommaToken,
-    semicolonToken: SyntaxKind.SemicolonToken,
-    openParenToken: SyntaxKind.OpenParenToken,
-    closeParenToken: SyntaxKind.CloseParenToken,
-};
-
 const compilerAPI: TSPPCompilerHostAPI = {
-    typeSyntaxKinds,
-    registerTypeSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP type-syntax plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        for (const token of syntax.startTokens) {
-            const candidates = typeSyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else typeSyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            for (const token of syntax.startTokens) {
-                const candidates = typeSyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) typeSyntaxByStartToken.delete(token);
-            }
-        };
-    },
-    registerPostfixTypeSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP postfix-type plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        for (const token of syntax.startTokens) {
-            const candidates = postfixTypeSyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else postfixTypeSyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            for (const token of syntax.startTokens) {
-                const candidates = postfixTypeSyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) postfixTypeSyntaxByStartToken.delete(token);
-            }
-        };
-    },
-    registerKindAnnotationSyntax(pluginId, syntax) {
-        if (syntax.startTokens.length === 0) {
-            throw new Error(`TSPP kind-annotation plugin '${pluginId}' must claim at least one start token.`);
-        }
-        const registration = { pluginId, syntax };
-        for (const token of syntax.startTokens) {
-            const candidates = kindSyntaxByStartToken.get(token);
-            if (candidates) candidates.push(registration);
-            else kindSyntaxByStartToken.set(token, [registration]);
-        }
-        return () => {
-            for (const token of syntax.startTokens) {
-                const candidates = kindSyntaxByStartToken.get(token);
-                if (!candidates) continue;
-                const index = candidates.indexOf(registration);
-                if (index >= 0) candidates.splice(index, 1);
-                if (candidates.length === 0) kindSyntaxByStartToken.delete(token);
-            }
-        };
-    },
     registerInterfaceMemberContract(pluginId, contract) {
         if (interfaceMemberContracts.has(pluginId)) {
             throw new Error(`TSPP plugin '${pluginId}' registered an interface member contract more than once.`);
@@ -462,128 +352,6 @@ export function rewriteTSPPExpression(
         if (rewritten) return rewritten as unknown as Expression;
     }
     return undefined;
-}
-
-/** @internal */
-export function tryParseExtensionType(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): object | undefined {
-    const candidates = typeSyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) {
-            const node = syntax.parse(parser);
-            typeSyntaxByNode.set(node, syntax);
-            return node;
-        }
-    }
-    return undefined;
-}
-
-/** Returns the authored range of extension type syntax that should survive rich declaration emit. @internal */
-export function getPreservedExtensionTypeRange(node: object): { readonly pos: number; readonly end: number; } | undefined {
-    let current: { readonly pos?: number; readonly end?: number; readonly original?: object; } | undefined = node;
-    while (current) {
-        if (typeSyntaxByNode.get(current)?.preserveDeclarationText && current.pos !== undefined && current.end !== undefined) {
-            return { pos: current.pos, end: current.end };
-        }
-        current = current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function registerTypeConstructor(node: object): void {
-    typeConstructors.add(node);
-}
-
-/** @internal */
-export function registerTypeUniverse(node: object, level: number): void {
-    typeUniverseLevels.set(node, level);
-}
-
-/** @internal */
-export function registerTypeApplication(node: object, target: object, typeArguments: readonly object[]): void {
-    typeApplications.set(node, { target, typeArguments });
-}
-
-/** @internal */
-export function getTypeApplication(node: object): { readonly target: object; readonly typeArguments: readonly object[]; } | undefined {
-    let current: { readonly original?: object; } | undefined = node;
-    while (current) {
-        const application = typeApplications.get(current);
-        if (application) return application;
-        current = current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function tryParsePostfixType(
-    token: SyntaxKind,
-    target: object,
-    createParser: (pluginId: string) => any,
-): object | undefined {
-    const candidates = postfixTypeSyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) return syntax.parse(target, parser);
-    }
-    return undefined;
-}
-
-/** @internal */
-export function getTypeUniverseLevel(node: object): number | undefined {
-    let current: { readonly original?: object; } | undefined = node;
-    while (current) {
-        const level = typeUniverseLevels.get(current);
-        if (level !== undefined) return level;
-        current = current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function tryParseKindAnnotation(
-    token: SyntaxKind,
-    createParser: (pluginId: string) => any,
-): any {
-    const candidates = kindSyntaxByStartToken.get(token);
-    if (!candidates) return undefined;
-    for (const { pluginId, syntax } of candidates) {
-        const parser = createParser(pluginId);
-        if (syntax.isStart(parser)) return syntax.parse(parser);
-    }
-    return undefined;
-}
-
-/** @internal */
-export function setTypeKindAnnotation(node: object, kind: any): void {
-    if (kind) kindAnnotations.set(node, kind);
-}
-
-/** @internal */
-export function getTypeKindAnnotation(node: object): any {
-    let current: { readonly original?: object; } | undefined = node;
-    while (current) {
-        const kind = kindAnnotations.get(current);
-        if (kind) return kind;
-        current = current.original;
-    }
-    return undefined;
-}
-
-/** @internal */
-export function isExtensionTypeConstructor(node: object): boolean {
-    let current: { readonly original?: object; } | undefined = node;
-    while (current) {
-        if (typeConstructors.has(current)) return true;
-        current = current.original;
-    }
-    return false;
 }
 
 /** @internal */

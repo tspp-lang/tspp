@@ -1,4 +1,3 @@
-import type { TSPPTypeKind } from "@tspp/plugin-sdk/compiler";
 import {
     __String,
     AccessExpression,
@@ -1152,13 +1151,9 @@ import {
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
 import {
-    getTypeApplication,
-    getTypeKindAnnotation,
-    getTypeUniverseLevel,
     hasInterfaceMemberContract,
-    isExtensionTypeConstructor,
     isTSPPInterfaceStaticMember,
-} from "./tspp/registry.js";
+} from "./tspp/registry.js"; // TSPP-SLOT(interface-member-contract)
 import {
     createTSPPTypeState,
     instantiateTSPPType,
@@ -1505,30 +1500,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
     var tsppTypes = createTSPPTypeState(() => checker, { createType, getErrorType: () => errorType, getUnknownSymbol: () => unknownSymbol, error, resolveTypeReferenceName, resolveAlias, getDeclaredTypeOfSymbol, getSymbolLinks, getTypeAliasInstantiation, createTypeReference, createTypeMapper, combineTypeMappers, instantiateType, checkTypeAssignableTo }); // TSPP-SLOT(type-extension)
-    interface ExtensionTypeConstructorData {
-        readonly node: FunctionTypeNode;
-        readonly typeParameters: readonly TypeParameter[];
-        readonly body: TypeNode;
-        readonly outerMapper?: TypeMapper;
-    }
-    var extensionTypeConstructors = new WeakMap<Type, ExtensionTypeConstructorData>();
-    interface NamedTypeConstructorData {
-        readonly symbol: Symbol;
-        readonly typeParameters: readonly TypeParameter[];
-    }
-    interface HigherKindedApplicationData {
-        readonly target: Type;
-        readonly typeArguments: readonly Type[];
-        readonly node: Node;
-    }
-    var typeKinds = new WeakMap<Type, TSPPTypeKind>();
-    var ordinaryTypeKind: TSPPTypeKind = { kind: "type", level: 0 };
-    var namedTypeConstructors = new WeakMap<Type, NamedTypeConstructorData>();
-    var namedTypeConstructorsBySymbol = new Map<Symbol, Type>();
-    var higherKindedApplications = new WeakMap<Type, HigherKindedApplicationData>();
-    var higherKindedTypeArgumentNodes = new WeakSet<Node>();
-    var typeUniverses = new Map<number, Type>();
-    var typeUniverseLevels = new WeakMap<Type, number>();
 
     var addLazyDiagnostic = (arg: () => void) => {
         deferredDiagnosticsCallbacks.push(arg);
@@ -6826,10 +6797,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
             const extensionTypeNode = tsppTypeToTypeNode(tsppTypes, type); // TSPP-SLOT(type-extension)
             if (extensionTypeNode) return extensionTypeNode; // TSPP-SLOT(type-extension)
-            const universeLevel = typeUniverseLevels.get(type);
-            if (universeLevel !== undefined) {
-                return factory.createTypeReferenceNode(`Type${universeLevel}`, /*typeArguments*/ undefined);
-            }
 
             if (!(context.flags & NodeBuilderFlags.NoTypeReduction)) {
                 type = getReducedType(type);
@@ -13545,185 +13512,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return links.declaredType as InterfaceType;
     }
 
-    function typeKindToString(kind: TSPPTypeKind): string {
-        if (kind.kind === "type") return kind.level === 0 ? "Type" : `Type${kind.level}`;
-        const parameters = kind.parameters.length === 1
-            ? typeKindToString(kind.parameters[0])
-            : `(${kind.parameters.map(typeKindToString).join(", ")})`;
-        return `${parameters} => ${typeKindToString(kind.result)}`;
-    }
-
-    function typeKindsEqual(left: TSPPTypeKind, right: TSPPTypeKind): boolean {
-        if (left.kind !== right.kind) return false;
-        if (left.kind === "type" && right.kind === "type") return left.level === right.level;
-        if (left.kind === "function" && right.kind === "function") {
-            return left.parameters.length === right.parameters.length &&
-                left.parameters.every((parameter, index) => typeKindsEqual(parameter, right.parameters[index])) &&
-                typeKindsEqual(left.result, right.result);
-        }
-        return false;
-    }
-
-    function getTypeKind(type: Type): TSPPTypeKind {
-        const cached = typeKinds.get(type);
-        if (cached) return cached;
-        if (type.symbol?.declarations) {
-            for (const declaration of type.symbol.declarations) {
-                const annotation = getTypeKindAnnotation(declaration);
-                if (annotation) {
-                    typeKinds.set(type, annotation);
-                    return annotation;
-                }
-            }
-        }
-        return ordinaryTypeKind;
-    }
-
-    function checkTypeKind(type: Type, expected: TSPPTypeKind, node: Node): Type {
-        const actual = getTypeKind(type);
-        if (!typeKindsEqual(actual, expected)) {
-            error(
-                node,
-                Diagnostics.Type_0_has_kind_1_but_kind_2_was_expected,
-                typeToString(type),
-                typeKindToString(actual),
-                typeKindToString(expected),
-            );
-            return errorType;
-        }
-        return type;
-    }
-
-    function getHigherKindedTypeParameters(symbol: Symbol): readonly TypeParameter[] | undefined {
-        if (symbol.flags & SymbolFlags.TypeAlias) {
-            getDeclaredTypeOfTypeAlias(symbol);
-            return getSymbolLinks(symbol).typeParameters;
-        }
-        if (symbol.flags & (SymbolFlags.Class | SymbolFlags.Interface)) {
-            return getDeclaredTypeOfClassOrInterface(symbol).localTypeParameters;
-        }
-        return undefined;
-    }
-
-    function getNamedTypeConstructor(symbol: Symbol): Type | undefined {
-        symbol = getMergedSymbol(symbol);
-        const cached = namedTypeConstructorsBySymbol.get(symbol);
-        if (cached) return cached;
-        const typeParameters = getHigherKindedTypeParameters(symbol);
-        if (!typeParameters?.length) return undefined;
-        const type = createType(TypeFlags.TypeParameter);
-        type.symbol = symbol;
-        namedTypeConstructors.set(type, { symbol, typeParameters });
-        typeKinds.set(type, {
-            kind: "function",
-            parameters: typeParameters.map(getTypeKind),
-            result: ordinaryTypeKind,
-        });
-        namedTypeConstructorsBySymbol.set(symbol, type);
-        return type;
-    }
-
-    function getTypeFromTypeNodeWithKind(node: TypeNode, expected: TSPPTypeKind): Type {
-        if (expected.kind === "function" && isTypeReferenceNode(node) && !node.typeArguments) {
-            higherKindedTypeArgumentNodes.add(node);
-            const symbol = resolveTypeReferenceName(node, SymbolFlags.Type, /*ignoreErrors*/ false);
-            if (symbol !== unknownSymbol) {
-                const resolved = symbol.flags & SymbolFlags.Alias ? resolveAlias(symbol) : symbol;
-                const declared = tryGetDeclaredTypeOfSymbol(resolved);
-                if (declared && getTypeKind(declared).kind === "function") {
-                    return checkTypeKind(declared, expected, node);
-                }
-                const constructor = getNamedTypeConstructor(resolved);
-                if (constructor) return checkTypeKind(constructor, expected, node);
-            }
-        }
-        return checkTypeKind(getTypeFromTypeNode(node), expected, node);
-    }
-
-    function isBareHigherKindedTypeReference(node: NodeWithTypeArguments): boolean {
-        if (node.typeArguments || !isTypeReferenceNode(node)) return false;
-        if (higherKindedTypeArgumentNodes.has(node)) return true;
-        const parent = node.parent;
-        if (isTypeAliasDeclaration(parent) && parent.type === node) {
-            return getTypeKindAnnotation(parent)?.kind === "function";
-        }
-        if (!isTypeReferenceNode(parent) || !parent.typeArguments) return false;
-        const argumentIndex = parent.typeArguments.indexOf(node);
-        if (argumentIndex < 0) return false;
-        const parentSymbol = resolveTypeReferenceName(parent, SymbolFlags.Type, /*ignoreErrors*/ true);
-        if (parentSymbol === unknownSymbol) return false;
-        const resolved = parentSymbol.flags & SymbolFlags.Alias ? resolveAlias(parentSymbol) : parentSymbol;
-        for (const declaration of resolved.declarations ?? emptyArray) {
-            // An alias of an anonymous type constructor takes its arguments through the constructor's parameters.
-            const typeParameters = (declaration as { readonly typeParameters?: NodeArray<TypeParameterDeclaration>; }).typeParameters
-                ?? (isTypeAliasDeclaration(declaration) && isExtensionTypeConstructor(declaration.type)
-                    ? (declaration.type as FunctionTypeNode).typeParameters
-                    : undefined);
-            const parameter = typeParameters?.[argumentIndex];
-            if (parameter && getTypeKindAnnotation(parameter)?.kind === "function") return true;
-        }
-        return false;
-    }
-
-    function typeArgumentsFromTypeReferenceNodeWithKinds(
-        node: NodeWithTypeArguments,
-        typeParameters: readonly TypeParameter[],
-    ): Type[] | undefined {
-        return node.typeArguments && map(node.typeArguments, (argument, index) => getTypeFromTypeNodeWithKind(argument, getTypeKind(typeParameters[index] ?? errorType)));
-    }
-
-    function applyHigherKindedType(target: Type, typeArguments: readonly Type[], node: Node): Type {
-        if (target === errorType) return errorType;
-        const kind = getTypeKind(target);
-        if (kind.kind !== "function") {
-            error(node, Diagnostics.Type_0_is_not_generic, typeToString(target));
-            return errorType;
-        }
-        if (kind.parameters.length !== typeArguments.length) {
-            error(
-                node,
-                Diagnostics.Type_constructor_0_must_be_applied_to_1_type_argument_s,
-                typeToString(target),
-                kind.parameters.length,
-            );
-            return errorType;
-        }
-        for (let index = 0; index < typeArguments.length; index++) {
-            if (checkTypeKind(typeArguments[index], kind.parameters[index], node) === errorType) return errorType;
-        }
-        const extensionConstructor = extensionTypeConstructors.get(target);
-        if (extensionConstructor) {
-            const mapper = combineTypeMappers(
-                extensionConstructor.outerMapper,
-                createTypeMapper(extensionConstructor.typeParameters, typeArguments),
-            );
-            for (let index = 0; index < extensionConstructor.typeParameters.length; index++) {
-                const constraint = getConstraintOfTypeParameter(extensionConstructor.typeParameters[index]);
-                if (constraint) {
-                    checkTypeAssignableTo(
-                        typeArguments[index],
-                        instantiateType(constraint, mapper),
-                        node,
-                        Diagnostics.Type_0_does_not_satisfy_the_constraint_1,
-                    );
-                }
-            }
-            return instantiateType(getTypeFromTypeNode(extensionConstructor.body), mapper);
-        }
-        const namedConstructor = namedTypeConstructors.get(target);
-        if (namedConstructor) {
-            const { symbol } = namedConstructor;
-            if (symbol.flags & SymbolFlags.TypeAlias) return getTypeAliasInstantiation(symbol, typeArguments);
-            const declared = getDeclaredTypeOfClassOrInterface(symbol) as GenericType;
-            return createTypeReference(declared, concatenate(declared.outerTypeParameters, typeArguments));
-        }
-        const result = createType(TypeFlags.TypeParameter);
-        result.symbol = target.symbol;
-        higherKindedApplications.set(result, { target, typeArguments, node });
-        typeKinds.set(result, kind.result);
-        return result;
-    }
-
     function getDeclaredTypeOfTypeAlias(symbol: Symbol): Type {
         const links = getSymbolLinks(symbol);
         if (!links.declaredType) {
@@ -13736,10 +13524,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             const declaration = Debug.checkDefined(symbol.declarations?.find(isTypeAlias), "Type alias symbol with no valid declaration found");
             const typeNode = isJSDocTypeAlias(declaration) ? declaration.typeExpression : declaration.type;
             // If typeNode is missing, we will error in checkJSDocTypedefTag.
-            const annotation = getTypeKindAnnotation(declaration);
-            let type = typeNode
-                ? annotation ? getTypeFromTypeNodeWithKind(typeNode, annotation) : getTypeFromTypeNode(typeNode)
-                : errorType;
+            let type = typeNode ? getTypeFromTypeNode(typeNode) : errorType;
             if (popTypeResolution()) {
                 const typeParameters = getLocalTypeParametersOfClassOrInterfaceOrTypeAlias(symbol);
                 if (typeParameters) {
@@ -13829,17 +13614,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
 
     function getDeclaredTypeOfTypeParameter(symbol: Symbol): TypeParameter {
         const links = getSymbolLinks(symbol);
-        if (!links.declaredType) {
-            links.declaredType = createTypeParameter(symbol);
-            for (const declaration of symbol.declarations ?? emptyArray) {
-                const annotation = getTypeKindAnnotation(declaration);
-                if (annotation) {
-                    typeKinds.set(links.declaredType, annotation);
-                    break;
-                }
-            }
-        }
-        return links.declaredType as TypeParameter;
+        return links.declaredType || (links.declaredType = createTypeParameter(symbol));
     }
 
     function getDeclaredTypeOfAlias(symbol: Symbol): Type {
@@ -17228,12 +17003,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
      * Get type from type-reference that reference to class or interface
      */
     function getTypeFromClassOrInterfaceReference(node: NodeWithTypeArguments, symbol: Symbol): Type {
-        if (isBareHigherKindedTypeReference(node)) {
-            const declared = getDeclaredTypeOfSymbol(symbol);
-            return getTypeKind(declared).kind === "function"
-                ? declared
-                : getNamedTypeConstructor(symbol) ?? errorType;
-        }
         const type = getDeclaredTypeOfSymbol(getMergedSymbol(symbol)) as InterfaceType;
         const typeParameters = type.localTypeParameters;
         if (typeParameters) {
@@ -17264,15 +17033,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             // In a type reference, the outer type parameters of the referenced class or interface are automatically
             // supplied as type arguments and the type reference only specifies arguments for the local type parameters
             // of the class or interface.
-            const typeArguments = concatenate(
-                type.outerTypeParameters,
-                fillMissingTypeArguments(
-                    typeArgumentsFromTypeReferenceNodeWithKinds(node, typeParameters),
-                    typeParameters,
-                    minTypeArgumentCount,
-                    isJs,
-                ),
-            );
+            const typeArguments = concatenate(type.outerTypeParameters, fillMissingTypeArguments(typeArgumentsFromTypeReferenceNode(node), typeParameters, minTypeArgumentCount, isJs));
             return createTypeReference(type as GenericType, typeArguments);
         }
         return checkNoTypeArguments(node, symbol) ? type : errorType;
@@ -17314,21 +17075,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             }
             return errorType;
         }
-        if (isBareHigherKindedTypeReference(node)) {
-            const declared = getDeclaredTypeOfSymbol(symbol);
-            return getTypeKind(declared).kind === "function"
-                ? declared
-                : getNamedTypeConstructor(symbol) ?? errorType;
-        }
         const type = getDeclaredTypeOfSymbol(symbol);
-        const symbolTypeParameters = getSymbolLinks(symbol).typeParameters;
-        const typeKind = getTypeKind(type);
-        if (typeKind.kind === "function" && !symbolTypeParameters) {
-            if (!node.typeArguments) return type;
-            const typeArguments = map(node.typeArguments, (argument, index) => getTypeFromTypeNodeWithKind(argument, typeKind.parameters[index] ?? ordinaryTypeKind));
-            return applyHigherKindedType(type, typeArguments, node);
-        }
-        const typeParameters = symbolTypeParameters;
+        const typeParameters = getSymbolLinks(symbol).typeParameters;
         if (typeParameters) {
             const numTypeArguments = length(node.typeArguments);
             const minTypeArgumentCount = getMinTypeArgumentCount(typeParameters);
@@ -17362,16 +17110,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     const resolved = resolveAlias(aliasSymbol);
                     if (resolved && resolved.flags & SymbolFlags.TypeAlias) {
                         newAliasSymbol = resolved;
-                        aliasTypeArguments = typeArgumentsFromTypeReferenceNodeWithKinds(node, typeParameters) || [];
+                        aliasTypeArguments = typeArgumentsFromTypeReferenceNode(node) || (typeParameters ? [] : undefined);
                     }
                 }
             }
-            return getTypeAliasInstantiation(
-                symbol,
-                typeArgumentsFromTypeReferenceNodeWithKinds(node, typeParameters),
-                newAliasSymbol,
-                aliasTypeArguments,
-            );
+            return getTypeAliasInstantiation(symbol, typeArgumentsFromTypeReferenceNode(node), newAliasSymbol, aliasTypeArguments);
         }
         return checkNoTypeArguments(node, symbol) ? type : errorType;
     }
@@ -17447,11 +17190,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         // Get type from reference to named type that cannot be generic (enum or type parameter)
         const res = tryGetDeclaredTypeOfSymbol(symbol);
         if (res) {
-            const kind = getTypeKind(res);
-            if (kind.kind === "function" && node.typeArguments) {
-                const typeArguments = map(node.typeArguments, (argument, index) => getTypeFromTypeNodeWithKind(argument, kind.parameters[index] ?? ordinaryTypeKind));
-                return applyHigherKindedType(res, typeArguments, node);
-            }
             return checkNoTypeArguments(node, symbol) ? getRegularTypeOfLiteralType(res) : errorType;
         }
         if (symbol.flags & SymbolFlags.Value && isJSDocTypeReference(node)) {
@@ -20713,56 +20451,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     function getTypeFromTypeNodeWorker(node: TypeNode): Type {
         const extensionType = resolveTSPPTypeNode(tsppTypes, node); // TSPP-SLOT(type-extension)
         if (extensionType) return extensionType; // TSPP-SLOT(type-extension)
-        const typeApplication = getTypeApplication(node);
-        if (typeApplication) {
-            const links = getNodeLinks(node);
-            if (!links.resolvedType) {
-                const target = getTypeFromTypeNode(typeApplication.target as TypeNode);
-                const kind = getTypeKind(target);
-                const typeArguments = (typeApplication.typeArguments as readonly TypeNode[]).map((argument, index) => getTypeFromTypeNodeWithKind(argument, kind.kind === "function" ? kind.parameters[index] ?? ordinaryTypeKind : ordinaryTypeKind));
-                links.resolvedType = applyHigherKindedType(target, typeArguments, node);
-            }
-            return links.resolvedType;
-        }
-        const universeLevel = getTypeUniverseLevel(node);
-        if (universeLevel !== undefined) {
-            const links = getNodeLinks(node);
-            if (!links.resolvedType) {
-                let type = typeUniverses.get(universeLevel);
-                if (!type) {
-                    type = createType(TypeFlags.TypeParameter);
-                    typeKinds.set(type, { kind: "type", level: universeLevel + 1 });
-                    typeUniverses.set(universeLevel, type);
-                    typeUniverseLevels.set(type, universeLevel);
-                }
-                links.resolvedType = type;
-            }
-            return links.resolvedType;
-        }
-        if (isExtensionTypeConstructor(node)) {
-            const links = getNodeLinks(node);
-            if (!links.resolvedType) {
-                const constructorNode = node as FunctionTypeNode;
-                checkTypeParameters(constructorNode.typeParameters);
-                const typeParameters = map(
-                    constructorNode.typeParameters,
-                    parameter => getDeclaredTypeOfTypeParameter(getSymbolOfDeclaration(parameter)),
-                ) ?? emptyArray;
-                const type = createType(TypeFlags.TypeParameter);
-                extensionTypeConstructors.set(type, {
-                    node: constructorNode,
-                    typeParameters,
-                    body: constructorNode.type,
-                });
-                typeKinds.set(type, {
-                    kind: "function",
-                    parameters: typeParameters.map(getTypeKind),
-                    result: getTypeKind(getTypeFromTypeNode(constructorNode.type)),
-                });
-                links.resolvedType = type;
-            }
-            return links.resolvedType;
-        }
         switch (node.kind) {
             case SyntaxKind.AnyKeyword:
             case SyntaxKind.JSDocAllType:
@@ -21135,10 +20823,9 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         return type;
     }
 
-    function maybeTypeParameterReference(node: Node, typeParameter: TypeParameter) {
-        return getTypeKind(typeParameter).kind === "function" ||
-            !(node.parent.kind === SyntaxKind.TypeReference && (node.parent as TypeReferenceNode).typeArguments && node === (node.parent as TypeReferenceNode).typeName ||
-                node.parent.kind === SyntaxKind.ImportType && (node.parent as ImportTypeNode).typeArguments && node === (node.parent as ImportTypeNode).qualifier);
+    function maybeTypeParameterReference(node: Node) {
+        return !(node.parent.kind === SyntaxKind.TypeReference && (node.parent as TypeReferenceNode).typeArguments && node === (node.parent as TypeReferenceNode).typeName ||
+            node.parent.kind === SyntaxKind.ImportType && (node.parent as ImportTypeNode).typeArguments && node === (node.parent as ImportTypeNode).qualifier);
     }
 
     function isTypeParameterPossiblyReferenced(tp: TypeParameter, node: Node) {
@@ -21161,7 +20848,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 case SyntaxKind.ThisType:
                     return !!tp.isThisType;
                 case SyntaxKind.Identifier:
-                    return !tp.isThisType && isPartOfTypeNode(node) && (maybeTypeParameterReference(node, tp) || isTSPPTypeParameterApplicable(tp)) &&
+                    return !tp.isThisType && isPartOfTypeNode(node) && (maybeTypeParameterReference(node) || isTSPPTypeParameterApplicable(tp)) && // TSPP-SLOT(type-extension)
                         getTypeFromTypeNodeWorker(node as TypeNode) === tp; // use worker because we're looking for === equality
                 case SyntaxKind.TypeQuery:
                     const entityName = (node as TypeQueryNode).exprName;
@@ -21384,28 +21071,9 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function instantiateTypeWorker(type: Type, mapper: TypeMapper, aliasSymbol: Symbol | undefined, aliasTypeArguments: readonly Type[] | undefined): Type {
+        const extensionType = instantiateTSPPType(tsppTypes, type, mapper); // TSPP-SLOT(type-extension)
+        if (extensionType) return extensionType; // TSPP-SLOT(type-extension)
         const flags = type.flags;
-        const instantiatedExtensionType = instantiateTSPPType(tsppTypes, type, mapper); // TSPP-SLOT(type-extension)
-        if (instantiatedExtensionType) return instantiatedExtensionType; // TSPP-SLOT(type-extension)
-        const higherKindedApplication = higherKindedApplications.get(type);
-        if (higherKindedApplication) {
-            return applyHigherKindedType(
-                getMappedHigherKindedTarget(higherKindedApplication.target, mapper),
-                instantiateTypes(higherKindedApplication.typeArguments, mapper) ?? emptyArray,
-                higherKindedApplication.node,
-            );
-        }
-        const extensionConstructor = extensionTypeConstructors.get(type);
-        if (extensionConstructor) {
-            const result = createType(flags);
-            extensionTypeConstructors.set(result, {
-                ...extensionConstructor,
-                outerMapper: combineTypeMappers(extensionConstructor.outerMapper, mapper),
-            });
-            const kind = typeKinds.get(type);
-            if (kind) typeKinds.set(result, kind);
-            return result;
-        }
         if (flags & TypeFlags.TypeParameter) {
             return getMappedType(type, mapper);
         }
@@ -21478,34 +21146,6 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return newBaseType.flags & TypeFlags.TypeVariable ? getSubstitutionType(newBaseType, newConstraint) : getIntersectionType([newConstraint, newBaseType]);
         }
         return type;
-    }
-
-    function getMappedHigherKindedTarget(type: Type, mapper: TypeMapper): Type {
-        // A curried application `F<A><B>` targets the deferred `F<A>`, which shares F's symbol but must be re-applied.
-        if (higherKindedApplications.has(type)) return instantiateType(type, mapper);
-        const mapped = getMappedType(type, mapper);
-        if (mapped !== type || !type.symbol) return mapped;
-        switch (mapper.kind) {
-            case TypeMapKind.Simple:
-                return mapper.source.symbol === type.symbol ? mapper.target : type;
-            case TypeMapKind.Array: {
-                const index = mapper.sources.findIndex(source => source.symbol === type.symbol);
-                return index >= 0 ? mapper.targets?.[index] ?? anyType : type;
-            }
-            case TypeMapKind.Deferred: {
-                const index = mapper.sources.findIndex(source => source.symbol === type.symbol);
-                return index >= 0 ? mapper.targets[index]() : type;
-            }
-            case TypeMapKind.Composite:
-            case TypeMapKind.Merged: {
-                const first = getMappedHigherKindedTarget(type, mapper.mapper1);
-                return first !== type && mapper.kind === TypeMapKind.Composite
-                    ? instantiateType(first, mapper.mapper2)
-                    : getMappedHigherKindedTarget(first, mapper.mapper2);
-            }
-            case TypeMapKind.Function:
-                return type;
-        }
     }
 
     function instantiateReverseMappedType(type: ReverseMappedType, mapper: TypeMapper) {
@@ -44913,9 +44553,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     function checkUnusedInferTypeParameter(node: InferTypeNode, addDiagnostic: AddUnusedDiagnostic): void {
         const { typeParameter } = node;
         if (isTypeParameterUnused(typeParameter)) {
-            // A type-level `let` binding lowers to an `infer` with no source text of its own; report on its name.
-            const errorNode = node.end > node.pos ? node : typeParameter.name;
-            addDiagnostic(node, UnusedKind.Parameter, createDiagnosticForNode(errorNode, Diagnostics._0_is_declared_but_its_value_is_never_read, idText(typeParameter.name)));
+            addDiagnostic(node, UnusedKind.Parameter, createDiagnosticForNode(node, Diagnostics._0_is_declared_but_its_value_is_never_read, idText(typeParameter.name)));
         }
     }
 
@@ -50741,13 +50379,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     : undefined;
                 return objectType && getPropertyOfType(objectType, escapeLeadingUnderscores((node as StringLiteral | NumericLiteral).text));
 
-            case SyntaxKind.EqualsGreaterThanToken:
-                // Plugin syntax also places `=>` in kind annotations and match arms, which declare nothing.
-                return isFunctionLike(node.parent) ? getSymbolOfNode(node.parent) : undefined;
             case SyntaxKind.DefaultKeyword:
             case SyntaxKind.FunctionKeyword:
+            case SyntaxKind.EqualsGreaterThanToken:
             case SyntaxKind.ClassKeyword:
-                return getSymbolOfNode(node.parent);
+                return node.kind === SyntaxKind.EqualsGreaterThanToken && !isFunctionLike(node.parent) ? undefined : getSymbolOfNode(node.parent); // TSPP-SLOT(syntax-extension): plugin syntax also writes `=>` outside functions
             case SyntaxKind.ImportType:
                 return isLiteralImportTypeNode(node) ? getSymbolAtLocation(node.argument.literal, ignoreErrors) : undefined;
 

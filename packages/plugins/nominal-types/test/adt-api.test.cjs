@@ -26,8 +26,7 @@ test("describes data declarations, their fields, and their run-time tags", () =>
 test("is provided to plugins that depend on nominal-types", () => {
   const { TSPPPluginHost } = require("@tspp/plugin-sdk/host");
   const { nominalTypesPlugin } = require("../dist");
-  const kinds = new Proxy({}, { get: () => 0 });
-  const compiler = new Proxy({ typeSyntaxKinds: kinds }, {
+  const compiler = new Proxy({}, {
     get: (target, name) => target[name] ?? (() => () => {}),
   });
   let received;
