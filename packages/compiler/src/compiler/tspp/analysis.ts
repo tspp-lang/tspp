@@ -9,11 +9,15 @@ import { forEachChild } from "../parser.js";
 import { normalizePath } from "../path.js";
 import { skipTrivia } from "../scanner.js";
 import type {
+    Diagnostic,
     Node,
     Program,
     SourceFile,
 } from "../types.js";
-import { SyntaxKind } from "../types.js";
+import {
+    DiagnosticCategory,
+    SyntaxKind,
+} from "../types.js";
 import {
     getOriginalTSPPSource,
     getRegisteredTSPPProgramAnalyzers,
@@ -94,4 +98,17 @@ export function getTSPPAnalysisArtifacts(program: Program, fileName?: string): r
 /** @internal */
 export function hasTSPPProgramAnalyzers(): boolean {
     return getRegisteredTSPPProgramAnalyzers().length !== 0;
+}
+
+/** Converts an analyzer diagnostic into a compiler diagnostic of `program`. @internal */
+export function toTSPPAnalysisDiagnostic(program: Program, diagnostic: TSPPAnalysisDiagnostic): Diagnostic {
+    return {
+        category: diagnostic.category === "error" ? DiagnosticCategory.Error : DiagnosticCategory.Warning,
+        code: diagnostic.code,
+        file: program.getSourceFile(diagnostic.fileName),
+        start: diagnostic.start,
+        length: diagnostic.length,
+        source: diagnostic.source,
+        messageText: diagnostic.message,
+    };
 }

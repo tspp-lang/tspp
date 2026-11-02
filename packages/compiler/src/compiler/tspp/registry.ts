@@ -236,8 +236,7 @@ export function getRegisteredTSPPProgramRebuilders(): readonly TSPPProgramRebuil
     return [...programRebuilders.values()];
 }
 
-/** @internal */
-export function initializeTSPPCompilerPlugins(compilerVersion: string): void {
+function initializeTSPPCompilerPlugins(compilerVersion: string): void {
     if (pluginHost) return;
     pluginHost = new TSPPPluginHost({
         compilerVersion,

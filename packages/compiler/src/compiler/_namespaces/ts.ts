@@ -5,7 +5,7 @@ export * from "../core.js";
 export * from "../debug.js";
 export * from "../semver.js";
 export * from "../performanceCore.js";
-export * from "../tspp/registry.js";
+export * from "../tspp/registry.js"; // TSPP-SLOT(plugin-host)
 export * from "../tracing.js";
 export * from "../types.js";
 export * from "../sys.js";
@@ -78,5 +78,6 @@ import * as moduleSpecifiers from "./ts.moduleSpecifiers.js";
 export { moduleSpecifiers };
 import * as performance from "./ts.performance.js";
 export { performance };
-export * from "../tspp/analysis.js";
-export * from "../tspp/rebuild.js";
+export * from "../tspp/analysis.js"; // TSPP-SLOT(plugin-host)
+export * from "../tspp/rebuild.js"; // TSPP-SLOT(plugin-host)
+export * from "../tspp/commandLine.js"; // TSPP-SLOT(command-line)

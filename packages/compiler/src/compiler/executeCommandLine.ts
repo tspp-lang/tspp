@@ -20,7 +20,6 @@ import {
     createIncrementalCompilerHost,
     CreateProgram,
     createProgram,
-    createProgramAsync,
     CreateProgramOptions,
     createSolutionBuilder,
     createSolutionBuilderHost,
@@ -32,7 +31,6 @@ import {
     createWatchStatusReporter as ts_createWatchStatusReporter,
     Debug,
     Diagnostic,
-    DiagnosticCategory,
     DiagnosticMessage,
     DiagnosticReporter,
     Diagnostics,
@@ -52,11 +50,9 @@ import {
     getBuildOrderFromAnyBuildOrder,
     getConfigFileParsingDiagnostics,
     getDiagnosticText,
-    getDirectoryPath,
     getErrorSummaryText,
     getLineStarts,
     getNormalizedAbsolutePath,
-    getTSPPPluginFromModule,
     isIncrementalCompilation,
     isWatchSet,
     JSDocParsingMode,
@@ -71,7 +67,6 @@ import {
     performIncrementalCompilation as ts_performIncrementalCompilation,
     Program,
     reduceLeftIterator,
-    registerTSPPCompilerPlugin,
     ReportEmitErrorSummary,
     SolutionBuilder,
     SolutionBuilderHostBase,
@@ -94,9 +89,14 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./performance.js";
 import {
-    hasTSPPProgramAnalyzers,
-    runTSPPProgramAnalyzers,
-} from "./tspp/analysis.js";
+    getTSPPHelpExample,
+    getTSPPHelpHeader,
+    getTSPPHelpText,
+    isTSPPCompilation,
+    loadTSPPConfiguredPlugins,
+    performTSPPCompilation,
+    tsppHelpIcon,
+} from "./tspp/commandLine.js"; // TSPP-SLOT(command-line)
 
 interface Statistic {
     name: string;
@@ -486,16 +486,16 @@ function generateSectionOptionsOutput(sys: System, sectionName: string, options:
 
 function printEasyHelp(sys: System, simpleOptions: readonly CommandLineOption[]) {
     const colors = createColors(sys);
-    let output: string[] = [...getHeader(sys, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+    let output: string[] = [...getHeader(sys, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
     output.push(colors.bold(getDiagnosticText(Diagnostics.COMMON_COMMANDS)) + sys.newLine + sys.newLine);
 
-    example("tspp", Diagnostics.Compiles_the_current_project_tsconfig_json_in_the_working_directory);
-    example("tspp app.ts util.ts", Diagnostics.Ignoring_tsconfig_json_compiles_the_specified_files_with_default_compiler_options);
-    example("tspp -b", Diagnostics.Build_a_composite_project_in_the_working_directory);
-    example("tspp --init", Diagnostics.Creates_a_tsconfig_json_with_the_recommended_settings_in_the_working_directory);
-    example("tspp -p ./path/to/tsconfig.json", Diagnostics.Compiles_the_TypeScript_project_located_at_the_specified_path);
-    example("tspp --help --all", Diagnostics.An_expanded_version_of_this_information_showing_all_possible_compiler_options);
-    example(["tspp --noEmit", "tspp --target esnext"], Diagnostics.Compiles_the_current_project_with_additional_settings);
+    example("tsc", Diagnostics.Compiles_the_current_project_tsconfig_json_in_the_working_directory);
+    example("tsc app.ts util.ts", Diagnostics.Ignoring_tsconfig_json_compiles_the_specified_files_with_default_compiler_options);
+    example("tsc -b", Diagnostics.Build_a_composite_project_in_the_working_directory);
+    example("tsc --init", Diagnostics.Creates_a_tsconfig_json_with_the_recommended_settings_in_the_working_directory);
+    example("tsc -p ./path/to/tsconfig.json", Diagnostics.Compiles_the_TypeScript_project_located_at_the_specified_path);
+    example("tsc --help --all", Diagnostics.An_expanded_version_of_this_information_showing_all_possible_compiler_options);
+    example(["tsc --noEmit", "tsc --target esnext"], Diagnostics.Compiles_the_current_project_with_additional_settings);
 
     const cliCommands = simpleOptions.filter(opt => opt.isCommandLineOnly || opt.category === Diagnostics.Command_line_Options);
     const configOpts = simpleOptions.filter(opt => !contains(cliCommands, opt));
@@ -513,58 +513,52 @@ function printEasyHelp(sys: System, simpleOptions: readonly CommandLineOption[])
     function example(ex: string | string[], desc: DiagnosticMessage) {
         const examples = typeof ex === "string" ? [ex] : ex;
         for (const example of examples) {
-            output.push("  " + colors.blue(example) + sys.newLine);
+            output.push("  " + colors.blue(getTSPPHelpExample(example)) + sys.newLine); // TSPP-SLOT(command-line)
         }
         output.push("  " + getDiagnosticText(desc) + sys.newLine + sys.newLine);
     }
 }
 
 function printAllHelp(sys: System, compilerOptions: readonly CommandLineOption[], buildOptions: readonly CommandLineOption[], watchOptions: readonly CommandLineOption[]) {
-    let output: string[] = [...getHeader(sys, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+    let output: string[] = [...getHeader(sys, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
     output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.ALL_COMPILER_OPTIONS), compilerOptions, /*subCategory*/ true, /*beforeOptionsDescription*/ undefined, formatMessage(Diagnostics.You_can_learn_about_all_of_the_compiler_options_at_0, "https://aka.ms/tsc"))];
     output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.WATCH_OPTIONS), filter(watchOptions, option => option.showInHelp !== false), /*subCategory*/ false, getDiagnosticText(Diagnostics.Including_watch_w_will_start_watching_the_current_project_for_the_file_changes_Once_set_you_can_config_watch_mode_with_Colon))];
-    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, getBuildHelpDescription())];
+    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, getTSPPHelpText(formatMessage(Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0, "https://aka.ms/tsc-composite-builds")))]; // TSPP-SLOT(command-line)
     for (const line of output) {
         sys.write(line);
     }
 }
 
 function printBuildHelp(sys: System, buildOptions: readonly CommandLineOption[]) {
-    let output: string[] = [...getHeader(sys, `TS++ Compiler - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
-    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, getBuildHelpDescription())];
+    let output: string[] = [...getHeader(sys, `${getDiagnosticText(Diagnostics.tsc_Colon_The_TypeScript_Compiler)} - ${getDiagnosticText(Diagnostics.Version_0, version)}`)];
+    output = [...output, ...generateSectionOptionsOutput(sys, getDiagnosticText(Diagnostics.BUILD_OPTIONS), filter(buildOptions, option => option !== tscBuildOption && option.showInHelp !== false), /*subCategory*/ false, getTSPPHelpText(formatMessage(Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0, "https://aka.ms/tsc-composite-builds")))]; // TSPP-SLOT(command-line)
     for (const line of output) {
         sys.write(line);
     }
 }
 
 function getHeader(sys: System, message: string) {
+    message = getTSPPHelpHeader(message); // TSPP-SLOT(command-line)
     const colors = createColors(sys);
     const header: string[] = [];
     const terminalWidth = sys.getWidthOfTerminal?.() ?? 0;
-    const tsppIconLength = 5;
+    const tsIconLength = 5;
 
-    const tsppIconFirstLine = colors.blueBackground("".padStart(tsppIconLength));
-    const tsppIconSecondLine = colors.blueBackground(colors.brightWhite("TS++ ".padStart(tsppIconLength)));
-    // If we have enough space, print the TS++ icon.
-    if (terminalWidth >= message.length + tsppIconLength) {
+    const tsIconFirstLine = colors.blueBackground("".padStart(tsIconLength));
+    const tsIconSecondLine = colors.blueBackground(colors.brightWhite(tsppHelpIcon.padStart(tsIconLength))); // TSPP-SLOT(command-line)
+    // If we have enough space, print TS icon.
+    if (terminalWidth >= message.length + tsIconLength) {
         // right align of the icon is 120 at most.
         const rightAlign = terminalWidth > 120 ? 120 : terminalWidth;
-        const leftAlign = rightAlign - tsppIconLength;
-        header.push(message.padEnd(leftAlign) + tsppIconFirstLine + sys.newLine);
-        header.push("".padStart(leftAlign) + tsppIconSecondLine + sys.newLine);
+        const leftAlign = rightAlign - tsIconLength;
+        header.push(message.padEnd(leftAlign) + tsIconFirstLine + sys.newLine);
+        header.push("".padStart(leftAlign) + tsIconSecondLine + sys.newLine);
     }
     else {
         header.push(message + sys.newLine);
         header.push(sys.newLine);
     }
     return header;
-}
-
-function getBuildHelpDescription() {
-    return formatMessage(
-        Diagnostics.Using_build_b_will_make_tsc_behave_more_like_a_build_orchestrator_than_a_compiler_This_is_used_to_trigger_building_composite_projects_which_you_can_learn_more_about_at_0,
-        "https://aka.ms/tsc-composite-builds",
-    ).replace(/\btsc\b(?!-)/g, "tspp");
 }
 
 function printHelp(sys: System, commandLine: ParsedCommandLine) {
@@ -580,7 +574,6 @@ function executeCommandLineWorker(
     sys: System,
     cb: ExecuteCommandLineCallbacks,
     commandLine: ParsedCommandLine,
-    asyncCompilation = false,
 ) {
     let reportDiagnostic = createDiagnosticReporter(sys);
     // Configuration file name (if any)
@@ -688,9 +681,7 @@ function executeCommandLineWorker(
             reportDiagnostic,
             configParseResult.options,
         );
-        if (!loadConfiguredTSPPPlugins(configParseResult.options, configFileName, sys)) {
-            return sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
-        }
+        if (!loadTSPPConfiguredPlugins(configParseResult.options, configFileName, sys)) return sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped); // TSPP-SLOT(command-line)
         if (isWatchSet(configParseResult.options)) {
             if (reportWatchModeWithoutSysSupport(sys, reportDiagnostic)) return;
             return createWatchOfConfigFile(
@@ -712,9 +703,12 @@ function executeCommandLineWorker(
             );
         }
         else {
-            return asyncCompilation
-                ? performCompilationAsync(sys, cb, reportDiagnostic, configParseResult)
-                : performCompilation(sys, cb, reportDiagnostic, configParseResult);
+            performCompilation(
+                sys,
+                cb,
+                reportDiagnostic,
+                configParseResult,
+            );
         }
     }
     else {
@@ -748,36 +742,14 @@ function executeCommandLineWorker(
             );
         }
         else {
-            return asyncCompilation
-                ? performCompilationAsync(sys, cb, reportDiagnostic, { ...commandLine, options: commandLineOptions })
-                : performCompilation(sys, cb, reportDiagnostic, { ...commandLine, options: commandLineOptions });
+            performCompilation(
+                sys,
+                cb,
+                reportDiagnostic,
+                { ...commandLine, options: commandLineOptions },
+            );
         }
     }
-}
-
-function loadConfiguredTSPPPlugins(options: CompilerOptions, configFileName: string, sys: System): boolean {
-    const plugins = options.plugins?.filter(config => config.tspp);
-    if (!plugins?.length) return true;
-    if (!sys.require) {
-        sys.write(`error TSPP1000: This host cannot load configured TSPP plugins.${sys.newLine}`);
-        return false;
-    }
-
-    const nodeModules = combinePaths(getDirectoryPath(configFileName), "node_modules");
-    for (const config of plugins) {
-        const result = sys.require(nodeModules, config.name);
-        if (result.error) {
-            sys.write(`error TSPP1001: Cannot load plugin '${config.name}': ${result.error.message}${sys.newLine}`);
-            return false;
-        }
-        const plugin = getTSPPPluginFromModule(result.module);
-        if (!plugin) {
-            sys.write(`error TSPP1002: Package '${config.name}' is not a TSPP feature plugin.${sys.newLine}`);
-            return false;
-        }
-        registerTSPPCompilerPlugin(plugin);
-    }
-    return true;
 }
 
 /** Returns true if commandline is --build and needs to be parsed useing parseBuildCommand */
@@ -832,22 +804,8 @@ export function executeCommandLine(
             ));
     }
     else {
-        return executeCommandLineWorker(system, cb, commandLine) as void | WatchOfConfigFile<EmitAndSemanticDiagnosticsBuilderProgram>;
+        return executeCommandLineWorker(system, cb, commandLine);
     }
-}
-
-/** @internal Executes a one-shot compilation using the asynchronous macro pipeline. */
-export function executeCommandLineAsync(
-    system: System,
-    cb: ExecuteCommandLineCallbacks,
-    commandLineArgs: readonly string[],
-): ReturnType<typeof executeCommandLine> | Promise<void> {
-    // Solution builds, watch mode, incremental mode, and CPU profiling still use the synchronous
-    // pipeline. Their long-lived builder state needs a separate async scheduling design.
-    if (isBuildCommand(commandLineArgs)) return executeCommandLine(system, cb, commandLineArgs);
-    const commandLine = parseCommandLine(commandLineArgs, path => system.readFile(path));
-    if (commandLine.options.generateCpuProfile && system.enableCPUProfiler) return executeCommandLine(system, cb, commandLineArgs);
-    return executeCommandLineWorker(system, cb, commandLine, /*asyncCompilation*/ true);
 }
 
 function reportWatchModeWithoutSysSupport(sys: System, reportDiagnostic: DiagnosticReporter) {
@@ -964,6 +922,7 @@ function performCompilation(
     reportDiagnostic: DiagnosticReporter,
     config: ParsedCommandLine,
 ) {
+    if (isTSPPCompilation()) return performTSPPCompilation(sys, cb, reportDiagnostic, config, { enableStatisticsAndTracing, reportStatistics, createReportErrorSummary }); // TSPP-SLOT(command-line)
     const { fileNames, options, projectReferences } = config;
     const host = createCompilerHostWorker(options, /*setParentNodes*/ undefined, sys);
     host.jsDocParsingMode = defaultJSDocParsingMode;
@@ -980,82 +939,12 @@ function performCompilation(
         configFileParsingDiagnostics: getConfigFileParsingDiagnostics(config),
     };
     const program = createProgram(programOptions);
-    const finish = (analysisDiagnostics: readonly Diagnostic[] = []) => {
-        for (const diagnostic of analysisDiagnostics) reportDiagnostic(diagnostic);
-        let exitStatus = emitFilesAndReportErrorsAndGetExitStatus(
-            program,
-            reportDiagnostic,
-            s => sys.write(s + sys.newLine),
-            createReportErrorSummary(sys, options),
-        );
-        if (analysisDiagnostics.some(diagnostic => diagnostic.category === DiagnosticCategory.Error)) {
-            exitStatus = options.noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
-        }
-        reportStatistics(sys, program, /*solutionPerformance*/ undefined);
-        cb(program);
-        return sys.exit(exitStatus);
-    };
-    if (!hasTSPPProgramAnalyzers()) return finish();
-    return runTSPPProgramAnalyzers(program).then(
-        diagnostics =>
-            finish(diagnostics.map(diagnostic => ({
-                category: diagnostic.category === "error" ? DiagnosticCategory.Error : DiagnosticCategory.Warning,
-                code: diagnostic.code,
-                file: program.getSourceFile(diagnostic.fileName),
-                start: diagnostic.start,
-                length: diagnostic.length,
-                source: diagnostic.source,
-                messageText: diagnostic.message,
-            }))),
-        error => {
-            sys.write(`error TSPP1003: Program analysis failed: ${error instanceof Error ? error.message : String(error)}${sys.newLine}`);
-            return sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
-        },
-    );
-}
-
-async function performCompilationAsync(
-    sys: System,
-    cb: ExecuteCommandLineCallbacks,
-    reportDiagnostic: DiagnosticReporter,
-    config: ParsedCommandLine,
-) {
-    const { fileNames, options, projectReferences } = config;
-    const host = createCompilerHostWorker(options, /*setParentNodes*/ undefined, sys);
-    host.jsDocParsingMode = defaultJSDocParsingMode;
-    const currentDirectory = host.getCurrentDirectory();
-    const getCanonicalFileName = createGetCanonicalFileName(host.useCaseSensitiveFileNames());
-    changeCompilerHostLikeToUseCache(host, fileName => toPath(fileName, currentDirectory, getCanonicalFileName));
-    enableStatisticsAndTracing(sys, options, /*isBuildMode*/ false);
-
-    const program = await createProgramAsync({
-        rootNames: fileNames,
-        options,
-        projectReferences,
-        host,
-        configFileParsingDiagnostics: getConfigFileParsingDiagnostics(config),
-    });
-    const analysisDiagnostics = hasTSPPProgramAnalyzers() ? await runTSPPProgramAnalyzers(program) : [];
-    for (const diagnostic of analysisDiagnostics) {
-        reportDiagnostic({
-            category: diagnostic.category === "error" ? DiagnosticCategory.Error : DiagnosticCategory.Warning,
-            code: diagnostic.code,
-            file: program.getSourceFile(diagnostic.fileName),
-            start: diagnostic.start,
-            length: diagnostic.length,
-            source: diagnostic.source,
-            messageText: diagnostic.message,
-        });
-    }
-    let exitStatus = emitFilesAndReportErrorsAndGetExitStatus(
+    const exitStatus = emitFilesAndReportErrorsAndGetExitStatus(
         program,
         reportDiagnostic,
         s => sys.write(s + sys.newLine),
         createReportErrorSummary(sys, options),
     );
-    if (analysisDiagnostics.some(diagnostic => diagnostic.category === "error")) {
-        exitStatus = options.noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
-    }
     reportStatistics(sys, program, /*solutionPerformance*/ undefined);
     cb(program);
     return sys.exit(exitStatus);
