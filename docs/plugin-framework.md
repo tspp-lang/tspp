@@ -213,6 +213,18 @@ transformers process the lowered declarations unchanged, and the extension's
 `restoreDeclaration`/`restoreCompatibilityDeclaration` give the text of
 `.d.tspp` and compatible `.d.ts` output.
 
+### Plugin-owned diagnostics and checks
+
+Plugins report diagnostics with their own codes and messages; the core has no
+plugin message in `diagnosticMessages.json`. The parser cursor's `parseErrorAt`
+and the type host's `error` take the plugin's code (18086 when it passes none),
+and diagnostic providers build `Diagnostic` objects themselves. A check that
+needs the checker's relations, such as the static side of `implements` for
+static interface members, runs in a diagnostic provider through
+`TSPPTypeOperations`: binding `this`, anonymous object and intersection types,
+and the error the checker would report for an assignment, with its
+elaboration. The type extension host offers the same operations.
+
 ## Core modification rules
 
 The compiler package stays as close to upstream TypeScript as possible
@@ -258,13 +270,12 @@ Feature slots are what plugins register with, through `context.compiler` (or
 | Slot | Registration | Host | Call sites |
 |---|---|---|---|
 | `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreTypeAliasDeclaration`, `restoreFunctionPrefix`, `restoreFunctionWithClause`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function`, after the parameters, and in type aliases of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
-| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`; `restoreDeclaration`, `restoreCompatibilityDeclaration`) | `registry.ts`, `services/tspp/syntax.ts` | `parser.ts` (the cursor, each position, list expansion, no incremental reuse of plugin nodes); `emitter.ts` (restored declarations); `checker.ts` (`getSymbolAtLocation` for `=>` outside functions); `services/services.ts` (`createChildren`); `services/formatting/formatting.ts`; `services/codefixes/fixUnusedIdentifier.ts` |
-| `expression-rewrite` | `registerExpressionRewriter` | `registry.ts` | `parser.ts` (`parseParenthesizedExpression`, `parseArgumentExpression`); `emitter.ts` (renamed identifiers); `services/codefixes/inferFromUsage.ts` |
-| `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, `filterDiagnostic`) | `registry.ts` | `program.ts` (semantic and suggestion diagnostics); `diagnosticMessages.json` (18086 `{0}`) |
-| `interface-member-contract` | `registerInterfaceMemberContract` | `registry.ts`; the static-side type stays in `checker.ts` | `binder.ts`; `checker.ts` (static side of `implements`, static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`); `emitter.ts` (omitted from compatible `.d.ts`); `diagnosticMessages.json` (18074) |
-| `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` | `program.ts` (`createProgram` return); `types.ts` (`CompilerHost.invalidateTSPPProgram`); `services/services.ts` and `services/types.ts` (invalidation and rebuild on the next request); `server/project.ts` and `server/session.ts`; `resolutionCache.ts`; `transformers/declarations.ts`, `utilities.ts`, `services/utilities.ts`, `services/findAllReferences.ts`, `services/documentHighlights.ts` (generated declarations without source text) |
+| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`; `restoreDeclaration`, `restoreCompatibilityDeclaration`) | `registry.ts`, `services/tspp/syntax.ts` | `parser.ts` (the cursor, each position, list expansion, no incremental reuse of plugin nodes); `emitter.ts` (restored declarations); `services/services.ts` (`createChildren`); `services/formatting/formatting.ts`; `services/codefixes/fixUnusedIdentifier.ts`; `services/codefixes/inferFromUsage.ts` (a parameter that shares its reference's position); `utilities.ts` (`getErrorSpanForNode`), `services/utilities.ts`, `services/findAllReferences.ts`, `services/documentHighlights.ts` (nodes built without a source position stand for their parent) |
+| `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` | `program.ts` (semantic and suggestion diagnostics) |
+| `interface-member-contract` | `registerInterfaceMemberContract` (`{ modifier: "static" }`) | `registry.ts` | `binder.ts` (bound outside the instance type); `checker.ts` (static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`) |
+| `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` | `program.ts` (`createProgram` return); `types.ts` (`CompilerHost.invalidateTSPPProgram`); `services/services.ts` and `services/types.ts` (invalidation and rebuild on the next request); `server/project.ts` and `server/session.ts`; `resolutionCache.ts` |
 | `program-analysis` | `registerProgramAnalyzer` | `compiler/tspp/analysis.ts` | none of its own: runs from the `command-line` and `plugin-host` call sites |
-| `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |
+| `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, which also serves diagnostic providers, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |
 | `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` | `services/services.ts` (`getQuickInfoAtPosition` of the language service object) |
 
 Product-layer slots belong to the host; no plugin registers with them:

@@ -20,8 +20,8 @@ const featureTerms = [
     "typeMatch", "operatorSection", "staticInterface", "trailingClosure", "completionBlock", "withClause", "tspp",
 ];
 
-// Set from the phase 3 result (+369 -47 in 26 files) with a small margin.
-const budget = { upstreamFiles: 27, upstreamAdded: 385, upstreamRemoved: 55 };
+// Set from the 2026-11-02 shrink (+294 -44 in 24 files) with a small margin.
+const budget = { upstreamFiles: 25, upstreamAdded: 305, upstreamRemoved: 48 };
 
 const args = process.argv.slice(2);
 const base = valueOf("--base") ?? "tspp-core-baseline";
