@@ -89,6 +89,18 @@ export interface OutputSnapshot {
   readonly diagnostics: readonly DiagnosticInfo[];
 }
 
+/** The JavaScript of one module, with where its imports name other modules of the program. */
+export interface RunnableModule {
+  readonly code: string;
+  readonly imports: readonly { readonly start: number; readonly end: number; readonly target: string }[];
+}
+
+/** What Run executes: a module and everything it imports, by source file name. */
+export interface RunnableProgram {
+  readonly entry: string;
+  readonly modules: Readonly<Record<string, RunnableModule>>;
+}
+
 /** Project files keyed by absolute path, e.g. `/src/index.tspp`. */
 export type ProjectFiles = Readonly<Record<string, string>>;
 
@@ -100,6 +112,8 @@ export interface WorkerApi {
   /** Includes program analyzer results once their background run for this Program settles. */
   diagnostics(fileName: string): DiagnosticInfo[];
   outputs(fileName: string, category: OutputCategory): Promise<OutputSnapshot>;
+  /** The program Run executes for a JavaScript output of `fileName`. */
+  runnable(fileName: string, outputName: string): RunnableProgram;
   quickInfo(fileName: string, offset: number): QuickInfo | undefined;
   completions(fileName: string, offset: number, triggerCharacter: string | undefined): { entries: CompletionEntry[]; isIncomplete: boolean } | undefined;
   completionDetails(fileName: string, offset: number, name: string, source: string | undefined, data: unknown): CompletionDetails | undefined;

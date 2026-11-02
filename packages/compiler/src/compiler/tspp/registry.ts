@@ -346,6 +346,10 @@ export function getRegisteredTSPPProgramRebuilders(): readonly TSPPProgramRebuil
     return sortedByKey(programRebuilders);
 }
 
+/**
+ * Creates the process-level host when the first plugin arrives, not when this module loads: `ts` and `version` come from
+ * modules in a cycle with this one, which a bundler may initialize after it.
+ */
 function initializeTSPPCompilerPlugins(compilerVersion: string): void {
     if (pluginHost) return;
     pluginHost = new TSPPPluginHost({
@@ -575,7 +579,3 @@ export function getPreprocessedFunctionClause(
     }
     return undefined;
 }
-
-// Initialize an empty process-level host. Project configuration supplies the
-// feature capsules before source files are parsed.
-initializeTSPPCompilerPlugins(version);

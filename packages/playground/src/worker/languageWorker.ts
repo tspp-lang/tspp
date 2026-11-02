@@ -5,6 +5,7 @@
  * evaluating compile-time macros and solving formal contracts with Z3.
  */
 import * as ts from "ts-plus-plus/source";
+import { createRunnableProgram } from "./runnable";
 import type { TSPPPlugin } from "@tspp/plugin-sdk";
 import * as formalVerificationNamespace from "@tspp/plugin-formal-verification";
 import macrosModule, { getMacroExpansions } from "@tspp/plugin-macros";
@@ -322,6 +323,12 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
   return { items, diagnostics: diagnostics.map(toDiagnostic) };
 }
 
+/** The source file of a JavaScript output, or the active file when the output names no source of the program. */
+function sourceOfOutput(program: ts.Program, fileName: string, outputName: string): string {
+  const stem = `/${outputName.replace(/^\//, "").replace(/\.js$/, "")}`;
+  return [`${stem}.tspp`, `${stem}.ts`].find(candidate => program.getSourceFile(candidate)) ?? fileName;
+}
+
 const api: WorkerApi = {
   init(z3) {
     formalVerification.configureZ3Solver(createBrowserZ3Solver(z3, busy => post({ event: "solver", busy })));
@@ -373,6 +380,11 @@ const api: WorkerApi = {
     return diagnostics.map(toDiagnostic);
   },
 
+  runnable(fileName, outputName) {
+    const program = languageService().getProgram();
+    if (!program) return { entry: fileName, modules: {} };
+    return createRunnableProgram(program, sourceOfOutput(program, fileName, outputName), createOptions(), host);
+  },
   outputs(fileName, category) {
     return createOutputs(fileName, category);
   },

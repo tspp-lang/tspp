@@ -1,6 +1,6 @@
 import type { LanguageClient } from "./client";
 import * as monaco from "./monaco";
-import type { OutputCategory, OutputItem, OutputSnapshot } from "./protocol";
+import type { OutputCategory, OutputItem, OutputSnapshot, RunnableProgram } from "./protocol";
 import { languageId } from "./tsppLanguage";
 
 /** `feature` is the capsule that produces the artifact; without it there is nothing to ask the compiler for. */
@@ -235,6 +235,18 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       element("run-pane").setAttribute("aria-busy", "false");
       return;
     }
+    let runnable: RunnableProgram;
+    try {
+      runnable = await client.runnable(fileName, javascript.label);
+    }
+    catch (error) {
+      runButton.disabled = false;
+      runButton.textContent = "▶ Run";
+      runStatus.textContent = `JavaScript generation failed: ${(error as Error).message}`;
+      runStatus.classList.remove("loading");
+      element("run-pane").setAttribute("aria-busy", "false");
+      return;
+    }
     runOutput.replaceChildren();
     runStatus.textContent = "Running…";
     runButton.disabled = false;
@@ -252,7 +264,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       appendRuntimeLine(event.message, "error");
       stopRuntime("Execution failed");
     };
-    runtime.postMessage({ code: javascript.content });
+    runtime.postMessage(runnable);
   }
 
   runButton.onclick = () => void runJavaScript();
