@@ -28,14 +28,19 @@ import * as ts from "../_namespaces/ts.js";
 import { version } from "../corePublic.js";
 import type {
     Diagnostic,
+    DiagnosticMessage,
     Expression,
     Identifier,
     Node,
     NodeFactory,
+    Program,
     SourceFile,
-    TypeChecker,
 } from "../types.js";
-import { SyntaxKind } from "../types.js";
+import {
+    DiagnosticCategory,
+    SyntaxKind,
+} from "../types.js";
+import { getTSPPTypeOperations } from "./types.js";
 
 const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
@@ -211,19 +216,26 @@ export function filterTSPPDiagnostics<T extends Diagnostic>(diagnostics: readonl
 }
 
 /** A source file's check diagnostics as plugins filter them, followed by the diagnostics plugins add. @internal */
-export function applyTSPPSemanticDiagnostics(sourceFile: SourceFile, checker: TypeChecker, diagnostics: Diagnostic[]): Diagnostic[] {
+export function applyTSPPSemanticDiagnostics(sourceFile: SourceFile, program: Program, diagnostics: Diagnostic[]): Diagnostic[] {
     if (!diagnosticProviders.size) return diagnostics;
     const providers = [...diagnosticProviders.values()];
     const result = ts.mapDefined(diagnostics, diagnostic => filterTSPPDiagnostic(providers, diagnostic));
+    const checker = program.getTypeChecker();
+    const types = ts.Debug.checkDefined(getTSPPTypeOperations(program));
     for (const provider of providers) {
-        result.push(...provider.getSemanticDiagnostics(sourceFile as never, checker as never) as unknown as readonly Diagnostic[]);
+        result.push(...provider.getSemanticDiagnostics(sourceFile as never, checker as never, types) as unknown as readonly Diagnostic[]);
     }
     return result;
 }
 
-/** A member that an interface member contract moves to the implementing side, such as `static` in an interface. @internal */
-export function isTSPPInterfaceStaticMember(node: Node): boolean {
-    return hasInterfaceMemberContract("static") && node.parent?.kind === SyntaxKind.InterfaceDeclaration && ts.hasStaticModifier(node);
+/** A message with a plugin's own code; by default its text is the single argument. @internal */
+export function createTSPPDiagnosticMessage(code = 18086, message = "{0}"): DiagnosticMessage {
+    return { code, category: DiagnosticCategory.Error, key: `TSPP_plugin_message_${code}`, message };
+}
+
+/** An interface member that an interface member contract makes static, such as `static` in an interface. @internal */
+export function isTSPPStaticContractMember(node: Node): boolean {
+    return node.parent?.kind === SyntaxKind.InterfaceDeclaration && ts.hasStaticModifier(node) && hasInterfaceMemberContract("static");
 }
 
 /** @internal */
@@ -323,8 +335,7 @@ export function getTSPPQuickInfo(
     return undefined;
 }
 
-/** @internal */
-export function hasInterfaceMemberContract(modifier: "static"): boolean {
+function hasInterfaceMemberContract(modifier: "static"): boolean {
     return [...interfaceMemberContracts.values()].some(contract => contract.modifier === modifier);
 }
 

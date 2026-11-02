@@ -1,20 +1,31 @@
 import type {
+    TSPPDiagnosticMessage,
     TSPPTypeExtension,
     TSPPTypeHost,
     TSPPTypeMapper,
+    TSPPTypeOperations,
 } from "@tspp/plugin-sdk/compiler";
 
-import { Diagnostics } from "../_namespaces/ts.js";
+import {
+    chainDiagnosticMessages,
+    createSymbolTable,
+    Diagnostics,
+    emptyArray,
+} from "../_namespaces/ts.js";
 import type {
+    Diagnostic,
     DiagnosticArguments,
     DiagnosticMessage,
+    DiagnosticMessageChain,
     GenericType,
     InterfaceType,
     Node,
     Symbol,
     SymbolLinks,
+    SymbolTable,
     Type,
     TypeChecker,
+    TypeCheckerHost,
     TypeMapper,
     TypeNode,
     TypeParameter,
@@ -24,7 +35,10 @@ import {
     SymbolFlags,
     TypeFlags,
 } from "../types.js";
-import { getRegisteredTSPPTypeExtensions } from "./registry.js";
+import {
+    createTSPPDiagnosticMessage,
+    getRegisteredTSPPTypeExtensions,
+} from "./registry.js";
 
 /** The checker functions behind the hosts that type extensions receive. @internal */
 export interface TSPPTypeCheckerInternals {
@@ -41,7 +55,24 @@ export interface TSPPTypeCheckerInternals {
     readonly createTypeMapper: (sources: readonly TypeParameter[], targets: readonly Type[] | undefined) => TypeMapper;
     readonly combineTypeMappers: (first: TypeMapper | undefined, second: TypeMapper) => TypeMapper;
     readonly instantiateType: (type: Type, mapper: TypeMapper | undefined) => Type;
-    readonly checkTypeAssignableTo: (source: Type, target: Type, errorNode: Node | undefined, headMessage?: DiagnosticMessage) => boolean;
+    readonly checkTypeAssignableTo: (
+        source: Type,
+        target: Type,
+        errorNode: Node | undefined,
+        headMessage?: DiagnosticMessage,
+        containingMessageChain?: () => DiagnosticMessageChain | undefined,
+        errorOutputObject?: { errors?: Diagnostic[]; skipLogging?: boolean; },
+    ) => boolean;
+    readonly getTypeWithThisArgument: (type: Type, thisArgument?: Type) => Type;
+    readonly createAnonymousType: (
+        symbol: Symbol | undefined,
+        members: SymbolTable,
+        callSignatures: readonly never[],
+        constructSignatures: readonly never[],
+        indexInfos: readonly never[],
+    ) => Type;
+    readonly createInstantiatedSymbolTable: (symbols: Symbol[], mapper: TypeMapper, mappingThisOnly: boolean) => SymbolTable;
+    readonly getIntersectionType: (types: readonly Type[]) => Type;
 }
 
 /** One checker's type extension hosts and the types each extension created. @internal */
@@ -52,9 +83,50 @@ export interface TSPPTypeState {
     readonly owners: WeakMap<Type, TSPPTypeExtension>;
 }
 
+const typeOperations = new WeakMap<TypeCheckerHost, TSPPTypeOperations>();
+
 /** @internal */
-export function createTSPPTypeState(getChecker: () => TypeChecker, internals: TSPPTypeCheckerInternals): TSPPTypeState {
+export function createTSPPTypeState(checkerHost: TypeCheckerHost, getChecker: () => TypeChecker, internals: TSPPTypeCheckerInternals): TSPPTypeState {
+    typeOperations.set(checkerHost, createTypeOperations(internals));
     return { getChecker, internals, hosts: new Map(), owners: new WeakMap() };
+}
+
+/** The type operations of the checker created for `checkerHost`, such as a program. @internal */
+export function getTSPPTypeOperations(checkerHost: TypeCheckerHost): TSPPTypeOperations | undefined {
+    return typeOperations.get(checkerHost);
+}
+
+function toDiagnosticMessage(message: TSPPDiagnosticMessage): DiagnosticMessage {
+    return createTSPPDiagnosticMessage(message.code, message.message);
+}
+
+function createTypeOperations(internals: TSPPTypeCheckerInternals): TSPPTypeOperations {
+    return {
+        createMapper: (sources, targets) => internals.createTypeMapper(sources as unknown as readonly TypeParameter[], targets as unknown as readonly Type[]) as never,
+        combineMappers: (first, second) => internals.combineTypeMappers(first as unknown as TypeMapper | undefined, second as unknown as TypeMapper) as never,
+        instantiate: (type, mapper) => internals.instantiateType(type as unknown as Type, mapper as unknown as TypeMapper) as never,
+        getTypeWithThisArgument: (type, thisArgument) => internals.getTypeWithThisArgument(type as unknown as Type, thisArgument as unknown as Type | undefined) as never,
+        createObjectType: (propertiesIn, mapper) => {
+            const properties = propertiesIn as unknown as Symbol[];
+            const members = mapper
+                ? internals.createInstantiatedSymbolTable(properties, mapper as unknown as TypeMapper, /*mappingThisOnly*/ true)
+                : createSymbolTable(properties);
+            return internals.createAnonymousType(/*symbol*/ undefined, members, emptyArray, emptyArray, emptyArray) as never;
+        },
+        getIntersectionType: types => internals.getIntersectionType(types as unknown as readonly Type[]) as never,
+        getAssignabilityError: (source, target, node, headMessage, containingMessage, containingArguments = []) => {
+            const output: { errors?: Diagnostic[]; skipLogging?: boolean; } = { skipLogging: true };
+            const assignable = internals.checkTypeAssignableTo(
+                source as unknown as Type,
+                target as unknown as Type,
+                node as unknown as Node,
+                headMessage && toDiagnosticMessage(headMessage),
+                containingMessage && (() => chainDiagnosticMessages(/*details*/ undefined, toDiagnosticMessage(containingMessage), ...containingArguments)),
+                output,
+            );
+            return assignable ? undefined : output.errors?.[0] as never;
+        },
+    };
 }
 
 function getHost(state: TSPPTypeState, extension: TSPPTypeExtension): TSPPTypeHost {
@@ -62,6 +134,7 @@ function getHost(state: TSPPTypeState, extension: TSPPTypeExtension): TSPPTypeHo
     if (host) return host;
     const internals = state.internals;
     host = {
+        ...createTypeOperations(internals),
         get checker() {
             return state.getChecker() as never;
         },
@@ -96,9 +169,6 @@ function getHost(state: TSPPTypeState, extension: TSPPTypeExtension): TSPPTypeHo
             const declared = internals.getDeclaredTypeOfSymbol(symbol) as GenericType;
             return internals.createTypeReference(declared, [...declared.outerTypeParameters ?? [], ...typeArguments as unknown as readonly Type[]]) as never;
         },
-        createMapper: (sources, targets) => internals.createTypeMapper(sources as unknown as readonly TypeParameter[], targets as unknown as readonly Type[]) as never,
-        combineMappers: (first, second) => internals.combineTypeMappers(first as unknown as TypeMapper | undefined, second as unknown as TypeMapper) as never,
-        instantiate: (type, mapper) => internals.instantiateType(type as unknown as Type, mapper as unknown as TypeMapper) as never,
         checkTypeArgumentConstraint: (typeArgument, constraint, node) => internals.checkTypeAssignableTo(typeArgument as unknown as Type, constraint as unknown as Type, node as unknown as Node, Diagnostics.Type_0_does_not_satisfy_the_constraint_1),
         error: (node, message) => void internals.error(node as unknown as Node, Diagnostics._0, message),
     };

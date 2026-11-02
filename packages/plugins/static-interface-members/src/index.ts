@@ -1,5 +1,7 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 
+import { createStaticSideCheck, isStaticInterfaceMember } from "./check";
+
 const pluginId = "static-interface-members";
 
 export const staticInterfaceMembersPlugin = definePlugin({
@@ -17,11 +19,23 @@ export const staticInterfaceMembersPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
-                return context.compiler.registerInterfaceMemberContract({
-                    modifier: "static",
-                    implementationSide: "class-static",
-                    thisType: "implementing-instance",
-                });
+                const ts = context.ts;
+                const disposers = [
+                    context.compiler.registerInterfaceMemberContract({ modifier: "static" }),
+                    context.compiler.registerDiagnosticProvider(createStaticSideCheck(ts)),
+                    // Static interface members have no TypeScript spelling, so the compatible `.d.ts` leaves them out.
+                    // The upstream parser reads them; this extension only restores declaration output.
+                    context.compiler.registerSyntaxExtension({
+                        position: "declaration",
+                        startTokens: [],
+                        isStart: () => false,
+                        parse: () => {
+                            throw new Error("Static interface members have no syntax of their own.");
+                        },
+                        restoreCompatibilityDeclaration: node => isStaticInterfaceMember(ts, node) ? "" : undefined,
+                    }),
+                ];
+                return () => disposers.forEach(dispose => dispose());
             },
         },
         editor: { grammars: ["./editor/static-interface-members.tmLanguage.json"] },

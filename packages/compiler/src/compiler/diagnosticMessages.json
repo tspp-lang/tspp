@@ -8556,11 +8556,6 @@
         "category": "Error",
         "code": 18061
     },
-    "Class static side '{0}' incorrectly implements static side of interface '{1}'.": {
-        "category": "Error",
-        "code": 18074,
-        "tsppSlot": "TSPP-SLOT(interface-member-contract)"
-    },
     "{0}": {
         "category": "Error",
         "code": 18086,

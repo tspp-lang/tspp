@@ -241,8 +241,43 @@ export interface TSPPTypeMapper {
     readonly __tsppTypeMapper: never;
 }
 
+/** A diagnostic message a plugin owns: its code and its text, in which `{0}`, `{1}`, ... stand for arguments. */
+export interface TSPPDiagnosticMessage {
+    readonly code: number;
+    readonly message: string;
+}
+
+/** Feature-independent type operations of one type checker. */
+export interface TSPPTypeOperations {
+    createMapper(
+        sources: readonly import("typescript-upstream").TypeParameter[],
+        targets: readonly import("typescript-upstream").Type[],
+    ): TSPPTypeMapper;
+    /** A mapper that applies `first`, when present, and then `second`. */
+    combineMappers(first: TSPPTypeMapper | undefined, second: TSPPTypeMapper): TSPPTypeMapper;
+    instantiate(type: import("typescript-upstream").Type, mapper: TSPPTypeMapper): import("typescript-upstream").Type;
+    /** A class or interface type with its `this` type bound to `thisArgument`, by default the type itself. */
+    getTypeWithThisArgument(type: import("typescript-upstream").Type, thisArgument?: import("typescript-upstream").Type): import("typescript-upstream").Type;
+    /** An anonymous object type with `properties`, each instantiated with `mapper` when present. */
+    createObjectType(properties: readonly import("typescript-upstream").Symbol[], mapper?: TSPPTypeMapper): import("typescript-upstream").Type;
+    getIntersectionType(types: readonly import("typescript-upstream").Type[]): import("typescript-upstream").Type;
+    /**
+     * The error the checker reports at `node` when `source` is not assignable to `target`, elaborated the same way;
+     * undefined when it is assignable. `headMessage` replaces the generic first line and receives the source and
+     * target types as `{0}` and `{1}`; `containingMessage` comes before everything, with `containingArguments`.
+     */
+    getAssignabilityError(
+        source: import("typescript-upstream").Type,
+        target: import("typescript-upstream").Type,
+        node: import("typescript-upstream").Node,
+        headMessage?: TSPPDiagnosticMessage,
+        containingMessage?: TSPPDiagnosticMessage,
+        containingArguments?: readonly string[],
+    ): import("typescript-upstream").Diagnostic | undefined;
+}
+
 /** Type operations of one type checker, for a type extension. */
-export interface TSPPTypeHost {
+export interface TSPPTypeHost extends TSPPTypeOperations {
     readonly checker: import("typescript-upstream").TypeChecker;
     /** The type the checker uses after reporting an error, which suppresses further errors. */
     readonly errorType: import("typescript-upstream").Type;
@@ -260,13 +295,6 @@ export interface TSPPTypeHost {
         symbol: import("typescript-upstream").Symbol,
         typeArguments: readonly import("typescript-upstream").Type[],
     ): import("typescript-upstream").Type;
-    createMapper(
-        sources: readonly import("typescript-upstream").TypeParameter[],
-        targets: readonly import("typescript-upstream").Type[],
-    ): TSPPTypeMapper;
-    /** A mapper that applies `first`, when present, and then `second`. */
-    combineMappers(first: TSPPTypeMapper | undefined, second: TSPPTypeMapper): TSPPTypeMapper;
-    instantiate(type: import("typescript-upstream").Type, mapper: TSPPTypeMapper): import("typescript-upstream").Type;
     /** Reports at `node` that a type argument does not satisfy its constraint, unless it does. */
     checkTypeArgumentConstraint(
         typeArgument: import("typescript-upstream").Type,
@@ -301,6 +329,7 @@ export interface TSPPDiagnosticProvider {
     getSemanticDiagnostics(
         sourceFile: import("typescript-upstream").SourceFile,
         checker: import("typescript-upstream").TypeChecker,
+        types: TSPPTypeOperations,
     ): readonly import("typescript-upstream").Diagnostic[];
     /**
      * Return false to drop a diagnostic the checker reported, for example one about code this plugin generated, or a
@@ -332,14 +361,12 @@ export interface TSPPExpressionRewriter {
 }
 
 /**
- * Moves interface members carrying a modifier onto a separate implementation
- * contract. The first supported contract mirrors the constructor side of a
- * class without exposing compiler AST types to plugins.
+ * Makes interface members carrying a modifier static members of the interface: they are allowed there, bound outside
+ * its instance type, and resolve names the way static class members do. What implementations owe for them is the
+ * registering plugin's to check, for example with a diagnostic provider.
  */
 export interface TSPPInterfaceMemberContract {
     readonly modifier: "static";
-    readonly implementationSide: "class-static";
-    readonly thisType: "implementing-instance";
 }
 
 export interface TSPPCompilerPluginAPI {

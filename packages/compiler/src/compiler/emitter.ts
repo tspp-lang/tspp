@@ -430,7 +430,6 @@ import {
     emitTSPPRestoredFunctionPrefix,
     getTSPPCompatibilityImportTypeArgument,
     getTSPPCompatibilityModuleSpecifier,
-    isOmittedFromTSPPCompatibilityDeclaration,
     isTSPPCompatibilityDeclarationBlocked,
 } from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
@@ -2268,7 +2267,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     //
 
     function emitPropertySignature(node: PropertySignature) {
-        if (isOmittedFromTSPPCompatibilityDeclaration(node, tsppCompatibilityDeclaration)) return; // TSPP-SLOT(interface-member-contract)
         emitModifierList(node, node.modifiers);
         emitNodeWithWriter(node.name, writeProperty);
         emit(node.questionToken);
@@ -2287,7 +2285,6 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitMethodSignature(node: MethodSignature) {
-        if (isOmittedFromTSPPCompatibilityDeclaration(node, tsppCompatibilityDeclaration)) return; // TSPP-SLOT(interface-member-contract)
         emitModifierList(node, node.modifiers);
         emit(node.name);
         emit(node.questionToken);

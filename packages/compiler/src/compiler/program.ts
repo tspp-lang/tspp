@@ -2910,7 +2910,7 @@ export function createProgram(_rootNamesOrOptions: readonly string[] | CreatePro
 
             let bindDiagnostics = sourceFile.bindDiagnostics;
             let checkDiagnostics = typeChecker.getDiagnostics(sourceFile, cancellationToken, nodesToCheck);
-            if (!nodesToCheck) checkDiagnostics = applyTSPPSemanticDiagnostics(sourceFile, typeChecker, checkDiagnostics); // TSPP-SLOT(diagnostics)
+            if (!nodesToCheck) checkDiagnostics = applyTSPPSemanticDiagnostics(sourceFile, program, checkDiagnostics); // TSPP-SLOT(diagnostics)
             if (isPlainJs) {
                 bindDiagnostics = filter(bindDiagnostics, d => plainJSErrors.has(d.code));
                 checkDiagnostics = filter(checkDiagnostics, d => plainJSErrors.has(d.code));

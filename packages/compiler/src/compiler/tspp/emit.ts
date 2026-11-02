@@ -11,19 +11,14 @@ import type {
     EmitHost,
     EmitResolver,
     Expression,
-    MethodSignature,
     Node,
     Printer,
     PrinterOptions,
-    PropertySignature,
     SourceFile,
     TransformationResult,
     TypeNode,
 } from "../_namespaces/ts.js";
-import {
-    Extension,
-    SyntaxKind,
-} from "../types.js";
+import { Extension } from "../types.js";
 import { getTSPPCompatibilityDeclarationFilePath } from "./files.js";
 import {
     getPreprocessedFunctionPrefix,
@@ -63,11 +58,6 @@ export function emitTSPPCompatibilityDeclaration(
         },
     );
     return print(compatibilityDeclarationFilePath, compatibilityPrinter) ? compatibilityDeclarationFilePath : undefined;
-}
-
-/** Static interface members have no TypeScript spelling, so the compatible `.d.ts` leaves them out. @internal */
-export function isOmittedFromTSPPCompatibilityDeclaration(node: PropertySignature | MethodSignature, compatibility: boolean): boolean {
-    return compatibility && !!node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword);
 }
 
 /** In the compatible `.d.ts`, a module specifier naming a `.tspp` file names its emitted `.js` file. @internal */
