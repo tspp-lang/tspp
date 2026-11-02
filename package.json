@@ -35,6 +35,7 @@
     "test:plugins": "pnpm --workspace-concurrency=1 --filter \"./packages/plugins/**\" test",
     "test:examples": "node packages/examples/scripts/check-all.mjs",
     "test:vscode": "pnpm --filter tspp-vscode test",
+    "test:playground": "pnpm --filter tspp-playground test:smoke",
     "lint": "pnpm lint:compiler && pnpm lint:packages",
     "lint:compiler": "pnpm --filter ts-plus-plus lint",
     "lint:language-server": "pnpm --filter tspp-language-server lint",
