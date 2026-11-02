@@ -62,6 +62,18 @@ export function kindToString(kind: TypeKind): string {
     return `${parameters} => ${kindToString(kind.result)}`;
 }
 
+/**
+ * A kind as feature-rich declaration output writes it: every universe with its level (`Type0`, not `Type`), and a
+ * single constructor parameter in parentheses, so that `(Type0 => Type0) => Type0` reads back as written.
+ */
+export function kindToDeclarationString(kind: TypeKind): string {
+    if (kind.kind === "type") return `Type${kind.level}`;
+    const parameters = kind.parameters.length === 1 && kind.parameters[0].kind === "type"
+        ? kindToDeclarationString(kind.parameters[0])
+        : `(${kind.parameters.map(kindToDeclarationString).join(", ")})`;
+    return `${parameters} => ${kindToDeclarationString(kind.result)}`;
+}
+
 export function kindsEqual(left: TypeKind, right: TypeKind): boolean {
     if (left.kind === "type" || right.kind === "type") {
         return left.kind === "type" && right.kind === "type" && left.level === right.level;
@@ -102,6 +114,8 @@ export function kindParameterOwner(sourceText: string, position: number, name: s
 export interface TypeSyntaxModel {
     /** Kind annotations of type parameters and type aliases. */
     readonly declarationKinds: WeakMap<TS.Node, TypeKind>;
+    /** Where an authored kind annotation, from its `:` to the end of the kind, is written for a declaration. */
+    readonly kindAnnotations: WeakMap<TS.Node, { readonly start: number; readonly end: number; }>;
     /** Anonymous type constructors `<T> =>> body`, as function type nodes without parameters. */
     readonly constructors: WeakSet<TS.Node>;
     /** Applications of a type to type arguments, as function type nodes whose parameter types are the parts. */
@@ -117,6 +131,7 @@ export interface TypeSyntaxModel {
 export function createTypeSyntaxModel(): TypeSyntaxModel {
     return {
         declarationKinds: new WeakMap(),
+        kindAnnotations: new WeakMap(),
         constructors: new WeakSet(),
         applications: new WeakMap(),
         authored: new WeakMap(),

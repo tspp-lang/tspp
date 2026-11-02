@@ -240,6 +240,29 @@ test("feature-rich declarations keep let bindings and type lambdas", () => {
   assert.match(declarations, /<T> =>> \{ box: T \}/, declarations);
 });
 
+test("feature-rich declarations write kind annotations with explicit universe levels", () => {
+  const { program, outputs } = createProgram({
+    "/main.tspp": [
+      "export type Arrays: Type => Type = Array;",
+      "export type Apply<F: Type => Type, X> = F<X>;",
+      "export type Twice<G: (Type => Type) => Type, H: (Type, Type1) => Type> = G<Array>;",
+      "export interface Functor<Container: Type => Type> { value: Container<number>; }",
+      "export type Lifted = <F: Type => Type, T> =>> F<T>;",
+      "export type Level: Type1 = Type;",
+    ].join("\n"),
+  }, { declaration: true, emitDeclarationOnly: true });
+  program.emit();
+  const declarations = [...outputs].filter(([fileName]) => fileName.endsWith(".d.tspp")).map(([, text]) => text).join("\n");
+  for (const expected of [
+    "export type Arrays: Type0 => Type0 = Array;",
+    "export type Apply<F: Type0 => Type0, X> = F<X>;",
+    "export type Twice<G: (Type0 => Type0) => Type0, H: (Type0, Type1) => Type0> = G<Array>;",
+    "export interface Functor<Container: Type0 => Type0> {",
+    "export type Lifted = <F: Type0 => Type0, T> =>> F<T>;",
+    "export type Level: Type1 = Type;",
+  ]) assert.ok(declarations.includes(expected), `${expected}\n---\n${declarations}`);
+});
+
 test("hover shows explicit kinds for higher-kinded and type lambda parameters", () => {
   const source = `
     type Id<A> = A;

@@ -1,7 +1,7 @@
 import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import type { TypeKind, TypeSyntaxModel } from "./kinds";
+import { kindToDeclarationString, type TypeKind, type TypeSyntaxModel } from "./kinds";
 
 /** Well-known generic globals that a constructor argument may name without type arguments. */
 const genericGlobals = new Set(["Array", "ReadonlyArray", "Promise", "Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]);
@@ -17,7 +17,30 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
         return current;
     };
     const sourceText = (node: TS.Node) => sourceFileOf(node).text;
-    const authoredText = (node: TS.Node, start: number) => sourceText(node).slice(start, node.end).trimStart();
+    /**
+     * The source text of `node` from `start` to `end`, with each kind annotation written inside it in its declaration
+     * form, so that `F: Type => Type` restores as `F: Type0 => Type0` like the rest of the declaration output.
+     */
+    const restoredText = (node: TS.Node, start: number, end = node.end) => {
+        const annotations: { readonly start: number; readonly end: number; readonly kind: TypeKind; }[] = [];
+        const visit = (current: TS.Node): void => {
+            const range = model.kindAnnotations.get(current);
+            const kind = model.declarationKinds.get(current);
+            if (range && kind && range.start >= start && range.end <= end) annotations.push({ ...range, kind });
+            ts.forEachChild(current, visit);
+        };
+        visit(node);
+        const text = sourceText(node);
+        let result = "";
+        let position = start;
+        for (const annotation of annotations.sort((left, right) => left.start - right.start)) {
+            if (annotation.start < position) continue;
+            result += text.slice(position, annotation.start) + `: ${kindToDeclarationString(annotation.kind)}`;
+            position = annotation.end;
+        }
+        return result + text.slice(position, end);
+    };
+    const authoredText = (node: TS.Node, start: number) => restoredText(node, start).trimStart();
     const modifiersOf = (node: TS.Node) =>
         (ts.canHaveModifiers(node) ? ts.getModifiers(node) ?? [] : []).map(modifier => `${ts.tokenToString(modifier.kind)} `).join("");
     const constructorAliasArity = (alias: TS.TypeAliasDeclaration): number => {
@@ -37,7 +60,7 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
             if (ts.isTypeParameterDeclaration(original)) return authoredText(original, original.pos);
             if (ts.isTypeAliasDeclaration(original)) {
                 const text = sourceText(original);
-                return modifiersOf(node) + text.slice(text.lastIndexOf("type", original.name.pos), original.end).trimEnd();
+                return modifiersOf(node) + restoredText(original, text.lastIndexOf("type", original.name.pos)).trimEnd();
             }
             return undefined;
         },

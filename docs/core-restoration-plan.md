@@ -229,6 +229,10 @@ manifest: {
 - 产品层实现移入新文件：`compiler/tspp/commandLine.ts`（CLI 品牌、从 tsconfig 加载插件、一次性编译等待程序重建与分析器，`tsc.ts` 改调 `executeTSPPCommandLine`）、`compiler/tspp/files.ts`（`.tspp`/`.d.tspp` 模块解析与兼容声明路径；`EmitFileNames` 不再带兼容声明字段）、`compiler/tspp/emit.ts`（兼容 `.d.ts` 输出、声明输出中恢复投影掉的文本）、`services/tspp/quickInfo.ts`、`services/tspp/syntax.ts`（插件语法的子节点、格式化、修复）、`server/tspp/project.ts`（tsserver 激活插件与分析诊断）。`executeCommandLine.ts`、`services.ts` 的 Quick Info 与语义分类、`typescript.ts` 回到基线原文（注册表在加载时自行初始化）。产品层插槽登记在上表。
 - 门槛：`node scripts/core-diff.mjs --check`（`pnpm core-diff:check`）在出现无标记 hunk、`tspp/` 之外的新文件或超出预算（27 个文件 +385 −55）时失败，CI 的 "Core drift gate" 运行它。`diagnosticMessages.json` 不能写注释，插槽新增的消息用 `"tsppSlot"` 字段携带标记；未被使用的 18071 消息删除（modern-syntax 自带同样的文字）。
 - 行为差异：`.ts` 文件里无扩展名的导入回到上游的 `resolvedUsingTsExtension`（`false`，原来是 `undefined`）；`Node.getChildren` 只在 TS++ 文件或含无位置子节点的节点上走插件语法的实现，其余节点回到上游（tabstop 节点里的标识符重新被跳过）；兼容 `.d.ts` 不再为没有 `static` 修饰符的接口成员复制修饰符数组；同步的 `executeCommandLine` 在有分析器时不再返回 Promise。
+- 阶段 2 迁移遗留的三处回归（插件层修复，核心不变）：
+  - nominal-types 的诊断过滤器原来丢弃所有零宽的"未使用"诊断，插件注册顺序在 type-computation 之前时，`let` 绑定的诊断到不了把它移到绑定名上的过滤器。现在只丢弃本插件生成的空声明（品牌类的私有成员）上的诊断。宿主仍按注册顺序应用过滤器。
+  - newtype 构造器只能直接调用（以及出现在 `typeof`、导入、导出中）：旧核心的 `valueUse: "call-only"` 与诊断 18062 在 nominal-types 脱糖时丢失，现在由插件的诊断提供者报告同样的代码与文字。
+  - `.d.tspp` 中的 kind 注解按旧 emitter 的形式写出：宇宙都带层级（`F: Type => Type` 写成 `F: Type0 => Type0`），单个构造器形参加括号（`(Type0 => Type0) => Type0`）。type-computation 记录注解的源码范围，恢复声明文本时替换。
 
 ## 风险与待定
 

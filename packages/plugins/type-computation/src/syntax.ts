@@ -65,10 +65,15 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
         startTokens: [kinds.ColonToken],
         isStart: cursor => cursor.token() === kinds.ColonToken,
         parse: cursor => {
+            const start = cursor.getTokenStart();
             cursor.parseExpected(kinds.ColonToken);
             const kind = parseKind(ts, cursor);
+            const end = cursor.getNodePos();
             model.used = true;
-            return declaration => void model.declarationKinds.set(declaration, kind);
+            return declaration => {
+                model.declarationKinds.set(declaration, kind);
+                model.kindAnnotations.set(declaration, { start, end });
+            };
         },
     });
 
