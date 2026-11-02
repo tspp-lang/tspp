@@ -436,7 +436,6 @@ import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TS
 import {
     getPreprocessedTypeAliasDeclaration,
     getTSPPRestoredDeclaration,
-    isTSPPRewrittenIdentifier,
 } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
 
 const brackets = createBracketsMap();
@@ -5275,8 +5274,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             return getTextOfNode(node.textSourceNode, includeTrivia);
         }
         const sourceFile = currentSourceFile; // const needed for control flow
-        const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node)
-            && !isTSPPRewrittenIdentifier(node); // TSPP-SLOT(expression-rewrite)
+        const canUseSourceFile = !!sourceFile && !!node.parent && !nodeIsSynthesized(node);
         if (isMemberName(node)) {
             if (!canUseSourceFile || getSourceFileOfNode(node) !== getOriginalNode(sourceFile)) {
                 return idText(node);

@@ -150,7 +150,6 @@ export class TSPPPluginHost {
                     this.environment.compiler.registerInterfaceMemberContract(pluginId, contract),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
-                registerExpressionRewriter: rewriter => this.environment.compiler.registerExpressionRewriter(pluginId, rewriter),
                 registerProgramRebuilder: rebuilder => this.environment.compiler.registerProgramRebuilder(pluginId, rebuilder),
                 registerSyntaxExtension: extension => this.environment.compiler.registerSyntaxExtension(pluginId, extension),
                 registerDiagnosticProvider: provider => this.environment.compiler.registerDiagnosticProvider(pluginId, provider),

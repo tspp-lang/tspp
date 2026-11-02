@@ -150,12 +150,15 @@ export interface TSPPStatementReplacement {
 }
 
 /**
- * Where plugin syntax may start: a unary expression, a statement, a function body after its signature, a declaration,
- * which may follow modifiers such as `export`, a type, the continuation of an already parsed type (`precedingType`),
- * or an annotation after a type parameter's name or after a type alias's name and type parameters.
+ * Where plugin syntax may start: a unary expression, a primary expression (which calls and member accesses may follow,
+ * and which prefix operators apply to), a call argument, a statement, a function body after its signature, a
+ * declaration, which may follow modifiers such as `export`, a type, the continuation of an already parsed type
+ * (`precedingType`), or an annotation after a type parameter's name or after a type alias's name and type parameters.
  */
 export type TSPPSyntaxExtensionPosition =
     | "expression"
+    | "primary-expression"
+    | "argument"
     | "statement"
     | "function-body"
     | "declaration"
@@ -338,28 +341,6 @@ export interface TSPPDiagnosticProvider {
     filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean | import("typescript-upstream").Diagnostic;
 }
 
-/** Where an expression being rewritten was parsed, and the factory for nodes that should count as parsed source. */
-export interface TSPPExpressionRewriteContext {
-    /** True for the inner expression of `( ... )`; the replacement must then be a parenthesized expression. */
-    readonly parenthesized: boolean;
-    /** The source range the replacement covers, including the parentheses when `parenthesized` is true. */
-    readonly pos: number;
-    readonly end: number;
-    /** The parser's own factory. Nodes it creates and `ts.setTextRange` places behave like parsed source. */
-    readonly factory: import("typescript-upstream").NodeFactory;
-}
-
-/**
- * Rewrites a just-parsed parenthesized expression or call argument into other ordinary TypeScript syntax. An identifier
- * whose text the rewrite changes is emitted with its new text.
- */
-export interface TSPPExpressionRewriter {
-    rewrite(
-        expression: import("typescript-upstream").Expression,
-        context: TSPPExpressionRewriteContext,
-    ): import("typescript-upstream").Expression | undefined;
-}
-
 /**
  * Makes interface members carrying a modifier static members of the interface: they are allowed there, bound outside
  * its instance type, and resolve names the way static class members do. What implementations owe for them is the
@@ -373,7 +354,6 @@ export interface TSPPCompilerPluginAPI {
     registerInterfaceMemberContract(contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
-    registerExpressionRewriter(rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
     registerProgramRebuilder(rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
     registerSyntaxExtension(extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
@@ -384,7 +364,6 @@ export interface TSPPCompilerHostAPI {
     registerInterfaceMemberContract(pluginId: string, contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
-    registerExpressionRewriter(pluginId: string, rewriter: TSPPExpressionRewriter): TSPPPluginDisposer;
     registerProgramRebuilder(pluginId: string, rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
     registerSyntaxExtension(pluginId: string, extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(pluginId: string, provider: TSPPDiagnosticProvider): TSPPPluginDisposer;

@@ -5,20 +5,22 @@ const { operatorSectionsPlugin } = require("../dist");
 
 const logger = { debug() {}, info() {}, warn() {}, error() {} };
 
-test("registers and disposes its expression rewriter", () => {
-  let registration;
-  let disposed = false;
+test("registers and disposes its syntax for parenthesized expressions and call arguments", () => {
+  const registrations = [];
+  let disposed = 0;
   const compiler = {
-    registerExpressionRewriter(pluginId, rewriter) {
-      registration = { pluginId, rewriter };
-      return () => { disposed = true; };
+    registerSyntaxExtension(pluginId, extension) {
+      registrations.push({ pluginId, extension });
+      return () => { disposed++; };
     },
   };
   const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts: require("typescript-upstream") });
   host.register(operatorSectionsPlugin);
   host.activateAll();
-  assert.equal(registration.pluginId, "operator-sections");
-  assert.equal(typeof registration.rewriter.rewrite, "function");
+  assert.deepEqual(registrations.map(({ pluginId, extension }) => [pluginId, extension.position]), [
+    ["operator-sections", "primary-expression"],
+    ["operator-sections", "argument"],
+  ]);
   host.dispose();
-  assert.equal(disposed, true);
+  assert.equal(disposed, 2);
 });

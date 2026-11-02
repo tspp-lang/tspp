@@ -5,7 +5,6 @@ import {
 import type {
     TSPPCompilerHostAPI,
     TSPPDiagnosticProvider,
-    TSPPExpressionRewriter,
     TSPPInterfaceMemberContract,
     TSPPPreprocessedTypeAlias,
     TSPPProgramAnalyzer,
@@ -29,10 +28,7 @@ import { version } from "../corePublic.js";
 import type {
     Diagnostic,
     DiagnosticMessage,
-    Expression,
-    Identifier,
     Node,
-    NodeFactory,
     Program,
     SourceFile,
 } from "../types.js";
@@ -44,7 +40,6 @@ import { getTSPPTypeOperations } from "./types.js";
 
 const interfaceMemberContracts = new Map<string, TSPPInterfaceMemberContract>();
 const programAnalyzers = new Map<string, { pluginId: string; analyzer: TSPPProgramAnalyzer; }>();
-const expressionRewriters = new Map<string, TSPPExpressionRewriter>();
 const sourcePreprocessors = new Map<string, TSPPSourcePreprocessor>();
 const programRebuilders = new Map<string, TSPPProgramRebuilder>();
 const syntaxExtensions = new Map<TSPPSyntaxExtensionPosition, { pluginId: string; extension: TSPPSyntaxExtension; }[]>();
@@ -86,11 +81,6 @@ const compilerAPI: TSPPCompilerHostAPI = {
         if (sourcePreprocessors.has(key)) throw new Error(`Duplicate TSPP source preprocessor '${key}'.`);
         sourcePreprocessors.set(key, preprocessor);
         return () => sourcePreprocessors.delete(key);
-    },
-    registerExpressionRewriter(pluginId, rewriter) {
-        if (expressionRewriters.has(pluginId)) throw new Error(`TSPP plugin '${pluginId}' already registered an expression rewriter.`);
-        expressionRewriters.set(pluginId, rewriter);
-        return () => expressionRewriters.delete(pluginId);
     },
     registerSyntaxExtension(pluginId, extension) {
         const entry = { pluginId, extension };
@@ -337,36 +327,6 @@ export function getTSPPQuickInfo(
 
 function hasInterfaceMemberContract(modifier: "static"): boolean {
     return [...interfaceMemberContracts.values()].some(contract => contract.modifier === modifier);
-}
-
-/**
- * Whether an expression rewriter renamed this parsed identifier, so that the emitter writes its new text instead of
- * the source text at its position. Only possible while a rewriter is active; escaped source spellings are kept.
- * @internal
- */
-export function isTSPPRewrittenIdentifier(node: Node): boolean {
-    if (!expressionRewriters.size || node.kind !== SyntaxKind.Identifier) return false;
-    const text = ts.getSourceFileOfNode(node).text;
-    const source = text.slice(ts.skipTrivia(text, node.pos), node.end);
-    return !source.includes("\\") && source !== ts.idText(node as Identifier);
-}
-
-/**
- * Offers a just-parsed expression to the active expression rewriters; the first replacement wins.
- * @internal
- */
-export function rewriteTSPPExpression(
-    expression: Expression,
-    factory: NodeFactory,
-    parenthesized: boolean,
-    pos: number,
-    end: number,
-): Expression | undefined {
-    for (const rewriter of expressionRewriters.values()) {
-        const rewritten = rewriter.rewrite(expression as any, { factory: factory as any, parenthesized, pos, end });
-        if (rewritten) return rewritten as unknown as Expression;
-    }
-    return undefined;
 }
 
 /** @internal */

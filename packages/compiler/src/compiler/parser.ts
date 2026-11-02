@@ -408,7 +408,6 @@ import {
     isStartOfTSPPSyntax,
     isTSPPSyntaxNode,
     projectTSPPSource,
-    rewriteTSPPExpression,
     tryParseTSPPSyntax,
 } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
 
@@ -6696,6 +6695,8 @@ namespace Parser {
     }
 
     function parsePrimaryExpression(): PrimaryExpression {
+        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("primary-expression", token(), createTSPPSyntaxCursor)) as PrimaryExpression | undefined; // TSPP-SLOT(syntax-extension)
+        if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
         switch (token()) {
             case SyntaxKind.NoSubstitutionTemplateLiteral:
                 if (scanner.getTokenFlags() & TokenFlags.IsInvalid) {
@@ -6756,8 +6757,6 @@ namespace Parser {
         parseExpected(SyntaxKind.OpenParenToken);
         const expression = allowInAnd(parseExpression);
         parseExpected(SyntaxKind.CloseParenToken);
-        const rewritten = rewriteTSPPExpression(expression, factory, /*parenthesized*/ true, pos, getNodePos()) as ParenthesizedExpression | undefined; // TSPP-SLOT(expression-rewrite)
-        if (rewritten) return withJSDoc(rewritten, hasJSDoc); // TSPP-SLOT(expression-rewrite)
         return withJSDoc(finishNode(factoryCreateParenthesizedExpression(expression), pos), hasJSDoc);
     }
 
@@ -6775,9 +6774,7 @@ namespace Parser {
     }
 
     function parseArgumentExpression(): Expression {
-        const pos = getNodePos(); // TSPP-SLOT(expression-rewrite)
-        const expression = doOutsideOfContext(disallowInAndDecoratorContext, parseArgumentOrArrayLiteralElement);
-        return rewriteTSPPExpression(expression, factory, /*parenthesized*/ false, pos, getNodePos()) ?? expression; // TSPP-SLOT(expression-rewrite)
+        return doOutsideOfContext(disallowInAndDecoratorContext, () => (tryParsePluginSyntax(() => tryParseTSPPSyntax("argument", token(), createTSPPSyntaxCursor)) as Expression | undefined) ?? parseArgumentOrArrayLiteralElement()); // TSPP-SLOT(syntax-extension)
     }
 
     function parseArrayLiteralExpression(): ArrayLiteralExpression {

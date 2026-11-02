@@ -1,6 +1,6 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 
-import { createOperatorSectionRewriter } from "./sections";
+import { createOperatorSectionSyntax } from "./sections";
 
 export const operatorSectionsPlugin = definePlugin({
     manifest: {
@@ -17,7 +17,8 @@ export const operatorSectionsPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
-                return context.compiler.registerExpressionRewriter(createOperatorSectionRewriter(context.ts));
+                const disposers = createOperatorSectionSyntax(context.ts).map(extension => context.compiler.registerSyntaxExtension(extension));
+                return () => disposers.forEach(dispose => dispose());
             },
         },
         editor: {

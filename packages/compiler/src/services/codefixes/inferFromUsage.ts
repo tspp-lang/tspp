@@ -242,7 +242,7 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
                 if (typeNode) {
                     // Note that the codefix will never fire with an existing `@type` tag, so there is no need to merge tags
                     const typeTag = factory.createJSDocTypeTag(/*tagName*/ undefined, factory.createJSDocTypeExpression(typeNode), /*comment*/ undefined);
-                    if (parent.parent?.parent && isExpressionStatement(parent.parent.parent)) changes.addJSDocTags(sourceFile, cast(parent.parent.parent, isExpressionStatement), [typeTag]); // TSPP-SLOT(expression-rewrite)
+                    changes.addJSDocTags(sourceFile, cast(parent.parent.parent, isExpressionStatement), [typeTag]);
                 }
                 importAdder.writeFixes(changes);
                 return parent;
@@ -276,7 +276,7 @@ function doChange(changes: textChanges.ChangeTracker, sourceFile: SourceFile, to
             }
             // falls through
         case Diagnostics.Rest_parameter_0_implicitly_has_an_any_type.code:
-            if (isParameter(parent) && markSeen(containingFunction)) { // TSPP-SLOT(expression-rewrite): rewritten expressions may have parameters without a declaration
+            if (isParameter(parent) && markSeen(containingFunction)) { // TSPP-SLOT(syntax-extension): plugin syntax may give a parameter the position of a reference to it
                 const param = cast(parent, isParameter);
                 annotateParameters(changes, importAdder, sourceFile, param, containingFunction, program, host, cancellationToken);
                 declaration = param;

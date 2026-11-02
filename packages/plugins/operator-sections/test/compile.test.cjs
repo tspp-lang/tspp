@@ -66,3 +66,19 @@ test("offers code fixes for an untyped placeholder without crashing", () => {
     }
   }
 });
+
+test("a section can be called and nested like any parenthesized expression", () => {
+  const { messages, javascript } = compile(`
+    const three: number = (_ + 1)(2);
+    const scaled: (x: number) => number = (_ * (_ + 1)(2));
+    const identity: (x: string) => string = (_);
+  `);
+  assert.deepEqual(messages, []);
+  assert.match(javascript, new RegExp(String.raw`const three = \(\(${parameter}\) => \1 \+ 1\)\(2\);`));
+  assert.match(javascript, new RegExp(String.raw`const identity = \(\(${parameter}\) => \1\);`));
+});
+
+test("placeholders inside functions and object literals are not holes", () => {
+  const { messages } = compile(`const f = (x: number) => (y => _); const o = ({ a: _ });`);
+  assert.deepEqual(messages.filter(message => /Cannot find name '_'/.test(message)).length, 2, messages.join("\n"));
+});
