@@ -158,7 +158,10 @@ function editorKeywords(): Plugin {
       const keywords = new Set<string>();
       for (const packageName of declarationPackages) {
         const loaded = require(packageName) as { default?: unknown };
-        getTSPPEditorKeywords((loaded.default ?? loaded) as TSPPPlugin).forEach(keyword => keywords.add(keyword));
+        const plugin = (loaded.default ?? loaded) as Partial<TSPPPlugin>;
+        // The SDK itself is among the declaration packages but is not a plugin.
+        if (!plugin.manifest) continue;
+        getTSPPEditorKeywords(plugin as TSPPPlugin).forEach(keyword => keywords.add(keyword));
       }
       return `export default ${JSON.stringify([...keywords])};`;
     },
