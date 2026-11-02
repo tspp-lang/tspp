@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as TS from "typescript-upstream";
+import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import type { TSPPAnalysisDiagnostic } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import type { PendingProof } from "./contracts";
@@ -11,6 +12,8 @@ export interface State {
     readonly values: Record<string, Term>;
     readonly declarations: Set<string>;
     readonly facts: string[];
+    /** The data variant each reference is known to hold, from the tag tests on this path. */
+    readonly variants?: Readonly<Record<string, DataConstructor>>;
     /** Why this path can no longer be modeled; obligations reached after it are reported instead of proved. */
     unsupported?: string;
 }
@@ -21,7 +24,7 @@ export interface JumpTarget {
 }
 export interface Context {
     readonly fileName: string;
-    readonly sourceFile: ts.SourceFile;
+    readonly sourceFile: TS.SourceFile;
     readonly sourceText: string;
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly refinements: ReadonlyMap<string, RefinementModel>;
@@ -31,36 +34,51 @@ export interface Context {
     readonly proofs: PendingProof[];
     readonly diagnostics: TSPPAnalysisDiagnostic[];
     readonly currentFunction?: FunctionModel;
+    /** Set while inlining an immediately invoked function: its `return`s are collected here instead of proved. */
+    readonly inlineReturns?: { readonly state: State; readonly value: Term | undefined; }[];
     /** Proof-relevant nodes the symbolic executor reached; anything left over is reported as unverified. */
-    readonly visited: Set<ts.Node>;
+    readonly visited: Set<TS.Node>;
     readonly jumpTargets: JumpTarget[];
     nextTemporary: number;
 }
 
 export const cloneState = (state: State): State => ({
     variables: { ...state.variables }, values: { ...state.values },
-    declarations: new Set(state.declarations), facts: [...state.facts], unsupported: state.unsupported,
+    declarations: new Set(state.declarations), facts: [...state.facts], variants: state.variants, unsupported: state.unsupported,
 });
 
-export const arithmeticOperators = new Map<number, string>([
+// Built on first use: the host's `ts` is not there yet when this module loads.
+let operators: ReturnType<typeof createOperators> | undefined;
+export const arithmeticOperators = () => (operators ??= createOperators()).arithmetic;
+export const comparisonOperators = () => (operators ??= createOperators()).comparison;
+export const assignmentOperators = () => (operators ??= createOperators()).assignment;
+
+const createOperators = () => ({ arithmetic: new Map<number, string>([
     [ts.SyntaxKind.PlusToken, "+"], [ts.SyntaxKind.MinusToken, "-"], [ts.SyntaxKind.AsteriskToken, "*"],
     [ts.SyntaxKind.SlashToken, "tspp.js.trunc.div"], [ts.SyntaxKind.PercentToken, "tspp.js.trunc.rem"],
-]);
-export const comparisonOperators = new Map<number, string>([
+]), comparison: new Map<number, string>([
     [ts.SyntaxKind.LessThanToken, "<"], [ts.SyntaxKind.LessThanEqualsToken, "<="],
     [ts.SyntaxKind.GreaterThanToken, ">"], [ts.SyntaxKind.GreaterThanEqualsToken, ">="],
-]);
-/** Maps each assignment operator to the arithmetic operator it applies, or undefined for plain `=`. */
-export const assignmentOperators = new Map<number, ts.SyntaxKind | undefined>([
+]),
+    /** Maps each assignment operator to the arithmetic operator it applies, or undefined for plain `=`. */
+    assignment: new Map<number, TS.SyntaxKind | undefined>([
     [ts.SyntaxKind.EqualsToken, undefined], [ts.SyntaxKind.PlusEqualsToken, ts.SyntaxKind.PlusToken],
     [ts.SyntaxKind.MinusEqualsToken, ts.SyntaxKind.MinusToken], [ts.SyntaxKind.AsteriskEqualsToken, ts.SyntaxKind.AsteriskToken],
     [ts.SyntaxKind.SlashEqualsToken, ts.SyntaxKind.SlashToken], [ts.SyntaxKind.PercentEqualsToken, ts.SyntaxKind.PercentToken],
-]);
+]) });
 export const safeIntegerRange = (smt: string) => `(and (>= ${smt} (- 9007199254740991)) (<= ${smt} 9007199254740991))`;
 
-export function diagnostic(context: Context, node: ts.Node, message: unknown): void {
+/** Syntax plugins lower to nodes that may have no source position; a diagnostic on one goes on what it stands for. */
+function positioned(node: TS.Node): TS.Node {
+    let current = node;
+    while (current.pos < 0 && current.parent) current = current.parent;
+    return current;
+}
+
+export function diagnostic(context: Context, node: TS.Node, message: unknown): void {
+    const located = positioned(node);
     context.diagnostics.push({
-        fileName: context.fileName, start: node.getStart(context.sourceFile), length: node.getWidth(context.sourceFile),
+        fileName: context.fileName, start: nodeStart(located, context.sourceFile), length: nodeWidth(located, context.sourceFile),
         code: 19003, category: "error", source: "TS++ verification",
         message: message instanceof Error ? message.message : String(message),
     });
@@ -71,9 +89,10 @@ export function scriptFor(state: State): string {
     return [...state.declarations, ...state.facts.map(fact => `(assert ${fact})`)].join("\n");
 }
 
-export function addProof(context: Context, state: State, goal: string, node: ts.Node, name: string, location?: Clause): void {
-    const start = location?.start ?? node.getStart(context.sourceFile);
-    const length = location?.value.length ?? node.getWidth(context.sourceFile);
+export function addProof(context: Context, state: State, goal: string, node: TS.Node, name: string, location?: Clause): void {
+    const located = positioned(node);
+    const start = location?.start ?? nodeStart(located, context.sourceFile);
+    const length = location?.value.length ?? nodeWidth(located, context.sourceFile);
     if (state.unsupported) {
         context.diagnostics.push({
             fileName: context.fileName, start, length, code: 19003, category: "error", source: "TS++ verification",
@@ -85,10 +104,11 @@ export function addProof(context: Context, state: State, goal: string, node: ts.
 }
 
 /** Keeps exploring a path the verifier cannot model, but refuses every later proof on it. */
-export function unsupported(state: State, node: ts.Node, context: Context): State[] {
+export function unsupported(state: State, node: TS.Node, context: Context): State[] {
     if (!state.unsupported) {
-        const line = context.sourceFile.getLineAndCharacterOfPosition(node.getStart(context.sourceFile)).line + 1;
-        const text = node.getText(context.sourceFile).split(/\r?\n/)[0].trim();
+        const located = positioned(node);
+        const line = ts.getLineAndCharacterOfPosition(context.sourceFile, nodeStart(located, context.sourceFile)).line + 1;
+        const text = context.sourceText.slice(nodeStart(located, context.sourceFile), located.end).split(/\r?\n/)[0].trim();
         state.unsupported = `'${text.length > 40 ? `${text.slice(0, 40)}…` : text}' (line ${line}) is not supported by the verifier`;
     }
     return [state];
@@ -103,24 +123,24 @@ export function havoc(state: State, name: string, context: Context): void {
 }
 
 /** The proof-state key an assignment writes, for locals and fields of record parameters. */
-export function assignmentKey(node: ts.Expression): string | undefined {
+export function assignmentKey(node: TS.Expression): string | undefined {
     if (ts.isParenthesizedExpression(node)) return assignmentKey(node.expression);
-    if (ts.isIdentifier(node)) return node.text;
-    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) return `${node.expression.text}.${node.name.text}`;
+    if (ts.isIdentifier(node)) return nameText(node);
+    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) return `${nameText(node.expression)}.${nameText(node.name)}`;
     return undefined;
 }
 
-export function isIncrementOrDecrement(node: ts.Node): node is ts.PrefixUnaryExpression | ts.PostfixUnaryExpression {
+export function isIncrementOrDecrement(node: TS.Node): node is TS.PrefixUnaryExpression | TS.PostfixUnaryExpression {
     return (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
         && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken);
 }
 
 /** Every state key the node may write, ignoring nested functions, which the executor never inlines. */
-export function assignedKeys(node: ts.Node): Set<string> {
+export function assignedKeys(node: TS.Node): Set<string> {
     const keys = new Set<string>();
-    const visit = (child: ts.Node): void => {
+    const visit = (child: TS.Node): void => {
         if (ts.isFunctionLike(child)) return;
-        const target = ts.isBinaryExpression(child) && assignmentOperators.has(child.operatorToken.kind) ? child.left
+        const target = ts.isBinaryExpression(child) && assignmentOperators().has(child.operatorToken.kind) ? child.left
             : isIncrementOrDecrement(child) ? child.operand : undefined;
         const key = target && assignmentKey(target);
         if (key) keys.add(key);
@@ -130,9 +150,9 @@ export function assignedKeys(node: ts.Node): Set<string> {
     return keys;
 }
 
-export function lexicalNames(statements: readonly ts.Statement[]): string[] {
+export function lexicalNames(statements: readonly TS.Statement[]): string[] {
     return statements.flatMap(statement => ts.isVariableStatement(statement) && statement.declarationList.flags & ts.NodeFlags.BlockScoped
-        ? statement.declarationList.declarations.flatMap(declaration => ts.isIdentifier(declaration.name) ? [declaration.name.text] : [])
+        ? statement.declarationList.declarations.flatMap(declaration => ts.isIdentifier(declaration.name) ? [nameText(declaration.name)] : [])
         : []);
 }
 

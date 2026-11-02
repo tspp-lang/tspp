@@ -4034,7 +4034,7 @@ namespace Parser {
         const pos = getNodePos();
         const modifiers = parseModifiers(/*allowDecorators*/ false, /*permitConstAsModifier*/ true);
         const name = parseIdentifier();
-        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax("type-parameter-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "type-parameter-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         let constraint: TypeNode | undefined;
         let expression: Expression | undefined;
         if (parseOptional(SyntaxKind.ExtendsKeyword)) {
@@ -4822,7 +4822,7 @@ namespace Parser {
                     }
                     break;
                 default: { // TSPP-SLOT(syntax-extension)
-                    const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax("postfix-type", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, /*modifiers*/ undefined, type))) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
+                    const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "postfix-type", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, /*modifiers*/ undefined, type))) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
                     if (!syntaxType) return type; // TSPP-SLOT(syntax-extension)
                     type = syntaxType; // TSPP-SLOT(syntax-extension)
                 } // TSPP-SLOT(syntax-extension)
@@ -5023,7 +5023,7 @@ namespace Parser {
         if (contextFlags & NodeFlags.TypeExcludesFlags) {
             return doOutsideOfContext(NodeFlags.TypeExcludesFlags, parseType);
         }
-        const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax("type", token(), createTSPPSyntaxCursor)) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxType = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "type", token(), createTSPPSyntaxCursor)) as TypeNode | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxType) return syntaxType; // TSPP-SLOT(syntax-extension)
         if (isStartOfFunctionTypeOrConstructorType()) {
             return parseFunctionOrConstructorType();
@@ -5619,7 +5619,7 @@ namespace Parser {
             return parseFunctionBlock(isAsync ? SignatureFlags.Await : SignatureFlags.None);
         }
 
-        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("expression", token(), createTSPPSyntaxCursor)) as Expression | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "expression", token(), createTSPPSyntaxCursor)) as Expression | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
 
         if (
@@ -5823,7 +5823,7 @@ namespace Parser {
      *      2) UpdateExpression[?Yield] ** ExponentiationExpression[?Yield]
      */
     function parseUnaryExpressionOrHigher(): UnaryExpression | BinaryExpression {
-        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("expression", token(), createTSPPSyntaxCursor)) as UnaryExpression | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "expression", token(), createTSPPSyntaxCursor)) as UnaryExpression | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
 
         /**
@@ -6696,7 +6696,7 @@ namespace Parser {
     }
 
     function parsePrimaryExpression(): PrimaryExpression {
-        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax("primary-expression", token(), createTSPPSyntaxCursor)) as PrimaryExpression | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxExpression = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "primary-expression", token(), createTSPPSyntaxCursor)) as PrimaryExpression | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxExpression) return syntaxExpression; // TSPP-SLOT(syntax-extension)
         switch (token()) {
             case SyntaxKind.NoSubstitutionTemplateLiteral:
@@ -6775,7 +6775,7 @@ namespace Parser {
     }
 
     function parseArgumentExpression(): Expression {
-        return doOutsideOfContext(disallowInAndDecoratorContext, () => (tryParsePluginSyntax(() => tryParseTSPPSyntax("argument", token(), createTSPPSyntaxCursor)) as Expression | undefined) ?? parseArgumentOrArrayLiteralElement()); // TSPP-SLOT(syntax-extension)
+        return doOutsideOfContext(disallowInAndDecoratorContext, () => (tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "argument", token(), createTSPPSyntaxCursor)) as Expression | undefined) ?? parseArgumentOrArrayLiteralElement()); // TSPP-SLOT(syntax-extension)
     }
 
     function parseArrayLiteralExpression(): ArrayLiteralExpression {
@@ -6878,7 +6878,7 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(isGenerator | isAsync);
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
-        const body = tryParsePluginSyntax(() => tryParseTSPPSyntax("function-body", token(), () => createTSPPSyntaxCursor(isGenerator | isAsync))) as Block | undefined // TSPP-SLOT(syntax-extension)
+        const body = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-body", token(), () => createTSPPSyntaxCursor(isGenerator | isAsync))) as Block | undefined // TSPP-SLOT(syntax-extension)
             ?? parseFunctionBlock(isGenerator | isAsync);
 
         setDecoratorContext(savedDecoratorContext);
@@ -7349,7 +7349,7 @@ namespace Parser {
                     continue;
 
                 default:
-                    if (isStartOfTSPPSyntax("declaration", token(), createTSPPSyntaxCursor)) return true; // TSPP-SLOT(syntax-extension)
+                    if (isStartOfTSPPSyntax(fileName, "declaration", token(), createTSPPSyntaxCursor)) return true; // TSPP-SLOT(syntax-extension)
                     return false;
             }
         }
@@ -7472,7 +7472,7 @@ namespace Parser {
     }
 
     function parseStatement(): Statement {
-        const syntaxStatement = tryParsePluginSyntax(() => tryParseTSPPSyntax("statement", token(), createTSPPSyntaxCursor) ?? tryParseTSPPSyntax("declaration", token(), createTSPPSyntaxCursor)) as Statement | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxStatement = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "statement", token(), createTSPPSyntaxCursor) ?? tryParseTSPPSyntax(fileName, "declaration", token(), createTSPPSyntaxCursor)) as Statement | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxStatement) return syntaxStatement; // TSPP-SLOT(syntax-extension)
         switch (token()) {
             case SyntaxKind.SemicolonToken:
@@ -7596,7 +7596,7 @@ namespace Parser {
     }
 
     function parseDeclarationWorker(pos: number, hasJSDoc: boolean, modifiersIn: NodeArray<ModifierLike> | undefined): Statement {
-        const syntaxDeclaration = tryParsePluginSyntax(() => tryParseTSPPSyntax("declaration", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, modifiersIn))) as Statement | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxDeclaration = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "declaration", token(), () => createTSPPSyntaxCursor(/*functionFlags*/ undefined, modifiersIn))) as Statement | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxDeclaration) return syntaxDeclaration; // TSPP-SLOT(syntax-extension)
         switch (token()) {
             case SyntaxKind.VarKeyword:
@@ -7663,7 +7663,7 @@ namespace Parser {
     }
 
     function parseFunctionBlockOrSemicolon(flags: SignatureFlags, diagnosticMessage?: DiagnosticMessage): Block | undefined {
-        const syntaxBody = tryParsePluginSyntax(() => tryParseTSPPSyntax("function-body", token(), () => createTSPPSyntaxCursor(flags))) as Block | undefined; // TSPP-SLOT(syntax-extension)
+        const syntaxBody = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-body", token(), () => createTSPPSyntaxCursor(flags))) as Block | undefined; // TSPP-SLOT(syntax-extension)
         if (syntaxBody) return syntaxBody; // TSPP-SLOT(syntax-extension)
         if (token() !== SyntaxKind.OpenBraceToken) {
             if (flags & SignatureFlags.Type) {
@@ -8353,7 +8353,7 @@ namespace Parser {
         }
         const name = parseIdentifier();
         const typeParameters = parseTypeParameters();
-        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax("type-alias-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "type-alias-annotation", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         parseExpected(SyntaxKind.EqualsToken);
         const type = token() === SyntaxKind.IntrinsicKeyword && tryParse(parseKeywordAndNoDot) || parseType();
         parseSemicolon();

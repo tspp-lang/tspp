@@ -22,6 +22,8 @@ export interface NominalDataType {
 export interface NominalTypesADTAPI {
     /** The property whose string value names the variant of a data value at run time. */
     readonly tagProperty: string;
+    /** The property that holds a data value's fields by position, whose names `getDataTypes` gives per variant. */
+    readonly valuesProperty: string;
     /** The run-time value of `tagProperty` for a variant. */
     tagOf(variant: NominalDataVariant): string;
     /** The `data` declarations of a source text, in source order. */

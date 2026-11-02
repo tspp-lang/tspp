@@ -37,6 +37,7 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
     const typeSyntax: TSPPSyntaxExtension = {
         position: "type",
         startTokens: [kinds.LetKeyword, kinds.Identifier, kinds.LessThanToken],
+        keywords: ["let", "match", "<", "Type"],
         isStart: cursor => isLetStart(cursor) || isMatchStart(cursor) || isConstructorStart(cursor),
         parse: cursor => {
             const pos = cursor.getNodePos();
@@ -52,6 +53,7 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
     const applicationSyntax: TSPPSyntaxExtension = {
         position: "postfix-type",
         startTokens: [kinds.LessThanToken],
+        keywords: ["<"],
         isStart: cursor => cursor.token() === kinds.LessThanToken && !!cursor.precedingType,
         parse: cursor => {
             const target = cursor.precedingType!;
@@ -63,6 +65,7 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
     const annotation = (position: "type-parameter-annotation" | "type-alias-annotation"): TSPPSyntaxExtension => ({
         position,
         startTokens: [kinds.ColonToken],
+        keywords: [":"],
         isStart: cursor => cursor.token() === kinds.ColonToken,
         parse: cursor => {
             const start = cursor.getTokenStart();

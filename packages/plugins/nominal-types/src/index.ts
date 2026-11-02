@@ -37,7 +37,7 @@ export const nominalTypesPlugin = definePlugin({
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
                     if (!token) return undefined;
-                    if (["newtype", "data", "match"].includes(token.text)) {
+                    if (request.owned && ["newtype", "data", "match"].includes(token.text)) {
                         return {
                             start: token.start,
                             length: token.length,

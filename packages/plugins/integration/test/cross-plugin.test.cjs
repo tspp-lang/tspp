@@ -34,9 +34,9 @@ test("newtype and data parameters accept kind annotations", () => {
   for (const message of messages) assert.match(message, /not assignable|has kind 'Type', but kind 'Type => Type' was expected/);
 });
 
-test("an unused let binding is reported on its name although nominal-types filters before type-computation", () => {
-  // nominal-types registers first; it drops unused diagnostics only on its own generated declarations, so the
-  // zero-width `infer` diagnostic reaches type-computation, which moves it onto the binding name.
+test("an unused let binding is reported on its name although nominal-types also filters unused diagnostics", () => {
+  // Filters only see diagnostics inside their plugin's syntax, so the zero-width `infer` diagnostic reaches
+  // type-computation, which moves it onto the binding name, and the brand's goes to nominal-types, which drops it.
   const source = "newtype Id = number;\nexport const id = Id(1);\nexport type T = let Unused = number in string;";
   const { program } = createProgram(source, { noUnusedLocals: true, noUnusedParameters: true });
   const reported = program.getSemanticDiagnostics().map(diagnostic => source.slice(diagnostic.start, diagnostic.start + diagnostic.length));

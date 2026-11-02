@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { formalVerificationAnalyzer } = require("../dist");
+const { usePlugins } = require("../../test-support/compile.cjs");
+const { formalVerificationAnalyzer, formalVerificationPlugin } = require("../dist");
+
+usePlugins(formalVerificationPlugin);
 
 // Logic libraries are project-wide, so another file's logic function must not replace a local function's contract.
 test("checks a local function's contract when another file declares a logic function of the same name", async () => {
@@ -13,10 +16,10 @@ test("checks a local function's contract when another file declares a logic func
   }: bigint { return value + 1n; }
   successor(-1n);`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["logic.tspp", "program.tspp"], syntaxKinds: {},
+    currentDirectory: process.cwd(), rootFileNames: ["logic.tspp", "program.tspp"],
     sourceFiles: [
-      { fileName: "logic.tspp", text: library, root: {} },
-      { fileName: "program.tspp", text: program, root: {} },
+      { fileName: "logic.tspp", text: library },
+      { fileName: "program.tspp", text: program },
     ],
   });
   assert.deepEqual(diagnostics.map(diagnostic => `${diagnostic.fileName}: ${diagnostic.message.replace(/ Counterexample:[\s\S]*/, "")}`), [

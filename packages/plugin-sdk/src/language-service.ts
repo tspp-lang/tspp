@@ -4,6 +4,11 @@ export interface TSPPQuickInfoRequest {
     readonly fileName: string;
     readonly sourceText: string;
     readonly position: number;
+    /**
+     * Whether the position is inside syntax this plugin parsed or projected. Providers are asked innermost owner first,
+     * then the rest in plugin id order, so answer for a keyword of your own syntax only when this is true.
+     */
+    readonly owned: boolean;
     /** Source-level word under the cursor, when one exists. */
     readonly token?: TSPPQuickInfoToken;
     /** Best semantic type available before feature-specific formatting. */

@@ -3634,7 +3634,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         emit(node.name);
         emitTypeParameters(node, node.typeParameters);
         const restored = !tsppCompatibilityDeclaration && currentSourceFile ? getPreprocessedTypeAliasDeclaration(currentSourceFile.fileName, idText(node.name), node.pos) : undefined; // TSPP-SLOT(source-projection)
-        if (restored?.annotation) write(`: ${restored.annotation}`); // TSPP-SLOT(source-projection)
+        if (restored?.annotation) write(restored.annotation); // TSPP-SLOT(source-projection)
         writeSpace();
         writePunctuation("=");
         writeSpace();

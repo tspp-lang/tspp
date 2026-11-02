@@ -14,7 +14,7 @@ export const modernSyntaxPlugin = definePlugin({
             keywords: [
                 { keyword: "let", position: "expression" },
                 { keyword: "do", position: "expression" },
-                { keyword: "do", position: "function-clause" },
+                { keyword: "do", position: "function-body" },
                 { keyword: "use", position: "statement" },
                 { keyword: "def", position: "statement" },
             ],
@@ -33,7 +33,7 @@ export const modernSyntaxPlugin = definePlugin({
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
                     if (!token) return undefined;
-                    if (["let", "in", "do", "use", "def"].includes(token.text)) {
+                    if (request.owned && ["let", "in", "do", "use", "def"].includes(token.text)) {
                         return {
                             start: token.start,
                             length: token.length,

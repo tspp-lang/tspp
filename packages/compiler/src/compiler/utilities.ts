@@ -607,7 +607,7 @@ import {
     WriteFileCallbackData,
     YieldExpression,
 } from "./_namespaces/ts.js";
-import { isTSPPStaticContractMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-contract)
+import { isTSPPStaticInterfaceMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
 
 /** @internal */
 export const resolvingEmptyArray: never[] = [];
@@ -11693,7 +11693,7 @@ export function createNameResolver({
                             result = undefined;
                             break;
                         }
-                        if (lastLocation && (isStatic(lastLocation) || isTSPPStaticContractMember(lastLocation))) { // TSPP-SLOT(interface-member-contract)
+                        if (lastLocation && (isStatic(lastLocation) || isTSPPStaticInterfaceMember(lastLocation))) { // TSPP-SLOT(interface-member-binding)
                             // TypeScript 1.0 spec (April 2014): 3.4.1
                             // The scope of a type parameter extends over the entire declaration with which the type
                             // parameter list is associated, with the exception of static member declarations in classes.

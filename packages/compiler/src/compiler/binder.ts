@@ -310,7 +310,7 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { isTSPPStaticContractMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-contract)
+import { isTSPPStaticInterfaceMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
 
 /** @internal */
 export const enum ModuleInstanceState {
@@ -2291,7 +2291,7 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
                 // container, and are never in scope otherwise (even inside the body of the
                 // object / type / interface declaring them). An exception is type parameters,
                 // which are in scope without qualification (similar to 'locals').
-                if (isTSPPStaticContractMember(node)) return declareSymbol(container.symbol.exports ||= createSymbolTable(), container.symbol, node, symbolFlags, symbolExcludes); // TSPP-SLOT(interface-member-contract)
+                if (isTSPPStaticInterfaceMember(node)) return declareSymbol(container.symbol.exports ||= createSymbolTable(), container.symbol, node, symbolFlags, symbolExcludes); // TSPP-SLOT(interface-member-binding)
                 return declareSymbol(container.symbol.members!, container.symbol, node, symbolFlags, symbolExcludes);
 
             case SyntaxKind.FunctionType:

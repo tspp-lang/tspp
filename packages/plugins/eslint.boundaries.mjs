@@ -9,6 +9,11 @@ export const pluginBoundaryRules = {
         message: "Use context.dependencies.get for another plugin's API; only `import type` from its ./api subpath.",
       },
       {
+        group: ["typescript", "typescript-upstream"],
+        allowTypeImports: true,
+        message: "Use the host compiler's API from context.ts; only `import type` from TypeScript packages.",
+      },
+      {
         group: ["../../*/src/*", "../../*/dist/*"],
         message: "Plugins must not reach into another plugin's sources.",
       },

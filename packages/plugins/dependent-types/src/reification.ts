@@ -81,6 +81,7 @@ export function createReification(ts: TSPPTypeScript): Reification {
     const reify: TSPPSyntaxExtension = {
         position: "expression",
         startTokens: [kinds.Identifier],
+        keywords: ["reify"],
         isStart: cursor => cursor.tokenText() === "reify" && startsTypeOnSameLine(cursor),
         parse(cursor) {
             const f = cursor.factory;
@@ -268,7 +269,7 @@ export function createReification(ts: TSPPTypeScript): Reification {
 
     return {
         reify,
-        typecase: { position: "expression", startTokens: [kinds.Identifier], isStart: isTypecaseStart, parse: parseTypecase },
+        typecase: { position: "expression", startTokens: [kinds.Identifier], keywords: ["typecase"], isStart: isTypecaseStart, parse: parseTypecase },
         selection,
     };
 }

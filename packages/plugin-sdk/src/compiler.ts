@@ -1,30 +1,15 @@
-import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger } from "./index";
+import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger, TSPPSyntaxKeyword } from "./index";
 
-/** Immutable, compiler-neutral syntax snapshot supplied to background analyzers. */
-export interface TSPPAnalysisNode {
-    readonly kind: number;
-    readonly start: number;
-    readonly end: number;
-    readonly text: string;
-    readonly children: readonly TSPPAnalysisNode[];
-}
-
-export interface TSPPAnalysisSyntaxKinds {
-    readonly sourceFile: number;
-    readonly labeledStatement: number;
-}
-
+/** The authored text of a source file, as supplied to background analyzers. */
 export interface TSPPAnalysisSourceFile {
     readonly fileName: string;
     readonly text: string;
-    readonly root: TSPPAnalysisNode;
 }
 
 export interface TSPPProgramAnalysisInput {
     readonly currentDirectory: string;
     readonly rootFileNames: readonly string[];
     readonly sourceFiles: readonly TSPPAnalysisSourceFile[];
-    readonly syntaxKinds: TSPPAnalysisSyntaxKinds;
 }
 
 export interface TSPPAnalysisDiagnostic {
@@ -59,8 +44,15 @@ export interface TSPPProgramAnalyzer {
     analyze(input: TSPPProgramAnalysisInput): Promise<TSPPProgramAnalysisOutput>;
 }
 
+/**
+ * Rewrites a `.tspp` file before it is parsed. Every preprocessor receives the authored text, whatever the others do;
+ * the host merges their results and reports a diagnostic where two rewrite the same text differently. Search the text
+ * through `maskNonCode`, so that strings and comments stay as they are.
+ */
 export interface TSPPSourcePreprocessor {
     readonly id: string;
+    /** The syntax this preprocessor handles, which two plugins may not share. */
+    readonly claims: readonly TSPPSyntaxKeyword[];
     /** Must return text with exactly the same UTF-16 length and line breaks. */
     preprocess(fileName: string, sourceText: string): string;
     /**
@@ -69,8 +61,8 @@ export interface TSPPSourcePreprocessor {
      * projected syntax seen by TypeScript.
      */
     restoreTypeAliasDeclaration?(request: TSPPPreprocessedTypeAliasRequest): TSPPPreprocessedTypeAlias | undefined;
-    /** Restores a preprocessed function `with` clause for `.d.tspp` output. */
-    restoreFunctionWithClause?(request: TSPPPreprocessedFunctionRequest): string | undefined;
+    /** Restores a preprocessed clause after a function's parameters for `.d.tspp` output. */
+    restoreFunctionClause?(request: TSPPPreprocessedFunctionRequest): string | undefined;
     /** Restores preprocessed syntax written before a function's `function` keyword for `.d.tspp` output. */
     restoreFunctionPrefix?(request: TSPPPreprocessedFunctionRequest): string | undefined;
 }
@@ -83,6 +75,7 @@ export interface TSPPPreprocessedTypeAliasRequest {
 }
 
 export interface TSPPPreprocessedTypeAlias {
+    /** The text between the alias's name and its `=`, including any separator such as `::`. */
     readonly annotation?: string;
     readonly type: string;
 }
@@ -220,6 +213,12 @@ export interface TSPPSyntaxCursor {
 export interface TSPPSyntaxExtension {
     readonly position: TSPPSyntaxExtensionPosition;
     readonly startTokens: readonly import("typescript-upstream").SyntaxKind[];
+    /**
+     * The words or tokens that start this syntax. Two plugins may not claim the same one in the same position, and the
+     * host refuses the second at activation. Required when `startTokens` includes identifiers, which only `isStart`
+     * would tell apart otherwise.
+     */
+    readonly keywords?: readonly string[];
     isStart(cursor: TSPPSyntaxCursor): boolean;
     /**
      * Returns an expression, a statement, a function body block, or a type, matching `position`; an annotation
@@ -232,7 +231,8 @@ export interface TSPPSyntaxExtension {
         | TSPPSyntaxAnnotation;
     /**
      * The text of a node in feature-rich `.d.tspp` output, such as the authored declaration or type; an empty string
-     * omits a statement. `node` is the declaration emitter's node, a statement or a type-level node.
+     * omits a statement. `node` is the declaration emitter's node, a statement or a type-level node. Nodes parsed by
+     * another plugin's syntax never reach this method; of the others, at most one plugin may answer for a node.
      */
     restoreDeclaration?(node: import("typescript-upstream").Node): string | undefined;
     /** The text of a node in the TypeScript-compatible `.d.ts` output that accompanies `.d.tspp` output. */
@@ -336,22 +336,25 @@ export interface TSPPDiagnosticProvider {
     ): readonly import("typescript-upstream").Diagnostic[];
     /**
      * Return false to drop a diagnostic the checker reported, for example one about code this plugin generated, or a
-     * diagnostic to report in its place, for example at the source text a generated node stands for.
+     * diagnostic to report in its place, for example at the source text a generated node stands for. Only called for
+     * diagnostics inside syntax this plugin parsed, innermost plugin first.
      */
     filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean | import("typescript-upstream").Diagnostic;
 }
 
 /**
- * Makes interface members carrying a modifier static members of the interface: they are allowed there, bound outside
- * its instance type, and resolve names the way static class members do. What implementations owe for them is the
- * registering plugin's to check, for example with a diagnostic provider.
+ * Binds interface members outside the instance type, on the interface's static side: they are allowed there, and
+ * resolve names the way static class members do. What implementations owe for them is the registering plugin's to
+ * check, for example with a diagnostic provider.
  */
-export interface TSPPInterfaceMemberContract {
-    readonly modifier: "static";
+export interface TSPPInterfaceMemberBinding {
+    /** The words that mark such a member, which two plugins may not share. */
+    readonly keywords: readonly string[];
+    isStaticMember(member: import("typescript-upstream").Node): boolean;
 }
 
 export interface TSPPCompilerPluginAPI {
-    registerInterfaceMemberContract(contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
+    registerInterfaceMemberBinding(binding: TSPPInterfaceMemberBinding): TSPPPluginDisposer;
     registerProgramAnalyzer(analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
     registerProgramRebuilder(rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;
@@ -361,7 +364,7 @@ export interface TSPPCompilerPluginAPI {
 }
 
 export interface TSPPCompilerHostAPI {
-    registerInterfaceMemberContract(pluginId: string, contract: TSPPInterfaceMemberContract): TSPPPluginDisposer;
+    registerInterfaceMemberBinding(pluginId: string, binding: TSPPInterfaceMemberBinding): TSPPPluginDisposer;
     registerProgramAnalyzer(pluginId: string, analyzer: TSPPProgramAnalyzer): TSPPPluginDisposer;
     registerSourcePreprocessor(pluginId: string, preprocessor: TSPPSourcePreprocessor): TSPPPluginDisposer;
     registerProgramRebuilder(pluginId: string, rebuilder: TSPPProgramRebuilder): TSPPPluginDisposer;

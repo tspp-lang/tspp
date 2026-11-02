@@ -1,20 +1,18 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { createFormalVerificationAnalyzer, formalVerificationAnalyzer } = require("../dist");
-const { restoreContractFunctionWithClause } = require("../dist/contracts");
+const { usePlugins } = require("../../test-support/compile.cjs");
+const { createFormalVerificationAnalyzer, formalVerificationAnalyzer, formalVerificationPlugin } = require("../dist");
+const { restoreContractFunctionClause } = require("../dist/contracts");
 const { restoreRefinementTypeAlias } = require("../dist/refinements");
 const { clearPreparedVerificationSources, prepareVerificationSource } = require("../dist/source-cache");
 
-const labeled = (text, start = 0) => ({ kind: 256, start, end: start + text.length, text, children: [] });
+usePlugins(formalVerificationPlugin);
+
+const labeled = text => ({ text });
 const input = nodes => ({
   currentDirectory: process.cwd(),
   rootFileNames: ["proof.tspp"],
-  syntaxKinds: { sourceFile: 308, labeledStatement: 256 },
-  sourceFiles: [{
-    fileName: "proof.tspp",
-    text: nodes.map(node => node.text).join("\n"),
-    root: { kind: 308, start: 0, end: 100, text: "", children: nodes },
-  }],
+  sourceFiles: [{ fileName: "proof.tspp", text: nodes.map(node => node.text).join("\n") }],
 });
 
 test("reuses prepared source models until the source text changes", () => {
@@ -37,7 +35,7 @@ test("restores contracts and refinements for feature-rich declarations", () => {
     name: "Positive",
     declarationStart: source.indexOf("type Positive"),
   }), { type: "bigint with { predicate: value > 0n; }" });
-  assert.equal(restoreContractFunctionWithClause({
+  assert.equal(restoreContractFunctionClause({
     fileName: "proof.tspp",
     sourceText: source,
     name: "widen",
@@ -48,7 +46,7 @@ test("restores contracts and refinements for feature-rich declarations", () => {
 test("proves and rejects arithmetic assertions through Z3", async () => {
   const diagnostics = await formalVerificationAnalyzer.analyze(input([
     labeled("assert: 1n + 1n === 2n;"),
-    labeled("assert: 2 * 3 < 5;", 30),
+    labeled("assert: 2 * 3 < 5;"),
   ]));
   assert.equal(diagnostics.length, 1);
   assert.equal(diagnostics[0].code, 19002);
@@ -63,8 +61,7 @@ test("verifies symbolic function postconditions", async () => {
   const diagnostics = await formalVerificationAnalyzer.analyze({
     currentDirectory: process.cwd(),
     rootFileNames: ["contract.tspp"],
-    syntaxKinds: { sourceFile: 308, labeledStatement: 256 },
-    sourceFiles: [{ fileName: "contract.tspp", text: source, root: { kind: 308, start: 0, end: source.length, text: source, children: [] } }],
+    sourceFiles: [{ fileName: "contract.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -84,8 +81,7 @@ test("verifies loop invariant initialization and preservation", async () => {
   }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
     currentDirectory: process.cwd(), rootFileNames: ["loop.tspp"],
-    syntaxKinds: { sourceFile: 308, labeledStatement: 256 },
-    sourceFiles: [{ fileName: "loop.tspp", text: source, root: { kind: 308, start: 0, end: source.length, text: source, children: [] } }],
+    sourceFiles: [{ fileName: "loop.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -98,8 +94,8 @@ test("tracks branch facts across every return path", async () => {
     return -value;
   }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["branches.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "branches.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["branches.tspp"],
+    sourceFiles: [{ fileName: "branches.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -112,8 +108,8 @@ test("uses trusted assumptions and local symbolic values for assertions", async 
     return next;
   }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["local.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "local.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["local.tspp"],
+    sourceFiles: [{ fileName: "local.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -129,8 +125,8 @@ test("checks direct call preconditions and consumes verified summaries", async (
   }: bigint { return successor(successor(value)); }
   successor(-1n);`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["calls.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "calls.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["calls.tspp"],
+    sourceFiles: [{ fileName: "calls.tspp", text: source }],
   });
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /call precondition could not be proved/);
@@ -140,8 +136,8 @@ test("models JavaScript bigint division and remainder toward zero", async () => 
   const source = `assert: -7n / 2n === -3n;
   assert: -7n % 2n === -1n;`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["arithmetic.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "arithmetic.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["arithmetic.tspp"],
+    sourceFiles: [{ fileName: "arithmetic.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -151,8 +147,8 @@ test("requires runtime divisors to be nonzero", async () => {
     return value / divisor;
   }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["definedness.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "definedness.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["definedness.tspp"],
+    sourceFiles: [{ fileName: "definedness.tspp", text: source }],
   });
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /division definedness could not be proved/);
@@ -164,8 +160,8 @@ test("proves refinement introductions and propagates parameter predicates", asyn
   const age: Positive = 18n;
   function widen(value: Positive): NonNegative { return value; }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["refinement.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "refinement.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["refinement.tspp"],
+    sourceFiles: [{ fileName: "refinement.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -174,8 +170,8 @@ test("rejects an invalid refinement introduction", async () => {
   const source = `type Positive = bigint with { predicate: value > 0n; };
   const invalid: Positive = -1n;`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["bad-refinement.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "bad-refinement.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["bad-refinement.tspp"],
+    sourceFiles: [{ fileName: "bad-refinement.tspp", text: source }],
   });
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /refinement introduction could not be proved/);
@@ -187,8 +183,8 @@ test("verifies number arithmetic under an explicit mathematical-real model", asy
     ensures: result === (left + right) * 0.5;
   }: number { return (left + right) * 0.5; }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["real.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "real.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["real.tspp"],
+    sourceFiles: [{ fileName: "real.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -198,8 +194,8 @@ test("requires an explicit model for number proofs", async () => {
     ensures: result > value;
   }: number { return value + 1; }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["number.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "number.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["number.tspp"],
+    sourceFiles: [{ fileName: "number.tspp", text: source }],
   });
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /requires numberModel/);
@@ -210,8 +206,8 @@ test("emits safe-integer overflow obligations", async () => {
     numberModel: "safe-integer";
   }: number { return value * 2; }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["safe.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "safe.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["safe.tspp"],
+    sourceFiles: [{ fileName: "safe.tspp", text: source }],
   });
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /safe-integer range could not be proved/);
@@ -222,8 +218,8 @@ test("supports string equality without treating strings as arithmetic", async ()
     ensures: result === "ok";
   }: string { return "ok"; }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["strings.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "strings.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["strings.tspp"],
+    sourceFiles: [{ fileName: "strings.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -242,8 +238,8 @@ test("uses branch facts for record fields and discriminated unions", async () =>
     return 0n;
   }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["records.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "records.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["records.tspp"],
+    sourceFiles: [{ fileName: "records.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -251,8 +247,8 @@ test("uses branch facts for record fields and discriminated unions", async () =>
 test("publishes replayable SMT-LIB as generic analysis artifacts", async () => {
   const source = `assert: 1n + 1n === 2n;`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["artifact.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "artifact.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["artifact.tspp"],
+    sourceFiles: [{ fileName: "artifact.tspp", text: source }],
   });
   assert.equal(diagnostics.artifacts.length, 1);
   assert.equal(diagnostics.artifacts[0].status, "proved");
@@ -277,8 +273,8 @@ test("encodes recursive data constructors and switch paths", async () => {
   // Data types reach the verifier through the nominal-types ADT API.
   const { nominalTypesADTAPI } = require("../../nominal-types/dist");
   const diagnostics = await createFormalVerificationAnalyzer({ getNominalTypes: () => nominalTypesADTAPI }).analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["data.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "data.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["data.tspp"],
+    sourceFiles: [{ fileName: "data.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
 });
@@ -310,8 +306,8 @@ test("loads reusable predicates, quantifiers, axioms, and recursive definitions"
   assert: hasIdentityWitness(7n);
   assert: successor(2n) === 3n;`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
-    currentDirectory: process.cwd(), rootFileNames: ["logic.tspp"], syntaxKinds: {},
-    sourceFiles: [{ fileName: "logic.tspp", text: source, root: {} }],
+    currentDirectory: process.cwd(), rootFileNames: ["logic.tspp"],
+    sourceFiles: [{ fileName: "logic.tspp", text: source }],
   });
   assert.deepEqual(diagnostics, []);
   assert.match(diagnostics.artifacts[0].content, /define-fun \|shiftedNonnegative\|/);

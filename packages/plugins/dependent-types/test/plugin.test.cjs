@@ -41,7 +41,7 @@ test("keeps ordinary TypeScript generic types behind the external-term boundary"
 });
 
 test("projects plugin-owned syntax to length-preserving TypeScript", () => {
-  const source = "export type Identity: Type1 = {A: Type0} -> (value: A) -> A;\n";
+  const source = "export type Identity :: Type1 = {A: Type0} -> (value: A) -> A;\n";
   const projected = projectDependentTypes("identity.tspp", source);
   assert.equal(projected.length, source.length);
   assert.equal(projected.split("\n").length, source.split("\n").length);
@@ -50,7 +50,7 @@ test("projects plugin-owned syntax to length-preserving TypeScript", () => {
 
 test("projects erased binders and partial inference through ordinary TypeScript", () => {
   const source = `
-    export type Select: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
+    export type Select :: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
     declare const select: Select;
     select<auto, string>(1, "right");
   `;
@@ -62,8 +62,8 @@ test("projects erased binders and partial inference through ordinary TypeScript"
 
 test("restores authored dependent aliases for feature-rich declarations", () => {
   const source = `
-    export type UniverseZero: Type1 = Type0;
-    export type ElementOrSelf: Type1 = (A: Type0) -> typecase A {
+    export type UniverseZero :: Type1 = Type0;
+    export type ElementOrSelf :: Type1 = (A: Type0) -> typecase A {
       Array<infer Element>: Element,
       _: A
     };
@@ -73,23 +73,23 @@ test("restores authored dependent aliases for feature-rich declarations", () => 
     sourceText: source,
     name: "UniverseZero",
     declarationStart: source.indexOf("type UniverseZero"),
-  }), { annotation: "Type1", type: "Type0" });
+  }), { annotation: " :: Type1", type: "Type0" });
   assert.deepEqual(restoreDependentTypeAlias({
     fileName: "types.tspp",
     sourceText: source,
     name: "ElementOrSelf",
     declarationStart: source.indexOf("type ElementOrSelf"),
   }), {
-    annotation: "Type1",
+    annotation: " :: Type1",
     type: "(A: Type0) -> typecase A {\n      Array<infer Element>: Element,\n      _: A\n    }",
   });
 });
 
 test("analyzer accepts valid aliases and resolves earlier aliases", async () => {
   const diagnostics = await dependentTypesAnalyzer.analyze(input(`
-    export type U: Type1 = Type0;
-    export type Identity: Type1 = {A: Type0} -> (value: A) -> A;
-    export type Alias: Type1 = Identity;
+    export type U :: Type1 = Type0;
+    export type Identity :: Type1 = {A: Type0} -> (value: A) -> A;
+    export type Alias :: Type1 = Identity;
   `));
   assert.deepEqual(diagnostics, []);
   assert.equal(diagnostics.artifacts.length, 3);
@@ -101,8 +101,8 @@ test("analyzer accepts valid aliases and resolves earlier aliases", async () => 
 
 test("publishes normalized terms and their normalized MLTT types", async () => {
   const diagnostics = await dependentTypesAnalyzer.analyze(input(`
-    export type One: Nat = NatAdd<Zero, Succ<Zero>>;
-    export type Proof: Type0 = Eq<Nat, One, Succ<Zero>>;
+    export type One :: Nat = NatAdd<Zero, Succ<Zero>>;
+    export type Proof :: Type0 = Eq<Nat, One, Succ<Zero>>;
   `));
   assert.deepEqual(diagnostics, []);
   assert.equal(diagnostics.artifacts.length, 2);
@@ -113,8 +113,8 @@ test("publishes normalized terms and their normalized MLTT types", async () => {
 
 test("analyzer reports kind mismatches and ill-typed core terms", async () => {
   const diagnostics = await dependentTypesAnalyzer.analyze(input(`
-    export type WrongUniverse: Type0 = Type0;
-    export type BadSuccessor: Type0 = Succ<Type0>;
+    export type WrongUniverse :: Type0 = Type0;
+    export type BadSuccessor :: Type0 = Succ<Type0>;
   `));
   assert.equal(diagnostics.length, 2);
   assert.match(diagnostics[0].message, /Type1, not Type0/);
@@ -124,8 +124,8 @@ test("analyzer reports kind mismatches and ill-typed core terms", async () => {
 test("analyzer reports malformed binder signatures as syntax errors", async () => {
   // The projection turns these into `any` so the compiler stays quiet; the analyzer is where they surface.
   const diagnostics = await dependentTypesAnalyzer.analyze(input(`
-    export type MissingColon: Type1 = {A Type0} -> A;
-    export type MissingDomain: Type1 = (x: ) -> x;
+    export type MissingColon :: Type1 = {A Type0} -> A;
+    export type MissingDomain :: Type1 = (x: ) -> x;
   `));
   assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [19101, 19101]);
   assert.match(diagnostics[0].message, /Expected an identifier, found '\{'/);
@@ -170,9 +170,9 @@ test("requires the '_' default arm to close a type match", () => {
 
 test("checks aliases annotated by terms as well as universes", async () => {
   const diagnostics = await dependentTypesAnalyzer.analyze(input(`
-    export type One: Nat = Succ<Zero>;
-    export type Two: Nat = NatAdd<One, One>;
-    export type Proof: Type0 = Eq<Nat, Two, Succ<Succ<Zero>>>;
+    export type One :: Nat = Succ<Zero>;
+    export type Two :: Nat = NatAdd<One, One>;
+    export type Proof :: Type0 = Eq<Nat, Two, Succ<Succ<Zero>>>;
   `));
   assert.deepEqual(diagnostics, []);
 });

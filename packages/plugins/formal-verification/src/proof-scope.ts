@@ -1,16 +1,17 @@
-import ts from "typescript";
+import type * as TS from "typescript-upstream";
+import { nameText, ts } from "./host-api";
 import { refinementFromType } from "./models";
 import type { RefinementModel } from "./refinements";
 
 export function collectTopLevelProofVariables(
-    sourceFile: ts.SourceFile,
+    sourceFile: TS.SourceFile,
     refinements: ReadonlyMap<string, RefinementModel>,
 ): ReadonlySet<string> {
     const needed = new Set<string>();
-    const declarations = new Map<string, ts.VariableDeclaration>();
+    const declarations = new Map<string, TS.VariableDeclaration>();
     for (const statement of sourceFile.statements) {
         if (ts.isVariableStatement(statement)) collectDeclarations(statement, declarations, needed, refinements);
-        else if (ts.isLabeledStatement(statement) && statement.label.text === "assert") {
+        else if (ts.isLabeledStatement(statement) && nameText(statement.label) === "assert") {
             collectIdentifiers(statement.statement, needed);
         }
     }
@@ -30,19 +31,19 @@ export function collectTopLevelProofVariables(
 }
 
 function collectDeclarations(
-    statement: ts.VariableStatement,
-    declarations: Map<string, ts.VariableDeclaration>,
+    statement: TS.VariableStatement,
+    declarations: Map<string, TS.VariableDeclaration>,
     needed: Set<string>,
     refinements: ReadonlyMap<string, RefinementModel>,
 ): void {
     for (const declaration of statement.declarationList.declarations) {
         if (!ts.isIdentifier(declaration.name)) continue;
-        declarations.set(declaration.name.text, declaration);
-        if (refinementFromType(declaration.type, refinements)) needed.add(declaration.name.text);
+        declarations.set(nameText(declaration.name), declaration);
+        if (refinementFromType(declaration.type, refinements)) needed.add(nameText(declaration.name));
     }
 }
 
-function collectIdentifiers(node: ts.Node, names: Set<string>): void {
-    if (ts.isIdentifier(node) && !ts.isPropertyAccessExpression(node.parent)) names.add(node.text);
+function collectIdentifiers(node: TS.Node, names: Set<string>): void {
+    if (ts.isIdentifier(node) && !ts.isPropertyAccessExpression(node.parent)) names.add(nameText(node));
     ts.forEachChild(node, child => collectIdentifiers(child, names));
 }

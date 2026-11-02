@@ -28,7 +28,6 @@
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*",
-    "typescript": "5.9.3",
     "z3-solver": "5.2.0"
   },
   "devDependencies": {
@@ -38,6 +37,7 @@
     "globals": "^17.12.0",
     "rimraf": "^6.1.3",
     "typescript": "5.9.3",
-    "typescript-eslint": "^8.70.0"
+    "typescript-eslint": "^8.70.0",
+    "typescript-upstream": "npm:typescript@6.0.3"
   }
 }

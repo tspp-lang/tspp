@@ -1,23 +1,15 @@
 import type {
     TSPPAnalysisArtifact,
     TSPPAnalysisDiagnostic,
-    TSPPAnalysisNode,
     TSPPProgramAnalysisInput,
 } from "@tspp/plugin-sdk/compiler";
 
-import { forEachChild } from "../parser.js";
 import { normalizePath } from "../path.js";
-import { skipTrivia } from "../scanner.js";
 import type {
     Diagnostic,
-    Node,
     Program,
-    SourceFile,
 } from "../types.js";
-import {
-    DiagnosticCategory,
-    SyntaxKind,
-} from "../types.js";
+import { DiagnosticCategory } from "../types.js";
 import {
     getOriginalTSPPSource,
     getRegisteredTSPPProgramAnalyzers,
@@ -26,42 +18,17 @@ import {
 const analysisArtifacts = new WeakMap<Program, readonly TSPPAnalysisArtifact[]>();
 const analysisResults = new WeakMap<Program, Promise<readonly TSPPAnalysisDiagnostic[]>>();
 
-function snapshotNode(sourceFile: SourceFile, node: Node): TSPPAnalysisNode {
-    const children: TSPPAnalysisNode[] = [];
-    forEachChild(node, child => {
-        children.push(snapshotNode(sourceFile, child));
-        return undefined;
-    });
-    const start = skipTrivia(sourceFile.text, node.pos);
-    return {
-        kind: node.kind,
-        start,
-        end: node.end,
-        text: sourceFile.text.slice(start, node.end),
-        children,
-    };
-}
-
 function snapshotProgram(program: Program): TSPPProgramAnalysisInput {
     const rootNames = new Set(program.getRootFileNames());
     return {
         currentDirectory: program.getCurrentDirectory(),
         rootFileNames: [...rootNames],
-        syntaxKinds: {
-            sourceFile: SyntaxKind.SourceFile,
-            labeledStatement: SyntaxKind.LabeledStatement,
-        },
         sourceFiles: program.getSourceFiles()
             .filter(sourceFile => rootNames.has(sourceFile.fileName) && !sourceFile.isDeclarationFile)
-            .map(sourceFile => {
-                const original = getOriginalTSPPSource(sourceFile.fileName, sourceFile.text);
-                const snapshotSource = original === sourceFile.text ? sourceFile : { ...sourceFile, text: original } as SourceFile;
-                return {
-                    fileName: sourceFile.fileName,
-                    text: original,
-                    root: snapshotNode(snapshotSource, sourceFile),
-                };
-            }),
+            .map(sourceFile => ({
+                fileName: sourceFile.fileName,
+                text: getOriginalTSPPSource(sourceFile.fileName, sourceFile.text),
+            })),
     };
 }
 

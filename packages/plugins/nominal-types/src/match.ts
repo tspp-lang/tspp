@@ -216,7 +216,7 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
     }
 
     return {
-        extension: { position: "expression", startTokens: [kinds.Identifier], isStart, parse },
+        extension: { position: "expression", startTokens: [kinds.Identifier], keywords: ["match"], isStart, parse },
         matches,
         count: () => count,
     };

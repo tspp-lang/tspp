@@ -1,3 +1,4 @@
+import { maskNonCode } from "@tspp/plugin-sdk";
 import type {
     TSPPPreprocessedTypeAlias,
     TSPPPreprocessedTypeAliasRequest,
@@ -24,13 +25,17 @@ export interface DependentTypeAlias {
     readonly expressionEnd: number;
 }
 
-const aliasPattern = /\btype\s+([A-Za-z_$][\w$]*)\s*:\s*([^=;]+?)\s*=\s*/g;
+// `type Name :: Annotation = term;`. The `::` is what makes an alias dependent: a single `:` is a kind annotation on an
+// ordinary TypeScript alias, which belongs to whichever plugin claims that position.
+const aliasPattern = /\btype\s+([A-Za-z_$][\w$]*)\s*::\s*([^=;]+?)\s*=\s*/g;
 
 export function collectDependentTypeAliases(source: string): DependentTypeAlias[] {
     const aliases: DependentTypeAlias[] = [];
-    for (let match; (match = aliasPattern.exec(source));) {
+    const code = maskNonCode(source);
+    aliasPattern.lastIndex = 0;
+    for (let match; (match = aliasPattern.exec(code));) {
         const rawExpressionStart = aliasPattern.lastIndex;
-        const expressionEnd = findStatementEnd(source, rawExpressionStart);
+        const expressionEnd = findStatementEnd(code, rawExpressionStart);
         if (expressionEnd < 0) continue;
         const rawExpression = source.slice(rawExpressionStart, expressionEnd);
         const leadingWhitespace = /^\s*/.exec(rawExpression)![0].length;
@@ -41,7 +46,7 @@ export function collectDependentTypeAliases(source: string): DependentTypeAlias[
             nameEnd: match.index + match[0].indexOf(match[1]) + match[1].length,
             annotation: match[2].trim(),
             annotationLevel: parseUniverseAnnotation(match[2]),
-            annotationStart: match.index + match[0].indexOf(":"),
+            annotationStart: match.index + match[0].indexOf("::"),
             expression: source.slice(expressionStart, expressionEnd).trimEnd(),
             expressionStart,
             expressionEnd,
@@ -51,9 +56,8 @@ export function collectDependentTypeAliases(source: string): DependentTypeAlias[
     return aliases;
 }
 
-export function projectDependentTypes(fileName: string, source: string): string {
-    if (!fileName.endsWith(".tspp") && !fileName.endsWith(".d.tspp")) return source;
-    const characters = [...source];
+export function projectDependentTypes(_fileName: string, source: string): string {
+    const characters = source.split("");
     const aliases = new Map<string, MlttTerm>();
     for (const alias of collectDependentTypeAliases(source)) {
         const equals = source.lastIndexOf("=", alias.expressionStart);
@@ -81,7 +85,6 @@ export function projectDependentTypes(fileName: string, source: string): string 
 export function restoreDependentTypeAlias(
     request: TSPPPreprocessedTypeAliasRequest,
 ): TSPPPreprocessedTypeAlias | undefined {
-    if (!request.fileName.endsWith(".tspp") && !request.fileName.endsWith(".d.tspp")) return undefined;
     const candidates = collectDependentTypeAliases(request.sourceText)
         .filter(alias => alias.name === request.name);
     const alias = candidates.reduce<DependentTypeAlias | undefined>((closest, candidate) =>
@@ -89,12 +92,12 @@ export function restoreDependentTypeAlias(
             || Math.abs(candidate.nameStart - request.declarationStart) < Math.abs(closest.nameStart - request.declarationStart)
             ? candidate
             : closest, undefined);
-    return alias && { annotation: alias.annotation, type: alias.expression };
+    return alias && { annotation: ` :: ${alias.annotation}`, type: alias.expression };
 }
 
 function projectPartialInference(source: string, characters: string[]): void {
     const partialTypeArguments = /<[^<>\r\n]*\bauto\b[^<>\r\n]*>(?=\s*\()/gu;
-    for (let match; (match = partialTypeArguments.exec(source));) {
+    for (let match; (match = partialTypeArguments.exec(maskNonCode(source)));) {
         for (let index = match.index; index < match.index + match[0].length; index++) mask(characters, index);
     }
 }

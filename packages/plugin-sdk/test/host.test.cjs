@@ -185,3 +185,26 @@ test("language-service facets register feature-owned semantic providers", () => 
   host.dispose();
   assert.equal(providers.length, 0);
 });
+
+test("maskNonCode blanks comments and literal text, keeping offsets and line breaks", () => {
+  const { maskNonCode } = require("../dist");
+  const expectMask = (text, expected) => {
+    assert.equal(maskNonCode(text).length, text.length, text);
+    assert.equal(maskNonCode(text).replace(/ +/g, " ").trim(), expected, text);
+  };
+  expectMask("a // with {\nb", "a \nb");
+  expectMask("a /* with\n{ */ b", "a \n b");
+  expectMask(`a "with { \\" }" b`, "a b");
+  expectMask("a 'with' b", "a b");
+  // Only the text of a template is blank: its substitutions are code, and may hold templates of their own.
+  expectMask("a `with ${b + `c ${d}`} e` f", "a b + d f");
+  // A brace inside a substitution does not end it.
+  expectMask("`x${{ a: 1 }.a}y` z", "{ a: 1 }.a z");
+  // A slash divides after a value and starts a regular expression elsewhere.
+  expectMask("a / b / c", "a / b / c");
+  expectMask("x = /with {/g; y", "x = ; y");
+  expectMask("return /'/.test(s) // it's", "return .test(s)");
+  // An unterminated string ends with its line, so the rest of the file stays code.
+  expectMask(`a "b\nc`, "a \nc");
+  expectMask("const a = `b${c}`; // d\r\nfunction f() {}", "const a = c ; \r\nfunction f() {}");
+});

@@ -3,8 +3,9 @@
 // this reports the changed lines per upstream file, the hunks without that marker, and how often feature terms
 // still appear in the added lines. Usage: node scripts/core-diff.mjs [--base <ref>] [--json] [--check]
 //
-// With --check (CI), it exits non-zero when an upstream file has a hunk without the marker or when the changed lines
-// exceed `budget`. Lower the budget when the core shrinks; raising it needs the review that a new slot needs.
+// With --check (CI), it exits non-zero when an upstream file has a hunk without the marker, a hunk too long to be a call
+// site, or when the changed lines exceed `budget`. Lower the budget when the core shrinks; raising it needs the review
+// that a new slot needs.
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import process from "node:process";
@@ -22,6 +23,11 @@ const featureTerms = [
 
 // Set from the 2026-11-02 shrink (+294 -44 in 24 files) with a small margin.
 const budget = { upstreamFiles: 25, upstreamAdded: 305, upstreamRemoved: 48 };
+
+// A call site forwards in a few lines. A longer hunk must be a known exception: the parser's cursor for plugin syntax
+// reads the parser's closure, so it cannot move to a new file.
+const maxHunkAdded = 15;
+const longHunkExceptions = [{ file: `${coreDir}/compiler/parser.ts`, contains: "createTSPPSyntaxCursor", maxAdded: 70 }];
 
 const args = process.argv.slice(2);
 const base = valueOf("--base") ?? "tspp-core-baseline";
@@ -50,11 +56,16 @@ const addedFiles = new Set(
 );
 
 const unmarkedHunks = [];
+const longHunks = [];
 const termCounts = Object.fromEntries(featureTerms.map(term => [term, 0]));
 let current;
 let hunk;
 const finishHunk = () => {
     if (hunk && !addedFiles.has(current) && !hunk.marked) unmarkedHunks.push({ file: current, line: hunk.line, added: hunk.added, removed: hunk.removed });
+    if (hunk && !addedFiles.has(current) && hunk.added > maxHunkAdded) {
+        const exception = longHunkExceptions.find(({ file, contains }) => file === current && hunk.text.includes(contains));
+        if (!exception || hunk.added > exception.maxAdded) longHunks.push({ file: current, line: hunk.line, added: hunk.added });
+    }
     hunk = undefined;
 };
 for (const line of git("diff", "--unified=0", "--no-renames", "--ignore-cr-at-eol", base, "--", coreDir).split("\n")) {
@@ -69,10 +80,11 @@ for (const line of git("diff", "--unified=0", "--no-renames", "--ignore-cr-at-eo
     else if (!current) continue;
     else if (line.startsWith("@@")) {
         finishHunk();
-        hunk = { line: Number(/\+(\d+)/.exec(line)[1]), added: 0, removed: 0, marked: false };
+        hunk = { line: Number(/\+(\d+)/.exec(line)[1]), added: 0, removed: 0, marked: false, text: "" };
     }
     else if (hunk && line.startsWith("+")) {
         hunk.added++;
+        hunk.text += line;
         if (slotMarker.test(line)) hunk.marked = true;
         const lower = line.toLowerCase();
         for (const term of featureTerms) termCounts[term] += lower.split(term.toLowerCase()).length - 1;
@@ -92,11 +104,12 @@ const summary = {
     newFiles: added.length,
     newFileLines: sum(added, "added"),
     unmarkedHunks: unmarkedHunks.length,
+    longHunks: longHunks.length,
 };
 const overBudget = Object.entries(budget).filter(([key, limit]) => summary[key] > limit).map(([key, limit]) => `${key} ${summary[key]} > ${limit}`);
 
 if (json) {
-    console.log(JSON.stringify({ summary, budget, overBudget, upstream, added, unmarkedHunks, featureTerms: termCounts }, undefined, 2));
+    console.log(JSON.stringify({ summary, budget, overBudget, upstream, added, unmarkedHunks, longHunks, featureTerms: termCounts }, undefined, 2));
 }
 else {
     console.log(`Core drift from ${base} (${coreDir}, tests and tspp/ directories excluded)\n`);
@@ -108,6 +121,8 @@ else {
     for (const [term, count] of Object.entries(termCounts)) if (count) console.log(`  ${count}\t${term}`);
     console.log(`\nUnmarked hunks in upstream files: ${unmarkedHunks.length}`);
     for (const entry of unmarkedHunks) console.log(`  ${entry.file}:${entry.line} (+${entry.added} -${entry.removed})`);
+    console.log(`Hunks too long to be call sites: ${longHunks.length}`);
+    for (const entry of longHunks) console.log(`  ${entry.file}:${entry.line} (+${entry.added})`);
     console.log(
         `Total: ${summary.upstreamFiles} upstream files +${summary.upstreamAdded} -${summary.upstreamRemoved}, `
             + `${summary.newFiles} new files +${summary.newFileLines}`,
@@ -118,6 +133,7 @@ else {
 if (check) {
     const failures = [
         ...unmarkedHunks.length ? [`${unmarkedHunks.length} hunks in upstream files lack a TSPP-SLOT(<slot>) marker`] : [],
+        ...longHunks.length ? [`${longHunks.length} hunks in upstream files are longer than ${maxHunkAdded} lines`] : [],
         ...added.length ? [`${added.length} new files outside the tspp/ directories`] : [],
         ...overBudget.map(entry => `over budget: ${entry}`),
     ];

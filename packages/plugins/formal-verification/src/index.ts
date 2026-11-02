@@ -7,12 +7,13 @@ import type {
     TSPPProgramAnalysisOutput,
     TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
-import { maskContractClauses, restoreContractFunctionWithClause, type PendingProof } from "./contracts";
+import { maskContractClauses, restoreContractFunctionClause, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
 import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
 import { clearPreparedVerificationSources } from "./source-cache";
 import { restoreRefinementTypeAlias } from "./refinements";
+import { useTypeScript } from "./host-api";
 
 export interface FormalVerificationAnalyzerOptions {
     /**
@@ -46,6 +47,8 @@ async function analyze(input: TSPPProgramAnalysisInput, options: FormalVerificat
         return diagnostics;
     }
     for (const sourceFile of input.sourceFiles) {
+        // Other files can hold logic definitions, but contracts and directives are TS++ syntax.
+        if (!sourceFile.fileName.endsWith(".tspp")) continue;
         for (const proof of collectProgramProofs(sourceFile, diagnostics, logic, nominalTypes)) queries.push({ proof });
     }
     const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
@@ -97,10 +100,18 @@ export const formalVerificationPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
+                useTypeScript(context.ts);
                 const disposeProjection = context.compiler.registerSourcePreprocessor({
                     id: "contract-projection",
+                    claims: [
+                        { keyword: "with", position: "function-clause" },
+                        { keyword: "with", position: "loop-clause" },
+                        { keyword: "with", position: "type-clause" },
+                        { keyword: "assert", position: "statement" },
+                        { keyword: "assume", position: "statement" },
+                    ],
                     preprocess: maskContractClauses,
-                    restoreFunctionWithClause: restoreContractFunctionWithClause,
+                    restoreFunctionClause: restoreContractFunctionClause,
                     restoreTypeAliasDeclaration: restoreRefinementTypeAlias,
                 });
                 const disposeAnalysis = context.compiler.registerProgramAnalyzer(createFormalVerificationAnalyzer({
@@ -117,7 +128,7 @@ export const formalVerificationPlugin = definePlugin({
         languageService: {
             activate(context) {
                 return context.languageService.registerQuickInfoProvider(request => {
-                    const match = wordAt(request.sourceText, request.position);
+                    const match = request.owned ? wordAt(request.sourceText, request.position) : undefined;
                     const documentation = match && contractDocumentation[match.text];
                     if (!match || !documentation) return undefined;
                     return {

@@ -36,4 +36,9 @@ function useAllPlugins() {
   for (const { plugin } of allPlugins()) usePlugins(plugin);
 }
 
-module.exports = { allPlugins, useAllPlugins };
+/** A fixed shuffle: every `step`-th element, wrapping around. `step` must not share a factor with the length. */
+function pluginOrder(items, step) {
+  return items.map((_, index) => items[index * step % items.length]);
+}
+
+module.exports = { allPlugins, useAllPlugins, pluginOrder };

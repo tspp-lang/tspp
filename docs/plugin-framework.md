@@ -41,8 +41,35 @@ A feature package may expose four facets:
 - `editor`: optional static editor metadata such as commands and snippets.
 
 Plugins depend on `@tspp/plugin-sdk` and on the public TypeScript API the host
-hands them as `context.ts`, never on compiler internals or another feature
-implementation. Hosts load only the facet they own.
+hands them as `context.ts`, never on compiler internals, a TypeScript package of
+their own at run time, or another feature implementation. Hosts load only the
+facet they own.
+
+Plugin syntax exists only in `.tspp` and `.d.tspp` files. The host enforces this
+at every slot: `.ts`, `.d.ts`, and JavaScript files are plain TypeScript, whatever
+plugins the project has active.
+
+## Syntax ownership
+
+Plugins stay additive because the host knows which plugin each piece of source
+belongs to, and nothing depends on the order plugins were loaded in:
+
+- **Claims.** A syntax extension lists its `keywords`, a preprocessor its `claims`,
+  and an interface member binding its `keywords`. The host refuses a second
+  plugin's claim on the same word in the same position at activation, and refuses
+  to parse when two plugins' `isStart` both accept the same token. Manifests repeat
+  the claims for editor builds that do not activate plugins, and
+  `integration/test/relations.test.cjs` checks that the two agree.
+- **Ownership.** The host records which plugin parsed each syntax node and which
+  plugin rewrote each span of projected text.
+  `getTSPPSyntaxOwners` answers from those two records, innermost plugin first.
+- **Dispatch.** `filterDiagnostic` only sees diagnostics inside its plugin's syntax.
+  `restoreDeclaration` and `restoreCompatibilityDeclaration` answer only for their
+  plugin's nodes, and at most one plugin may answer for any other node. Quick Info
+  asks the owners first, then the other plugins by id, and tells each provider
+  whether it owns the position (`request.owned`).
+- **Order.** Preprocessors, diagnostic providers, rebuilders, and analyzers run in
+  plugin id order, not load order.
 
 ## Project declaration
 
@@ -124,14 +151,18 @@ return acquire(arg, value => { return rest(value); })
 
 ## Asynchronous program analysis
 
-Complex features register a `TSPPProgramAnalyzer`. The compiler snapshots root
-source files into an immutable, compiler-neutral tree and awaits analyzers before
-choosing the CLI exit status. An analyzer never receives a `Program`, checker,
-compiler node, host, or filesystem capability.
+Complex features register a `TSPPProgramAnalyzer`. The compiler hands it the
+authored text of the root source files and awaits analyzers before choosing the
+CLI exit status. An analyzer never receives a `Program`, checker, compiler node,
+host, or filesystem capability.
 
 `@tspp/plugin-formal-verification` is the first consumer. It owns proof-point
 discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
-compiler owns only snapshotting, scheduling, and diagnostic transport.
+compiler owns only scheduling and diagnostic transport. It parses each file with
+the host's parser (`context.ts.createSourceFile`), so every active plugin's syntax
+is already lowered to ordinary TypeScript. It models that TypeScript, immediately
+invoked functions and conditional expressions included, and knows no other plugin
+except through the optional nominal-types ADT API.
 
 ### Length-preserving source projections
 
@@ -141,6 +172,11 @@ the exact UTF-16 length and every line break. The host retains the original text
 for plugin analysis while the upstream parser, checker, language service, and
 emitter see the projection. This lets formal contracts remain entirely inside
 their feature capsule without adding contract-specific AST fields to TypeScript.
+
+Every preprocessor receives the authored text and the host merges the results, so
+none sees another's work. Where two rewrite the same text differently, the first
+by plugin id keeps it and the file gets a diagnostic. Preprocessors search through
+`maskNonCode` from the SDK, so strings and comments are never taken for syntax.
 
 Tsserver caches analyzer results per `Program`. Completion of an asynchronous
 analysis requests the existing project diagnostic refresh; the generic LSP
@@ -195,7 +231,10 @@ allowed when real duplication appears; merging the two semantic models merely
 because both are called “IR” is not.
 
 The dependent-types capsule uses length-preserving projection for representable
-Pi signatures and the asynchronous analyzer port for kernel diagnostics.
+Pi signatures and the asynchronous analyzer port for kernel diagnostics. A
+dependent alias is written `type Name :: Annotation = term;`: the `::` is what
+claims it, because a single `:` after an alias's name is the `type-alias-annotation`
+position, where type-computation reads a kind over ordinary TypeScript.
 `reify T` desugars to a descriptor object whose static type carries `T` in a
 phantom property, and expression-level `typecase` desugars to a call whose
 overloads are its arms, so TypeScript's overload resolution selects the arm and
@@ -243,7 +282,7 @@ The compiler package stays as close to upstream TypeScript as possible
    and comments stay as they are; extra data goes in `WeakMap` side tables, not
    in new fields on upstream nodes.
 4. **No new `SyntaxKind`s.** Plugins lower their syntax to ordinary nodes.
-5. **Zero plugins means upstream.** Without plugins, `.ts` files compile exactly
+5. **`.ts` means upstream.** With or without plugins, `.ts` files compile exactly
    as upstream: no new keywords, no new syntax.
 6. **Slot admission.** A new slot must be describable without naming a feature,
    have an existing plugin that uses it immediately, and explain why existing
@@ -255,9 +294,9 @@ The compiler package stays as close to upstream TypeScript as possible
 
 `node scripts/core-diff.mjs` (`pnpm core-diff`) reports the changed lines per
 upstream file and lists hunks without a marker. CI runs it with `--check`
-(`pnpm core-diff:check`), which fails on an unmarked hunk, on a new file outside
-the `tspp/` directories, or when the changed lines exceed the budget in the
-script. Lower the budget when the core shrinks; raising it needs the same review
+(`pnpm core-diff:check`), which fails on an unmarked hunk, on a hunk too long to
+be a call site, on a new file outside the `tspp/` directories, or when the changed
+lines exceed the budget in the script. Lower the budget when the core shrinks; raising it needs the same review
 as a new slot.
 
 ## Slot registry
@@ -269,10 +308,10 @@ Feature slots are what plugins register with, through `context.compiler` (or
 
 | Slot | Registration | Host | Call sites |
 |---|---|---|---|
-| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreTypeAliasDeclaration`, `restoreFunctionPrefix`, `restoreFunctionWithClause`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function`, after the parameters, and in type aliases of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
+| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreTypeAliasDeclaration`, `restoreFunctionPrefix`, `restoreFunctionClause`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function`, after the parameters, and in type aliases of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
 | `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`; `restoreDeclaration`, `restoreCompatibilityDeclaration`) | `registry.ts`, `services/tspp/syntax.ts` | `parser.ts` (the cursor, each position, list expansion, no incremental reuse of plugin nodes); `emitter.ts` (restored declarations); `services/services.ts` (`createChildren`); `services/formatting/formatting.ts`; `services/codefixes/fixUnusedIdentifier.ts`; `services/codefixes/inferFromUsage.ts` (a parameter that shares its reference's position); `utilities.ts` (`getErrorSpanForNode`), `services/utilities.ts`, `services/findAllReferences.ts`, `services/documentHighlights.ts` (nodes built without a source position stand for their parent) |
 | `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` | `program.ts` (semantic and suggestion diagnostics) |
-| `interface-member-contract` | `registerInterfaceMemberContract` (`{ modifier: "static" }`) | `registry.ts` | `binder.ts` (bound outside the instance type); `checker.ts` (static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`) |
+| `interface-member-binding` | `registerInterfaceMemberBinding` (`isStaticMember`) | `registry.ts` | `binder.ts` (bound outside the instance type); `checker.ts` (static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`) |
 | `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` | `program.ts` (`createProgram` return); `types.ts` (`CompilerHost.invalidateTSPPProgram`); `services/services.ts` and `services/types.ts` (invalidation and rebuild on the next request); `server/project.ts` and `server/session.ts`; `resolutionCache.ts` |
 | `program-analysis` | `registerProgramAnalyzer` | `compiler/tspp/analysis.ts` | none of its own: runs from the `command-line` and `plugin-host` call sites |
 | `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, which also serves diagnostic providers, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |

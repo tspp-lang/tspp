@@ -4,7 +4,7 @@ import type { TSPPLanguageServicePlugin } from "./language-service";
 import type { TSPPLSPPlugin } from "./lsp";
 
 /** The plugin contract version understood by this host generation. */
-export const TSPP_PLUGIN_API_VERSION = 2 as const;
+export const TSPP_PLUGIN_API_VERSION = 3 as const;
 
 export interface TSPPPluginManifest {
     /** Stable, repository-wide identity such as `modern-syntax`. */
@@ -25,7 +25,10 @@ export interface TSPPPluginManifest {
     readonly provides?: readonly string[];
     /** Stable, human-readable capabilities exposed for tooling and diagnostics. */
     readonly capabilities?: readonly string[];
-    /** The syntax this plugin claims. Repository checks compare it across plugins; the host trusts it as written. */
+    /**
+     * The syntax this plugin claims, which editor builds read without activating it. The host refuses conflicting
+     * claims as plugins register their syntax, and repository checks compare this list with what they register.
+     */
     readonly syntax?: TSPPSyntaxDeclaration;
 }
 
@@ -35,11 +38,14 @@ export interface TSPPPluginManifest {
  */
 export type TSPPSyntaxPosition =
     | "expression"
+    | "primary-expression"
+    | "argument"
     | "statement"
+    | "function-body"
     | "declaration"
     | "type"
     | "postfix-type"
-    | "type-parameter"
+    | "type-parameter-annotation"
     | "type-alias-annotation"
     | "function-clause"
     | "loop-clause"
@@ -86,6 +92,8 @@ export interface TSPPPlugin {
         readonly editor?: TSPPEditorContribution;
     };
 }
+
+export { maskNonCode } from "./text";
 
 /** Gives feature packages contextual typing without wrapping or mutating them. */
 export function definePlugin<const T extends TSPPPlugin>(plugin: T): T {

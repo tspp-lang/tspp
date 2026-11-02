@@ -97,17 +97,17 @@ manifest: {
 
 | 插槽 | 位置 | 说明 | 预期消费者 |
 |---|---|---|---|
-| 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法。`.d.tspp` 输出可通过 `restoreFunctionWithClause`（参数表之后）与 `restoreFunctionPrefix`（`function` 之前）恢复被投影掉的文本 | dependent-types、formal-verification、macros |
+| 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法。`.d.tspp` 输出可通过 `restoreFunctionClause`（参数表之后）与 `restoreFunctionPrefix`（`function` 之前）恢复被投影掉的文本 | dependent-types、formal-verification、macros |
 | 语法扩展 | 表达式、主表达式、调用实参、语句、声明、类型、后缀类型、类型参数名之后、类型别名的类型参数表之后等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点。表达式（一元表达式与箭头函数体）、主表达式（`primary-expression`，其后的调用与成员访问、前缀运算符照常作用于结果）、调用实参（`argument`，整个实参）、语句、函数体、声明、类型（`type`）、后缀类型（`postfix-type`，游标带 `precedingType`）十个位置的通用游标（`registerSyntaxExtension`，解析器自己的 factory、`finishNode`、普通解析函数，含 `parseTypeArguments`；`parseErrorAt` 可带插件自己的错误码）**已实现**；两个注解位置（`type-parameter-annotation`、`type-alias-annotation`）的 `parse` 返回一个回调，声明建好后宿主把声明节点交给它，该声明不参与增量复用。插件语法在节点之间留下的名字、字面量与标点都不是解析树节点，检查器不会解析它们；没有源码位置的插件节点由最近的有位置祖先代表（`getErrorSpanForNode` 等四处调用点） | modern-syntax、nominal-types、dependent-types、type-computation、operator-sections |
 | 附加诊断 | 源文件的绑定与检查诊断合并处（`program.ts` 一处调用点） | 插件为每个源文件补充语义诊断，`@ts-expect-error` 等注释指令照常生效（`registerDiagnosticProvider`）；`filterDiagnostic` 可以丢弃检查器报告的诊断，也可以返回一个替代诊断（例如把生成节点上的诊断移到它代表的源码上）。`getSemanticDiagnostics` 还拿到该 checker 的 `TSPPTypeOperations`（与类型层扩展宿主共用）：绑定 `this`、匿名对象类型与交叉类型、按检查器的方式得到可赋值性错误及其展开。诊断的错误码与文字都归插件，核心的 `diagnosticMessages.json` 里没有插件消息。**已实现** | modern-syntax、nominal-types、type-computation、static-interface-members |
-| 接口成员契约 | binder 成员归属、名字解析的静态性、修饰符语法检查 | 声明式契约（`registerInterfaceMemberContract({ modifier: "static" })`）：带指定修饰符的接口成员是接口的静态成员，允许出现、不进入实例类型、按静态类成员解析名字。经评审认定为通用插槽：公共 API 无法改变绑定与语法检查，源码投影也无法等长改写。调用点都是带标记的一行（`isTSPPStaticContractMember`）。实现方欠下的静态侧由插件的诊断提供者检查（18074 归插件），兼容 `.d.ts` 中省略静态成员由插件的 `restoreCompatibilityDeclaration` 完成 | static-interface-members |
+| 接口成员绑定 | binder 成员归属、名字解析的静态性、修饰符语法检查 | `registerInterfaceMemberBinding({ keywords, isStaticMember })`：插件判定的接口成员是接口的静态成员，允许出现、不进入实例类型、按静态类成员解析名字。经评审认定为通用插槽：公共 API 无法改变绑定与语法检查，源码投影也无法等长改写。调用点都是带标记的一行（`isTSPPStaticInterfaceMember`）。实现方欠下的静态侧由插件的诊断提供者检查（18074 归插件），兼容 `.d.ts` 中省略静态成员由插件的 `restoreCompatibilityDeclaration` 完成 | static-interface-members |
 | 声明输出 | `.d.tspp` 与随附的兼容 `.d.ts` 输出（emitter 一处调用点，属"语法扩展"） | 插件为自己拥有的节点提供声明文本：`restoreDeclaration` 给 `.d.tspp`，`restoreCompatibilityDeclaration` 给兼容 `.d.ts`；两者都能处理语句与类型层节点。**已实现** | nominal-types、type-computation |
 | 程序重建 | `createProgram` 返回前（`program.ts` 一处调用点），以及 `createProgramAsync` | 插件检查建好的程序，返回按位置匹配的语句替换；宿主从同一源码重新解析这些文件、换入替换语句、重建程序，并可附加或过滤语义诊断、在输出时追加转换器。长期宿主（语言服务）提供 `invalidate`，插件异步完成后请求重建。宏的 worker、超时与展开策略归插件。没有任何替换时宿主不重建，只把诊断、过滤与转换器加到原程序上（实现在 `compiler/tspp/rebuild.ts`，不增加调用点）。**已实现** | macros；dependent-types（`typecase` 只输出被选中的分支） |
 | 程序分析 | 已有 | 不可变快照 + 异步诊断 + artifact | dependent-types、formal-verification |
 | 类型层扩展 | checker 类型解析、实例化与打印（`checker.ts` 五处带标记的调用点，宿主在 `compiler/tspp/types.ts`） | 插件为类型节点给出类型、实例化并打印自己创建的类型（`registerTypeExtension`）：`resolveTypeNode` 在 `getTypeFromTypeNodeWorker` 开头先问插件；插件用宿主的 `createType` 创建归自己所有的类型，`instantiateTypeWorker` 遇到这些类型时交给插件的 `instantiateType`，节点构造器遇到时交给 `typeToTypeNode`；`isTypeParameterApplicable` 让带类型实参的引用也能指向某个类型参数（决定匿名类型需要带哪些外层类型参数实例化）。宿主（每个 checker 一个）只提供与特性无关的类型操作：解析引用名、取泛型符号的类型参数、实例化泛型别名或类与接口、创建与组合 mapper、按 mapper 实例化、检查类型实参约束、报告错误。**已实现** | type-computation |
 | Quick Info | language service | 已有 | 多个插件 |
 
-代码里的标记名依次是 `source-projection`、`syntax-extension`、`diagnostics`、`interface-member-contract`、`program-rebuild`、`program-analysis`、`type-extension`、`quick-info`。
+代码里的标记名依次是 `source-projection`、`syntax-extension`、`diagnostics`、`interface-member-binding`、`program-rebuild`、`program-analysis`、`type-extension`、`quick-info`。
 
 产品层插槽只归宿主，没有插件注册（规则 2；阶段 3 登记）：
 
@@ -121,7 +121,7 @@ manifest: {
 
 各插槽的注册接口与全部调用点见 `docs/plugin-framework.md` 的 "Slot registry"。
 
-只有一个消费者的原语（`finish*`、`checkTaggedUnionMatch`、`createNominalType`、`registerCompileTimeMacros`、`registerPlaceholderExpressionSyntax` 等）已随对应插件迁移从 SDK 删除；`registerInterfaceMemberContract` 经评审保留为通用插槽。
+只有一个消费者的原语（`finish*`、`checkTaggedUnionMatch`、`createNominalType`、`registerCompileTimeMacros`、`registerPlaceholderExpressionSyntax` 等）已随对应插件迁移从 SDK 删除；`registerInterfaceMemberBinding` 经评审保留为通用插槽。
 
 ## 阶段
 
@@ -244,6 +244,20 @@ manifest: {
 - 无源码位置的回退：`transformers/declarations.ts` 的守卫还原（重建宿主已把替换语句标为解析树节点，所有示例的声明输出照常）。`getErrorSpanForNode`、`createTextSpanFromNode`、`findAllReferences` 的 `getTextSpan` 与文档高亮四处保留并改标为 `syntax-extension`：nominal-types、dependent-types、formal-verification、type-computation 与宏的降级都会构造不对应源码文本的辅助节点（标签名、辅助字面量、描述符、被检查类型的副本、生成的语句），服务把它们当作合成子节点；给它们源码范围会与用户指向的 token 重叠。删掉这些回退后，02、03、04、05、09、10 六个示例与插件错误夹具上的诊断、定义、引用、高亮与导航树都会崩溃。
 - 行为差异：spread 实参 `f(..._)` 不再被改写（原来输出无效的 JavaScript），`_` 按普通名字解析；section 括号前的 JSDoc 不再附到生成的括号上；section 的参数在 JavaScript 中叫 `__p_0`（原来 `__p0`）；只请求区域诊断（`nodesToCheck`）时不运行诊断提供者，静态侧错误在完整诊断中出现。
 - 顺带修复：type-computation 的 `restoreCompatibilityDeclaration` 在声明输出把推断类型写成类型引用（如 `export const user = new User()`）时会因为找不到源文件而崩溃。
+
+**进度记录（2026-11-02，插件之间的加法关系）**
+
+架构评估发现几处插件之间仍是乘法关系，都已处理，并由 `integration/test/composition.test.cjs` 守住（两两组合，且断言错误确实报出；另有一个用例在不同加载顺序下比较诊断、输出与悬停）：
+
+- **语法只在 `.tspp` 中存在**（规则 5 由"零插件"收紧为"`.ts` 即上游"）。语法扩展、投影、接口成员绑定、类型层扩展、诊断提供者和 Quick Info 都在宿主判断文件名；`parser.ts` 的调用点多传一个 `fileName`。
+- **`type X: T` 的归属冲突**：dependent-types 用正则抢先处理 `type X: ...`，于是 type-computation 的 `type T: Type = { a: number }` 被投影成 `any`，类型错误消失。按"关键词冲突就换关键词"，依赖类型别名改写成 `type X :: T = ...`（**语言面的破坏性变更**），`:` 归 type-computation。右侧是 MLTT 语法，不是 TS 节点，所以别名仍走投影，没有改走注解插槽。
+- **FV 不再自带 TypeScript**：删除对 `typescript` 5.9.3 的运行时依赖，经 `context.ts` 用宿主的解析器解析文件（文件名带 `.verification.tspp` 后缀以保留 `assert`/`assume` 标签语句），于是看到的是所有插件脱糖后的 TS。证明器新增立即调用函数、条件表达式、按标签测试读取位置字段（nominal-types API 新增 `valuesProperty`），`let`、`do`、`match` 可以被验证；带泛型或 kind 参数的函数可以写契约。分析器输入删除 `root` 与 `syntaxKinds`。ESLint 禁止插件在运行时导入 TypeScript 包。
+- **投影不再串行、不再读字符串**：每个预处理器都拿到原文，宿主合并；两个插件对同一段文本改写不同时，按插件 id 取第一个并报诊断。SDK 新增 `maskNonCode`，插件在抹掉字符串、注释和正则之后的文本上搜索。
+- **宿主按归属分发**：宿主记录每个语法节点由哪个插件解析、每段投影文本由哪个插件改写（`getTSPPSyntaxOwners`）。`filterDiagnostic` 只收到本插件语法内的诊断；`restoreDeclaration` 只回答本插件的节点，其他节点至多一个插件回答，否则报错；Quick Info 先问所有者，再按插件 id 问其余插件，并告知 `owned`；同一 token 两个 `isStart` 同时成立时报语法错误。预处理器、诊断提供者、重建器、分析器都按插件 id 排序。
+- **冲突检查看真实注册**：语法扩展声明 `keywords`、预处理器声明 `claims`，宿主在激活时拒绝第二个认领者；`relations.test.cjs` 比较清单与实际注册，两者必须一致。清单位置改用插槽名。
+- **插槽形状**：`registerInterfaceMemberContract({ modifier: "static" })` 改为 `registerInterfaceMemberBinding({ keywords, isStaticMember })`，判断逻辑回到插件；`restoreFunctionWithClause` 改名 `restoreFunctionClause`；`TSPPPreprocessedTypeAlias.annotation` 包含自己的分隔符。SDK API 版本升到 3。
+- **门槛**：`core-diff --check` 新增单个 hunk 超过 15 行即失败，只有解析器游标是登记过的例外。
+- 顺带修复：kind 注解里的名字（`Kind: Type1`）上做引用查找会触发 `getMeaningFromLocation` 的断言；此前全插件环境下 dependent-types 把这些别名抢走了，所以没有暴露。
 
 ## 风险与待定
 

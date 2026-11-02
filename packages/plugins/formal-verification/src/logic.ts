@@ -1,4 +1,5 @@
-import ts from "typescript";
+import type * as TS from "typescript-upstream";
+import { nameText, nodeStart, ts } from "./host-api";
 import type { Sort, Term } from "./expression";
 
 export interface LogicSignature {
@@ -12,40 +13,40 @@ export interface LogicLibrary {
 }
 
 interface LoweringContext {
-    readonly sourceFile: ts.SourceFile;
+    readonly sourceFile: TS.SourceFile;
     readonly variables: ReadonlyMap<string, Sort>;
     readonly functions: ReadonlyMap<string, LogicSignature>;
 }
 
 const emptyLibrary: LogicLibrary = { declarations: [], functions: {} };
 
-function callName(expression: ts.Expression): string | undefined {
-    if (ts.isIdentifier(expression)) return expression.text;
-    if (ts.isPropertyAccessExpression(expression)) return expression.name.text;
+function callName(expression: TS.Expression): string | undefined {
+    if (ts.isIdentifier(expression)) return nameText(expression);
+    if (ts.isPropertyAccessExpression(expression)) return nameText(expression.name);
     return undefined;
 }
 
-function sortFromNode(node: ts.Expression | undefined): Sort | undefined {
-    const name = node && (ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : undefined);
+function sortFromNode(node: TS.Expression | undefined): Sort | undefined {
+    const name = node && (ts.isIdentifier(node) ? nameText(node) : ts.isPropertyAccessExpression(node) ? nameText(node.name) : undefined);
     return name === "Bool" || name === "Int" || name === "Real" || name === "String" ? name : undefined;
 }
 
-function parametersFromNode(node: ts.Expression | undefined): readonly { name: string; sort: Sort; }[] {
+function parametersFromNode(node: TS.Expression | undefined): readonly { name: string; sort: Sort; }[] {
     if (!node || !ts.isArrayLiteralExpression(node)) throw new Error("SMT parameters must be an array of [name, sort] pairs.");
     return node.elements.map(element => {
         if (!ts.isArrayLiteralExpression(element) || element.elements.length !== 2 || !ts.isStringLiteral(element.elements[0])) {
             throw new Error("Each SMT parameter must be [name, sort].");
         }
-        const sort = sortFromNode(element.elements[1] as ts.Expression);
+        const sort = sortFromNode(element.elements[1] as TS.Expression);
         if (!sort) throw new Error("Unknown SMT sort.");
-        return { name: element.elements[0].text, sort };
+        return { name: nameText(element.elements[0]), sort };
     });
 }
 
-function functionSorts(node: ts.Expression | undefined): readonly Sort[] {
+function functionSorts(node: TS.Expression | undefined): readonly Sort[] {
     if (!node || !ts.isArrayLiteralExpression(node)) throw new Error("Declared function parameters must be a sort array.");
     return node.elements.map(element => {
-        const sort = sortFromNode(element as ts.Expression);
+        const sort = sortFromNode(element as TS.Expression);
         if (!sort) throw new Error("Unknown SMT sort.");
         return sort;
     });
@@ -55,17 +56,17 @@ function sameSort(left: Term, right: Term): void {
     if (left.sort !== right.sort) throw new Error(`SMT operands have different sorts: ${left.sort} and ${right.sort}.`);
 }
 
-function lower(node: ts.Expression, context: LoweringContext): Term {
+function lower(node: TS.Expression, context: LoweringContext): Term {
     if (ts.isParenthesizedExpression(node)) return lower(node.expression, context);
     if (ts.isIdentifier(node)) {
-        if (node.text === "true" || node.text === "false") return { smt: node.text, sort: "Bool" };
-        const sort = context.variables.get(node.text);
-        if (!sort) throw new Error(`Unknown SMT variable '${node.text}'.`);
-        return { smt: `|${node.text}|`, sort };
+        if (nameText(node) === "true" || nameText(node) === "false") return { smt: nameText(node), sort: "Bool" };
+        const sort = context.variables.get(nameText(node));
+        if (!sort) throw new Error(`Unknown SMT variable '${nameText(node)}'.`);
+        return { smt: `|${nameText(node)}|`, sort };
     }
-    if (ts.isBigIntLiteral(node)) return { smt: node.text.replace(/n$/, ""), sort: "Int" };
-    if (ts.isNumericLiteral(node)) return { smt: node.text, sort: node.text.includes(".") ? "Real" : "Int" };
-    if (ts.isStringLiteral(node)) return { smt: `"${node.text.replace(/"/g, '""')}"`, sort: "String" };
+    if (ts.isBigIntLiteral(node)) return { smt: nameText(node).replace(/n$/, ""), sort: "Int" };
+    if (ts.isNumericLiteral(node)) return { smt: nameText(node), sort: nameText(node).includes(".") ? "Real" : "Int" };
+    if (ts.isStringLiteral(node)) return { smt: `"${nameText(node).replace(/"/g, '""')}"`, sort: "String" };
     if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
         return { smt: node.kind === ts.SyntaxKind.TrueKeyword ? "true" : "false", sort: "Bool" };
     }
@@ -85,10 +86,10 @@ function lower(node: ts.Expression, context: LoweringContext): Term {
     }
     if (ts.isBinaryExpression(node)) return lowerBinary(node, context);
     if (ts.isCallExpression(node)) return lowerCall(node, context);
-    throw new Error(`Unsupported SMT expression '${node.getText(context.sourceFile)}'.`);
+    throw new Error(`Unsupported SMT expression '${context.sourceFile.text.slice(nodeStart(node, context.sourceFile), node.end)}'.`);
 }
 
-function lowerBinary(node: ts.BinaryExpression, context: LoweringContext): Term {
+function lowerBinary(node: TS.BinaryExpression, context: LoweringContext): Term {
     const left = lower(node.left, context);
     const right = lower(node.right, context);
     const kind = node.operatorToken.kind;
@@ -115,7 +116,7 @@ function lowerBinary(node: ts.BinaryExpression, context: LoweringContext): Term 
     throw new Error("Unsupported SMT binary expression.");
 }
 
-function lowerCall(node: ts.CallExpression, context: LoweringContext): Term {
+function lowerCall(node: TS.CallExpression, context: LoweringContext): Term {
     const name = callName(node.expression);
     if (!name) throw new Error("Unsupported SMT call target.");
     if (name === "forall" || name === "exists") return lowerQuantifier(name, node, context);
@@ -148,28 +149,29 @@ function lowerCall(node: ts.CallExpression, context: LoweringContext): Term {
     return { smt: `(${operation.symbol} ${arguments_.map(value => value.smt).join(" ")})`, sort: operation.result ?? arguments_[0].sort };
 }
 
-function lowerQuantifier(name: "forall" | "exists", node: ts.CallExpression, context: LoweringContext): Term {
+function lowerQuantifier(name: "forall" | "exists", node: TS.CallExpression, context: LoweringContext): Term {
     const parameters = parametersFromNode(node.arguments[0]);
     const body = node.arguments[1];
     if (!body || !ts.isArrowFunction(body) || !ts.isExpression(body.body)) throw new Error(`${name} requires an expression arrow function.`);
     const variables = new Map(context.variables);
-    parameters.forEach((parameter, index) => variables.set(body.parameters[index]?.name.getText(context.sourceFile) ?? parameter.name, parameter.sort));
+    parameters.forEach((parameter, index) => variables.set((body.parameters[index] ? context.sourceFile.text.slice(nodeStart(body.parameters[index].name, context.sourceFile), body.parameters[index].name.end) : parameter.name), parameter.sort));
     const result = lower(body.body, { ...context, variables });
     if (result.sort !== "Bool") throw new Error(`${name} body must be Boolean.`);
     return { smt: `(${name} (${parameters.map(parameter => `(|${parameter.name}| ${parameter.sort})`).join(" ")}) ${result.smt})`, sort: "Bool" };
 }
 
-function arrowBody(node: ts.Expression | undefined): ts.Expression {
+function arrowBody(node: TS.Expression | undefined): TS.Expression {
     if (!node || !ts.isArrowFunction(node) || !ts.isExpression(node.body)) throw new Error("SMT definitions require an expression arrow function.");
     return node.body;
 }
 
+/** Logic definitions are plain TypeScript at the top level of a file, wherever the file's other syntax comes from. */
 export function collectLogicLibrary(sourceTexts: readonly string[]): LogicLibrary {
     if (!sourceTexts.length) return emptyLibrary;
     const declarations: string[] = [];
     const functions = new Map<string, LogicSignature>();
-    const pending: { name: string; kind: string; call: ts.CallExpression; sourceFile: ts.SourceFile; }[] = [];
-    const axioms: { call: ts.CallExpression; sourceFile: ts.SourceFile; }[] = [];
+    const pending: { name: string; kind: string; call: TS.CallExpression; sourceFile: TS.SourceFile; }[] = [];
+    const axioms: { call: TS.CallExpression; sourceFile: TS.SourceFile; }[] = [];
     sourceTexts.forEach((text, index) => {
         const sourceFile = ts.createSourceFile(`logic-${index}.ts`, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
         for (const statement of sourceFile.statements) {
@@ -179,10 +181,10 @@ export function collectLogicLibrary(sourceTexts: readonly string[]): LogicLibrar
                 if (!kind || !["definePredicate", "defineFunction", "defineRecursiveFunction", "declareFunction"].includes(kind)) continue;
                 const call = declaration.initializer;
                 const parameterSorts = kind === "declareFunction" ? functionSorts(call.arguments[0]) : parametersFromNode(call.arguments[0]).map(item => item.sort);
-                const result = kind === "definePredicate" ? "Bool" : sortFromNode(call.arguments[1] as ts.Expression);
-                if (!result) throw new Error(`SMT function '${declaration.name.text}' has no valid result sort.`);
-                functions.set(declaration.name.text, { parameters: parameterSorts, result });
-                pending.push({ name: declaration.name.text, kind, call, sourceFile });
+                const result = kind === "definePredicate" ? "Bool" : sortFromNode(call.arguments[1] as TS.Expression);
+                if (!result) throw new Error(`SMT function '${nameText(declaration.name)}' has no valid result sort.`);
+                functions.set(nameText(declaration.name), { parameters: parameterSorts, result });
+                pending.push({ name: nameText(declaration.name), kind, call, sourceFile });
             }
             if (ts.isExpressionStatement(statement) && ts.isCallExpression(statement.expression) && callName(statement.expression.expression) === "axiom") {
                 axioms.push({ call: statement.expression, sourceFile });

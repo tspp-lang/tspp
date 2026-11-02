@@ -1,10 +1,10 @@
-export type NumberResult: Type0 =
+export type NumberResult :: Type0 =
   typecase number { number: string, _: boolean };
 
-export type FallbackResult: Type0 =
+export type FallbackResult :: Type0 =
   typecase string { number: string, _: boolean };
 
-export type ElementOrSelf: Type1 =
+export type ElementOrSelf :: Type1 =
   (A: Type0) -> typecase A {
     Array<infer Element>: Element,
     _: A

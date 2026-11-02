@@ -37,6 +37,7 @@ export function getMacroExpansions(program: object, fileName?: string): readonly
 export function createMacroPreprocessor(ts: TSPPTypeScript): TSPPSourcePreprocessor {
     return {
         id: "macro-syntax",
+        claims: [{ keyword: "macro", position: "declaration" }, { keyword: "macro", position: "statement" }],
         preprocess(fileName, sourceText) {
             if (!isMacroSourceFile(fileName) || !sourceText.includes("macro")) {
                 syntaxByFileName.delete(fileName);
@@ -63,9 +64,22 @@ function getSyntaxOfText(ts: TSPPTypeScript, fileName: string, original: string)
     return cached?.original === original ? cached : isMacroSourceFile(fileName) ? scanMacroSource(ts, original) : undefined;
 }
 
+const syntaxBySourceFile = new WeakMap<TS.SourceFile, { readonly from: MacroSourceSyntax; readonly matches: boolean; }>();
+
+/** The syntax found in a parsed file: its text has this plugin's rewrites, whatever other plugins rewrote around them. */
 function getSyntax(sourceFile: TS.SourceFile): MacroSourceSyntax | undefined {
     const cached = syntaxByFileName.get(sourceFile.fileName);
-    return cached?.projected === sourceFile.text ? cached : undefined;
+    if (!cached) return undefined;
+    let known = syntaxBySourceFile.get(sourceFile);
+    if (known?.from !== cached) {
+        let matches = sourceFile.text.length === cached.projected.length;
+        for (let index = 0; matches && index < cached.projected.length; index++) {
+            if (cached.projected[index] !== cached.original[index] && sourceFile.text[index] !== cached.projected[index]) matches = false;
+        }
+        known = { from: cached, matches };
+        syntaxBySourceFile.set(sourceFile, known);
+    }
+    return known.matches ? cached : undefined;
 }
 
 function buildWithoutMacros(ts: TSPPTypeScript, options: TS.CreateProgramOptions): TS.Program {

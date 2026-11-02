@@ -217,6 +217,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
     const expression: TSPPSyntaxExtension = {
         position: "expression",
         startTokens: [kinds.LetKeyword, kinds.DoKeyword],
+        keywords: ["let", "do"],
         isStart: cursor => cursor.token() === kinds.DoKeyword ? isDoExpressionStart(cursor) : isLetInStart(cursor),
         parse: cursor => {
             const f = cursor.factory;
@@ -246,6 +247,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
     const functionBody: TSPPSyntaxExtension = {
         position: "function-body",
         startTokens: [kinds.DoKeyword],
+        keywords: ["do"],
         isStart: cursor => cursor.lookAhead(() => cursor.nextToken() === kinds.OpenBraceToken),
         parse: cursor => cursor.runInFunctionBody(() => {
             const pos = cursor.getNodePos();
@@ -259,6 +261,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
     const misplacedUse: TSPPSyntaxExtension = {
         position: "statement",
         startTokens: [kinds.Identifier],
+        keywords: ["use"],
         isStart: isUseStart,
         parse: cursor => {
             // Lowered as it would be in a completion block, minus the return, so the rest still sees the binding.
@@ -276,6 +279,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
     const deepReadonlyBinding: TSPPSyntaxExtension = {
         position: "statement",
         startTokens: [kinds.Identifier],
+        keywords: ["def"],
         isStart: cursor => cursor.tokenText() === "def" && cursor.lookAhead(() => {
             cursor.nextToken();
             return !cursor.hasPrecedingLineBreak()

@@ -146,8 +146,8 @@ export class TSPPPluginHost {
                 registration.disposers.push(() => this.providedAPIs.delete(name));
             },
             compiler: {
-                registerInterfaceMemberContract: contract =>
-                    this.environment.compiler.registerInterfaceMemberContract(pluginId, contract),
+                registerInterfaceMemberBinding: binding =>
+                    this.environment.compiler.registerInterfaceMemberBinding(pluginId, binding),
                 registerProgramAnalyzer: analyzer => this.environment.compiler.registerProgramAnalyzer(pluginId, analyzer),
                 registerSourcePreprocessor: preprocessor => this.environment.compiler.registerSourcePreprocessor(pluginId, preprocessor),
                 registerProgramRebuilder: rebuilder => this.environment.compiler.registerProgramRebuilder(pluginId, rebuilder),

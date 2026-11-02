@@ -1,3 +1,4 @@
+import { maskNonCode } from "@tspp/plugin-sdk";
 import type {
     TSPPPreprocessedTypeAlias,
     TSPPPreprocessedTypeAliasRequest,
@@ -5,11 +6,11 @@ import type {
 
 import type { Sort } from "./expression";
 
-function matchingBrace(text: string, open: number): number {
+function matchingBrace(code: string, open: number): number {
     let depth = 0;
-    for (let index = open; index < text.length; index++) {
-        if (text[index] === "{") depth++;
-        else if (text[index] === "}" && --depth === 0) return index;
+    for (let index = open; index < code.length; index++) {
+        if (code[index] === "{") depth++;
+        else if (code[index] === "}" && --depth === 0) return index;
     }
     return -1;
 }
@@ -23,10 +24,11 @@ export interface RefinementModel {
 
 export function collectRefinements(sourceText: string): Map<string, RefinementModel> {
     const refinements = new Map<string, RefinementModel>();
+    const code = maskNonCode(sourceText);
     const pattern = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
-    for (let match; (match = pattern.exec(sourceText));) {
-        const open = sourceText.indexOf("{", match.index);
-        const close = matchingBrace(sourceText, open);
+    for (let match; (match = pattern.exec(code));) {
+        const open = code.indexOf("{", match.index);
+        const close = matchingBrace(code, open);
         if (close < 0) continue;
         const body = sourceText.slice(open + 1, close);
         const property = /\bpredicate\s*:\s*([^;]+);/.exec(body);
@@ -44,11 +46,12 @@ export function collectRefinements(sourceText: string): Map<string, RefinementMo
 }
 
 export function maskRefinementClauses(sourceText: string, characters: string[]): void {
+    const code = maskNonCode(sourceText);
     const pattern = /\btype\s+[A-Za-z_$][\w$]*\s*=\s*(?:bigint|number|boolean)\s+(with\s*\{)/g;
-    for (let match; (match = pattern.exec(sourceText));) {
+    for (let match; (match = pattern.exec(code));) {
         const start = match.index + match[0].lastIndexOf(match[1]);
-        const open = sourceText.indexOf("{", start);
-        const close = matchingBrace(sourceText, open);
+        const open = code.indexOf("{", start);
+        const close = matchingBrace(code, open);
         if (close < 0) continue;
         for (let index = start; index <= close; index++) {
             if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
@@ -60,13 +63,13 @@ export function maskRefinementClauses(sourceText: string, characters: string[]):
 export function restoreRefinementTypeAlias(
     request: TSPPPreprocessedTypeAliasRequest,
 ): TSPPPreprocessedTypeAlias | undefined {
-    if (!request.fileName.endsWith(".tspp")) return undefined;
+    const code = maskNonCode(request.sourceText);
     const pattern = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
     const candidates: { readonly start: number; readonly type: string; }[] = [];
-    for (let match; (match = pattern.exec(request.sourceText));) {
+    for (let match; (match = pattern.exec(code));) {
         if (match[1] !== request.name) continue;
-        const open = request.sourceText.indexOf("{", match.index);
-        const close = matchingBrace(request.sourceText, open);
+        const open = code.indexOf("{", match.index);
+        const close = matchingBrace(code, open);
         if (close < 0) continue;
         const typeStart = match.index + match[0].indexOf(match[2]);
         candidates.push({ start: match.index, type: request.sourceText.slice(typeStart, close + 1) });

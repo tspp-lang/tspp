@@ -1,7 +1,8 @@
-import ts from "typescript";
+import type * as TS from "typescript-upstream";
+import { nameText, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { Sort } from "./expression";
-import { matchingBrace, parseProperties } from "./contracts";
+import { collectFunctionClauses, parseProperties } from "./contracts";
 import type { RefinementModel } from "./refinements";
 
 export interface Clause { readonly value: string; readonly start: number; }
@@ -19,13 +20,13 @@ export interface FunctionModel {
 }
 
 export function refinementFromType(
-    type: ts.TypeNode | undefined, refinements: ReadonlyMap<string, RefinementModel>,
+    type: TS.TypeNode | undefined, refinements: ReadonlyMap<string, RefinementModel>,
 ): RefinementModel | undefined {
-    return type && ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) ? refinements.get(type.typeName.text) : undefined;
+    return type && ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) ? refinements.get(nameText(type.typeName)) : undefined;
 }
 
 export function sortFromType(
-    type: ts.TypeNode | undefined,
+    type: TS.TypeNode | undefined,
     refinements: ReadonlyMap<string, RefinementModel> = new Map(),
     numberModel?: FunctionModel["numberModel"],
 ): Sort | undefined {
@@ -41,19 +42,19 @@ export function sortFromType(
 }
 
 export function fieldsFromType(
-    type: ts.TypeNode | undefined,
+    type: TS.TypeNode | undefined,
     records: ReadonlyMap<string, ReadonlyMap<string, Sort>>,
     numberModel?: FunctionModel["numberModel"],
 ): ReadonlyMap<string, Sort> | undefined {
     if (!type) return undefined;
-    if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) return records.get(type.typeName.text);
+    if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) return records.get(nameText(type.typeName));
     if (ts.isParenthesizedTypeNode(type)) return fieldsFromType(type.type, records, numberModel);
     const members = ts.isTypeLiteralNode(type) ? type.members : undefined;
     if (members) {
         const fields = new Map<string, Sort>();
         for (const member of members) {
             if (!ts.isPropertySignature(member) || !member.type || !member.name) continue;
-            const name = ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) ? member.name.text : undefined;
+            const name = ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) ? nameText(member.name) : undefined;
             const sort = sortFromType(member.type, new Map(), numberModel);
             if (name && sort) fields.set(name, sort);
         }
@@ -72,16 +73,16 @@ export function fieldsFromType(
     return undefined;
 }
 
-export function collectRecordTypes(sourceFile: ts.SourceFile): Map<string, ReadonlyMap<string, Sort>> {
+export function collectRecordTypes(sourceFile: TS.SourceFile): Map<string, ReadonlyMap<string, Sort>> {
     const records = new Map<string, ReadonlyMap<string, Sort>>();
     for (const statement of sourceFile.statements) {
         if (ts.isTypeAliasDeclaration(statement)) {
             const fields = fieldsFromType(statement.type, records);
-            if (fields) records.set(statement.name.text, fields);
+            if (fields) records.set(nameText(statement.name), fields);
         }
         else if (ts.isInterfaceDeclaration(statement)) {
             const fields = fieldsFromType(ts.factory.createTypeLiteralNode(statement.members), records);
-            if (fields) records.set(statement.name.text, fields);
+            if (fields) records.set(nameText(statement.name), fields);
         }
     }
     return records;
@@ -90,6 +91,7 @@ export function collectRecordTypes(sourceFile: ts.SourceFile): Map<string, Reado
 /** A data variant's constructor, as nominal-types describes it. */
 export interface DataConstructor {
     readonly tagProperty: string;
+    readonly valuesProperty: string;
     readonly tag: string;
     readonly fields: readonly string[];
 }
@@ -112,6 +114,7 @@ export function collectDataTypes(
             }
             constructors.set(variant.name, {
                 tagProperty: nominalTypes!.tagProperty,
+                valuesProperty: nominalTypes!.valuesProperty,
                 tag: nominalTypes!.tagOf(variant),
                 fields: variant.fields.map(field => field.name),
             });
@@ -123,28 +126,24 @@ export function collectDataTypes(
 
 export function parseFunctionModels(sourceText: string): Map<string, FunctionModel> {
     const models = new Map<string, FunctionModel>();
-    const pattern = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(([^)]*)\)\s*with\s*\{/g;
-    for (let match; (match = pattern.exec(sourceText));) {
-        const open = sourceText.indexOf("{", match.index + match[0].lastIndexOf("with"));
-        const close = matchingBrace(sourceText, open);
-        if (close < 0) continue;
+    for (const clause of collectFunctionClauses(sourceText)) {
         const variables: Record<string, Sort> = {};
         const parameters: string[] = [];
         const parameterPattern = /\b([A-Za-z_$][\w$]*)\s*:\s*(boolean|bigint|number)\b/g;
-        for (let parameter; (parameter = parameterPattern.exec(match[2]));) {
+        const parameterText = sourceText.slice(clause.parametersStart + 1, clause.parametersEnd);
+        for (let parameter; (parameter = parameterPattern.exec(parameterText));) {
             parameters.push(parameter[1]);
             variables[parameter[1]] = parameter[2] === "boolean" ? "Bool" : "Int";
         }
-        const properties = parseProperties(sourceText.slice(open + 1, close), open + 1);
+        const properties = parseProperties(sourceText.slice(clause.open + 1, clause.close), clause.open + 1);
         const numberModelValue = properties.find(item => item.name === "numberModel")?.value.replace(/["']/g, "");
         const numberModel = numberModelValue === "mathematical-real" || numberModelValue === "safe-integer" ? numberModelValue : undefined;
-        models.set(match[1], {
-            name: match[1], parameters, variables,
+        models.set(clause.name, {
+            name: clause.name, parameters, variables,
             requires: properties.filter(item => item.name === "requires"),
             ensures: properties.filter(item => item.name === "ensures"),
-            bodyStart: sourceText.indexOf("{", close + 1), numberModel,
+            bodyStart: sourceText.indexOf("{", clause.close + 1), numberModel,
         });
-        pattern.lastIndex = close + 1;
     }
     return models;
 }
@@ -153,11 +152,11 @@ export function parseFunctionModels(sourceText: string): Map<string, FunctionMod
  * Whether a function takes part in verification: it states a contract, a number model, or a refinement, or its body
  * contains a proof directive. Other functions stay callable from verified code but are not checked themselves.
  */
-export function participatesInVerification(statement: ts.FunctionDeclaration, model: FunctionModel): boolean {
+export function participatesInVerification(statement: TS.FunctionDeclaration, model: FunctionModel): boolean {
     if (model.requires.length || model.ensures.length || model.numberModel || model.returnRefinement) return true;
     if (Object.keys(model.parameterRefinements ?? {}).length) return true;
-    const hasDirective = (node: ts.Node): boolean =>
-        ts.isLabeledStatement(node) && (node.label.text === "assert" || node.label.text === "assume")
+    const hasDirective = (node: TS.Node): boolean =>
+        ts.isLabeledStatement(node) && (nameText(node.label) === "assert" || nameText(node.label) === "assume")
         || !ts.isFunctionLike(node) && !!ts.forEachChild(node, hasDirective);
     return !!statement.body && !!ts.forEachChild(statement.body, hasDirective);
 }

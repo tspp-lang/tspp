@@ -38,6 +38,7 @@ import {
 import {
     createTSPPDiagnosticMessage,
     getRegisteredTSPPTypeExtensions,
+    isTSPPSyntaxAllowedAt,
 } from "./registry.js";
 
 /** The checker functions behind the hosts that type extensions receive. @internal */
@@ -178,6 +179,7 @@ function getHost(state: TSPPTypeState, extension: TSPPTypeExtension): TSPPTypeHo
 
 /** The type a type extension gives `node`, if any. @internal */
 export function resolveTSPPTypeNode(state: TSPPTypeState, node: TypeNode): Type | undefined {
+    if (!getRegisteredTSPPTypeExtensions().length || !isTSPPSyntaxAllowedAt(node)) return undefined;
     for (const extension of getRegisteredTSPPTypeExtensions()) {
         const type = extension.resolveTypeNode(node as never, getHost(state, extension));
         if (type) return type as unknown as Type;

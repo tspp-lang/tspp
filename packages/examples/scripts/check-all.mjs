@@ -159,14 +159,14 @@ function verifyDependentTypeDeclarations(outputDirectory) {
     const matching = readFileSync(join(outputDirectory, "03-type-matching.d.tspp"), "utf8");
     const compatibility = readFileSync(join(outputDirectory, "01-basics.d.ts"), "utf8");
     for (const expected of [
-        "export type UniverseZero: Type1 = Type0;",
-        "export type PolymorphicIdentity: Type1 = {A: Type0} -> (value: A) -> A;",
+        "export type UniverseZero :: Type1 = Type0;",
+        "export type PolymorphicIdentity :: Type1 = {A: Type0} -> (value: A) -> A;",
     ]) {
         if (!basics.includes(expected)) throw new Error(`Feature-rich declaration lost dependent syntax: ${expected}`);
     }
     for (const expected of [
-        "export type NumberResult: Type0 = typecase number",
-        "export type ElementOrSelf: Type1 = (A: Type0) -> typecase A",
+        "export type NumberResult :: Type0 = typecase number",
+        "export type ElementOrSelf :: Type1 = (A: Type0) -> typecase A",
     ]) {
         if (!matching.includes(expected)) throw new Error(`Feature-rich declaration lost dependent syntax: ${expected}`);
     }

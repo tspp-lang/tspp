@@ -28,6 +28,7 @@ export const dependentTypesAnalyzer: TSPPProgramAnalyzer = {
         const artifacts: TSPPAnalysisArtifact[] = [];
         for (const sourceFile of input.sourceFiles) {
             const aliases = new Map<string, MlttTerm>();
+            if (!sourceFile.fileName.endsWith(".tspp")) continue;
             for (const alias of collectDependentTypeAliases(sourceFile.text)) {
                 try {
                     const term = parseDependentType(alias.expression, aliases);
@@ -85,7 +86,7 @@ export const dependentTypesPlugin = definePlugin({
             keywords: [
                 { keyword: "reify", position: "expression" },
                 { keyword: "typecase", position: "expression" },
-                { keyword: ":", position: "type-alias-annotation" },
+                { keyword: "::", position: "type-alias-annotation" },
             ],
         },
     },
@@ -98,6 +99,7 @@ export const dependentTypesPlugin = definePlugin({
                 context.onDispose(context.compiler.registerProgramRebuilder(reification.selection));
                 const disposeProjection = context.compiler.registerSourcePreprocessor({
                     id: "mltt-projection",
+                    claims: [{ keyword: "::", position: "type-alias-annotation" }],
                     preprocess: projectDependentTypes,
                     restoreTypeAliasDeclaration: restoreDependentTypeAlias,
                 });
@@ -117,11 +119,11 @@ export const dependentTypesPlugin = definePlugin({
                         return {
                             start: alias.nameStart,
                             length: alias.nameEnd - alias.nameStart,
-                            display: `type ${alias.name}: ${alias.annotation} = ${alias.expression}`,
+                            display: `type ${alias.name} :: ${alias.annotation} = ${alias.expression}`,
                             documentation: "A Martin-Löf dependent type alias checked by the TS++ dependent-types plugin.",
                         };
                     }
-                    const match = wordAt(request.sourceText, request.position);
+                    const match = request.owned ? wordAt(request.sourceText, request.position) : undefined;
                     if (!match) return undefined;
                     const documentation = dependentTypeDocumentation(match.text);
                     if (!documentation) return undefined;

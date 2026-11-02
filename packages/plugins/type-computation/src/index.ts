@@ -19,7 +19,8 @@ export const typeComputationPlugin = definePlugin({
                 { keyword: "let", position: "type" },
                 { keyword: "match", position: "type" },
                 { keyword: "<", position: "type" },
-                { keyword: ":", position: "type-parameter" },
+                { keyword: ":", position: "type-parameter-annotation" },
+                { keyword: ":", position: "type-alias-annotation" },
                 { keyword: "Type", position: "type" },
                 { keyword: "<", position: "postfix-type" },
             ],
@@ -61,7 +62,7 @@ export const typeComputationPlugin = definePlugin({
                     if (!token) return undefined;
                     const universe = universeQuickInfo(token);
                     if (universe) return universe;
-                    if (["let", "in", "match", "infer"].includes(token.text)) {
+                    if (request.owned && ["let", "in", "match", "infer"].includes(token.text)) {
                         return {
                             start: token.start,
                             length: token.length,

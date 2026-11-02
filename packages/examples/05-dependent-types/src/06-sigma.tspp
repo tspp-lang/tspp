@@ -1,10 +1,10 @@
-export type SingletonNat: Type0 =
+export type SingletonNat :: Type0 =
   Sigma<(value: Nat) -> Eq<Nat, value, Zero>>;
 
-export type SelfWitness: Type0 =
+export type SelfWitness :: Type0 =
   (N: Nat) -> Sigma<(value: Nat) -> Eq<Nat, value, N>>;
 
-export type SigmaFirstComputation: Type0 =
+export type SigmaFirstComputation :: Type0 =
   (N: Nat) -> Eq<
     Nat,
     First<Pair<
@@ -15,7 +15,7 @@ export type SigmaFirstComputation: Type0 =
     N
   >;
 
-export type SigmaSecondComputation: Type0 =
+export type SigmaSecondComputation :: Type0 =
   (N: Nat) -> Eq<
     Eq<Nat, N, N>,
     Second<Pair<

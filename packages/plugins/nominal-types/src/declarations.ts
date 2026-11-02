@@ -368,6 +368,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     const extension: TSPPSyntaxExtension = {
         position: "declaration",
         startTokens: [kinds.Identifier],
+        keywords: ["newtype", "data"],
         isStart: cursor => newtypeStart(cursor) || dataStart(cursor),
         parse: cursor => cursor.tokenText() === "newtype" ? parseNewtype(cursor) : parseData(cursor),
         restoreDeclaration: statement => {

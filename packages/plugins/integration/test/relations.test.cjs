@@ -6,8 +6,10 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
-const { allPlugins } = require("./plugins.cjs");
+const { ts } = require("../../test-support/compile.cjs");
+const { allPlugins, useAllPlugins } = require("./plugins.cjs");
 
+useAllPlugins();
 const plugins = allPlugins();
 const manifests = plugins.map(({ plugin }) => plugin.manifest);
 const byId = new Map(manifests.map(manifest => [manifest.id, manifest]));
@@ -55,6 +57,33 @@ test("no two plugins claim the same keyword in the same position", () => {
     Object.entries(claims).filter(([, owners]) => owners.length > 1).map(([key, owners]) => [key, owners.sort()]),
   );
   assertMatchesKnown(conflicts, knownKeywordConflicts, "keyword conflict");
+});
+
+test("manifests declare exactly the syntax plugins register", () => {
+  const claim = (pluginId, keyword, position) => `${pluginId}: ${keyword} @ ${position}`;
+  const registered = ts.getRegisteredTSPPSyntaxClaims().map(({ pluginId, keyword, position }) => claim(pluginId, keyword, position));
+  const declared = manifests.flatMap(manifest => (manifest.syntax?.keywords ?? []).map(({ keyword, position }) => claim(manifest.id, keyword, position)));
+  assert.deepEqual([...registered].sort(), [...declared].sort());
+});
+
+test("the host refuses a second plugin's claim on the same syntax", () => {
+  const plugin = (id, keyword) => ({
+    manifest: { id, version: "0.0.0", apiVersion: plugins[0].plugin.manifest.apiVersion, syntax: { keywords: [{ keyword, position: "expression" }] } },
+    facets: {
+      compiler: {
+        activate(context) {
+          return context.compiler.registerSyntaxExtension({
+            position: "expression",
+            startTokens: [context.ts.SyntaxKind.Identifier],
+            keywords: [keyword],
+            isStart: () => false,
+            parse: () => { throw new Error("never parses"); },
+          });
+        },
+      },
+    },
+  });
+  assert.throws(() => ts.registerTSPPCompilerPlugin(plugin("claims-match", "match")), /both claim 'match @ expression'/);
 });
 
 test("dependencies name installed plugins and form no cycle", () => {

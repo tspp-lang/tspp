@@ -1,3 +1,4 @@
+import { maskNonCode } from "@tspp/plugin-sdk";
 import type { NominalDataField, NominalDataType, NominalTypesADTAPI } from "./api";
 
 export const nominalTypesADTAPIName = "nominal-types/adt";
@@ -30,7 +31,8 @@ function parseFields(text: string): NominalDataField[] {
 function getDataTypes(sourceText: string): NominalDataType[] {
     const types: NominalDataType[] = [];
     const header = /\bdata\s+([A-Za-z_$][\w$]*)\s*/g;
-    for (let match; (match = header.exec(sourceText));) {
+    const code = maskNonCode(sourceText);
+    for (let match; (match = header.exec(code));) {
         let cursor = header.lastIndex;
         let typeParameters: string[] = [];
         if (sourceText[cursor] === "<") {
@@ -47,7 +49,7 @@ function getDataTypes(sourceText: string): NominalDataType[] {
         const equals = /^\s*=/.exec(sourceText.slice(cursor));
         if (!equals) continue;
         cursor += equals[0].length;
-        const end = sourceText.indexOf(";", cursor);
+        const end = code.indexOf(";", cursor);
         if (end < 0) break;
         const variants = splitTopLevel(sourceText.slice(cursor, end), "|").flatMap(variant => {
             const parsed = /^([A-Za-z_$][\w$]*)\s*(?:\(([\s\S]*)\))?$/.exec(variant);
@@ -62,6 +64,7 @@ function getDataTypes(sourceText: string): NominalDataType[] {
 /** Describes `data` declarations and their run-time representation, which this plugin owns. */
 export const nominalTypesADTAPI: NominalTypesADTAPI = {
     tagProperty: "_tag",
+    valuesProperty: "_values",
     tagOf: variant => variant.name,
     getDataTypes,
 };

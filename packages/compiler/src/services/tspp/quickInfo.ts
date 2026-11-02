@@ -17,7 +17,7 @@ import type {
 
 /**
  * Lets a plugin's Quick Info provider replace the upstream Quick Info at a position (`TSPP-SLOT(quick-info)`).
- * Providers see the authored TS++ text, the token, its type, and the upstream result; the first one that answers wins.
+ * Providers see the authored TS++ text, the token, its type, and the upstream result; the first one that answers wins, starting with the plugins whose syntax contains the position.
  * `getNodeForQuickInfo` is the language service's choice of node for a touched token.
  * @internal
  */
@@ -48,7 +48,7 @@ export function addTSPPQuickInfo(
     // Plugin providers describe authored TS++ syntax, not the length-preserving TypeScript
     // projection stored in the SourceFile (which may deliberately contain `any` fallbacks).
     const authoredSourceText = snapshot?.getText(0, snapshot.getLength()) ?? sourceFile.text;
-    const contribution = getTSPPQuickInfo(fileName, authoredSourceText, position, {
+    const contribution = getTSPPQuickInfo(sourceFile, authoredSourceText, position, {
         token: {
             start: tokenStart,
             length: nodeForQuickInfo.getEnd() - tokenStart,

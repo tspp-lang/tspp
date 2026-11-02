@@ -1,3 +1,4 @@
+import { maskNonCode } from "@tspp/plugin-sdk";
 import type { TSPPAnalysisDiagnostic, TSPPPreprocessedFunctionRequest } from "@tspp/plugin-sdk/compiler";
 
 import type { Z3Query } from "./solver";
@@ -11,97 +12,147 @@ export interface PendingProof {
     readonly name: string;
 }
 
+const verificationSuffix = ".verification.tspp";
+
+/** The name the verifier parses a file under, which keeps its proof directives as labeled statements. */
+export function verificationFileName(fileName: string): string {
+    return fileName + verificationSuffix;
+}
+
 export function matchingBrace(text: string, open: number): number {
+    return matchingClose(maskNonCode(text), open, "{", "}");
+}
+
+/** The closing bracket of the one at `open`, in text whose strings and comments are blank. */
+function matchingClose(code: string, open: number, opening: string, closing: string): number {
     let depth = 0;
-    let quote = "";
-    for (let index = open; index < text.length; index++) {
-        const char = text[index];
-        if (quote) {
-            if (char === "\\") index++;
-            else if (char === quote) quote = "";
-            continue;
-        }
-        if (char === '"' || char === "'" || char === "`") { quote = char; continue; }
-        if (char === "/" && text[index + 1] === "/") { index = text.indexOf("\n", index); if (index < 0) return -1; continue; }
-        if (char === "/" && text[index + 1] === "*") { index = text.indexOf("*/", index + 2); if (index < 0) return -1; index++; continue; }
-        if (char === "{") depth++;
-        else if (char === "}" && --depth === 0) return index;
+    for (let index = open; index < code.length; index++) {
+        if (code[index] === opening) depth++;
+        else if (code[index] === closing && --depth === 0) return index;
     }
     return -1;
 }
 
-function matchingParenthesis(text: string, open: number): number {
+function matchingOpen(code: string, close: number, opening: string, closing: string): number {
     let depth = 0;
-    let quote = "";
-    for (let index = open; index < text.length; index++) {
-        const char = text[index];
-        if (quote) {
-            if (char === "\\") index++;
-            else if (char === quote) quote = "";
-            continue;
-        }
-        if (char === '"' || char === "'" || char === "`") { quote = char; continue; }
-        if (char === "/" && text[index + 1] === "/") { index = text.indexOf("\n", index); if (index < 0) return -1; continue; }
-        if (char === "/" && text[index + 1] === "*") { index = text.indexOf("*/", index + 2); if (index < 0) return -1; index++; continue; }
-        if (char === "(") depth++;
-        else if (char === ")" && --depth === 0) return index;
+    for (let index = close; index >= 0; index--) {
+        if (code[index] === closing) depth++;
+        else if (code[index] === opening && --depth === 0) return index;
     }
     return -1;
 }
 
-export function restoreContractFunctionWithClause(request: TSPPPreprocessedFunctionRequest): string | undefined {
-    if (!request.fileName.endsWith(".tspp")) return undefined;
-    const pattern = /\bfunction\s+([A-Za-z_$][\w$]*)\s*\(/g;
-    const candidates: { readonly start: number; readonly clause: string; }[] = [];
-    for (let match; (match = pattern.exec(request.sourceText));) {
-        if (match[1] !== request.name) continue;
-        const openParenthesis = request.sourceText.indexOf("(", match.index);
-        const closeParenthesis = matchingParenthesis(request.sourceText, openParenthesis);
-        if (closeParenthesis < 0) continue;
-        let clauseStart = closeParenthesis + 1;
-        while (/\s/.test(request.sourceText[clauseStart] ?? "")) clauseStart++;
-        if (!request.sourceText.startsWith("with", clauseStart)) continue;
-        const openBrace = request.sourceText.indexOf("{", clauseStart + 4);
-        const closeBrace = matchingBrace(request.sourceText, openBrace);
-        if (openBrace < 0 || closeBrace < 0) continue;
-        candidates.push({ start: match.index, clause: request.sourceText.slice(clauseStart, closeBrace + 1) });
-        pattern.lastIndex = closeBrace + 1;
-    }
-    return candidates.reduce<(typeof candidates)[number] | undefined>((closest, candidate) =>
-        !closest
-            || Math.abs(candidate.start - request.declarationStart) < Math.abs(closest.start - request.declarationStart)
-            ? candidate
-            : closest, undefined)?.clause;
+function previousToken(code: string, end: number): number {
+    let index = end - 1;
+    while (index >= 0 && /\s/.test(code[index])) index--;
+    return index;
 }
 
-export function maskContractClauses(fileName: string, sourceText: string, maskDirectives = true): string {
-    if (!fileName.endsWith(".tspp")) return sourceText;
-    const characters = [...sourceText];
-    maskRefinementClauses(sourceText, characters);
+export interface FunctionClause {
+    readonly name: string;
+    readonly start: number;
+    readonly parametersStart: number;
+    readonly parametersEnd: number;
+    readonly clauseStart: number;
+    readonly open: number;
+    readonly close: number;
+}
+
+/**
+ * The `with` clause a declaration's `function name<...>(...)` is followed by, for the clause at `withStart`: the
+ * parameters are matched as brackets, so type parameters and function types in them need no special case.
+ */
+function functionOfClause(code: string, withStart: number): Omit<FunctionClause, "clauseStart" | "open" | "close"> | undefined {
+    const parametersEnd = previousToken(code, withStart);
+    if (code[parametersEnd] !== ")") return undefined;
+    const parametersStart = matchingOpen(code, parametersEnd, "(", ")");
+    if (parametersStart < 0) return undefined;
+    let beforeParameters = previousToken(code, parametersStart);
+    if (code[beforeParameters] === ">") {
+        // `=>` inside the type parameters is not a closing bracket.
+        let depth = 0;
+        let index = beforeParameters;
+        for (; index >= 0; index--) {
+            if (code[index] === ">" && code[index - 1] !== "=") depth++;
+            else if (code[index] === "<" && --depth === 0) break;
+        }
+        if (index < 0) return undefined;
+        beforeParameters = previousToken(code, index);
+    }
+    const header = /\bfunction\s+([A-Za-z_$][\w$]*)$/.exec(code.slice(Math.max(0, beforeParameters - 200), beforeParameters + 1));
+    return header ? { name: header[1], start: beforeParameters - header[0].length + 1, parametersStart, parametersEnd } : undefined;
+}
+
+/** Every function declaration's `with` clause in the text of a file. */
+export function collectFunctionClauses(sourceText: string): FunctionClause[] {
+    const code = maskNonCode(sourceText);
+    const clauses: FunctionClause[] = [];
     const pattern = /\bwith\s*\{/g;
-    for (let match; (match = pattern.exec(sourceText));) {
-        let previous = match.index - 1;
-        while (previous >= 0 && /\s/.test(sourceText[previous])) previous--;
-        if (sourceText[previous] !== ")") continue;
-        const prefix = sourceText.slice(Math.max(0, match.index - 500), match.index);
-        if (!/\b(function\s+[A-Za-z_$][\w$]*\s*\([^)]*\)|while\s*\([^)]*\))\s*$/.test(prefix)) continue;
-        const open = sourceText.indexOf("{", match.index);
-        const close = matchingBrace(sourceText, open);
+    for (let match; (match = pattern.exec(code));) {
+        const owner = functionOfClause(code, match.index);
+        if (!owner) continue;
+        const open = code.indexOf("{", match.index);
+        const close = matchingClose(code, open, "{", "}");
         if (close < 0) continue;
-        for (let index = match.index; index <= close; index++) {
-            if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
-        }
+        clauses.push({ ...owner, clauseStart: match.index, open, close });
         pattern.lastIndex = close + 1;
     }
-    if (maskDirectives) {
+    return clauses;
+}
+
+export function restoreContractFunctionClause(request: TSPPPreprocessedFunctionRequest): string | undefined {
+    const candidates = collectFunctionClauses(request.sourceText).filter(clause => clause.name === request.name);
+    const closest = candidates.reduce<FunctionClause | undefined>((current, candidate) =>
+        !current
+            || Math.abs(candidate.start - request.declarationStart) < Math.abs(current.start - request.declarationStart)
+            ? candidate
+            : current, undefined);
+    return closest && request.sourceText.slice(closest.clauseStart, closest.close + 1);
+}
+
+export function maskContractClauses(fileName: string, sourceText: string): string {
+    const code = maskNonCode(sourceText);
+    const characters = sourceText.split("");
+    const blank = (start: number, end: number) => {
+        for (let index = start; index < end; index++) {
+            if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
+        }
+    };
+    maskRefinementClauses(sourceText, characters);
+    for (const clause of collectFunctionClauses(sourceText)) blank(clause.clauseStart, clause.close + 1);
+    const loopPattern = /\bwith\s*\{/g;
+    for (let match; (match = loopPattern.exec(code));) {
+        const parametersEnd = previousToken(code, match.index);
+        if (code[parametersEnd] !== ")") continue;
+        const parametersStart = matchingOpen(code, parametersEnd, "(", ")");
+        if (parametersStart < 0 || !/\bwhile\s*$/.test(code.slice(Math.max(0, parametersStart - 20), parametersStart))) continue;
+        const open = code.indexOf("{", match.index);
+        const close = matchingClose(code, open, "{", "}");
+        if (close < 0) continue;
+        blank(match.index, close + 1);
+        loopPattern.lastIndex = close + 1;
+    }
+    if (!fileName.endsWith(verificationSuffix)) {
         const directivePattern = /\b(?:assert|assume)\s*:\s*[^;]+;/g;
-        for (let match; (match = directivePattern.exec(sourceText));) {
-            for (let index = match.index; index < match.index + match[0].length; index++) {
-                if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
+        for (let match; (match = directivePattern.exec(code));) {
+            // `{ assert: 1 }; ` is an object literal: a directive's expression closes nothing it did not open.
+            if (closesOuterBrace(match[0])) {
+                directivePattern.lastIndex = match.index + 1;
+                continue;
             }
+            blank(match.index, match.index + match[0].length);
         }
     }
     return characters.join("");
+}
+
+function closesOuterBrace(text: string): boolean {
+    let depth = 0;
+    for (const character of text) {
+        if (character === "{") depth++;
+        else if (character === "}" && --depth < 0) return true;
+    }
+    return false;
 }
 
 export function splitClauseExpressions(value: string): string[] {
@@ -144,28 +195,29 @@ export function parseProperties(text: string, absoluteStart: number): { name: st
     return properties;
 }
 
-const withClauseOwners = [
-    { pattern: /\bwhile\s*\([^)]*\)\s*$/, owner: "a loop", properties: ["invariant"] },
-    { pattern: /\bfunction\s+[A-Za-z_$][\w$]*\s*\([^)]*\)\s*$/, owner: "a function", properties: ["requires", "ensures", "numberModel"] },
-    { pattern: /\btype\s+[A-Za-z_$][\w$]*\s*=\s*(?:bigint|number|boolean)\s+$/, owner: "a refinement type", properties: ["predicate", "numberModel"] },
-] as const;
+const loopProperties = ["invariant"];
+const functionProperties = ["requires", "ensures", "numberModel"];
+const refinementProperties = ["predicate", "numberModel"];
 
 /**
  * Reports repeated and unrecognized properties in contract `with` clauses. Both would otherwise be dropped or merged
  * silently, and a misspelled `ensures` would leave the function without the postcondition its author wrote.
  */
 export function reportWithClauseIssues(fileName: string, sourceText: string, diagnostics: TSPPAnalysisDiagnostic[]): void {
-    if (!fileName.endsWith(".tspp")) return;
     const report = (start: number, length: number, message: string) => diagnostics.push({
         fileName, start, length, code: 19005, category: "error", source: "TS++ verification", message,
     });
+    const code = maskNonCode(sourceText);
     const pattern = /\bwith\s*\{/g;
-    for (let match; (match = pattern.exec(sourceText));) {
-        const prefix = sourceText.slice(Math.max(0, match.index - 500), match.index);
-        const owner = withClauseOwners.find(candidate => candidate.pattern.test(prefix));
+    for (let match; (match = pattern.exec(code));) {
+        const end = previousToken(code, match.index);
+        const owner = functionOfClause(code, match.index) ? { owner: "a function", properties: functionProperties }
+            : code[end] === ")" && /\bwhile\s*$/.test(code.slice(Math.max(0, matchingOpen(code, end, "(", ")") - 20), Math.max(0, matchingOpen(code, end, "(", ")")))) ? { owner: "a loop", properties: loopProperties }
+            : /\btype\s+[A-Za-z_$][\w$]*\s*=\s*(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 500), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
+            : undefined;
         if (!owner) continue;
-        const open = sourceText.indexOf("{", match.index);
-        const close = matchingBrace(sourceText, open);
+        const open = code.indexOf("{", match.index);
+        const close = matchingClose(code, open, "{", "}");
         if (close < 0) continue;
         const seen = new Set<string>();
         for (const entry of topLevelEntries(sourceText, open + 1, close)) {
@@ -173,7 +225,7 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
             if (!key) continue;
             const name = key[1];
             const start = entry.start + key[0].indexOf(name);
-            if (!(owner.properties as readonly string[]).includes(name)) {
+            if (!owner.properties.includes(name)) {
                 report(start, name.length, `The 'with' property '${name}' is not supported on ${owner.owner}.`);
             }
             else if (seen.has(name)) {

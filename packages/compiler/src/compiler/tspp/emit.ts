@@ -21,8 +21,8 @@ import type {
 import { Extension } from "../types.js";
 import { getTSPPCompatibilityDeclarationFilePath } from "./files.js";
 import {
+    getPreprocessedFunctionClause,
     getPreprocessedFunctionPrefix,
-    getPreprocessedFunctionWithClause,
 } from "./registry.js";
 
 // Declaration output of TS++ files (`TSPP-SLOT(declaration-output)` sites): a `.d.tspp` declaration that keeps plugin
@@ -95,7 +95,7 @@ export function emitTSPPRestoredFunctionPrefix(node: Node, sourceFile: SourceFil
  */
 export function emitTSPPRestoredFunctionClause(node: Node, sourceFile: SourceFile | undefined, erased: boolean, write: (text: string) => void, writeSpace: () => void): void {
     if (erased || !isFunctionDeclaration(node) || !node.name || !sourceFile) return;
-    const clause = getPreprocessedFunctionWithClause(sourceFile.fileName, idText(node.name), node.pos);
+    const clause = getPreprocessedFunctionClause(sourceFile.fileName, idText(node.name), node.pos);
     if (clause) {
         writeSpace();
         write(clause);

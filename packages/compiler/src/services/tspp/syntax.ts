@@ -98,7 +98,10 @@ function addSyntheticNodes(nodes: Node[], pos: number, end: number, parent: Node
             Debug.fail(`Scanner did not advance while synthesizing ${Debug.formatSyntaxKind(parent.kind)} children`);
         }
         if (textPos <= end) {
-            const node = createNode(token, pos, textPos, parent);
+            // A name in a type parameter's annotation is no name of that parameter, which reference search asserts of
+            // every identifier directly under a type parameter.
+            const annotated = token === SyntaxKind.Identifier && parent.kind === SyntaxKind.TypeParameter && isTSPPSyntaxNode(parent);
+            const node = createNode(token, pos, textPos, annotated ? parent.parent : parent);
             if (token === SyntaxKind.Identifier) {
                 if (!hasTabstop(parent) && !allowIdentifiers && !getSourceFileOfNode(parent).fileName.endsWith(Extension.Tspp)) {
                     Debug.fail(`Did not expect ${Debug.formatSyntaxKind(parent.kind)} to have an Identifier in its trivia`);

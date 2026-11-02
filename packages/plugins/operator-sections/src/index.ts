@@ -10,7 +10,8 @@ export const operatorSectionsPlugin = definePlugin({
         displayName: "Operator sections",
         syntax: {
             keywords: [
-                { keyword: "_", position: "expression" },
+                { keyword: "_", position: "primary-expression" },
+                { keyword: "_", position: "argument" },
             ],
         },
     },

@@ -21,7 +21,10 @@ export const staticInterfaceMembersPlugin = definePlugin({
             activate(context) {
                 const ts = context.ts;
                 const disposers = [
-                    context.compiler.registerInterfaceMemberContract({ modifier: "static" }),
+                    context.compiler.registerInterfaceMemberBinding({
+                        keywords: ["static"],
+                        isStaticMember: member => isStaticInterfaceMember(ts, member),
+                    }),
                     context.compiler.registerDiagnosticProvider(createStaticSideCheck(ts)),
                     // Static interface members have no TypeScript spelling, so the compatible `.d.ts` leaves them out.
                     // The upstream parser reads them; this extension only restores declaration output.

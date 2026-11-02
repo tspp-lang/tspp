@@ -3,7 +3,7 @@ const { test } = require("node:test");
 const { TSPPPluginHost } = require("@tspp/plugin-sdk/host");
 const { staticInterfaceMembersPlugin } = require("../dist");
 
-test("registers a static interface member contract, its static-side check, and its declaration output", () => {
+test("registers a static interface member binding, its static-side check, and its declaration output", () => {
   const registrations = [];
   let disposed = 0;
   const register = kind => (pluginId, value) => {
@@ -11,7 +11,7 @@ test("registers a static interface member contract, its static-side check, and i
     return () => { disposed++; };
   };
   const compiler = {
-    registerInterfaceMemberContract: register("contract"),
+    registerInterfaceMemberBinding: register("binding"),
     registerDiagnosticProvider: register("diagnostics"),
     registerSyntaxExtension: register("syntax"),
   };
@@ -21,11 +21,11 @@ test("registers a static interface member contract, its static-side check, and i
   host.activateAll();
 
   assert.deepEqual(registrations.map(({ kind, pluginId }) => [kind, pluginId]), [
-    ["contract", "static-interface-members"],
+    ["binding", "static-interface-members"],
     ["diagnostics", "static-interface-members"],
     ["syntax", "static-interface-members"],
   ]);
-  assert.deepEqual(registrations[0].value, { modifier: "static" });
+  assert.deepEqual(registrations[0].value.keywords, ["static"]);
   assert.equal(typeof registrations[1].value.getSemanticDiagnostics, "function");
   assert.deepEqual(registrations[2].value.startTokens, []);
   host.dispose();

@@ -166,6 +166,7 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
     const parenthesized: TSPPSyntaxExtension = {
         position: "primary-expression",
         startTokens: [kinds.OpenParenToken],
+        keywords: ["_"],
         isStart: cursor => !probing && mayContainPlaceholder(cursor, /*parenthesized*/ true) && probe(cursor, () => parseParenthesizedContents(cursor)),
         parse: cursor => {
             const pos = cursor.getNodePos();
@@ -178,6 +179,7 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
 
     const argument: TSPPSyntaxExtension = {
         position: "argument",
+        keywords: ["_"],
         startTokens: Object.values(kinds).filter((kind): kind is TS.SyntaxKind => typeof kind === "number" && kind !== kinds.DotDotDotToken && kind !== kinds.CommaToken),
         isStart: cursor => !probing && mayContainPlaceholder(cursor, /*parenthesized*/ false) && probe(cursor, () => cursor.parseAssignmentExpression()),
         parse: cursor => {
