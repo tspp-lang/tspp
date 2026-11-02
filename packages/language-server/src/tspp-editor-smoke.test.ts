@@ -12,8 +12,11 @@ function collectTsppFiles(directory: string): string[] {
     const files: string[] = [];
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
         const entryPath = path.join(directory, entry.name);
-        if (entry.isDirectory()) files.push(...collectTsppFiles(entryPath));
-        else if (entry.isFile() && entry.name.endsWith('.tspp')) files.push(entryPath);
+        if (entry.isDirectory()) {
+            files.push(...collectTsppFiles(entryPath));
+        } else if (entry.isFile() && entry.name.endsWith('.tspp')) {
+            files.push(entryPath);
+        }
     }
     return files.sort();
 }
@@ -105,17 +108,14 @@ describe('TS++ examples editor smoke test', () => {
                         range: documentRange(document),
                         context: { diagnostics: diagnostics.get(document.uri)?.diagnostics ?? [] },
                     });
-                }
-                catch (error) {
+                } catch (error) {
                     throw new Error(`${label} failed a code-action request`, { cause: error });
                 }
                 expect(actions, `${label} should answer code-action requests`).toBeDefined();
-            }
-            finally {
+            } finally {
                 server.didCloseTextDocument({ textDocument: { uri: document.uri } });
             }
-        }
-        finally {
+        } finally {
             server.closeAllForTesting();
             server.shutdown();
         }
@@ -145,8 +145,7 @@ describe('TS++ examples editor smoke test', () => {
             const rendered = JSON.stringify(hover?.contents);
             expect(rendered).toContain('number');
             expect(rendered).not.toMatch(/\bany\b/);
-        }
-        finally {
+        } finally {
             server.didCloseTextDocument({ textDocument: { uri: URI.file(example.filePath).toString() } });
             server.closeAllForTesting();
             server.shutdown();
@@ -243,13 +242,14 @@ describe('TS++ examples editor smoke test', () => {
                         position: positionAt(document.text, start + ('offset' in target ? target.offset : 0)),
                     });
                     const rendered = JSON.stringify(hover?.contents);
-                    for (const expected of target.includes) expect(rendered).toContain(expected);
+                    for (const expected of target.includes) {
+                        expect(rendered).toContain(expected);
+                    }
                     expect(rendered).not.toMatch(/\bany\b|\(Missing\)|__@nominal@/);
                 }
                 server.didCloseTextDocument({ textDocument: { uri: document.uri } });
             }
-        }
-        finally {
+        } finally {
             for (const server of servers.values()) {
                 server.closeAllForTesting();
                 server.shutdown();
@@ -262,13 +262,15 @@ describe('TS++ examples editor smoke test', () => {
         const addMatches = (filePath: string, expression: RegExp, capture = 1, skipExpectedErrors = false) => {
             const text = fs.readFileSync(filePath, 'utf8');
             const offsets = targets.get(filePath) ?? [];
-            for (let match; (match = expression.exec(text));) {
+            for (const match of text.matchAll(expression)) {
                 if (skipExpectedErrors && text.slice(Math.max(0, match.index - 160), match.index).includes('@ts-expect-error')) {
                     continue;
                 }
                 offsets.push(match.index + match[0].indexOf(match[capture]));
             }
-            if (offsets.length) targets.set(filePath, offsets);
+            if (offsets.length) {
+                targets.set(filePath, offsets);
+            }
         };
 
         const dependentRoot = path.join(examplesRoot, '05-dependent-types');
@@ -325,8 +327,7 @@ describe('TS++ examples editor smoke test', () => {
                 }
                 server.didCloseTextDocument({ textDocument: { uri: document.uri } });
             }
-        }
-        finally {
+        } finally {
             for (const server of servers.values()) {
                 server.closeAllForTesting();
                 server.shutdown();

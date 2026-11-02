@@ -905,8 +905,7 @@ export class LspServer {
     async codeAction(params: lsp.CodeActionParams, token?: lsp.CancellationToken): Promise<(lsp.CodeAction | lsp.Command)[]> {
         try {
             return await this.codeActionWorker(params, token);
-        }
-        catch (error) {
+        } catch (error) {
             if (isProjectInitializationError(error)) {
                 return [];
             }
@@ -1405,8 +1404,7 @@ export class LspServer {
                     cancelOnResourceChange: doc.uri.toString(),
                 },
             );
-        }
-        catch (error) {
+        } catch (error) {
             if (isProjectInitializationError(error)) {
                 return { data: [] };
             }
