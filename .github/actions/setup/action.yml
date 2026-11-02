@@ -1,0 +1,14 @@
+name: Set up the workspace
+description: Installs pnpm and Node.js and the workspace's dependencies. Check out the repository first.
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 12.4.2
+        run_install: false
+    - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+      with:
+        node-version: 22.22.0
+    - run: pnpm install --frozen-lockfile
+      shell: bash

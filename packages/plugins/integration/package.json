@@ -5,7 +5,8 @@
   "description": "Tests that run every TS++ feature plugin together through the compiler and language service.",
   "license": "Apache-2.0",
   "scripts": {
-    "test": "node --test --test-concurrency=1 test/*.test.cjs"
+    "test": "pnpm test:run",
+    "test:run": "node --test --test-concurrency=1 test/*.test.cjs"
   },
   "devDependencies": {
     "@tspp/plugin-formal-verification": "workspace:*",

@@ -27,6 +27,7 @@
     "build:vscode:dev": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode",
     "test": "pnpm test:features && pnpm test:examples && pnpm test:compiler && pnpm test:language-server && pnpm test:vscode",
     "test:features": "pnpm test:plugin-sdk && pnpm test:plugins && pnpm test:plugins:together && pnpm test:core-parity",
+    "test:plugins:run": "pnpm --workspace-concurrency=1 --filter @tspp/plugin-sdk --filter \"./packages/plugins/**\" test:run",
     "test:plugins:together": "node scripts/test-plugins-together.mjs",
     "test:core-parity": "pnpm --filter @tspp/core-parity-tests test",
     "test:compiler": "pnpm --filter ts-plus-plus test",

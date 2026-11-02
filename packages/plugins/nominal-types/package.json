@@ -31,7 +31,8 @@
     "build": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json",
     "clean": "rimraf dist",
     "lint": "eslint src",
-    "test": "pnpm build && node --test --test-concurrency=1 test/*.test.cjs",
+    "test": "pnpm build && pnpm test:run",
+    "test:run": "node --test --test-concurrency=1 test/*.test.cjs",
     "typecheck": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

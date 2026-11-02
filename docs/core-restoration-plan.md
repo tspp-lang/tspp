@@ -149,7 +149,7 @@ manifest: {
 - 零插件：`packages/core-parity` 用 npm 上的 `typescript@6.0.3` 作对照，比较诊断与输出。不加载插件时只有 `macro` 与 `with` 子句仍是核心语法，记为已知违规，迁移后测试会要求删除对应条目。
 - 关系检查：清单新增 `syntax.keywords`，九个插件全部声明；`packages/plugins/integration/test/relations.test.cjs` 检查关键词冲突、依赖环、测试加载未声明插件，现有违规与上表一致。
 - 隐性干扰：`pnpm test:plugins:together` 在加载全部插件的环境下运行每个插件自己的测试集。首次运行发现 nominal-types 把 `match = 6`、`match.x` 等普通标识符误解析为 match 表达式（单独加载 nominal-types 时同样存在），已修复。
-- 以上都并入 `pnpm test:features`，由 CI 的 "Feature capsules" 运行。
+- 以上都并入 `pnpm test:features`，由 CI 的 "Feature capsules" 与 "Plugins together and examples" 运行。
 
 ### 阶段 1：插槽地基
 
