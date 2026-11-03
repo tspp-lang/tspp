@@ -323,7 +323,7 @@ export function createTSPPDiagnosticMessage(code = 18086, message = "{0}"): Diag
 }
 
 /** Whether an interface member of a TS++ file is bound on the interface's static side. @internal */
-export function isTSPPStaticInterfaceMember(node: Node): boolean {
+export function isTSPPStaticSideMember(node: Node): boolean {
     if (!interfaceMemberBindings.size || node.parent?.kind !== SyntaxKind.InterfaceDeclaration) return false;
     if (!isTSPPFileName(ts.getSourceFileOfNode(node).fileName)) return false;
     return [...interfaceMemberBindings.values()].some(binding => binding.isStaticMember(node as never));

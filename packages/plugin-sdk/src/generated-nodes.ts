@@ -36,3 +36,26 @@ export function markGenerated<T extends TS.Node>(ts: TSPPTypeScript, root: T, an
             || ts.isBlock(node) || ts.isModuleBlock(node);
     }
 }
+
+/** Puts `to` where `parent` holds `from`. Syntax a plugin has just parsed is its own to rewrite until parsing returns. */
+export function replaceChild(parent: TS.Node, from: TS.Node, to: TS.Node): void {
+    const slots = parent as unknown as Record<string, unknown>;
+    for (const key of Object.keys(slots)) {
+        const value = slots[key];
+        if (value === from) slots[key] = to;
+        else if (Array.isArray(value) && value.includes(from)) (value as TS.Node[])[value.indexOf(from)] = to;
+    }
+}
+
+/**
+ * A name for `node` the checker reads as `<prefix>_<suffix>` and JavaScript output keeps unique, part of the file being
+ * parsed. An ordinary identifier with a source position would print its source text instead, and the parser's factory
+ * cannot make this one, since it attaches emit data that looks for a file that does not exist yet. So this is the one
+ * place plugin syntax uses the internal overload of `getGeneratedNameForNode` and clears the flag of nodes made after parsing.
+ */
+export function createGeneratedName(ts: TSPPTypeScript, node: TS.Node, prefix: string, suffix: string): TS.Identifier {
+    type GenerateName = (node: TS.Node, flags: TS.GeneratedIdentifierFlags, prefix: string, suffix: string) => TS.Identifier;
+    const generated = (ts.factory.getGeneratedNameForNode as unknown as GenerateName)(node, ts.GeneratedIdentifierFlags.Optimistic, prefix, suffix);
+    (generated as { flags: TS.NodeFlags; }).flags &= ~ts.NodeFlags.Synthesized;
+    return generated;
+}

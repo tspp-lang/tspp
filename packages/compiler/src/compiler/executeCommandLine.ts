@@ -89,6 +89,7 @@ import {
 } from "./_namespaces/ts.js";
 import * as performance from "./performance.js";
 import {
+    enableTSPPBuildPlugins,
     getTSPPHelpExample,
     getTSPPHelpHeader,
     getTSPPHelpText,
@@ -984,6 +985,7 @@ function updateSolutionBuilderHost(
     solutionPerformance: SolutionPerformance | undefined,
 ) {
     updateCreateProgram(sys, buildHost, /*isBuildMode*/ true);
+    enableTSPPBuildPlugins(sys, buildHost); // TSPP-SLOT(command-line)
     buildHost.afterProgramEmitAndDiagnostics = program => {
         reportStatistics(sys, program.getProgram(), solutionPerformance);
         cb(program);

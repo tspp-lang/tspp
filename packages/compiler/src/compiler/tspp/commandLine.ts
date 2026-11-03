@@ -11,13 +11,18 @@ import {
     getConfigFileParsingDiagnostics,
     getDiagnosticText,
     getDirectoryPath,
+    getTsBuildInfoEmitOutputFilePath,
     isBuildCommand,
+    noop,
+    parseBuildCommand,
     parseCommandLine,
     toPath,
 } from "../_namespaces/ts.js";
 import type {
+    BuilderProgram,
     BuildOptions,
     CompilerOptions,
+    CreateProgram,
     Diagnostic,
     DiagnosticReporter,
     ExecuteCommandLineCallbacks,
@@ -168,36 +173,49 @@ export function performTSPPCompilation(
 }
 
 /**
- * Incremental compilations and watch mode emit through upstream's builder programs, which `performTSPPCompilation` never
- * sees. Analyzers run on each builder's program instead: a one-shot compilation exits when they finish, with their errors
- * in its status, and watch mode reports them after each build, dropping results a newer build has replaced.
+ * Incremental compilations, solution builds, and watch mode emit through upstream's builder programs, which
+ * `performTSPPCompilation` never sees. Analyzers run on each builder's program instead: a one-shot run exits when they
+ * finish, with their errors in its status, and watch mode reports them after each build, dropping results a newer build of
+ * the project has replaced. A build info file records no analyzer errors, so a project that has some loses its file, or
+ * the next solution build would call the project up to date.
  */
-function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks, commandLine: ParsedCommandLine): { system: System; cb: ExecuteCommandLineCallbacks; pending(): Promise<void> | undefined; } {
-    const reportDiagnostic = createDiagnosticReporter(system, commandLine.options.pretty ?? !!system.writeOutputIsTTY?.());
-    let program: Program | undefined;
+function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks, options: { readonly pretty?: boolean; readonly watch?: boolean; }): { system: System; cb: ExecuteCommandLineCallbacks; pending(): Promise<void> | undefined; } {
+    const reportDiagnostic = createDiagnosticReporter(system, options.pretty ?? !!system.writeOutputIsTTY?.());
+    const programs: Program[] = [];
+    const builds = new Map<string | undefined, number>();
     let pending: Promise<void> | undefined;
-    let build = 0;
-    const analyze = async (target: Program) => hasTSPPProgramAnalyzers() ? (await runTSPPProgramAnalyzers(target)).map(diagnostic => toTSPPAnalysisDiagnostic(target, diagnostic)) : [];
+    const analyze = async (program: Program, isCurrent: () => boolean = () => true) => {
+        const diagnostics = (await runTSPPProgramAnalyzers(program)).map(diagnostic => toTSPPAnalysisDiagnostic(program, diagnostic));
+        if (!isCurrent()) return false;
+        diagnostics.forEach(reportDiagnostic);
+        const failed = diagnostics.some(diagnostic => diagnostic.category === DiagnosticCategory.Error);
+        const buildInfo = failed ? getTsBuildInfoEmitOutputFilePath(program.getCompilerOptions()) : undefined;
+        if (buildInfo && system.fileExists(buildInfo)) system.deleteFile?.(buildInfo);
+        return failed;
+    };
     const analyzedSystem: System = Object.create(system);
     analyzedSystem.exit = exitCode => {
-        if (!program || !hasTSPPProgramAnalyzers()) return system.exit(exitCode);
-        pending = analyze(program).then(diagnostics => {
-            for (const diagnostic of diagnostics) reportDiagnostic(diagnostic);
-            const failedStatus = commandLine.options.noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
-            system.exit(exitCode || (diagnostics.some(diagnostic => diagnostic.category === DiagnosticCategory.Error) ? failedStatus : ExitStatus.Success));
-        });
+        if (!programs.length) return system.exit(exitCode);
+        pending = (async () => {
+            let failed = false;
+            for (const program of programs) failed = await analyze(program) || failed;
+            const failedStatus = programs[0].getCompilerOptions().noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
+            system.exit(exitCode || (failed ? failedStatus : ExitStatus.Success));
+        })();
     };
     return {
         system: analyzedSystem,
         cb: programOrConfig => {
             const built = (programOrConfig as { getProgram?(): Program; }).getProgram?.();
-            if (built) {
-                program = built;
-                if (commandLine.options.watch && hasTSPPProgramAnalyzers()) {
-                    const current = ++build;
-                    pending = analyze(built).then(diagnostics => {
-                        if (current === build) diagnostics.forEach(reportDiagnostic);
-                    });
+            if (built && hasTSPPProgramAnalyzers()) {
+                if (options.watch) {
+                    const project = built.getCompilerOptions().configFilePath;
+                    const current = (builds.get(project) ?? 0) + 1;
+                    builds.set(project, current);
+                    pending = analyze(built, () => builds.get(project) === current).then(noop);
+                }
+                else {
+                    programs.push(built);
                 }
             }
             cb(programOrConfig);
@@ -207,10 +225,23 @@ function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks,
 }
 
 /**
+ * Solution builds read each project's configuration inside the builder, so a project's plugins load when its program is
+ * created. They stay loaded for the projects after it, as everywhere in one process (docs/plugin-framework.md).
+ * @internal
+ */
+export function enableTSPPBuildPlugins<T extends BuilderProgram>(sys: System, host: { createProgram: CreateProgram<T>; }): void {
+    const createBuilderProgram = host.createProgram;
+    host.createProgram = (rootNames, options, ...rest) => {
+        const configFileName = options?.configFilePath;
+        if (options && configFileName && !loadTSPPConfiguredPlugins(options, configFileName, sys)) sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
+        return createBuilderProgram(rootNames, options, ...rest);
+    };
+}
+
+/**
  * Runs the `tspp` command line. One-shot compilations wait for asynchronous program rebuilders such as compile-time
- * macros and for analyzers; incremental and watch compilations keep upstream's synchronous builders, whose long-lived
- * state needs a separate asynchronous design, and run analyzers on what they build. Solution builds do not load plugins:
- * a project needs `tspp -p` for them.
+ * macros and for analyzers; incremental compilations, solution builds, and watch mode keep upstream's synchronous builders,
+ * whose long-lived state needs a separate asynchronous design, and run analyzers on what they build.
  * @internal
  */
 export function executeTSPPCommandLine(system: System, cb: ExecuteCommandLineCallbacks, commandLineArgs: readonly string[]): void {
@@ -221,9 +252,13 @@ export function executeTSPPCommandLine(system: System, cb: ExecuteCommandLineCal
 }
 
 function executeCommandLineAsync(system: System, cb: ExecuteCommandLineCallbacks, commandLineArgs: readonly string[]): unknown {
-    if (isBuildCommand(commandLineArgs)) return executeCommandLine(system, cb, commandLineArgs);
+    if (isBuildCommand(commandLineArgs)) {
+        const builders = analyzeBuilderPrograms(system, cb, parseBuildCommand(commandLineArgs).buildOptions);
+        const result = executeCommandLine(builders.system, builders.cb, commandLineArgs);
+        return builders.pending() ?? result;
+    }
     const commandLine = parseCommandLine(commandLineArgs, path => system.readFile(path));
-    const builders = analyzeBuilderPrograms(system, cb, commandLine);
+    const builders = analyzeBuilderPrograms(system, cb, commandLine.options);
     if (commandLine.options.generateCpuProfile && system.enableCPUProfiler) {
         const result = executeCommandLine(builders.system, builders.cb, commandLineArgs);
         return builders.pending() ?? result;

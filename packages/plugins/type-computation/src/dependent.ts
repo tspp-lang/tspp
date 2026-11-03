@@ -223,7 +223,7 @@ export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor
         skipToEndOfDeclaration(ts, cursor);
     }
     // Empty, like every generated node: the authored text is no node's, and parent nodes span it.
-    const node = term ? lowerTermToTypeNode(ts, model, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
+    const node = term ? lowerTermToTypeNode(ts, cursor, model, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
     if (term) model.terms.set(node, term);
     model.authored.set(node, start);
     model.authoredEnds.set(node, cursor.getNodePos());

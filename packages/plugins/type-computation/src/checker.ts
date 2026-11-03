@@ -199,7 +199,7 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
             const kind = getKind(state, host.checker.getTypeFromTypeNode(model.applications.get(parent.parent)!.target));
             return kind.kind === "function" ? kind.parameters[index - 1] : undefined;
         }
-        if (!ts.isTypeReferenceNode(parent) || !parent.typeArguments) return undefined;
+        if (!(ts.isTypeReferenceNode(parent) || ts.isExpressionWithTypeArguments(parent)) || !parent.typeArguments) return undefined;
         const index = parent.typeArguments.indexOf(node);
         if (index < 0) return undefined;
         // Only references that may carry a constructor are checked; other arguments are ordinary types.
@@ -210,7 +210,7 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         return targetParameterKind(parent, index, host, state);
     }
 
-    function targetParameterKind(reference: TS.TypeReferenceNode, index: number, host: TSPPTypeHost, state: CheckerState): TypeKind | undefined {
+    function targetParameterKind(reference: TS.TypeReferenceNode | TS.ExpressionWithTypeArguments, index: number, host: TSPPTypeHost, state: CheckerState): TypeKind | undefined {
         const symbol = host.resolveTypeReferenceName(reference);
         if (!symbol) return undefined;
         const parameters = host.getTypeParametersOfSymbol(symbol);

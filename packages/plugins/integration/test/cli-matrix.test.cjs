@@ -136,6 +136,41 @@ function compileAndRun(set) {
 
 for (const set of pluginSets()) test(set.join(" + "), () => compileAndRun(set));
 
+test("solution builds load each project's plugins and do not call a refuted project up to date", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    for (const name of ["formal-verification", "nominal-types"]) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
+    const project = (name, plugin, source, references = []) => {
+      fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
+      fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
+      fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
+      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, skipLibCheck: true, composite: true, plugins: [{ name: `@tspp/plugin-${plugin}`, tspp: true }] },
+        include: ["src"],
+        references,
+      }));
+    };
+    project("data", "nominal-types", "export data Flag = On | Off;\n");
+    project("proof", "formal-verification", `${features["formal-verification"].bad}\n`, [{ path: "../data" }]);
+    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "data" }, { path: "proof" }] }));
+    for (let run = 0; run < 2; run++) {
+      const built = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-b"], { cwd: directory, encoding: "utf8" });
+      assert.match(built.stdout, features["formal-verification"].message, `run ${run}\n${built.stdout}${built.stderr}`);
+      assert.notEqual(built.status, 0, `run ${run}\n${built.stdout}${built.stderr}`);
+      assert.doesNotMatch(built.stdout, /error TS1\d\d\d:/, `run ${run}: syntax errors mean a plugin did not load\n${built.stdout}`);
+    }
+    fs.writeFileSync(path.join(directory, "proof", "src", "index.tspp"), `${features["formal-verification"].code}\n`);
+    const fixed = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-b"], { cwd: directory, encoding: "utf8" });
+    assert.equal(fixed.status, 0, `${fixed.stdout}${fixed.stderr}`);
+    assert.ok(fs.existsSync(path.join(directory, "data", "out", "index.d.tspp")));
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 // Upstream's builder programs emit on their own path: an analyzer's errors must still reach the status and the output.
 for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, { composite: true, rootDir: "src" }]) {
   test(`analyzers run in ${Object.keys(mode)[0]} compilations`, () => {

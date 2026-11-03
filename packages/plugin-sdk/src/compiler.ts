@@ -295,7 +295,7 @@ export interface TSPPTypeHost extends TSPPTypeOperations {
      */
     createType(symbol?: import("typescript-upstream").Symbol): import("typescript-upstream").Type;
     /** The type, alias resolved, that a type reference names, without reporting errors; undefined if none. */
-    resolveTypeReferenceName(node: import("typescript-upstream").TypeReferenceNode): import("typescript-upstream").Symbol | undefined;
+    resolveTypeReferenceName(node: import("typescript-upstream").TypeReferenceNode | import("typescript-upstream").ExpressionWithTypeArguments): import("typescript-upstream").Symbol | undefined;
     /** The type parameters a generic type alias, class, or interface declares; undefined for other symbols. */
     getTypeParametersOfSymbol(symbol: import("typescript-upstream").Symbol): readonly import("typescript-upstream").TypeParameter[] | undefined;
     /** A generic type alias, class, or interface applied to type arguments. */

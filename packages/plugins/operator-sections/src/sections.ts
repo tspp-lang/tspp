@@ -1,9 +1,8 @@
+import { createGeneratedName, replaceChild } from "@tspp/plugin-sdk";
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 const placeholder = "_";
-
-type GenerateName = (node: TS.Node, flags: TS.GeneratedIdentifierFlags, prefix: string, suffix: string) => TS.Identifier;
 
 interface Hole {
     readonly identifier: TS.Identifier;
@@ -138,27 +137,12 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
         return expression;
     }
 
-    function replace(parent: TS.Node, from: TS.Node, to: TS.Node): void {
-        const slots = parent as unknown as Record<string, unknown>;
-        for (const key of Object.keys(slots)) {
-            const value = slots[key];
-            if (value === from) slots[key] = to;
-            else if (Array.isArray(value) && value.includes(from)) (value as TS.Node[])[value.indexOf(from)] = to;
-        }
-    }
-
     function createSection(cursor: TSPPSyntaxCursor, expression: TS.Expression, holes: readonly Hole[], pos: number, end: number): TS.Expression {
         const factory = cursor.factory;
         let body = expression;
         const parameters = holes.map(({ identifier, parent }, index) => {
-            const name = () => {
-                // The internal overload takes a prefix and suffix. A generated name cannot be created as a parse tree
-                // node before its file exists, so it is created synthesized and then made part of the parse tree.
-                const generated = (ts.factory.getGeneratedNameForNode as unknown as GenerateName)(identifier, ts.GeneratedIdentifierFlags.Optimistic, "__p", String(index));
-                (generated as { flags: TS.NodeFlags; }).flags &= ~ts.NodeFlags.Synthesized;
-                return ts.setTextRange(generated, identifier);
-            };
-            if (parent) replace(parent, identifier, name());
+            const name = () => ts.setTextRange(createGeneratedName(ts, identifier, "__p", String(index)), identifier);
+            if (parent) replaceChild(parent, identifier, name());
             else body = name();
             return ts.setTextRange(
                 factory.createParameterDeclaration(/*modifiers*/ undefined, /*dotDotDotToken*/ undefined, name()),

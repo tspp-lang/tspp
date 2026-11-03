@@ -295,6 +295,20 @@ test("formal-verification refinements take an alias annotation of another plugin
   assert.match(declaration[1], /type Pos: Type0 = bigint with \{ predicate: value > 0n; \}/);
 });
 
+test("type-computation: a type constructor as a type argument of a heritage clause", () => {
+  const { r } = run(`
+    interface Holds<F: Type => Type> { items: F<number>; }
+    class Listed implements Holds<Array> { items = [1, 2]; }
+    interface Both<F: Type => Type> extends Holds<F> {}
+    const both: Both<Array> = { items: [3] };
+    export const r = [new Listed().items[1], both.items[0]];`);
+  assert.deepEqual(r, [2, 3]);
+  const messages = compile(`
+    interface Holds<F: Type => Type> { items: F<number>; }
+    export class Wrong implements Holds<string> { items = 1; }`).messages;
+  assert.ok(messages.some(message => /has kind 'Type0', but kind 'Type0 => Type0' was expected/.test(message) || /has kind/.test(message)), messages.join("\n"));
+});
+
 test("source projections leave strings and comments alone", () => {
   const source = `
     export const a = "macro m(T);";

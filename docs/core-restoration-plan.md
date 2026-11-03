@@ -100,7 +100,7 @@ manifest: {
 | 源码投影 | 解析前 | 已有，保持长度和换行不变；投影只能改写本插件在清单中声明的语法。`.d.tspp` 输出可通过 `restoreFunctionClause`（参数表之后）与 `restoreFunctionPrefix`（`function` 之前）恢复被投影掉的文本 | dependent-types、formal-verification、macros |
 | 语法扩展 | 表达式、主表达式、调用实参、语句、声明、类型、后缀类型、类型参数名之后、类型别名的类型参数表之后等位置的起始 token | 插件拿到解析器游标与 `ts.factory`，返回普通节点。表达式（一元表达式与箭头函数体）、主表达式（`primary-expression`，其后的调用与成员访问、前缀运算符照常作用于结果）、调用实参（`argument`，整个实参）、语句、函数体、声明、类型（`type`）、后缀类型（`postfix-type`，游标带 `precedingType`）十个位置的通用游标（`registerSyntaxExtension`，解析器自己的 factory、`finishNode`、普通解析函数，含 `parseTypeArguments`；`parseErrorAt` 可带插件自己的错误码）**已实现**；两个注解位置（`type-parameter-annotation`、`type-alias-annotation`）的 `parse` 返回一个回调，声明建好后宿主把声明节点交给它，该声明不参与增量复用。插件语法在节点之间留下的名字、字面量与标点都不是解析树节点，检查器不会解析它们；没有源码位置的插件节点由最近的有位置祖先代表（`getErrorSpanForNode` 等四处调用点） | modern-syntax、nominal-types、dependent-types、type-computation、operator-sections |
 | 附加诊断 | 源文件的绑定与检查诊断合并处（`program.ts` 一处调用点） | 插件为每个源文件补充语义诊断，`@ts-expect-error` 等注释指令照常生效（`registerDiagnosticProvider`）；`filterDiagnostic` 可以丢弃检查器报告的诊断，也可以返回一个替代诊断（例如把生成节点上的诊断移到它代表的源码上）。`getSemanticDiagnostics` 还拿到该 checker 的 `TSPPTypeOperations`（与类型层扩展宿主共用）：绑定 `this`、匿名对象类型与交叉类型、按检查器的方式得到可赋值性错误及其展开。诊断的错误码与文字都归插件，核心的 `diagnosticMessages.json` 里没有插件消息。**已实现** | modern-syntax、nominal-types、type-computation、static-interface-members |
-| 接口成员绑定 | binder 成员归属、名字解析的静态性、修饰符语法检查 | `registerInterfaceMemberBinding({ keywords, isStaticMember })`：插件判定的接口成员是接口的静态成员，允许出现、不进入实例类型、按静态类成员解析名字。经评审认定为通用插槽：公共 API 无法改变绑定与语法检查，源码投影也无法等长改写。调用点都是带标记的一行（`isTSPPStaticInterfaceMember`）。实现方欠下的静态侧由插件的诊断提供者检查（18074 归插件），兼容 `.d.ts` 中省略静态成员由插件的 `restoreCompatibilityDeclaration` 完成 | static-interface-members |
+| 接口成员绑定 | binder 成员归属、名字解析的静态性、修饰符语法检查 | `registerInterfaceMemberBinding({ keywords, isStaticMember })`：插件判定的接口成员是接口的静态成员，允许出现、不进入实例类型、按静态类成员解析名字。经评审认定为通用插槽：公共 API 无法改变绑定与语法检查，源码投影也无法等长改写。调用点都是带标记的一行（`isTSPPStaticSideMember`）。实现方欠下的静态侧由插件的诊断提供者检查（18074 归插件），兼容 `.d.ts` 中省略静态成员由插件的 `restoreCompatibilityDeclaration` 完成 | static-interface-members |
 | 声明输出 | `.d.tspp` 与随附的兼容 `.d.ts` 输出（emitter 一处调用点，属"语法扩展"） | 插件为自己拥有的节点提供声明文本：`restoreDeclaration` 给 `.d.tspp`，`restoreCompatibilityDeclaration` 给兼容 `.d.ts`；两者都能处理语句与类型层节点。**已实现** | nominal-types、type-computation |
 | 程序重建 | `createProgram` 返回前（`program.ts` 一处调用点），以及 `createProgramAsync` | 插件检查建好的程序，返回按位置匹配的语句替换；宿主从同一源码重新解析这些文件、换入替换语句、重建程序，并可附加或过滤语义诊断、在输出时追加转换器。长期宿主（语言服务）提供 `invalidate`，插件异步完成后请求重建。宏的 worker、超时与展开策略归插件。没有任何替换时宿主不重建，只把诊断、过滤与转换器加到原程序上（实现在 `compiler/tspp/rebuild.ts`，不增加调用点）。**已实现** | macros；dependent-types（`typecase` 只输出被选中的分支） |
 | 程序分析 | 已有 | 不可变快照 + 异步诊断 + artifact | dependent-types、formal-verification |
@@ -306,7 +306,12 @@ dependent-types 并入 type-computation（"互相依赖就合并"，HKT 是先�
 
 `markGenerated` 从 nominal-types 移入 SDK；游标删除无人使用的 `parseBlock`；SDK API 版本升到 4；`core-diff`：24 个上游文件 +294 −44，预算降为 24 个文件 +300 −46。
 
-已知限制：`tspp -b` 不加载插件，含插件语法的项目会报语法错误；`-p` 留下的 `.tsbuildinfo` 不记录分析器错误，之后的 `-b` 会判定为最新。`implements G<Array>` 这种在 heritage 子句里传类型构造器的写法仍报 TS2314（与其他插件无关）。
+随后补上的部分（2026-11-03）：
+
+- `tspp -b`（含 `--watch`）在创建每个项目的程序时加载它的插件（`executeCommandLine.ts` 一行调用点），并运行分析器。分析器报错的项目删除 `.tsbuildinfo`，下次不会被判定为最新。一个进程只有一份注册表，所以后面的项目也看得到前面项目的插件。
+- heritage 子句的类型实参也按 kind 检查，`implements G<Array>` 不再报 TS2314。
+- 插件不再绕过公共 API：type-computation 的项用解析器的 factory 降级，`typecase` 就地替换捕获。仍需要内部细节的两件事（`getGeneratedNameForNode` 的内部重载、改写刚解析的节点）收进 SDK 的 `createGeneratedName` 与 `replaceChild`，这样依赖只有一处。
+- `interface-member-binding` 评估后保留：脱糖成伴生接口会让静态成员不再是接口节点的子节点，而悬停、跳转、引用都按位置在子节点里找；`.d.tspp` 还要靠导出伴生接口才能保住静态成员用到的导入。函数改名为 `isTSPPStaticSideMember`。
 
 ## 风险与待定
 

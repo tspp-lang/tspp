@@ -1150,7 +1150,7 @@ import {
 } from "./_namespaces/ts.js";
 import * as moduleSpecifiers from "./_namespaces/ts.moduleSpecifiers.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { isTSPPStaticInterfaceMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
+import { isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
 import {
     createTSPPTypeState,
     instantiateTSPPType,
@@ -49841,7 +49841,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                     copySymbol(argumentsSymbol, meaning);
                 }
 
-                isStaticSymbol = isStatic(location) || isTSPPStaticInterfaceMember(location); // TSPP-SLOT(interface-member-binding)
+                isStaticSymbol = isStatic(location) || isTSPPStaticSideMember(location); // TSPP-SLOT(interface-member-binding)
                 location = location.parent;
             }
 
@@ -51877,7 +51877,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             }
             else {
                 if (modifier.kind !== SyntaxKind.ReadonlyKeyword) {
-                    if ((node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature) && !(modifier.kind === SyntaxKind.StaticKeyword && isTSPPStaticInterfaceMember(node))) { // TSPP-SLOT(interface-member-binding)
+                    if ((node.kind === SyntaxKind.PropertySignature || node.kind === SyntaxKind.MethodSignature) && !(modifier.kind === SyntaxKind.StaticKeyword && isTSPPStaticSideMember(node))) { // TSPP-SLOT(interface-member-binding)
                         return grammarErrorOnNode(modifier, Diagnostics._0_modifier_cannot_appear_on_a_type_member, tokenToString(modifier.kind));
                     }
                     if (node.kind === SyntaxKind.IndexSignature && (modifier.kind !== SyntaxKind.StaticKeyword || !isClassLike(node.parent))) {

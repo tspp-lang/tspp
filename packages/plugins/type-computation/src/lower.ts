@@ -1,4 +1,5 @@
-import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
+import { markGenerated } from "@tspp/plugin-sdk";
+import type { TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import { normalizeMlttTerm, type MlttTerm } from "./core";
@@ -21,13 +22,13 @@ export const keywordTypes: ReadonlySet<string> = new Set(["any", "bigint", "bool
  * is the same application a higher-kinded parameter gets anywhere else. What only the kernel can state is `unknown`:
  * nothing for a universe, which says nothing about a value, but otherwise `model.unchecked` records it for a warning.
  */
-export function lowerTermToTypeNode(ts: TSPPTypeScript, model: TypeSyntaxModel, term: MlttTerm, position: number): TS.TypeNode {
-    const factory = ts.factory;
+export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor, model: TypeSyntaxModel, term: MlttTerm, position: number): TS.TypeNode {
+    const factory = cursor.factory;
     const kinds = ts.SyntaxKind;
-    const reference = (name: string, typeArguments?: readonly TS.TypeNode[]) => factory.createTypeReferenceNode(name, typeArguments);
+    const reference = (name: string, typeArguments?: readonly TS.TypeNode[]) => factory.createTypeReferenceNode(name, typeArguments && factory.createNodeArray(typeArguments));
     const keyword = (kind: TS.KeywordTypeSyntaxKind) => factory.createKeywordTypeNode(kind);
     const numeric = (value: number) => factory.createLiteralTypeNode(factory.createNumericLiteral(value));
-    const tuple = (elements: readonly TS.TypeNode[]) => factory.createTupleTypeNode(elements);
+    const tuple = (elements: readonly TS.TypeNode[]) => factory.createTupleTypeNode(factory.createNodeArray(elements));
     const conditional = (check: TS.TypeNode, extendsType: TS.TypeNode, whenTrue: TS.TypeNode, whenFalse: TS.TypeNode) =>
         factory.createConditionalTypeNode(check, extendsType, whenTrue, whenFalse);
     const unknownType = () => keyword(kinds.UnknownKeyword);
@@ -43,23 +44,14 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, model: TypeSyntaxModel, 
     return lowered;
 
     /**
-     * Makes generated nodes part of the parse tree, which declaration output asks about and editor services walk: no
-     * flag of nodes made after parsing, and an empty range at `position`. Names and literals stay without a position,
-     * where an empty range would make them missing and they print from their own text. A referenced name also has an
-     * end, since the checker scans the token after it.
+     * Generated nodes sit, empty, at `position`, which declaration output and editor services read. A referenced name also
+     * has an end, since the checker scans the token after it.
      */
     function asParseTreeNodes<T extends TS.Node>(root: T): T {
-        const place = (node: TS.Node | TS.NodeArray<TS.Node>) => {
-            if (node.pos < 0) ts.setTextRange(node, { pos: position, end: position });
-        };
+        markGenerated(ts, root, position);
         const visit = (node: TS.Node): void => {
-            (node as { flags: TS.NodeFlags; }).flags &= ~ts.NodeFlags.Synthesized;
-            if (!ts.isIdentifier(node) && !ts.isLiteralExpression(node)) place(node);
             if (ts.isTypeReferenceNode(node)) ts.setTextRange(node.typeName, { pos: -1, end: position });
-            ts.forEachChild(node, visit, nodes => {
-                place(nodes);
-                nodes.forEach(visit);
-            });
+            ts.forEachChild(node, visit);
         };
         visit(root);
         return root;
@@ -165,8 +157,8 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, model: TypeSyntaxModel, 
             if (separators[index] === "|") groups.push([]);
             groups[groups.length - 1].push(lower(argument, scope));
         });
-        const united = groups.map(group => group.length === 1 ? group[0] : factory.createIntersectionTypeNode(group));
-        return united.length === 1 ? united[0] : factory.createUnionTypeNode(united);
+        const united = groups.map(group => group.length === 1 ? group[0] : factory.createIntersectionTypeNode(factory.createNodeArray(group)));
+        return united.length === 1 ? united[0] : factory.createUnionTypeNode(factory.createNodeArray(united));
     }
 
     function lowerFunction(term: Extract<MlttTerm, { kind: "pi"; }>, outerScope: readonly string[]): TS.TypeNode {

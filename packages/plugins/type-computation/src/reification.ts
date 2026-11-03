@@ -1,3 +1,4 @@
+import { replaceChild } from "@tspp/plugin-sdk";
 import type {
     TSPPProgramRebuilder,
     TSPPSyntaxCursor,
@@ -47,6 +48,8 @@ export function createReification(ts: TSPPTypeScript): Reification {
     // Underscored, so the arms may leave it unused; not `__`-prefixed, which escapes differently from its text and so
     // defeats the editor rule that hides parameter name hints matching their argument.
     const scrutineeName = "_tspp_scrutinee";
+    // Made now because the parser is one shared instance: parsing a file from inside a plugin's syntax would end the parse.
+    const emptyFile = ts.createSourceFile("type.ts", "", ts.ScriptTarget.Latest);
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end = pos): T => ts.setTextRange(node, { pos, end });
     /** A synthesized name, which keeps its text; it must sit under an empty, positioned parent (see `markGenerated` in the SDK). */
     const name = (f: TS.NodeFactory, text: string) => range(f.createIdentifier(text), -1);
@@ -115,7 +118,7 @@ export function createReification(ts: TSPPTypeScript): Reification {
         try {
             // The type has no parents or source file yet, so the printer reads names and literals from the nodes.
             const printer = ts.createPrinter({ removeComments: true });
-            return printer.printNode(ts.EmitHint.Unspecified, type, undefined as unknown as TS.SourceFile).replace(/\s+/g, " ").trim();
+            return printer.printNode(ts.EmitHint.Unspecified, type, emptyFile).replace(/\s+/g, " ").trim();
         }
         catch {
             return "unknown";
@@ -226,18 +229,20 @@ export function createReification(ts: TSPPTypeScript): Reification {
      * `infer` and synthesized.
      */
     function replaceCaptures(f: TS.NodeFactory, pattern: TS.TypeNode, captures: Map<string, TS.TypeParameterDeclaration>): TS.TypeNode {
-        // Visiting type nodes only reads the context's factory; the parser's own keeps the copies parse-tree nodes.
-        const context = { factory: f } as unknown as TS.TransformationContext;
-        const visit = (node: TS.Node): TS.Node => {
-            if (ts.isInferTypeNode(node)) {
-                const captured = node.typeParameter.name;
-                const text = ts.idText(captured);
-                if (!captures.has(text)) captures.set(text, node.typeParameter);
-                return range(f.createTypeReferenceNode(name(f, text), undefined), node.pos);
-            }
-            return ts.visitEachChild(node, visit, context);
+        const capture = (node: TS.InferTypeNode): TS.TypeNode => {
+            const text = ts.idText(node.typeParameter.name);
+            if (!captures.has(text)) captures.set(text, node.typeParameter);
+            return range(f.createTypeReferenceNode(name(f, text), undefined), node.pos);
         };
-        return visit(pattern) as TS.TypeNode;
+        if (ts.isInferTypeNode(pattern)) return capture(pattern);
+        const visit = (node: TS.Node): void => {
+            ts.forEachChild(node, child => {
+                if (ts.isInferTypeNode(child)) replaceChild(node, child, capture(child));
+                else visit(child);
+            });
+        };
+        visit(pattern);
+        return pattern;
     }
 
     const selection: TSPPProgramRebuilder = {

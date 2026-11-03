@@ -122,7 +122,9 @@ own factory, and they return ordinary TypeScript nodes that the upstream binder,
 checker, and emitter process unchanged. `markGenerated` from the SDK gives the nodes
 a plugin creates the source positions editor services and declaration output expect.
 A function a plugin lowers to has an empty `=>`, which is how other syntax tells it
-from a scope the author wrote.
+from a scope the author wrote. `replaceChild` rewrites syntax a plugin has just parsed,
+and `createGeneratedName` gives it a name that stays unique in JavaScript; compiler
+details those two need stay in the SDK rather than in each plugin.
 
 ```mermaid
 flowchart LR
@@ -167,9 +169,9 @@ host, or filesystem capability.
 `@tspp/plugin-formal-verification` is the first consumer. It owns proof-point
 discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
 compiler owns only scheduling and diagnostic transport. Analyzers run in one-shot,
-incremental, and watch compilations. Solution builds (`tspp -b`) do not load plugins
-yet, so a project with plugins compiles with `tspp -p`; an up-to-date
-`.tsbuildinfo` does not record analyzer errors, so `-b` must not stand in for it. It parses each file with
+incremental, and watch compilations and in solution builds, which load each project's
+plugins as they reach it. A build info file records no analyzer errors, so a project
+with some loses its file and is built again next time. It parses each file with
 the host's parser (`context.ts.createSourceFile`), so every active plugin's syntax
 is already lowered to ordinary TypeScript. It models that TypeScript, immediately
 invoked functions and conditional expressions included, and knows no other plugin
