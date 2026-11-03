@@ -3,7 +3,7 @@ import { nameText, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { Sort } from "./expression";
 import { collectFunctionClauses, parseProperties } from "./contracts";
-import type { RefinementModel } from "./refinements";
+import { refinedTypeEnd, type RefinementModel } from "./refinements";
 
 export interface Clause { readonly value: string; readonly start: number; }
 export interface FunctionModel {
@@ -106,7 +106,7 @@ export interface DataConstructor {
 export function collectDataTypes(
     nominalTypes: NominalTypesADTAPI | undefined, sourceText: string, records: Map<string, ReadonlyMap<string, Sort>>, sourceFile: TS.SourceFile,
 ): Map<string, DataConstructor> {
-    const aliases = new Map(sourceFile.statements.filter(ts.isTypeAliasDeclaration).map(alias => [nameText(alias.name), sourceFile.text.slice(alias.type.pos, alias.type.end).trim()]));
+    const aliases = new Map(sourceFile.statements.filter(ts.isTypeAliasDeclaration).map(alias => [nameText(alias.name), sourceFile.text.slice(alias.type.pos, refinedTypeEnd(alias.type)).trim()]));
     /** The type a field wrote, through the file's aliases, whose names the API reports as written. */
     const resolved = (type: string, seen = new Set<string>()): string => {
         const target = aliases.get(type);

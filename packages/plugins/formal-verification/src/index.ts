@@ -12,7 +12,7 @@ import { collectProgramProofs } from "./program";
 import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
 import { clearPreparedVerificationSources } from "./source-cache";
-import { restoreRefinementTypeAlias } from "./refinements";
+import { createRefinementClauses } from "./refinements";
 import { useTypeScript } from "./host-api";
 
 export interface FormalVerificationAnalyzerOptions {
@@ -91,7 +91,7 @@ export const formalVerificationPlugin = definePlugin({
             keywords: [
                 { keyword: "with", position: "function-clause" },
                 { keyword: "with", position: "loop-clause" },
-                { keyword: "with", position: "type-clause" },
+                { keyword: "with", position: "postfix-type" },
                 { keyword: "assert", position: "statement" },
                 { keyword: "assume", position: "statement" },
             ],
@@ -106,13 +106,12 @@ export const formalVerificationPlugin = definePlugin({
                     claims: [
                         { keyword: "with", position: "function-clause" },
                         { keyword: "with", position: "loop-clause" },
-                        { keyword: "with", position: "type-clause" },
                     ],
                     preprocess: maskContractClauses,
                     restoreFunctionClause: restoreContractFunctionClause,
-                    restoreTypeAliasDeclaration: restoreRefinementTypeAlias,
                 });
                 context.onDispose(context.compiler.registerSyntaxExtension(createProofDirectives(context.ts)));
+                context.onDispose(context.compiler.registerSyntaxExtension(createRefinementClauses(context.ts)));
                 const disposeAnalysis = context.compiler.registerProgramAnalyzer(createFormalVerificationAnalyzer({
                     getNominalTypes: () => context.dependencies.get<NominalTypesADTAPI>("nominal-types/adt"),
                 }));

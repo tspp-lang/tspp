@@ -3,7 +3,6 @@ const test = require("node:test");
 const { createProgram, usePlugins } = require("../../test-support/compile.cjs");
 const { createFormalVerificationAnalyzer, formalVerificationAnalyzer, formalVerificationPlugin } = require("../dist");
 const { restoreContractFunctionClause } = require("../dist/contracts");
-const { restoreRefinementTypeAlias } = require("../dist/refinements");
 const { clearPreparedVerificationSources, prepareVerificationSource } = require("../dist/source-cache");
 
 usePlugins(formalVerificationPlugin);
@@ -29,12 +28,10 @@ test("restores contracts and refinements for feature-rich declarations", () => {
     requires: value > 0n;
     ensures: result >= value;
   }: bigint { return value; }`;
-  assert.deepEqual(restoreRefinementTypeAlias({
-    fileName: "proof.tspp",
-    sourceText: source,
-    name: "Positive",
-    declarationStart: source.indexOf("type Positive"),
-  }), { type: "bigint with { predicate: value > 0n; }" });
+  const { program, outputs } = createProgram(`export ${source}`, { declaration: true });
+  program.emit();
+  assert.match(outputs.get("/main.d.tspp"), /type Positive = bigint with \{ predicate: value > 0n; \};/);
+  assert.match(outputs.get("/main.d.ts"), /type Positive = bigint;/);
   assert.equal(restoreContractFunctionClause({
     fileName: "proof.tspp",
     sourceText: source,
@@ -154,7 +151,7 @@ test("requires runtime divisors to be nonzero", async () => {
   assert.match(diagnostics[0].message, /division definedness could not be proved/);
 });
 
-test("a proof directive is a statement", () => {
+test("a proof directive is a statement, and a refinement clause the whole type of an alias", async () => {
   const members = `export interface I { assert: boolean; assume: number; }
   export type T = { assert: string; };
   export const i: I = { assert: true, assume: 1 };`;
@@ -162,6 +159,10 @@ test("a proof directive is a statement", () => {
   const erased = createProgram("export function f(v: bigint) { assert: v === v; assume: v > 0n; return v; }\nassert: 1n === 1n;");
   erased.program.emit();
   assert.doesNotMatch(erased.outputs.get("/main.js"), /assert|assume/);
+  const misplaced = await formalVerificationAnalyzer.analyze(input([labeled("export function f(v: bigint with { predicate: value > 0n; }) { return v; }")]));
+  assert.ok(misplaced.some(diagnostic => /whole type of a type alias/.test(diagnostic.message)), JSON.stringify(misplaced));
+  const annotated = await formalVerificationAnalyzer.analyze(input([labeled("type Odd = bigint with { predicate: value > 0n; unknownProperty: 1; };")]));
+  assert.ok(annotated.some(diagnostic => /'unknownProperty' is not supported on a refinement type/.test(diagnostic.message)), JSON.stringify(annotated));
 });
 
 test("proves refinement introductions and propagates parameter predicates", async () => {

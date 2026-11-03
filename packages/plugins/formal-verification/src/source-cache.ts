@@ -41,7 +41,7 @@ export function prepareVerificationSource(
     // ordinary TypeScript and depend on no plugin. Only the proof directives stay.
     const sourceFile = keepingProofDirectives(() => ts.createSourceFile(source.fileName, source.text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
     const functions = parseFunctionModels(source.text);
-    const refinements = collectRefinements(source.text);
+    const refinements = collectRefinements(sourceFile, source.text);
     const records = collectRecordTypes(sourceFile);
     const constructors = collectDataTypes(nominalTypes, source.text, records, sourceFile);
     const prepared = { sourceFile, functions, refinements, records, constructors };

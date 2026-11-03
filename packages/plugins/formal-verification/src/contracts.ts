@@ -2,7 +2,6 @@ import { maskNonCode } from "@tspp/plugin-sdk";
 import type { TSPPAnalysisDiagnostic, TSPPPreprocessedFunctionRequest, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 
 import type { Z3Query } from "./solver";
-import { maskRefinementClauses } from "./refinements";
 
 export interface PendingProof {
     readonly query: Z3Query;
@@ -146,7 +145,6 @@ export function maskContractClauses(_fileName: string, sourceText: string): stri
             if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
         }
     };
-    maskRefinementClauses(sourceText, characters);
     for (const clause of collectFunctionClauses(sourceText)) blank(clause.clauseStart, clause.close + 1);
     const loopPattern = /\bwith\s*\{/g;
     for (let match; (match = loopPattern.exec(code));) {
@@ -221,7 +219,7 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
         const end = previousToken(code, match.index);
         const owner = functionOfClause(code, match.index) ? { owner: "a function", properties: functionProperties }
             : code[end] === ")" && /\bwhile\s*$/.test(code.slice(Math.max(0, matchingOpen(code, end, "(", ")") - 20), Math.max(0, matchingOpen(code, end, "(", ")")))) ? { owner: "a loop", properties: loopProperties }
-            : /\btype\s+[A-Za-z_$][\w$]*(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 500), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
+            : /\b(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 20), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
             : undefined;
         if (!owner) continue;
         const open = code.indexOf("{", match.index);

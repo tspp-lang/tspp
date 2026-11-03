@@ -1,10 +1,9 @@
 import { maskNonCode } from "@tspp/plugin-sdk";
-import type {
-    TSPPPreprocessedTypeAlias,
-    TSPPPreprocessedTypeAliasRequest,
-} from "@tspp/plugin-sdk/compiler";
+import type { TSPPAnalysisDiagnostic, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
+import type * as TS from "typescript-upstream";
 
 import type { Sort } from "./expression";
+import { ts } from "./host-api";
 
 function matchingBrace(code: string, open: number): number {
     let depth = 0;
@@ -22,64 +21,82 @@ export interface RefinementModel {
     readonly start: number;
 }
 
-// The patterns below allow what another plugin's syntax may write between an alias's name and its `=`: a `:` annotation.
-export function collectRefinements(sourceText: string): Map<string, RefinementModel> {
+interface RefinementClause {
+    /** The refined type and its clause, as written. */
+    readonly text: string;
+    readonly base: TS.TypeNode;
+    readonly open: number;
+    readonly close: number;
+}
+
+const refinementClauses = new WeakMap<TS.Node, RefinementClause>();
+
+/**
+ * `bigint with { predicate: ...; }`: the parser reads the base type, and the clause is what only proofs read. The checker
+ * sees the base type in parentheses, a node that can span the clause, which the token of a keyword type cannot.
+ */
+export function createRefinementClauses(host: TSPPTypeScript): TSPPSyntaxExtension {
+    const kinds = host.SyntaxKind;
+    const refinable: readonly TS.SyntaxKind[] = [kinds.BigIntKeyword, kinds.NumberKeyword, kinds.BooleanKeyword];
+    return {
+        position: "postfix-type",
+        startTokens: [kinds.WithKeyword],
+        keywords: ["with"],
+        isStart: cursor => !!cursor.precedingType && refinable.includes(cursor.precedingType.kind) && cursor.lookAhead(() => cursor.nextToken() === kinds.OpenBraceToken),
+        parse(cursor) {
+            const base = cursor.precedingType!;
+            cursor.nextToken();
+            const open = cursor.getTokenStart();
+            const sourceText = cursor.getSourceText();
+            const close = matchingBrace(maskNonCode(sourceText), open);
+            if (close < 0) throw new Error("A refinement clause needs its closing '}'.");
+            while (cursor.getTokenStart() < close) cursor.nextToken();
+            cursor.nextToken();
+            const refined = cursor.finishNode(cursor.factory.createParenthesizedType(base), base.pos, close + 1);
+            refinementClauses.set(refined, { text: sourceText.slice(base.pos, close + 1).trim(), base, open, close });
+            return refined;
+        },
+        restoreDeclaration: node => refinementClauses.get(host.getOriginalNode(node))?.text,
+        restoreCompatibilityDeclaration(node) {
+            const clause = refinementClauses.get(host.getOriginalNode(node));
+            return clause && clause.text.slice(0, clause.base.end - clause.base.pos).trim();
+        },
+    };
+}
+
+function forEachNode(node: TS.Node, visit: (node: TS.Node) => void): void {
+    visit(node);
+    ts.forEachChild(node, child => forEachNode(child, visit));
+}
+
+export function collectRefinements(sourceFile: TS.SourceFile, sourceText: string): Map<string, RefinementModel> {
     const refinements = new Map<string, RefinementModel>();
-    const code = maskNonCode(sourceText);
-    const pattern = /\btype\s+([A-Za-z_$][\w$]*)(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
-    for (let match; (match = pattern.exec(code));) {
-        const open = code.indexOf("{", match.index);
-        const close = matchingBrace(code, open);
-        if (close < 0) continue;
-        const body = sourceText.slice(open + 1, close);
-        const property = /\bpredicate\s*:\s*([^;]+);/.exec(body);
-        if (property) {
-            const predicate = property[1].trim();
-            const start = open + 1 + (property.index ?? 0) + property[0].indexOf(property[1]) + property[1].indexOf(predicate);
-            refinements.set(match[1], {
-                name: match[1], sort: match[2] === "boolean" ? "Bool" : "Int",
-                predicate, start,
-            });
-        }
-        pattern.lastIndex = close + 1;
-    }
+    forEachNode(sourceFile, node => {
+        const clause = ts.isTypeAliasDeclaration(node) ? refinementClauses.get(node.type) : undefined;
+        if (!clause || !ts.isTypeAliasDeclaration(node)) return;
+        const property = /\bpredicate\s*:\s*([^;]+);/.exec(sourceText.slice(clause.open + 1, clause.close));
+        if (!property) return;
+        const predicate = property[1].trim();
+        const start = clause.open + 1 + property.index + property[0].indexOf(property[1]) + property[1].indexOf(predicate);
+        const name = ts.idText(node.name);
+        refinements.set(name, { name, sort: clause.base.kind === ts.SyntaxKind.BooleanKeyword ? "Bool" : "Int", predicate, start });
+    });
     return refinements;
 }
 
-export function maskRefinementClauses(sourceText: string, characters: string[]): void {
-    const code = maskNonCode(sourceText);
-    const pattern = /\btype\s+[A-Za-z_$][\w$]*(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(?:bigint|number|boolean)\s+(with\s*\{)/g;
-    for (let match; (match = pattern.exec(code));) {
-        const start = match.index + match[0].lastIndexOf(match[1]);
-        const open = code.indexOf("{", start);
-        const close = matchingBrace(code, open);
-        if (close < 0) continue;
-        for (let index = start; index <= close; index++) {
-            if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
-        }
-        pattern.lastIndex = close + 1;
-    }
+/** The type a refinement clause extends is an alias's whole type; proofs read no clause anywhere else, so none may silently pass. */
+export function reportMisplacedRefinements(sourceFile: TS.SourceFile, diagnostics: TSPPAnalysisDiagnostic[]): void {
+    forEachNode(sourceFile, node => {
+        const clause = refinementClauses.get(node);
+        if (!clause || ts.isTypeAliasDeclaration(node.parent)) return;
+        diagnostics.push({
+            fileName: sourceFile.fileName, start: node.getStart(sourceFile), length: node.end - node.getStart(sourceFile),
+            code: 19005, category: "error", source: "TS++ verification", message: "A refinement clause must be the whole type of a type alias.",
+        });
+    });
 }
 
-export function restoreRefinementTypeAlias(
-    request: TSPPPreprocessedTypeAliasRequest,
-): TSPPPreprocessedTypeAlias | undefined {
-    const code = maskNonCode(request.sourceText);
-    const pattern = /\btype\s+([A-Za-z_$][\w$]*)(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
-    const candidates: { readonly start: number; readonly type: string; }[] = [];
-    for (let match; (match = pattern.exec(code));) {
-        if (match[1] !== request.name) continue;
-        const open = code.indexOf("{", match.index);
-        const close = matchingBrace(code, open);
-        if (close < 0) continue;
-        const typeStart = match.index + match[0].lastIndexOf(match[2]);
-        candidates.push({ start: match.index, type: request.sourceText.slice(typeStart, close + 1) });
-        pattern.lastIndex = close + 1;
-    }
-    const closest = candidates.reduce<(typeof candidates)[number] | undefined>((current, candidate) =>
-        !current
-            || Math.abs(candidate.start - request.declarationStart) < Math.abs(current.start - request.declarationStart)
-            ? candidate
-            : current, undefined);
-    return closest && { type: closest.type };
+/** Where an alias's type ends as it reads before any refinement clause. */
+export function refinedTypeEnd(type: TS.TypeNode): number {
+    return refinementClauses.get(type)?.base.end ?? type.end;
 }
