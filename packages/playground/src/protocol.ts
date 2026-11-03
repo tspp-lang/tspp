@@ -128,6 +128,8 @@ export interface WorkerApi {
 export type WorkerEvent =
   /** Macro expansion or program analysis finished in the background; diagnostics may have changed. */
   | { readonly event: "analysisSettled" }
+  /** Macro expansion finished after the Program that started it was built: results from that Program are out of date. */
+  | { readonly event: "programChanged" }
   | { readonly event: "solver"; readonly busy: boolean };
 
 export type Request = { [K in keyof WorkerApi]: { id: number; method: K; args: Parameters<WorkerApi[K]> } }[keyof WorkerApi];

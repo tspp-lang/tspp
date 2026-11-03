@@ -17,6 +17,7 @@ export interface OutputController {
   addFeatureOutputs(features: readonly FeatureDefinition[]): void;
   setFile(fileName: string, force?: boolean): void;
   markStale(): void;
+  refresh(): void;
   dispose(): void;
 }
 
@@ -107,7 +108,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
 
   outputItems.onchange = () => showItem(itemsForCategory().find(item => item.id === outputItems.value));
 
-  async function loadCategory(nextCategory: OutputCategory): Promise<void> {
+  async function loadCategory(nextCategory: OutputCategory, preferredId?: string): Promise<void> {
     category = nextCategory;
     const cached = loaded.get(nextCategory);
     if (cached) {
@@ -138,7 +139,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       const snapshot = await client.outputs(fileName, nextCategory);
       if (generation !== requestGeneration) return;
       loaded.set(nextCategory, snapshot);
-      renderItems();
+      renderItems(preferredId);
       outputStatus.textContent = snapshot.diagnostics.some(item => item.category === "error")
         ? "Generated with errors"
         : snapshot.items.length ? "Up to date" : "Not produced";
@@ -166,6 +167,14 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     outputStatus.textContent = "Load on demand";
     runStatus.textContent = "JavaScript output runs only when requested.";
     void loadCategory(category);
+  }
+
+  /** Generates what is on show, or being generated, again. Nothing the user has not asked for since the last edit. */
+  function refresh(): void {
+    if (!loaded.has(category) && !outputEmpty.classList.contains("loading")) return;
+    const shown = current?.id;
+    loaded.clear();
+    void loadCategory(category, shown);
   }
 
   function markStale(): void {
@@ -295,6 +304,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     },
     setFile,
     markStale,
+    refresh,
     dispose() {
       stopRuntime();
       artifactEditor.dispose();

@@ -35,6 +35,10 @@ const bootDetail = element("boot-detail");
 const client = startLanguageWorker(event => {
   // several background runs (macros, then analyzers) often settle together
   if (event.event === "analysisSettled") requestCheck(50);
+  else if (event.event === "programChanged") {
+    requestCheck(50);
+    outputs.refresh();
+  }
   else {
     analysisStatus.hidden = !event.busy;
     analysisStatus.closest("section")?.setAttribute("aria-busy", String(event.busy));

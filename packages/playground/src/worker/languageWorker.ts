@@ -151,8 +151,8 @@ const host: ts.LanguageServiceHost & {
     compilerHost.evaluateMacroModule = evaluateMacroModule;
     compilerHost.resolveMacroModule = resolveMacroModule;
   },
-  // Macro expansion and verification finish after the request that started them.
-  onTSPPProgramInvalidated: () => post({ event: "analysisSettled" }),
+  // Macro expansion finishes after the request that started it.
+  onTSPPProgramInvalidated: () => post({ event: "programChanged" }),
 };
 
 function languageService(): ts.LanguageService {
