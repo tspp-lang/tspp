@@ -329,6 +329,7 @@ import { rebuildTSPPProgram } from "./tspp/rebuild.js"; // TSPP-SLOT(program-reb
 import {
     applyTSPPSemanticDiagnostics,
     filterTSPPDiagnostics,
+    getTSPPReadableDeclaration, // TSPP-SLOT(declaration-output)
 } from "./tspp/registry.js"; // TSPP-SLOT(diagnostics)
 
 export function findConfigFile(searchPath: string, fileExists: (fileName: string) => boolean, configName = "tsconfig.json"): string | undefined {
@@ -3637,6 +3638,8 @@ export function createProgram(_rootNamesOrOptions: readonly string[] | CreatePro
             }
         }
 
+        const tsppReadableDeclaration = getTSPPReadableDeclaration(fileName, host); // TSPP-SLOT(declaration-output)
+        if (tsppReadableDeclaration) redirectedPath = toPath(fileName = tsppReadableDeclaration); // TSPP-SLOT(declaration-output)
         // We haven't looked for this file, do so now and cache result
         const sourceFileOptions = getCreateSourceFileOptions(fileName, moduleResolutionCache, host, options);
         const file = host.getSourceFile(

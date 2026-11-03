@@ -37,6 +37,7 @@ import {
     NodeFlags,
     SyntaxKind,
 } from "../types.js";
+import { getTSPPCompatibilityDeclarationFilePath } from "./files.js";
 import { getTSPPTypeOperations } from "./types.js";
 
 const interfaceMemberBindings = new Map<string, TSPPInterfaceMemberBinding>();
@@ -400,6 +401,25 @@ export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
     pluginHost!.registerAndActivate(capsule);
     activePlugins.push(capsule);
     return true;
+}
+
+/** The first line of a `.d.tspp` file: the plugins of the project that wrote it, which a reader must have to read it. @internal */
+export const tsppDeclarationPluginsHeader = "// @tspp-plugins ";
+
+/**
+ * The file to read in place of a `.d.tspp` file written with plugins that are not all active: its compatible `.d.ts`. By
+ * design a project reads declarations of plugins it lacks as what they lower to, so a type TypeScript cannot express
+ * arrives as that output's `unknown`. Undefined when the file itself is to be read, including one without a header.
+ * @internal
+ */
+export function getTSPPReadableDeclaration(fileName: string, host: { fileExists(fileName: string): boolean; readFile(fileName: string): string | undefined; }): string | undefined {
+    if (!fileName.endsWith(".d.tspp")) return undefined;
+    const text = host.readFile(fileName);
+    if (!text?.startsWith(tsppDeclarationPluginsHeader)) return undefined;
+    const required = text.slice(tsppDeclarationPluginsHeader.length, text.search(/\r?\n/)).split(",");
+    if (required.every(id => activePlugins.some(plugin => plugin.manifest.id === id))) return undefined;
+    const compatible = getTSPPCompatibilityDeclarationFilePath(fileName)!;
+    return host.fileExists(compatible) ? compatible : undefined;
 }
 
 /** The compiler facets active in this process, in activation order. @internal */

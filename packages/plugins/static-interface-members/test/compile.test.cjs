@@ -114,7 +114,9 @@ test("static stays illegal on type literal members", () => {
 test("feature-rich declarations keep static members and the compatible ones leave them out", () => {
   const { program, outputs } = createProgram(`export interface S {\n  static make(): this;\n  name: string;\n}\n`, { declaration: true, emitDeclarationOnly: true });
   program.emit();
-  assert.equal(outputs.get("/main.d.tspp"), "export interface S {\n    static make(): this;\n    name: string;\n}\n");
+  const [header, ...declarations] = outputs.get("/main.d.tspp").split("\n");
+  assert.match(header, /^\/\/ @tspp-plugins .*static-interface-members/);
+  assert.equal(declarations.join("\n"), "export interface S {\n    static make(): this;\n    name: string;\n}\n");
   assert.equal(outputs.get("/main.d.ts"), "export interface S {\n    name: string;\n}\n");
 });
 

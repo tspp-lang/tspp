@@ -430,6 +430,7 @@ import {
     emitTSPPRestoredFunctionPrefix,
     getTSPPCompatibilityImportTypeArgument,
     getTSPPCompatibilityModuleSpecifier,
+    getTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
     isTSPPCompatibilityDeclarationBlocked,
 } from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
@@ -1021,6 +1022,11 @@ export function emitFiles(
             );
         }
 
+        const tsppDeclarationHeader = getTSPPDeclarationHeader(jsFilePath); // TSPP-SLOT(declaration-output)
+        if (tsppDeclarationHeader) {
+            writer.writeComment(tsppDeclarationHeader);
+            writer.writeLine();
+        } // TSPP-SLOT(declaration-output)
         if (bundle) {
             printer.writeBundle(bundle, writer, sourceMapGenerator);
         }

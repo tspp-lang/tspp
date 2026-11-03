@@ -1,6 +1,7 @@
 import {
     createPrinter,
     factory,
+    fileExtensionIs,
     idText,
     isFunctionDeclaration,
     isLiteralTypeNode,
@@ -21,12 +22,20 @@ import type {
 import { Extension } from "../types.js";
 import { getTSPPCompatibilityDeclarationFilePath } from "./files.js";
 import {
+    getActiveTSPPPlugins,
     getPreprocessedFunctionClause,
     getPreprocessedFunctionPrefix,
+    tsppDeclarationPluginsHeader,
 } from "./registry.js";
 
 // Declaration output of TS++ files (`TSPP-SLOT(declaration-output)` sites): a `.d.tspp` declaration that keeps plugin
 // syntax, and beside it a TypeScript-compatible `.d.ts` printed from the same declaration transform.
+
+/** The header of a `.d.tspp` file written with the plugins active now, or undefined for any other file. @internal */
+export function getTSPPDeclarationHeader(filePath: string): string | undefined {
+    const plugins = getActiveTSPPPlugins().map(plugin => plugin.manifest.id).sort();
+    return fileExtensionIs(filePath, ".d.tspp") && plugins.length ? tsppDeclarationPluginsHeader + plugins.join(",") : undefined;
+}
 
 /** Whether the compatible `.d.ts` beside a `.d.tspp` declaration file is blocked from being written. @internal */
 export function isTSPPCompatibilityDeclarationBlocked(host: EmitHost, declarationFilePath: string): boolean {
