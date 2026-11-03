@@ -128,6 +128,10 @@ export const formalVerificationPlugin = definePlugin({
                 return context.languageService.registerQuickInfoProvider(request => {
                     const match = request.owned ? wordAt(request.sourceText, request.position) : undefined;
                     const documentation = match && contractDocumentation[match.text];
+                    // A name in a directive or a clause means something only to proofs, so the checker has no type for it.
+                    if (match && !documentation && request.upstream?.display === "any") {
+                        return { start: match.start, length: match.text.length, display: `(TS++ verification term) ${match.text}` };
+                    }
                     if (!match || !documentation) return undefined;
                     return {
                         start: match.start,
@@ -156,6 +160,8 @@ const contractDocumentation: Readonly<Record<string, string>> = {
     requires: "Declares a precondition assumed while proving the function body.",
     ensures: "Declares a postcondition that must hold for every function result.",
     assert: "Creates a proof obligation at this program point.",
+    assume: "Adds a fact the proofs after this point may use, without proving it.",
+    predicate: "Declares the condition every value of a refinement type satisfies.",
     invariant: "Declares a loop invariant checked before and after every iteration.",
 };
 
