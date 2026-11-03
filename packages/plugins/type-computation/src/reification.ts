@@ -1,4 +1,4 @@
-import { replaceChild } from "@tspp/plugin-sdk";
+import { createLoweredArrowToken, replaceChild } from "@tspp/plugin-sdk";
 import type {
     TSPPProgramRebuilder,
     TSPPSyntaxCursor,
@@ -220,7 +220,7 @@ export function createReification(ts: TSPPTypeScript): Reification {
         const declarations = [...captures.values()];
         const typeParameters = declarations.length ? range(f.createNodeArray(declarations), declarations[0].pos, declarations[declarations.length - 1].end) : undefined;
         return range(f.createArrowFunction(undefined, typeParameters, range(f.createNodeArray([parameter]), parameter.pos, parameter.end), undefined,
-            range(f.createToken(kinds.EqualsGreaterThanToken), arm.arrowStart, arm.arrowStart + 2), arm.result), arm.pos, arm.result.end);
+            createLoweredArrowToken(ts, f, arm.arrowStart), arm.result), arm.pos, arm.result.end);
     }
 
     /**
