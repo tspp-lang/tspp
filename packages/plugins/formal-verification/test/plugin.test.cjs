@@ -1,6 +1,6 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const { usePlugins } = require("../../test-support/compile.cjs");
+const { createProgram, usePlugins } = require("../../test-support/compile.cjs");
 const { createFormalVerificationAnalyzer, formalVerificationAnalyzer, formalVerificationPlugin } = require("../dist");
 const { restoreContractFunctionClause } = require("../dist/contracts");
 const { restoreRefinementTypeAlias } = require("../dist/refinements");
@@ -152,6 +152,16 @@ test("requires runtime divisors to be nonzero", async () => {
   });
   assert.equal(diagnostics.length, 1);
   assert.match(diagnostics[0].message, /division definedness could not be proved/);
+});
+
+test("a proof directive is a statement", () => {
+  const members = `export interface I { assert: boolean; assume: number; }
+  export type T = { assert: string; };
+  export const i: I = { assert: true, assume: 1 };`;
+  assert.deepEqual(createProgram(members).program.getSemanticDiagnostics(), []);
+  const erased = createProgram("export function f(v: bigint) { assert: v === v; assume: v > 0n; return v; }\nassert: 1n === 1n;");
+  erased.program.emit();
+  assert.doesNotMatch(erased.outputs.get("/main.js"), /assert|assume/);
 });
 
 test("proves refinement introductions and propagates parameter predicates", async () => {

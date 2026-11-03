@@ -7,7 +7,7 @@ import type {
     TSPPProgramAnalysisOutput,
     TSPPProgramAnalyzer,
 } from "@tspp/plugin-sdk/compiler";
-import { maskContractClauses, restoreContractFunctionClause, type PendingProof } from "./contracts";
+import { createProofDirectives, maskContractClauses, restoreContractFunctionClause, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
 import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
@@ -107,13 +107,12 @@ export const formalVerificationPlugin = definePlugin({
                         { keyword: "with", position: "function-clause" },
                         { keyword: "with", position: "loop-clause" },
                         { keyword: "with", position: "type-clause" },
-                        { keyword: "assert", position: "statement" },
-                        { keyword: "assume", position: "statement" },
                     ],
                     preprocess: maskContractClauses,
                     restoreFunctionClause: restoreContractFunctionClause,
                     restoreTypeAliasDeclaration: restoreRefinementTypeAlias,
                 });
+                context.onDispose(context.compiler.registerSyntaxExtension(createProofDirectives(context.ts)));
                 const disposeAnalysis = context.compiler.registerProgramAnalyzer(createFormalVerificationAnalyzer({
                     getNominalTypes: () => context.dependencies.get<NominalTypesADTAPI>("nominal-types/adt"),
                 }));
