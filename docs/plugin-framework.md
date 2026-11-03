@@ -145,6 +145,26 @@ use value <- acquire(arg); rest(value)
 return acquire(arg, value => { return rest(value); })
 ```
 
+## Reading declarations across plugin sets
+
+This is designed behaviour, not a fallback for something that went wrong:
+
+> A `.d.tspp` file is read only by a project that has every plugin of the project that
+> wrote it. Any other project reads the compatible `.d.ts` beside it.
+
+A `.d.tspp` file's first line names those plugins (`// @tspp-plugins a,b`); the host
+compares it with the active ones at the one place a program loads a file, so package
+`tsppTypes`, the `tspp-types` condition, and project references all follow the rule. It
+counts the writer's plugins, not the syntax a file happens to use: a file without plugin
+syntax is the same either way.
+
+What a project without the plugin gets is what the syntax lowers to. Its types still
+hold, and it cannot use the plugin's syntax on them. A type TypeScript cannot express is
+`unknown` in that output, so `Holds<F: Type => Type>` accepts what its kinds would refuse.
+That is the price of leaving a plugin out, and enabling the plugin is how to pay it back.
+A `.ts` file always reads the `.d.ts`. A `.d.tspp` file without a header, or without a
+`.d.ts` beside it, is read as it is.
+
 ## Rules
 
 - no feature ID conditionals in compiler, tsserver, LSP, or editor code;
@@ -180,8 +200,12 @@ except through the optional nominal-types ADT API.
 
 ### Length-preserving source projections
 
-Syntax that can be erased before ordinary TypeScript parsing uses a registered
-source preprocessor. A preprocessor may replace characters but must preserve
+Syntax with no parser position to start from can be erased before ordinary TypeScript
+parsing by a registered source preprocessor. A preprocessor sees text and has to guess
+the grammar around it, so syntax that starts at a position the parser asks about uses a
+syntax extension instead: a proof directive is a `statement` and a refinement clause a
+`postfix-type`, so neither can be mistaken for a member name or depend on what another
+plugin writes beside it. A preprocessor may replace characters but must preserve
 the exact UTF-16 length and every line break. The host retains the original text
 for plugin analysis while the upstream parser, checker, language service, and
 emitter see the projection. This lets formal contracts remain entirely inside
@@ -244,8 +268,15 @@ plugin's syntax. The compile-time macro worker is the first consumer.
   every pairing follows, so a new plugin adds one entry rather than one test per pair.
   Each pairing must run to its value and keep its errors, and a declaration must keep
   the syntax it holds.
+- `integration/test/inert-plugins.test.cjs` also writes every keyword a manifest lists
+  as a member name, where TypeScript takes any word: the program must not change.
 - `integration/test/boundaries.test.cjs` scans the strings and regular expressions
-  of plugins and hosts for other plugins' ids and keywords, which ESLint cannot see.
+  of plugins and hosts for other plugins' ids and keywords, which ESLint cannot see. In
+  regular expressions it checks every keyword, however short: one that spells another
+  plugin's word is reading that syntax out of text.
+- `integration/test/nesting-matrix.test.cjs` also has a plugin that holds expressions
+  say where a section's hole reaches through it, so one that lowers to a function
+  cannot leave out `createLoweredArrowToken` unnoticed.
 - `integration/test/composition.test.cjs` holds the interactions worth stating by
   hand, such as a `match` inside a section or a contract over a lowered `do`.
 
@@ -372,7 +403,7 @@ Feature slots are what plugins register with, through `context.compiler` (or
 
 | Slot | Registration | Host | Call sites |
 |---|---|---|---|
-| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreTypeAliasDeclaration`, `restoreFunctionPrefix`, `restoreFunctionClause`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function`, after the parameters, and in type aliases of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
+| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreFunctionPrefix`, `restoreFunctionClause`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function` and after the parameters of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
 | `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`; `restoreDeclaration`, `restoreCompatibilityDeclaration`) | `registry.ts`, `services/tspp/syntax.ts` | `parser.ts` (the cursor, each position, list expansion, no incremental reuse of plugin nodes); `emitter.ts` (restored declarations); `services/services.ts` (`createChildren`); `services/formatting/formatting.ts`; `services/codefixes/fixUnusedIdentifier.ts`; `services/codefixes/inferFromUsage.ts` (a parameter that shares its reference's position); `utilities.ts` (`getErrorSpanForNode`), `services/utilities.ts`, `services/findAllReferences.ts`, `services/documentHighlights.ts` (nodes built without a source position stand for their parent) |
 | `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` | `program.ts` (semantic and suggestion diagnostics) |
 | `interface-member-binding` | `registerInterfaceMemberBinding` (`isStaticMember`) | `registry.ts` | `binder.ts` (bound outside the instance type); `checker.ts` (static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`) |
@@ -381,13 +412,18 @@ Feature slots are what plugins register with, through `context.compiler` (or
 | `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, which also serves diagnostic providers, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |
 | `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` | `services/services.ts` (`getQuickInfoAtPosition` of the language service object) |
 
+`interface-member-binding` is a controlled exception to rule 6: its one consumer's feature
+is what the slot does, so it cannot really be described without naming that feature. It
+stays because binding and name resolution cannot be reached any other way (see the
+2026-11-03 record in docs/core-restoration-plan.md). It is no precedent for a new slot.
+
 Product-layer slots belong to the host; no plugin registers with them:
 
 | Slot | Implementation | Call sites |
 |---|---|---|
-| `tspp-extension` (`.tspp` sources and `.d.tspp` declarations) | `compiler/tspp/files.ts` | `types.ts` (`Extension.Tspp`); `utilities.ts` (extension tables, script kind, declaration extensions); `program.ts`; `checker.ts`; `moduleSpecifiers.ts`; `moduleNameResolver.ts` (`extensionIsOk`); `services/stringCompletions.ts`; `server/project.ts` (`hasNoTypeScriptSource`) |
+| `tspp-extension` (`.tspp` sources and `.d.tspp` declarations) | `compiler/tspp/files.ts` | `parser.ts` (`getDeclarationFileExtension`); `types.ts` (`Extension.Tspp`); `utilities.ts` (extension tables, script kind, declaration extensions); `program.ts`; `checker.ts`; `moduleSpecifiers.ts`; `moduleNameResolver.ts` (`extensionIsOk`); `services/stringCompletions.ts`; `server/project.ts` (`hasNoTypeScriptSource`) |
 | `module-resolution` (`.tspp`/`.d.tspp` resolution, `tsppTypes`, the `tspp-types` condition) | `compiler/tspp/files.ts` | `moduleNameResolver.ts` |
-| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts` | `emitter.ts`; `program.ts` (`verifyEmitFilePath`); `types.ts` (`PrinterOptions`) |
+| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`, and which of them a project reads) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts` | `emitter.ts` (and the header of a `.d.tspp`); `program.ts` (`verifyEmitFilePath`, `findSourceFileWorker`); `types.ts` (`PrinterOptions`) |
 | `command-line` (branding, plugins from tsconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` | `executeCommandLine.ts`; `tsc/tsc.ts`; `_namespaces/ts.ts` |
 | `plugin-host` (the registry, plugin activation in tsserver) | `compiler/tspp/registry.ts`, `server/tspp/project.ts` | `_namespaces/ts.ts`; `types.ts` (`PluginImport.tspp`); `server/project.ts` (`enableProxy`) |
 
@@ -398,7 +434,9 @@ parser is process-global, so the process is the isolation boundary: a project's
 plugin set decides which process serves it, and feature packages themselves must
 not work around this with globals.
 
-- **Command line.** Each project of a build gets its own plugin set.
+- **Command line.** Each project of a build gets its own plugin set: `tspp -b` makes a
+  project's plugins the active ones when it creates the project's program, and again
+  when analyzers run on that program after the build.
 - **Language server.** `PluginSetRoutingTsServer`
   (`packages/language-server/src/tsServer/pluginSetRouting.ts`) looks like one
   tsserver to the client and runs one per plugin set behind it. A file goes to the
