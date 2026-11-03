@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "description": "TSPP placeholder-based operator sections.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/plugins/operator-sections"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

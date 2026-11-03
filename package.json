@@ -43,6 +43,8 @@
     "lint:compiler": "pnpm --filter ts-plus-plus lint",
     "lint:language-server": "pnpm --filter tspp-language-server lint",
     "lint:packages": "pnpm --workspace-concurrency=1 --filter @tspp/plugin-sdk --filter \"./packages/plugins/**\" --filter tspp-vscode --filter tspp-playground --filter \"./packages/examples/**\" lint",
+    "pack:release": "node scripts/pack-release.mjs",
+    "test:release": "node scripts/test-release.mjs",
     "knip": "pnpm --filter ts-plus-plus knip",
     "core-diff": "node scripts/core-diff.mjs",
     "core-diff:check": "node scripts/core-diff.mjs --check",

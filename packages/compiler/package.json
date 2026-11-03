@@ -109,7 +109,8 @@
         "gulp": "hereby",
         "lint": "hereby lint",
         "knip": "hereby knip",
-        "format": "dprint fmt"
+        "format": "dprint fmt",
+        "prepack": "node -e \"console.error('lib/ is the bootstrap compiler, not this build. Use pnpm pack:release at the repository root.');process.exit(1)\""
     },
     "browser": {
         "fs": false,
@@ -121,7 +122,6 @@
         "inspector": false,
         "perf_hooks": false
     },
-    "packageManager": "npm@8.19.4",
     "volta": {
         "node": "22.22.0",
         "npm": "8.19.4"

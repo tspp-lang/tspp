@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "description": "Isolated compile-time AST macros for TS++.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/plugins/macros"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

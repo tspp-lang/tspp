@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "description": "TSPP local type bindings, ordered type matching, and anonymous type constructors.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/plugins/type-computation"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

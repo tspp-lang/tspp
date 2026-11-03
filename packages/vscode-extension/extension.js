@@ -33,7 +33,8 @@ function resolveSdkPath(context) {
     return path.resolve(context.extensionPath, "../compiler/built/local/tsserver.js");
   }
 
-  return path.dirname(require.resolve("ts-plus-plus/lib/tsserver.js"));
+  // The compiler's exports map hides lib/, so find it from the manifest.
+  return path.join(path.dirname(require.resolve("ts-plus-plus/package.json")), "lib");
 }
 
 async function activate(context) {

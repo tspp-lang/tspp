@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 
 const root = path.join(__dirname, "..");
 const source = path.join(root, "built/local");
-const dest = path.join(root, "lib");
+const dest = process.argv[2] ? path.resolve(process.argv[2]) : path.join(root, "lib");
 
 async function produceLKG() {
     console.log(`Building LKG from ${source} to ${dest}`);

@@ -338,6 +338,29 @@ export const holds: Holds<Array> = { items: [1] };
   }
 });
 
+test("a project finds plugins installed above it, however -p names it", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    fs.symlinkSync(packageDirectories.get("nominal-types"), path.join(scope, "plugin-nominal-types"), "junction");
+    const project = path.join(directory, "workspace", "project");
+    fs.mkdirSync(path.join(project, "src"), { recursive: true });
+    fs.writeFileSync(path.join(project, "src", "a.tspp"), `${features["nominal-types"].code}\n`);
+    fs.writeFileSync(path.join(project, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { target: "es2022", module: "commonjs", noEmit: true, types: [], strict: true, skipLibCheck: true, plugins: [{ name: "@tspp/plugin-nominal-types", tspp: true }] },
+      include: ["src"],
+    }));
+    for (const [cwd, name] of [[project, "."], [project, "tsconfig.json"], [path.dirname(project), "project"], [directory, project]]) {
+      const compiled = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-p", name], { cwd, encoding: "utf8" });
+      assert.equal(compiled.status, 0, `-p ${name} from ${cwd}\n${compiled.stdout}${compiled.stderr}`);
+    }
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 // Upstream's builder programs emit on their own path: an analyzer's errors must still reach the status and the output.
 for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, { composite: true, rootDir: "src" }]) {
   test(`analyzers run in ${Object.keys(mode)[0]} compilations`, () => {

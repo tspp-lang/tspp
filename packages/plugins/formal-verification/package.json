@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "description": "Isolated SMT/Z3-backed verification feature for TSPP.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/plugins/formal-verification"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "browser": {
@@ -16,7 +21,8 @@
     "./smt": {
       "types": "./dist/smt.d.ts",
       "default": "./dist/smt.js"
-    }
+    },
+    "./package.json": "./package.json"
   },
   "files": ["dist", "editor"],
   "scripts": {

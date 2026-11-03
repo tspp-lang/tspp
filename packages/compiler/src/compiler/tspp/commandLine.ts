@@ -85,7 +85,8 @@ function resolveTSPPConfiguredPlugins(options: CompilerOptions, configFileName: 
         return undefined;
     }
 
-    const nodeModules = combinePaths(getDirectoryPath(configFileName), "node_modules");
+    // `-p .` gives a relative name, and module resolution only walks up from an absolute directory.
+    const nodeModules = combinePaths(getDirectoryPath(sys.resolvePath(configFileName)), "node_modules");
     const resolved: TSPPPlugin[] = [];
     for (const config of plugins) {
         const result = sys.require(nodeModules, config.name);

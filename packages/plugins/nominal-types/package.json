@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "description": "Nominal newtype and algebraic data declarations for TS++.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tspp-lang/tspp.git",
+    "directory": "packages/plugins/nominal-types"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "typesVersions": {
