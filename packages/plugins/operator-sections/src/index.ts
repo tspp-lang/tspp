@@ -18,7 +18,8 @@ export const operatorSectionsPlugin = definePlugin({
     facets: {
         compiler: {
             activate(context) {
-                const disposers = createOperatorSectionSyntax(context.ts).map(extension => context.compiler.registerSyntaxExtension(extension));
+                const { extensions, diagnostics } = createOperatorSectionSyntax(context.ts);
+                const disposers = [...extensions.map(extension => context.compiler.registerSyntaxExtension(extension)), context.compiler.registerDiagnosticProvider(diagnostics)];
                 return () => disposers.forEach(dispose => dispose());
             },
         },

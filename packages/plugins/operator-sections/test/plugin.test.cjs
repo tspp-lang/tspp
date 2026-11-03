@@ -13,6 +13,9 @@ test("registers and disposes its syntax for parenthesized expressions and call a
       registrations.push({ pluginId, extension });
       return () => { disposed++; };
     },
+    registerDiagnosticProvider() {
+      return () => { disposed++; };
+    },
   };
   const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts: require("typescript-upstream") });
   host.register(operatorSectionsPlugin);
@@ -22,5 +25,5 @@ test("registers and disposes its syntax for parenthesized expressions and call a
     ["operator-sections", "argument"],
   ]);
   host.dispose();
-  assert.equal(disposed, 2);
+  assert.equal(disposed, 3);
 });

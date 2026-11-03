@@ -1,7 +1,7 @@
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { markGenerated } from "@tspp/plugin-sdk";
+import { createLoweredArrowToken, markGenerated } from "@tspp/plugin-sdk";
 
 export interface MatchBinding {
     readonly kind: "binding";
@@ -170,7 +170,7 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
             const parameterList = f.createNodeArray(parameters);
             if (positioned) range(parameterList, names[0].pos, names[names.length - 1].end);
             // The checker reads the line of `=>`, so it needs a real, if empty, position.
-            const arrow = range(f.createArrowFunction(undefined, undefined, parameterList, undefined, range(f.createToken(kinds.EqualsGreaterThanToken), body.pos, body.pos), body),
+            const arrow = range(f.createArrowFunction(undefined, undefined, parameterList, undefined, createLoweredArrowToken(ts, f, body.pos), body),
                 positioned ? names[0].pos : body.pos, body.end);
             const callee = range(f.createParenthesizedExpression(arrow), arrow.pos, arrow.end);
             // The field reads follow the body, empty, so the call's children stay in source order.
@@ -216,7 +216,7 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
             range(f.createIdentifier(temporaryName), keywordStart, keywordStart + temporaryName.length), undefined, undefined, scrutinee), keywordStart, scrutinee.end);
         const parameters = direct ? range(f.createNodeArray<TS.ParameterDeclaration>([]), scrutinee.pos, scrutinee.pos) : range(f.createNodeArray([scrutineeParameter]), keywordStart, scrutinee.end);
         const arrow = range(f.createArrowFunction(undefined, undefined, parameters, undefined,
-            range(f.createToken(kinds.EqualsGreaterThanToken), scrutinee.end, scrutinee.end), chain), pos, end);
+            createLoweredArrowToken(ts, f, scrutinee.end), chain), pos, end);
         const callee = range(f.createParenthesizedExpression(arrow), pos, end);
         const call = range(f.createCallExpression(callee, undefined, f.createNodeArray<TS.Expression>([])), pos, end);
         if (direct && unnarrowedCopy) checkedScrutinee = unnarrowedCopy;

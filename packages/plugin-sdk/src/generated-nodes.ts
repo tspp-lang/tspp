@@ -37,6 +37,19 @@ export function markGenerated<T extends TS.Node>(ts: TSPPTypeScript, root: T, an
     }
 }
 
+/**
+ * The `=>` of a function a plugin lowers to. It has no source text, which is how `isLoweredFunction` tells the function
+ * from a scope the author wrote.
+ */
+export function createLoweredArrowToken(ts: TSPPTypeScript, factory: TS.NodeFactory, pos: number): TS.EqualsGreaterThanToken {
+    return ts.setTextRange(factory.createToken(ts.SyntaxKind.EqualsGreaterThanToken), { pos, end: pos });
+}
+
+/** Whether `node` is a function some plugin's syntax lowered to, not a function its author wrote. */
+export function isLoweredFunction(ts: TSPPTypeScript, node: TS.Node): node is TS.ArrowFunction {
+    return ts.isArrowFunction(node) && node.equalsGreaterThanToken.pos === node.equalsGreaterThanToken.end;
+}
+
 /** Puts `to` where `parent` holds `from`. Syntax a plugin has just parsed is its own to rewrite until parsing returns. */
 export function replaceChild(parent: TS.Node, from: TS.Node, to: TS.Node): void {
     const slots = parent as unknown as Record<string, unknown>;

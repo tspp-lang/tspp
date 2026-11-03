@@ -43,7 +43,7 @@ export function prepareVerificationSource(
     const functions = parseFunctionModels(source.text);
     const refinements = collectRefinements(source.text);
     const records = collectRecordTypes(sourceFile);
-    const constructors = collectDataTypes(nominalTypes, source.text, records);
+    const constructors = collectDataTypes(nominalTypes, source.text, records, sourceFile);
     const prepared = { sourceFile, functions, refinements, records, constructors };
     preparedSources.delete(source.fileName);
     preparedSources.set(source.fileName, { text: source.text, nominalTypes, prepared });

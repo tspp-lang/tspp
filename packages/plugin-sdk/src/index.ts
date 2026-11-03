@@ -93,7 +93,7 @@ export interface TSPPPlugin {
     };
 }
 
-export { createGeneratedName, markGenerated, replaceChild } from "./generated-nodes";
+export { createGeneratedName, createLoweredArrowToken, isLoweredFunction, markGenerated, replaceChild } from "./generated-nodes";
 export { maskNonCode } from "./text";
 
 /** Gives feature packages contextual typing without wrapping or mutating them. */

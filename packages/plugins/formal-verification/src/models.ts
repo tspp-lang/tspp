@@ -8,7 +8,10 @@ import type { RefinementModel } from "./refinements";
 export interface Clause { readonly value: string; readonly start: number; }
 export interface FunctionModel {
     readonly name: string;
+    /** The parameters proofs can read, whose arguments `parameterPositions` finds among all `arity` of them. */
     readonly parameters: readonly string[];
+    readonly parameterPositions?: readonly number[];
+    readonly arity?: number;
     readonly variables: Readonly<Record<string, Sort>>;
     readonly requires: readonly Clause[];
     readonly ensures: readonly Clause[];
@@ -101,15 +104,24 @@ export interface DataConstructor {
  * there is no `data` syntax, so there is nothing to model.
  */
 export function collectDataTypes(
-    nominalTypes: NominalTypesADTAPI | undefined, sourceText: string, records: Map<string, ReadonlyMap<string, Sort>>,
+    nominalTypes: NominalTypesADTAPI | undefined, sourceText: string, records: Map<string, ReadonlyMap<string, Sort>>, sourceFile: TS.SourceFile,
 ): Map<string, DataConstructor> {
+    const aliases = new Map(sourceFile.statements.filter(ts.isTypeAliasDeclaration).map(alias => [nameText(alias.name), sourceFile.text.slice(alias.type.pos, alias.type.end).trim()]));
+    /** The type a field wrote, through the file's aliases, whose names the API reports as written. */
+    const resolved = (type: string, seen = new Set<string>()): string => {
+        const target = aliases.get(type);
+        if (target === undefined || seen.has(type)) return type;
+        seen.add(type);
+        return resolved(target, seen);
+    };
     const constructors = new Map<string, DataConstructor>();
     for (const dataType of nominalTypes?.getDataTypes(sourceText) ?? []) {
         const fields = new Map<string, Sort>([[nominalTypes!.tagProperty, "String"]]);
         for (const variant of dataType.variants) {
             for (const field of variant.fields) {
-                const sort = field.type === "bigint" ? "Int" : field.type === "number" ? "Real"
-                    : field.type === "boolean" ? "Bool" : field.type === "string" ? "String" : undefined;
+                const type = resolved(field.type);
+                const sort = type === "bigint" ? "Int" : type === "number" ? "Real"
+                    : type === "boolean" ? "Bool" : type === "string" ? "String" : undefined;
                 if (sort) fields.set(field.name, sort);
             }
             constructors.set(variant.name, {

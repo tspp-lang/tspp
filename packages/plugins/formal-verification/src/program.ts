@@ -4,7 +4,7 @@ import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import { matchingBrace, reportWithClauseIssues, parseProperties } from "./contracts";
-import { immediatelyInvoked, lowerConditional, lowerImmediateCall, lowerPositionalField, lowerStructuredResult, type Lowering } from "./lowered-code";
+import { immediatelyInvoked, lowerCallArguments, lowerConditional, lowerImmediateCall, lowerPositionalField, lowerStructuredResult, type Lowering } from "./lowered-code";
 import type { PendingProof } from "./contracts";
 import type { RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
@@ -51,9 +51,8 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
     }
     const model = context.functions.get(nameText(node.expression));
     if (!model) throw new Error(`Call to unsupported function '${nameText(node.expression)}'.`);
-    if (node.arguments.length !== model.parameters.length) throw new Error(`'${model.name}' expects ${model.parameters.length} arguments.`);
     const argumentContext = context.currentFunction ? context : { ...context, currentFunction: model };
-    const arguments_ = node.arguments.map(argument => lowerExpression(argument, state, argumentContext));
+    const arguments_ = lowerCallArguments(node, model, state, argumentContext, lowering);
     for (const requirement of model.requires) {
         const goal = instantiate(requirement.value, model.parameters, arguments_, context.logic, undefined, model.numberModel);
         if (goal.sort !== "Bool") throw new Error(`The precondition of '${model.name}' is not Boolean.`);
@@ -63,7 +62,7 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
         const index = model.parameters.indexOf(parameter);
         if (index < 0) continue;
         const goal = expressionToSmtTerm(refinement.predicate, { substitutions: { value: arguments_[index] }, functions: context.logic.functions });
-        addProof(context, state, goal.smt, node.arguments[index], `${refinement.name} argument refinement`);
+        addProof(context, state, goal.smt, node.arguments[model.parameterPositions?.[index] ?? index], `${refinement.name} argument refinement`);
     }
     const sort: Sort = model.returnSort ?? "Int";
     const name = `tspp.call.${model.name}.${context.nextTemporary++}`;
@@ -446,13 +445,15 @@ export function collectProgramProofs(
         const existing = functions.get(nameText(statement.name));
         const variables: Record<string, Sort> = {};
         const parameters: string[] = [];
+        const parameterPositions: number[] = [];
         const parameterRefinements: Record<string, RefinementModel> = {};
-        for (const parameter of statement.parameters) {
+        for (const [position, parameter] of statement.parameters.entries()) {
             if (!ts.isIdentifier(parameter.name)) continue;
             const refinement = refinementFromType(parameter.type, refinements);
             const sort = refinement?.sort ?? sortFromType(parameter.type, refinements, existing?.numberModel);
             if (sort) {
                 parameters.push(nameText(parameter.name));
+                parameterPositions.push(position);
                 variables[nameText(parameter.name)] = sort;
                 if (refinement) parameterRefinements[nameText(parameter.name)] = refinement;
             }
@@ -464,7 +465,7 @@ export function collectProgramProofs(
         }
         const returnRefinement = refinementFromType(statement.type, refinements);
         functions.set(nameText(statement.name), {
-            name: nameText(statement.name), parameters, variables,
+            name: nameText(statement.name), parameters, parameterPositions, arity: statement.parameters.length, variables,
             requires: existing?.requires ?? [], ensures: existing?.ensures ?? [],
             bodyStart: statement.body ? nodeStart(statement.body, sourceFile) : statement.end,
             parameterRefinements,

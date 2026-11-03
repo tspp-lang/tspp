@@ -211,10 +211,12 @@ function isBinderStart(cursor: TSPPSyntaxCursor, kinds: TSPPTypeScript["SyntaxKi
 export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor, start: number): TS.TypeNode {
     const sourceText = cursor.getSourceText();
     let term: MlttTerm | undefined;
+    const builtins = new Set<string>();
     try {
         term = new TermParser(cursorTokens(ts, cursor), {
             aliases: fileAliases(model, sourceText),
             shadowed: fileDeclaredNames(model, sourceText),
+            onBuiltin: name => builtins.add(name),
         }).parseOne();
     }
     catch (error) {
@@ -224,7 +226,10 @@ export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor
     }
     // Empty, like every generated node: the authored text is no node's, and parent nodes span it.
     const node = term ? lowerTermToTypeNode(ts, cursor, model, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
-    if (term) model.terms.set(node, term);
+    if (term) {
+        model.terms.set(node, term);
+        model.termBuiltins.set(node, builtins);
+    }
     model.authored.set(node, start);
     model.authoredEnds.set(node, cursor.getNodePos());
     model.used = true;
@@ -236,7 +241,7 @@ function skipToEndOfDeclaration(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): v
     while (cursor.token() !== kinds.SemicolonToken && cursor.token() !== kinds.EndOfFileToken && !cursor.hasPrecedingLineBreak()) cursor.nextToken();
 }
 
-const diagnosticCodes = { syntax: 19101, typeError: 19102, unchecked: 19103 } as const;
+const diagnosticCodes = { syntax: 19101, typeError: 19102, unchecked: 19103, shadowedBuiltin: 19104 } as const;
 /** TypeScript's own code for the same message. */
 const cannotFindName = 2304;
 const cannotFindNamespace = 2503;
@@ -287,8 +292,24 @@ export function createTermDiagnostics(ts: TSPPTypeScript, model: TypeSyntaxModel
                     else reportUnknownNames(child, location);
                 }
             };
+            /** Parsing could only see this file's names: a built-in a type elsewhere also names would silently win over it. */
+            const reportShadowedBuiltins = (node: TS.Node, location: TS.Node): void => {
+                for (const name of model.termBuiltins.get(node) ?? []) {
+                    if (!checker.resolveName(name, location, ts.SymbolFlags.Type, /*excludeGlobals*/ false)) continue;
+                    const start = model.authored.get(node) ?? node.pos;
+                    diagnostics.push({
+                        category: ts.DiagnosticCategory.Error,
+                        code: diagnosticCodes.shadowedBuiltin,
+                        file: sourceFile,
+                        start,
+                        length: (model.authoredEnds.get(node) ?? node.end) - start,
+                        messageText: `'${name}' here is the built-in term, but a type of that name is in scope. Rename the type, or import it into this file.`,
+                    });
+                }
+            };
             forEachTerm(ts, model, sourceFile, (node, term, alias) => {
                 reportUnknownNames(term, alias ?? node);
+                reportShadowedBuiltins(node, alias ?? node);
                 try {
                     const annotation = alias && model.termAnnotations.get(alias);
                     const resolvedAnnotation = annotation && resolveTermNames(ts, model, checker, annotation, node);

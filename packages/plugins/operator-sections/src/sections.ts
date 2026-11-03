@@ -1,8 +1,28 @@
-import { createGeneratedName, replaceChild } from "@tspp/plugin-sdk";
-import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
+import { createGeneratedName, createLoweredArrowToken, isLoweredFunction, maskNonCode, replaceChild } from "@tspp/plugin-sdk";
+import type { TSPPDiagnosticProvider, TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 const placeholder = "_";
+const placeholderInScopeCode = 18087;
+const placeholderInScopeMessage = "'_' here is the placeholder of an operator section, but a variable named '_' is in scope. Rename the variable, or write the function out.";
+// Imports and top-level declarations of `_`: `import _ from`, `import * as _`, `import { a as _ }`, `const _`, `function _`.
+const importsPlaceholder = /(?<![\w$])import\s+(?:type\s+)?(?:_(?![\w$])|\*\s*as\s+_(?![\w$])|(?:[\w$]+\s*,\s*)?\{[^}]*(?<![\w$])_\s*[,}])/;
+const declaresPlaceholder = /(?<![\w$])(?:const|let|var|function|class)\s+_(?![\w$])/g;
+
+/** Whether a file imports `_` or declares it at its top level; there it is that value everywhere, as the author meant. */
+function bindsPlaceholder(sourceText: string): boolean {
+    const code = maskNonCode(sourceText);
+    if (importsPlaceholder.test(code)) return true;
+    for (const match of code.matchAll(declaresPlaceholder)) {
+        let depth = 0;
+        for (let index = 0; index < match.index; index++) {
+            if (code[index] === "{") depth++;
+            else if (code[index] === "}") depth--;
+        }
+        if (depth === 0) return true;
+    }
+    return false;
+}
 
 interface Hole {
     readonly identifier: TS.Identifier;
@@ -18,8 +38,12 @@ interface Hole {
  * becomes an arrow function with one parameter per placeholder, left to right. The parameters and the references
  * that replace the placeholders keep the placeholders' source positions, so that hover and diagnostics point at the
  * `_` the author wrote, and they are generated names, so that JavaScript output gives each one its own name.
+ *
+ * Parsing comes before binding, so only a file's own imports and top-level declarations can turn `_` back into a value.
+ * A `_` from anywhere else, such as a parameter or a global, is found once names resolve, and reported rather than
+ * silently taken for a placeholder.
  */
-export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSyntaxExtension[] {
+export function createOperatorSectionSyntax(ts: TSPPTypeScript): { extensions: readonly TSPPSyntaxExtension[]; diagnostics: TSPPDiagnosticProvider; } {
     const kinds = ts.SyntaxKind;
     // Functions, classes, and bindings introduce their own scope or name, so a `_` inside them is not a hole here.
     const opaqueKinds = new Set<TS.SyntaxKind>([
@@ -41,10 +65,15 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
     // While a section looks ahead for its holes, nested parentheses and arguments are parsed as written: their holes are
     // their own either way, and deciding them again for every enclosing section would take exponential time.
     let probing = false;
+    /** What each placeholder became, where a `_` in scope would have been read. */
+    const placeholderReferences = new WeakSet<TS.Node>();
+    let sectionCount = 0;
+    let placeholderFile: { readonly sourceText: string; readonly binds: boolean; } | undefined;
 
-    /** A function some plugin's syntax lowered to: its `=>` has no source text, so the author wrote no scope here. */
-    function isLoweredFunction(node: TS.Node): node is TS.ArrowFunction {
-        return ts.isArrowFunction(node) && node.equalsGreaterThanToken.pos === node.equalsGreaterThanToken.end;
+    function isPlaceholderBound(cursor: TSPPSyntaxCursor): boolean {
+        const sourceText = cursor.getSourceText();
+        if (placeholderFile?.sourceText !== sourceText) placeholderFile = { sourceText, binds: bindsPlaceholder(sourceText) };
+        return placeholderFile.binds;
     }
 
     function collectHoles(node: TS.Node, parent: TS.Node | undefined, holes: Hole[]): void {
@@ -53,8 +82,8 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
             holes.push({ identifier: node, parent });
             return;
         }
-        if (ts.isParenthesizedExpression(node) && isLoweredFunction(node.expression)) return collectHoles(node.expression, node, holes);
-        if (isLoweredFunction(node)) {
+        if (ts.isParenthesizedExpression(node) && isLoweredFunction(ts, node.expression)) return collectHoles(node.expression, node, holes);
+        if (isLoweredFunction(ts, node)) {
             for (const parameter of node.parameters) {
                 if (parameter.initializer) collectHoles(parameter.initializer, parameter, holes);
             }
@@ -71,6 +100,10 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
         if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
             collectHoles(node.expression, node, holes);
             node.typeArguments?.forEach(argument => collectHoles(argument, node, holes));
+            // An authored argument is a section of its own; a function lowered into the call was written around it.
+            node.arguments?.forEach(argument => {
+                if (isLoweredFunction(ts, argument)) collectHoles(argument, node, holes);
+            });
             return;
         }
         ts.forEachChild(node, child => collectHoles(child, node, holes));
@@ -139,11 +172,14 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
 
     function createSection(cursor: TSPPSyntaxCursor, expression: TS.Expression, holes: readonly Hole[], pos: number, end: number): TS.Expression {
         const factory = cursor.factory;
+        sectionCount++;
         let body = expression;
         const parameters = holes.map(({ identifier, parent }, index) => {
             const name = () => ts.setTextRange(createGeneratedName(ts, identifier, "__p", String(index)), identifier);
-            if (parent) replaceChild(parent, identifier, name());
-            else body = name();
+            const reference = name();
+            placeholderReferences.add(reference);
+            if (parent) replaceChild(parent, identifier, reference);
+            else body = reference;
             return ts.setTextRange(
                 factory.createParameterDeclaration(/*modifiers*/ undefined, /*dotDotDotToken*/ undefined, name()),
                 identifier,
@@ -155,7 +191,7 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
                 /*typeParameters*/ undefined,
                 ts.setTextRange(factory.createNodeArray(parameters), { pos, end: pos }),
                 /*type*/ undefined,
-                ts.setTextRange(factory.createToken(kinds.EqualsGreaterThanToken), { pos, end: pos }),
+                createLoweredArrowToken(ts, factory, pos),
                 body,
             ),
             { pos, end },
@@ -167,7 +203,7 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
         position: "primary-expression",
         startTokens: [kinds.OpenParenToken],
         keywords: ["_"],
-        isStart: cursor => !probing && mayContainPlaceholder(cursor, /*parenthesized*/ true) && probe(cursor, () => parseParenthesizedContents(cursor)),
+        isStart: cursor => !probing && !isPlaceholderBound(cursor) && mayContainPlaceholder(cursor, /*parenthesized*/ true) && probe(cursor, () => parseParenthesizedContents(cursor)),
         parse: cursor => {
             const pos = cursor.getNodePos();
             const expression = parseParenthesizedContents(cursor);
@@ -181,7 +217,7 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
         position: "argument",
         keywords: ["_"],
         startTokens: Object.values(kinds).filter((kind): kind is TS.SyntaxKind => typeof kind === "number" && kind !== kinds.DotDotDotToken && kind !== kinds.CommaToken),
-        isStart: cursor => !probing && mayContainPlaceholder(cursor, /*parenthesized*/ false) && probe(cursor, () => cursor.parseAssignmentExpression()),
+        isStart: cursor => !probing && !isPlaceholderBound(cursor) && mayContainPlaceholder(cursor, /*parenthesized*/ false) && probe(cursor, () => cursor.parseAssignmentExpression()),
         parse: cursor => {
             const pos = cursor.getNodePos();
             const expression = cursor.parseAssignmentExpression();
@@ -190,5 +226,21 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
         },
     };
 
-    return [parenthesized, argument];
+    const diagnostics: TSPPDiagnosticProvider = {
+        id: "placeholder-in-scope",
+        getSemanticDiagnostics: (sourceFile, checker) => {
+            if (!sectionCount) return [];
+            const found: TS.Diagnostic[] = [];
+            const visit = (node: TS.Node): void => {
+                if (placeholderReferences.has(node) && checker.resolveName(placeholder, node, ts.SymbolFlags.Value, /*excludeGlobals*/ false)) {
+                    found.push({ category: ts.DiagnosticCategory.Error, code: placeholderInScopeCode, file: sourceFile, start: node.pos, length: node.end - node.pos, messageText: placeholderInScopeMessage });
+                }
+                ts.forEachChild(node, visit);
+            };
+            visit(sourceFile);
+            return found;
+        },
+    };
+
+    return { extensions: [parenthesized, argument], diagnostics };
 }

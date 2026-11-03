@@ -58,6 +58,8 @@ export interface TermParserOptions {
     readonly aliases?: ReadonlyMap<string, MlttTerm>;
     /** Names the file declares itself, which are ordinary types even if they spell a built-in term. */
     readonly shadowed?: ReadonlySet<string>;
+    /** Told each name the term reads as a built-in, so that a type of that name in another file can be reported. */
+    readonly onBuiltin?: (name: string) => void;
 }
 
 export function parseDependentTypeText(
@@ -128,10 +130,12 @@ export class TermParser {
     private patternCaptures: string[] | undefined;
     private readonly aliases: ReadonlyMap<string, MlttTerm>;
     private readonly shadowed: ReadonlySet<string>;
+    private readonly onBuiltin: ((name: string) => void) | undefined;
 
     public constructor(private readonly tokens: TermTokens, options: TermParserOptions = {}) {
         this.aliases = options.aliases ?? new Map();
         this.shadowed = options.shadowed ?? new Set();
+        this.onBuiltin = options.onBuiltin;
     }
 
     public parse(): MlttTerm {
@@ -260,12 +264,16 @@ export class TermParser {
         if (index >= 0) return mlttVariable(index);
         const alias = this.aliases.get(name);
         if (alias) return alias;
-        if (name in atomTerms && !this.shadowed.has(name)) return atomTerms[name]();
+        if (name in atomTerms && !this.shadowed.has(name)) {
+            this.onBuiltin?.(name);
+            return atomTerms[name]();
+        }
         return mlttExternal(name, name, [], mlttUniverse(0), location);
     }
 
     private createNamedApplication(name: string, args: readonly MlttTerm[], location?: TermLocation): MlttTerm {
         if (this.shadowed.has(name)) return mlttExternal(name, `${name}<${args.map(display).join(", ")}>`, args, mlttUniverse(0), location);
+        if (appliedTerms.has(name)) this.onBuiltin?.(name);
         const count = (expected: number): void => {
             if (args.length !== expected) this.fail(`${name} expects ${expected} type arguments, received ${args.length}.`);
         };

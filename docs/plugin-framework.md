@@ -121,8 +121,9 @@ Syntax plugins desugar while parsing: the parser hands them a cursor with its
 own factory, and they return ordinary TypeScript nodes that the upstream binder,
 checker, and emitter process unchanged. `markGenerated` from the SDK gives the nodes
 a plugin creates the source positions editor services and declaration output expect.
-A function a plugin lowers to has an empty `=>`, which is how other syntax tells it
-from a scope the author wrote. `replaceChild` rewrites syntax a plugin has just parsed,
+A function a plugin lowers to has an empty `=>` from `createLoweredArrowToken`, and
+`isLoweredFunction` tells it from a scope the author wrote, so a hole of an operator
+section reaches through it, a `use` continuation included. `replaceChild` rewrites syntax a plugin has just parsed,
 and `createGeneratedName` gives it a name that stays unique in JavaScript; compiler
 details those two need stay in the SDK rather than in each plugin.
 
@@ -238,10 +239,24 @@ plugin's syntax. The compile-time macro worker is the first consumer.
   combinations. A plugin only acts on its own syntax: formal verification, for one,
   checks a function only when it has a contract, a refinement, a proof directive, or a
   call or binding that owes a proof to one of those.
+- `integration/test/nesting-matrix.test.cjs` writes each plugin's syntax inside each
+  other plugin's: a plugin lists where it holds code and what it can be held in, and
+  every pairing follows, so a new plugin adds one entry rather than one test per pair.
+  Each pairing must run to its value and keep its errors, and a declaration must keep
+  the syntax it holds.
 - `integration/test/boundaries.test.cjs` scans the strings and regular expressions
   of plugins and hosts for other plugins' ids and keywords, which ESLint cannot see.
 - `integration/test/composition.test.cjs` holds the interactions worth stating by
   hand, such as a `match` inside a section or a contract over a lowered `do`.
+
+## Names plugin syntax takes
+
+Syntax lowers while parsing, before names are bound, so a plugin cannot ask what a
+word means. A plugin that takes an ordinary word treats the file's own imports and
+top-level declarations of it as the author's. Anything it cannot see from there, such
+as a global from another file or a parameter, it reports once the checker can resolve
+the name, and never silently reads as its syntax. `_` and the built-in terms of type
+computation (`Nat`, `Pair`, ...) work this way.
 
 ## Semantic kernels are not one universal IR
 

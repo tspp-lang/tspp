@@ -1,3 +1,4 @@
+import { createLoweredArrowToken } from "@tspp/plugin-sdk";
 import type {
     TSPPDiagnosticProvider,
     TSPPSyntaxCursor,
@@ -36,7 +37,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             /*typeParameters*/ undefined,
             range(f.createNodeArray<TS.ParameterDeclaration>([]), pos, pos),
             /*type*/ undefined,
-            range(f.createToken(kinds.EqualsGreaterThanToken), pos, pos),
+            createLoweredArrowToken(ts, f, pos),
             body,
         ), pos, end);
         const callee = range(f.createParenthesizedExpression(arrow), pos, end);
@@ -129,7 +130,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             /*typeParameters*/ undefined,
             range(f.createNodeArray([parameter]), parameter.pos, parameter.end),
             /*type*/ undefined,
-            range(f.createToken(kinds.EqualsGreaterThanToken), parameter.end, parameter.end),
+            createLoweredArrowToken(ts, f, parameter.end),
             body,
         ), head.pos, end);
         const target = head.target;

@@ -3,7 +3,7 @@ import { mayCarryObligations } from "./coverage";
 import { assignmentKey, cloneState, isBound, lexicalNames, type Context, type State } from "./execution-state";
 import type { Sort, Term } from "./expression";
 import { nameText, ts } from "./host-api";
-import type { DataConstructor } from "./models";
+import type { DataConstructor, FunctionModel } from "./models";
 
 // What syntax plugins lower to, as far as proofs can follow: functions invoked in place, conditional expressions, and
 // data fields read by position under a test of their variant. All of it is ordinary TypeScript.
@@ -12,6 +12,22 @@ import type { DataConstructor } from "./models";
 export interface Lowering {
     lowerExpression(node: TS.Expression, state: State, context: Context): Term;
     executeStatements(nodes: readonly TS.Statement[], states: State[], context: Context): State[];
+}
+
+/**
+ * The arguments of a call to `model` for the parameters proofs can read, in their order. No proof reads a parameter of a
+ * type outside the model, so its argument only has to hide no obligation.
+ */
+export function lowerCallArguments(node: TS.CallExpression, model: FunctionModel, state: State, context: Context, { lowerExpression }: Lowering): Term[] {
+    const positions = model.parameterPositions ?? model.parameters.map((_, index) => index);
+    const arity = model.arity ?? model.parameters.length;
+    if (node.arguments.length !== arity) throw new Error(`'${model.name}' expects ${arity} arguments.`);
+    node.arguments.forEach((argument, index) => {
+        if (positions.includes(index)) return;
+        try { lowerExpression(argument, state, context); }
+        catch (error) { if (mayCarryObligations(argument, state, context)) throw error; }
+    });
+    return positions.map(position => lowerExpression(node.arguments[position], state, context));
 }
 
 /** The function an immediately invoked call runs, as in `(() => { ... })()` and `((x) => x + 1n)(y)`. */

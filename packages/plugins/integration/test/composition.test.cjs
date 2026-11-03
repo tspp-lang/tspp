@@ -294,6 +294,55 @@ test("operator-sections see through syntax other plugins lower to functions", ()
   assert.ok(written.some(message => /Cannot find name '_'/.test(message)), written.join("\n"));
 });
 
+test("operator-sections see through a use continuation another plugin lowers into a call", () => {
+  const { h } = run(`
+    function acquire<T>(a: number, k: (v: number) => T): T { return k(a); }
+    export const h = [1].map((do { use v <- acquire(2); v + _ }));`);
+  assert.deepEqual(h, [3]);
+});
+
+test("a file's own _ stays a value, and any other _ in scope is reported, not read as a placeholder", () => {
+  const { v, w } = run(`
+    const _ = { n: 2, get() { return this.n; } };
+    export const v = (_.n + 1);
+    export const w = [1].map(x => x + (_.get()));`);
+  assert.equal(v, 3);
+  assert.deepEqual(w, [3]);
+  const { h } = run(`
+    function local() { const _ = 1; return _; }
+    export const h = [local()].map((_ + 1));`);
+  assert.deepEqual(h, [2]);
+  const placeholderInScope = /'_' here is the placeholder of an operator section/;
+  assert.match(compile(`export const f = [1].map(_ => (_ + 1));`).messages.join("\n"), placeholderInScope);
+  const global = createProgram({ "/global.ts": "declare const _: number;", "/main.tspp": "export const g = (_ + 1);" }, options);
+  assert.match(diagnosticMessages(global.program).join("\n"), placeholderInScope);
+});
+
+test("type-computation reports a built-in term a type in another file also names", () => {
+  const { program } = createProgram({ "/global.ts": "type Nat = { value: number };", "/main.tspp": "export const a: Nat = 1;" }, options);
+  assert.match(diagnosticMessages(program).join("\n"), /'Nat' here is the built-in term, but a type of that name is in scope/);
+  const imported = createProgram({ "/lib.ts": "export type Nat = { value: number };", "/main.tspp": `import type { Nat } from "./lib";\nexport const a: Nat = { value: 1 };` }, options);
+  assert.deepEqual(diagnosticMessages(imported.program), []);
+});
+
+test("formal-verification and nominal-types: a data field's type may be an alias", async () => {
+  const { analysis, proofs } = await verify(`
+    type Big = bigint;
+    export data B = B(p: Big);
+    export function f(b: B) with { ensures: result >= 0n; }: bigint { return match b { B(p) => p >= 0n ? p : 0n }; }`);
+  assert.deepEqual(analysis, []);
+  assert.ok(proofs.includes("f postcondition: proved"), proofs.join("\n"));
+});
+
+test("formal-verification: a parameter outside the model does not shift a call's arguments", async () => {
+  const { analysis } = await verify(`
+    function half(label: string, v: bigint) with { requires: v >= 0n; ensures: result >= 0n; }: bigint { return v; }
+    export function good(v: bigint) with { requires: v >= 1n; ensures: result >= 0n; }: bigint { return half("x", v); }
+    export function bad(v: bigint): bigint { return half("x", v); }`);
+  assert.equal(analysis.length, 1, analysis.join("\n"));
+  assert.match(analysis[0], /half call precondition could not be proved/);
+});
+
 test("formal-verification refinements take an alias annotation of another plugin", async () => {
   const { analysis, proofs } = await verify(`
     type Pos: Type = bigint with { predicate: value > 0n; };
