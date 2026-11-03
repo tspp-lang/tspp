@@ -82,7 +82,8 @@ function compilerLibraries(): Plugin {
       const pathsFile = readFileSync(join(directory, "libs.json"), "utf8").replace(/^\s*\/\/.*$/gm, "");
       const paths = (JSON.parse(pathsFile) as { paths: Record<string, string> }).paths;
       const libraries: Record<string, string> = {};
-      for (const file of readdirSync(directory).filter(name => name.endsWith(".d.ts"))) {
+      // The playground's default library is for pages, and no compiler option here can ask for a worker's.
+      for (const file of readdirSync(directory).filter(name => name.endsWith(".d.ts") && !name.startsWith("webworker"))) {
         const shortName = file.slice(0, -5);
         libraries[paths[shortName] ?? `lib.${shortName}.d.ts`] = readFileSync(join(directory, file), "utf8");
       }
@@ -234,6 +235,21 @@ function examplesPlugin(): Plugin {
   };
 }
 
+/** Nothing works until the editor and the language worker both arrive, so fetch them side by side, not one after the other. */
+function preloadLanguageWorker(): Plugin {
+  return {
+    name: "tspp:preload-language-worker",
+    apply: "build",
+    transformIndexHtml: {
+      order: "post",
+      handler(_html, context) {
+        const worker = Object.keys(context.bundle ?? {}).find(name => /languageWorker-[^/]*\.js$/.test(name));
+        return worker ? [{ tag: "link", attrs: { rel: "modulepreload", href: `./${worker}` }, injectTo: "head" }] : [];
+      },
+    },
+  };
+}
+
 function z3Runtime(): Plugin {
   const workerEntry = join(import.meta.dirname, "src", "z3", "z3Worker.cjs");
   const wasmPath = join(z3Build, "z3-built.wasm");
@@ -295,7 +311,7 @@ export default defineConfig({
   ] },
   optimizeDeps: { include: browserPackages },
   oxc: { exclude: [/packages[\\/]compiler[\\/]src[\\/]/] },
-  plugins: [...workerPlugins(), examplesPlugin(), z3Runtime()],
+  plugins: [...workerPlugins(), examplesPlugin(), z3Runtime(), preloadLanguageWorker()],
   worker: { format: "es", plugins: workerPlugins },
   server: { port: 5173, strictPort: true, headers: isolationHeaders },
   preview: { headers: isolationHeaders },
