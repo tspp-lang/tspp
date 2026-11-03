@@ -26,7 +26,10 @@ export const nominalTypesPlugin = definePlugin({
             activate(context) {
                 context.provide(nominalTypesADTAPIName, nominalTypesADTAPI);
                 const declarations = createNominalDeclarations(context.ts);
-                const matches = createValueMatches(context.ts);
+                const matches = createValueMatches(context.ts, () => [
+                    ...context.compiler.getSyntaxKeywords("primary-expression"),
+                    ...context.compiler.getSyntaxKeywords("argument"),
+                ]);
                 context.onDispose(context.compiler.registerSyntaxExtension(declarations.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(matches.extension));
                 return context.compiler.registerDiagnosticProvider(createNominalDiagnostics(context.ts, declarations, matches));

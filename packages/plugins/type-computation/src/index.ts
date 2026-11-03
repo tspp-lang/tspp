@@ -42,7 +42,7 @@ export const typeComputationPlugin = definePlugin({
                 const ts = context.ts;
                 const model = createTypeSyntaxModel(() => context.compiler.getSyntaxKeywords("declaration"));
                 const [typeSyntax, ...otherSyntax] = createTypeSyntax(ts, model);
-                const restorers = createDeclarationRestorers(ts, model);
+                const restorers = createDeclarationRestorers(ts, model, sourceFile => context.compiler.getAuthoredText(sourceFile));
                 const reification = createReification(ts);
                 const disposers = [
                     context.compiler.registerSyntaxExtension(reification.reify),

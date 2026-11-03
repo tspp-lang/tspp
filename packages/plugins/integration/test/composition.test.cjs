@@ -252,6 +252,49 @@ test("formal-verification leaves a value outside its model alone until a proof r
   assert.ok(read.analysis.some(message => message.includes("'n'")), read.analysis.join("\n"));
 });
 
+test("type-computation only takes a `<` closed by `>` after a type", () => {
+  const { r, c } = run(`
+    function acquire(n: number, k: (v: number) => number): number { return k(n); }
+    export const r = do { use value: number <- acquire(40); value + 2 };
+    const v: unknown = 2;
+    export const c = v as number < 3;
+    type Lst: Type => Type = <A> =>> A[];
+    export const list: (Lst)<number> = [];`);
+  assert.equal(r, 42);
+  assert.equal(c, true);
+});
+
+test("operator-sections see through syntax other plugins lower to functions", () => {
+  const { a, b, d, e } = run(`
+    data S = A(x: number) | B;
+    const items: S[] = [A(1), B];
+    export const a = items.map((match _ { A(x) => x, B => 0 }));
+    export const b = items.map((match _ { A(x) => x + 1, B => 0 }));
+    export const d = [1, 2].map((let y = _ in y + 1));
+    export const e = [1].map((do { _ + 1 }));`);
+  assert.deepEqual([a, b, d, e], [[1, 0], [2, 0], [2, 3], [2]]);
+  const messages = compile(`
+    data S = A(x: number) | B;
+    const items: S[] = [A(1)];
+    export const missing = items.map((match _ { A(x) => x }));`).messages;
+  assert.ok(messages.some(message => /Non-exhaustive match\. Missing patterns: B/.test(message)), messages.join("\n"));
+  const written = compile(`export const f = [1].map(x => ((() => _ + x)()));`).messages;
+  assert.ok(written.some(message => /Cannot find name '_'/.test(message)), written.join("\n"));
+});
+
+test("formal-verification refinements take an alias annotation of another plugin", async () => {
+  const { analysis, proofs } = await verify(`
+    type Pos: Type = bigint with { predicate: value > 0n; };
+    export function f(v: Pos) with { ensures: result > 0n; }: bigint { return v; }
+    export function g(): Pos { return -1n; }`);
+  assert.ok(proofs.includes("f postcondition: proved"), proofs.join("\n"));
+  assert.ok(analysis.some(message => /Pos return refinement could not be proved/.test(message)), analysis.join("\n"));
+  const { program, outputs } = createProgram({ "/main.tspp": "export type Pos: Type = bigint with { predicate: value > 0n; };" }, { ...options, declaration: true });
+  program.emit();
+  const declaration = [...outputs].find(([name]) => name.endsWith(".d.tspp"));
+  assert.match(declaration[1], /type Pos: Type0 = bigint with \{ predicate: value > 0n; \}/);
+});
+
 test("source projections leave strings and comments alone", () => {
   const source = `
     export const a = "macro m(T);";

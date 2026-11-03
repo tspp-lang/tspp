@@ -155,6 +155,7 @@ export class TSPPPluginHost {
                 registerDiagnosticProvider: provider => this.environment.compiler.registerDiagnosticProvider(pluginId, provider),
                 registerTypeExtension: extension => this.environment.compiler.registerTypeExtension(pluginId, extension),
                 getSyntaxKeywords: position => this.environment.compiler.getSyntaxKeywords(position),
+                getAuthoredText: sourceFile => this.environment.compiler.getAuthoredText(sourceFile),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

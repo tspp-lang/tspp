@@ -195,8 +195,37 @@ function absolute(value: bigint) with { ensures: result >= 0n; }: bigint { if (v
   },
   {
     name: "unsupported return that hides a division",
-    source: `function f(a: bigint, b: bigint) { return [a / b]; }`,
+    source: `function f(a: bigint, b: bigint) with { requires: a > 0n; } { return [a / b]; }`,
     rejects: /Unsupported proof expression/,
+  },
+  {
+    name: "functions without verification syntax, whatever they contain",
+    source: `function divide(a: bigint, b: bigint): bigint { return a / b; }
+function concat(t: { name: string }) { const n = t.name + "x"; return n; }
+function count(t: { n: number }) { const m = t.n + 1; return m; }
+function doubled(xs: number[]) { return xs.map(x => x * 2); }
+function inPlace(t: { name: string }) { const n = ((k: string) => k + "!")(t.name); return n; }`,
+  },
+  {
+    name: "unmodeled text beside a proof",
+    source: `function f(t: { name: string }, v: bigint) with { ensures: result === v; }: bigint { const n = ((k: string) => k + "!")(t.name); const m = t.name + "x"; return v; }`,
+  },
+  {
+    name: "call with a precondition from a function without verification syntax",
+    source: `function positive(value: bigint) with { requires: value > 0n; }: bigint { return value; }
+function caller(): bigint { return positive(-1n); }`,
+    rejects: /positive call precondition could not be proved\./,
+  },
+  {
+    name: "refined local in a function without verification syntax",
+    source: `type Positive = bigint with { predicate: value > 0n; };
+function caller() { const p: Positive = -1n; return p; }`,
+    rejects: /Positive refinement introduction could not be proved\./,
+  },
+  {
+    name: "assertion inside an immediately invoked function",
+    source: `function caller(v: bigint) { const r = (() => { assert: v > 0n; return v; })(); return r; }`,
+    rejects: /local assertion could not be proved\./,
   },
   {
     name: "contract-free functions returning values outside the model",

@@ -21,8 +21,8 @@ const featureTerms = [
     "typeMatch", "operatorSection", "staticInterface", "trailingClosure", "completionBlock", "withClause", "tspp",
 ];
 
-// Set from the 2026-11-02 shrink (+294 -44 in 24 files) with a small margin.
-const budget = { upstreamFiles: 25, upstreamAdded: 305, upstreamRemoved: 48 };
+// Set from the 2026-11-03 shrink (+294 -44 in 24 files) with a small margin.
+const budget = { upstreamFiles: 24, upstreamAdded: 300, upstreamRemoved: 46 };
 
 // A call site forwards in a few lines. A longer hunk must be a known exception: the parser's cursor for plugin syntax
 // reads the parser's closure, so it cannot move to a new file.

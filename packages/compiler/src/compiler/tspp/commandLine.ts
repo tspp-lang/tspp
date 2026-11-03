@@ -2,6 +2,7 @@ import {
     changeCompilerHostLikeToUseCache,
     combinePaths,
     createCompilerHostWorker,
+    createDiagnosticReporter,
     createGetCanonicalFileName,
     createProgram,
     Diagnostics,
@@ -167,9 +168,49 @@ export function performTSPPCompilation(
 }
 
 /**
+ * Incremental compilations and watch mode emit through upstream's builder programs, which `performTSPPCompilation` never
+ * sees. Analyzers run on each builder's program instead: a one-shot compilation exits when they finish, with their errors
+ * in its status, and watch mode reports them after each build, dropping results a newer build has replaced.
+ */
+function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks, commandLine: ParsedCommandLine): { system: System; cb: ExecuteCommandLineCallbacks; pending(): Promise<void> | undefined; } {
+    const reportDiagnostic = createDiagnosticReporter(system, commandLine.options.pretty ?? !!system.writeOutputIsTTY?.());
+    let program: Program | undefined;
+    let pending: Promise<void> | undefined;
+    let build = 0;
+    const analyze = async (target: Program) => hasTSPPProgramAnalyzers() ? (await runTSPPProgramAnalyzers(target)).map(diagnostic => toTSPPAnalysisDiagnostic(target, diagnostic)) : [];
+    const analyzedSystem: System = Object.create(system);
+    analyzedSystem.exit = exitCode => {
+        if (!program || !hasTSPPProgramAnalyzers()) return system.exit(exitCode);
+        pending = analyze(program).then(diagnostics => {
+            for (const diagnostic of diagnostics) reportDiagnostic(diagnostic);
+            const failedStatus = commandLine.options.noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
+            system.exit(exitCode || (diagnostics.some(diagnostic => diagnostic.category === DiagnosticCategory.Error) ? failedStatus : ExitStatus.Success));
+        });
+    };
+    return {
+        system: analyzedSystem,
+        cb: programOrConfig => {
+            const built = (programOrConfig as { getProgram?(): Program; }).getProgram?.();
+            if (built) {
+                program = built;
+                if (commandLine.options.watch && hasTSPPProgramAnalyzers()) {
+                    const current = ++build;
+                    pending = analyze(built).then(diagnostics => {
+                        if (current === build) diagnostics.forEach(reportDiagnostic);
+                    });
+                }
+            }
+            cb(programOrConfig);
+        },
+        pending: () => pending,
+    };
+}
+
+/**
  * Runs the `tspp` command line. One-shot compilations wait for asynchronous program rebuilders such as compile-time
- * macros; solution builds, watch mode, incremental mode, and CPU profiling keep the synchronous pipeline, whose
- * long-lived builder state needs a separate asynchronous design.
+ * macros and for analyzers; incremental and watch compilations keep upstream's synchronous builders, whose long-lived
+ * state needs a separate asynchronous design, and run analyzers on what they build. Solution builds do not load plugins:
+ * a project needs `tspp -p` for them.
  * @internal
  */
 export function executeTSPPCommandLine(system: System, cb: ExecuteCommandLineCallbacks, commandLineArgs: readonly string[]): void {
@@ -182,12 +223,16 @@ export function executeTSPPCommandLine(system: System, cb: ExecuteCommandLineCal
 function executeCommandLineAsync(system: System, cb: ExecuteCommandLineCallbacks, commandLineArgs: readonly string[]): unknown {
     if (isBuildCommand(commandLineArgs)) return executeCommandLine(system, cb, commandLineArgs);
     const commandLine = parseCommandLine(commandLineArgs, path => system.readFile(path));
-    if (commandLine.options.generateCpuProfile && system.enableCPUProfiler) return executeCommandLine(system, cb, commandLineArgs);
+    const builders = analyzeBuilderPrograms(system, cb, commandLine);
+    if (commandLine.options.generateCpuProfile && system.enableCPUProfiler) {
+        const result = executeCommandLine(builders.system, builders.cb, commandLineArgs);
+        return builders.pending() ?? result;
+    }
     asyncCompilation = true;
     pendingCompilation = undefined;
     try {
-        const result = executeCommandLine(system, cb, commandLineArgs);
-        return pendingCompilation ?? result;
+        const result = executeCommandLine(builders.system, builders.cb, commandLineArgs);
+        return pendingCompilation ?? builders.pending() ?? result;
     }
     finally {
         asyncCompilation = false;

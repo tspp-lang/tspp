@@ -119,7 +119,10 @@ out-of-band ownership makes its initializer a recursive const-inference
 context. Emission therefore has zero runtime machinery.
 Syntax plugins desugar while parsing: the parser hands them a cursor with its
 own factory, and they return ordinary TypeScript nodes that the upstream binder,
-checker, and emitter process unchanged.
+checker, and emitter process unchanged. `markGenerated` from the SDK gives the nodes
+a plugin creates the source positions editor services and declaration output expect.
+A function a plugin lowers to has an empty `=>`, which is how other syntax tells it
+from a scope the author wrote.
 
 ```mermaid
 flowchart LR
@@ -163,7 +166,10 @@ host, or filesystem capability.
 
 `@tspp/plugin-formal-verification` is the first consumer. It owns proof-point
 discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
-compiler owns only scheduling and diagnostic transport. It parses each file with
+compiler owns only scheduling and diagnostic transport. Analyzers run in one-shot,
+incremental, and watch compilations. Solution builds (`tspp -b`) do not load plugins
+yet, so a project with plugins compiles with `tspp -p`; an up-to-date
+`.tsbuildinfo` does not record analyzer errors, so `-b` must not stand in for it. It parses each file with
 the host's parser (`context.ts.createSourceFile`), so every active plugin's syntax
 is already lowered to ordinary TypeScript. It models that TypeScript, immediately
 invoked functions and conditional expressions included, and knows no other plugin
@@ -224,6 +230,12 @@ plugin's syntax. The compile-time macro worker is the first consumer.
   set without one plugin, and all of them through the real command line, and each
   must keep reporting its own errors. Describing a new plugin there is required: the
   test fails otherwise, and every combination then follows.
+- `integration/test/inert-plugins.test.cjs` compiles every example with each plugin
+  it does not use, one at a time: the errors and the JavaScript must not change. This
+  is what additive means, and it grows with plugins times examples, not with their
+  combinations. A plugin only acts on its own syntax: formal verification, for one,
+  checks a function only when it has a contract, a refinement, a proof directive, or a
+  call or binding that owes a proof to one of those.
 - `integration/test/boundaries.test.cjs` scans the strings and regular expressions
   of plugins and hosts for other plugins' ids and keywords, which ESLint cannot see.
 - `integration/test/composition.test.cjs` holds the interactions worth stating by

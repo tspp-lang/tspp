@@ -10,13 +10,14 @@ const genericGlobals = new Set(["Array", "ReadonlyArray", "Promise", "Map", "Rea
  * Declaration output: `.d.tspp` keeps the authored type-level syntax and kind annotations; the TypeScript-compatible
  * `.d.ts` writes `unknown` for what TypeScript cannot express and gives constructor aliases placeholder parameters.
  */
-export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntaxModel) {
+export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntaxModel, getAuthoredText: (sourceFile: TS.SourceFile) => string) {
     const sourceFileOf = (node: TS.Node): TS.SourceFile => {
         let current = node;
         while (!ts.isSourceFile(current)) current = current.parent;
         return current;
     };
-    const sourceText = (node: TS.Node) => sourceFileOf(node).text;
+    // Authored text, not the parser's: another plugin may have projected away what the declaration must keep.
+    const sourceText = (node: TS.Node) => getAuthoredText(sourceFileOf(node));
     /**
      * The source text of `node` from `start` to `end`, with each kind annotation written inside it in its declaration
      * form, so that `F: Type => Type` restores as `F: Type0 => Type0` like the rest of the declaration output.

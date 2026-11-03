@@ -60,7 +60,12 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
         position: "postfix-type",
         startTokens: [kinds.LessThanToken],
         keywords: ["<"],
-        isStart: cursor => cursor.token() === kinds.LessThanToken && !!cursor.precedingType,
+        // Only arguments closed by `>` apply a type: what follows a type may be any `<` the surrounding code means, as in
+        // `value as number < 3`.
+        isStart: cursor => cursor.token() === kinds.LessThanToken && !!cursor.precedingType && cursor.lookAhead(() => {
+            cursor.parseTypeArguments();
+            return cursor.getSourceText().charAt(cursor.getNodePos() - 1) === ">";
+        }),
         parse: cursor => {
             const target = cursor.precedingType!;
             const typeArguments = cursor.parseTypeArguments() ?? cursor.factory.createNodeArray([]);

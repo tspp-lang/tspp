@@ -157,6 +157,6 @@ export function participatesInVerification(statement: TS.FunctionDeclaration, mo
     if (Object.keys(model.parameterRefinements ?? {}).length) return true;
     const hasDirective = (node: TS.Node): boolean =>
         ts.isLabeledStatement(node) && (nameText(node.label) === "assert" || nameText(node.label) === "assume")
-        || !ts.isFunctionLike(node) && !!ts.forEachChild(node, hasDirective);
+        || !ts.isFunctionDeclaration(node) && !!ts.forEachChild(node, hasDirective);
     return !!statement.body && !!ts.forEachChild(statement.body, hasDirective);
 }

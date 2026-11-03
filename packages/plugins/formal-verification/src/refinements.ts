@@ -22,10 +22,11 @@ export interface RefinementModel {
     readonly start: number;
 }
 
+// The patterns below allow what another plugin's syntax may write between an alias's name and its `=`: a `:` annotation.
 export function collectRefinements(sourceText: string): Map<string, RefinementModel> {
     const refinements = new Map<string, RefinementModel>();
     const code = maskNonCode(sourceText);
-    const pattern = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
+    const pattern = /\btype\s+([A-Za-z_$][\w$]*)(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
     for (let match; (match = pattern.exec(code));) {
         const open = code.indexOf("{", match.index);
         const close = matchingBrace(code, open);
@@ -47,7 +48,7 @@ export function collectRefinements(sourceText: string): Map<string, RefinementMo
 
 export function maskRefinementClauses(sourceText: string, characters: string[]): void {
     const code = maskNonCode(sourceText);
-    const pattern = /\btype\s+[A-Za-z_$][\w$]*\s*=\s*(?:bigint|number|boolean)\s+(with\s*\{)/g;
+    const pattern = /\btype\s+[A-Za-z_$][\w$]*(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(?:bigint|number|boolean)\s+(with\s*\{)/g;
     for (let match; (match = pattern.exec(code));) {
         const start = match.index + match[0].lastIndexOf(match[1]);
         const open = code.indexOf("{", start);
@@ -64,14 +65,14 @@ export function restoreRefinementTypeAlias(
     request: TSPPPreprocessedTypeAliasRequest,
 ): TSPPPreprocessedTypeAlias | undefined {
     const code = maskNonCode(request.sourceText);
-    const pattern = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
+    const pattern = /\btype\s+([A-Za-z_$][\w$]*)(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(bigint|number|boolean)\s+with\s*\{/g;
     const candidates: { readonly start: number; readonly type: string; }[] = [];
     for (let match; (match = pattern.exec(code));) {
         if (match[1] !== request.name) continue;
         const open = code.indexOf("{", match.index);
         const close = matchingBrace(code, open);
         if (close < 0) continue;
-        const typeStart = match.index + match[0].indexOf(match[2]);
+        const typeStart = match.index + match[0].lastIndexOf(match[2]);
         candidates.push({ start: match.index, type: request.sourceText.slice(typeStart, close + 1) });
         pattern.lastIndex = close + 1;
     }

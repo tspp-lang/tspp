@@ -135,3 +135,29 @@ function compileAndRun(set) {
 }
 
 for (const set of pluginSets()) test(set.join(" + "), () => compileAndRun(set));
+
+// Upstream's builder programs emit on their own path: an analyzer's errors must still reach the status and the output.
+for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, { composite: true, rootDir: "src" }]) {
+  test(`analyzers run in ${Object.keys(mode)[0]} compilations`, () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+    try {
+      fs.mkdirSync(path.join(directory, "src"));
+      const scope = path.join(directory, "node_modules", "@tspp");
+      fs.mkdirSync(scope, { recursive: true });
+      fs.symlinkSync(packageDirectories.get("formal-verification"), path.join(scope, "plugin-formal-verification"), "junction");
+      fs.writeFileSync(path.join(directory, "src", "a.tspp"), features["formal-verification"].bad + "\n");
+      fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", types: [], strict: true, skipLibCheck: true, ...mode, plugins: [{ name: "@tspp/plugin-formal-verification", tspp: true }] },
+        include: ["src"],
+      }));
+      for (let run = 0; run < 2; run++) {
+        const compiled = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-p", "."], { cwd: directory, encoding: "utf8" });
+        assert.match(compiled.stdout, features["formal-verification"].message, `run ${run}\n${compiled.stdout}${compiled.stderr}`);
+        assert.equal(compiled.status, 2, `run ${run}\n${compiled.stdout}${compiled.stderr}`);
+      }
+    }
+    finally {
+      fs.rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}

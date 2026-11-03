@@ -213,7 +213,7 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
         const end = previousToken(code, match.index);
         const owner = functionOfClause(code, match.index) ? { owner: "a function", properties: functionProperties }
             : code[end] === ")" && /\bwhile\s*$/.test(code.slice(Math.max(0, matchingOpen(code, end, "(", ")") - 20), Math.max(0, matchingOpen(code, end, "(", ")")))) ? { owner: "a loop", properties: loopProperties }
-            : /\btype\s+[A-Za-z_$][\w$]*\s*=\s*(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 500), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
+            : /\btype\s+[A-Za-z_$][\w$]*(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 500), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
             : undefined;
         if (!owner) continue;
         const open = code.indexOf("{", match.index);

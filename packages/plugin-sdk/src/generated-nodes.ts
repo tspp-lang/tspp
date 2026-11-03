@@ -1,4 +1,4 @@
-import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
+import type { TSPPTypeScript } from "./compiler";
 import type * as TS from "typescript-upstream";
 
 /**

@@ -294,6 +294,20 @@ dependent-types 并入 type-computation（"互相依赖就合并"，HKT 是先�
 
 已知限制：形式验证读作者原文，看不到宏生成的代码，引用宏生成的变量时报 `Unknown proof variable`（不会证明出错误结论）。
 
+**进度记录（2026-11-03，无关插件不变性）**
+
+新增 `integration/test/inert-plugins.test.cjs`：每个示例再分别开一个它没用到的插件，诊断和 JavaScript 都不能变。首次运行 58 个组合有 3 个失败，连同人工组合探针发现的问题都已修复：
+
+- **形式验证越界。** 没有任何验证语法的函数也被分析，`const m = t.n + 1`、立即调用函数以及降级成它们的 `let`、`do`、`match` 都会报错。现在只有带契约、精化、证明指令，或调用带前置条件的函数、绑定精化类型、含循环不变式的函数才被分析。**行为变更**：没有验证语法的函数里的除法不再要求证明除数非零。`+`、`-`、`*` 只在 safe-integer 模型下算证明义务。
+- **后缀类型应用抢 `<`。** `use v: number <- f()` 和 `x as number < 3` 都被当成类型应用；现在前瞻确认有闭合的 `>` 才算。
+- **section 看不进其他插件的降级结果。** `(match _ {...})`、`(let y = _ in y)`、`(do { _ + 1 })` 里的 `_` 找不到。`=>` 没有源码文本的函数是降级产物，不算作者写的作用域。`match` 不再复制其他插件认领的名字（经 `getSyntaxKeywords`），穷尽性检查改读参数的类型。
+- **精化别名不接受注解。** `type P: Type = bigint with {...}` 报语法错误；FV 的模式现在接受 `=` 前的 `:` 注解。`.d.tspp` 恢复时 type-computation 读到的是投影后的文本，丢了 `with`，SDK 新增 `getAuthoredText`。
+- **增量编译跳过分析器。** `incremental`/`composite` 的 `tspp -p` 与 watch 模式不运行分析器，错误的契约 exit 0。现在都运行（`commandLine.ts` 包装 `sys.exit` 和回调，不增加上游改动）。
+
+`markGenerated` 从 nominal-types 移入 SDK；游标删除无人使用的 `parseBlock`；SDK API 版本升到 4；`core-diff`：24 个上游文件 +294 −44，预算降为 24 个文件 +300 −46。
+
+已知限制：`tspp -b` 不加载插件，含插件语法的项目会报语法错误；`-p` 留下的 `.tsbuildinfo` 不记录分析器错误，之后的 `-b` 会判定为最新。`implements G<Array>` 这种在 heritage 子句里传类型构造器的写法仍报 TS2314（与其他插件无关）。
+
 ## 风险与待定
 
 - **类型层特性可能无法完全迁出。** HKT、类型宇宙、类型构造器需要介入 checker 的类型解析和实例化。若通用插槽设计不出来，需要明确记录为"受控例外"，并限定在一个文件内。结果：第 8 步用通用的"类型层扩展"插槽完成，没有使用受控例外（见进度记录）。

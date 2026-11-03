@@ -35,7 +35,6 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
         kinds.PropertyAssignment,
         kinds.ShorthandPropertyAssignment,
         kinds.Parameter,
-        kinds.VariableDeclaration,
         kinds.BindingElement,
         // A nested parenthesized expression or call argument is a section of its own when it has holes.
         kinds.ParenthesizedExpression,
@@ -44,10 +43,27 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): readonly TSPPSy
     // their own either way, and deciding them again for every enclosing section would take exponential time.
     let probing = false;
 
+    /** A function some plugin's syntax lowered to: its `=>` has no source text, so the author wrote no scope here. */
+    function isLoweredFunction(node: TS.Node): node is TS.ArrowFunction {
+        return ts.isArrowFunction(node) && node.equalsGreaterThanToken.pos === node.equalsGreaterThanToken.end;
+    }
+
     function collectHoles(node: TS.Node, parent: TS.Node | undefined, holes: Hole[]): void {
         // `idText`, not `.text`: identifiers from the bare compiler (`tsc`) have no `text` accessor.
         if (ts.isIdentifier(node) && ts.idText(node) === placeholder) {
             holes.push({ identifier: node, parent });
+            return;
+        }
+        if (ts.isParenthesizedExpression(node) && isLoweredFunction(node.expression)) return collectHoles(node.expression, node, holes);
+        if (isLoweredFunction(node)) {
+            for (const parameter of node.parameters) {
+                if (parameter.initializer) collectHoles(parameter.initializer, parameter, holes);
+            }
+            return collectHoles(node.body, node, holes);
+        }
+        // Reached only through a lowered function: `let x = _ in x` declares `x`, and `_` is the value it starts with.
+        if (ts.isVariableDeclaration(node)) {
+            if (node.initializer) collectHoles(node.initializer, node, holes);
             return;
         }
         if (opaqueKinds.has(node.kind)) return;

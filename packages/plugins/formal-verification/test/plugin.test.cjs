@@ -143,7 +143,7 @@ test("models JavaScript bigint division and remainder toward zero", async () => 
 });
 
 test("requires runtime divisors to be nonzero", async () => {
-  const source = `function divide(value: bigint, divisor: bigint): bigint {
+  const source = `function divide(value: bigint, divisor: bigint) with { ensures: true; }: bigint {
     return value / divisor;
   }`;
   const diagnostics = await formalVerificationAnalyzer.analyze({

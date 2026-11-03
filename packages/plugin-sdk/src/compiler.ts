@@ -194,8 +194,6 @@ export interface TSPPSyntaxCursor {
     parseSemicolon(): boolean;
     parseExpression(): import("typescript-upstream").Expression;
     parseAssignmentExpression(): import("typescript-upstream").Expression;
-    /** A block; in a function body it is parsed with the function's yield and await context. */
-    parseBlock(): import("typescript-upstream").Block;
     parseStatement(): import("typescript-upstream").Statement;
     /** Whether the parser is in an ambient context, such as a declaration file or a `declare` block. */
     inAmbientContext(): boolean;
@@ -374,6 +372,8 @@ export interface TSPPCompilerPluginAPI {
      * instead of naming another plugin's keywords.
      */
     getSyntaxKeywords(position: TSPPSyntaxPosition): readonly string[];
+    /** The text a source file's author wrote, before any plugin projected it. Positions in the parsed file apply to it. */
+    getAuthoredText(sourceFile: import("typescript-upstream").SourceFile): string;
 }
 
 export interface TSPPCompilerHostAPI {
@@ -385,6 +385,8 @@ export interface TSPPCompilerHostAPI {
     registerDiagnosticProvider(pluginId: string, provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
     registerTypeExtension(pluginId: string, extension: TSPPTypeExtension): TSPPPluginDisposer;
     getSyntaxKeywords(position: TSPPSyntaxPosition): readonly string[];
+    /** The text a source file's author wrote, before any plugin projected it. Positions in the parsed file apply to it. */
+    getAuthoredText(sourceFile: import("typescript-upstream").SourceFile): string;
 }
 
 /** The public TypeScript API of the host compiler. Plugins use it instead of importing their own `typescript`. */

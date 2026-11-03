@@ -416,6 +416,23 @@ function executeWhile(node: TS.WhileStatement, state: State, context: Context): 
 
 const lowering: Lowering = { lowerExpression, executeStatements };
 
+/**
+ * Whether a function without verification syntax of its own still owes a proof to that syntax: it calls a function with
+ * a precondition or a refined parameter, binds a value of a refined type, or runs a loop with an invariant.
+ */
+function owesProof(statement: TS.FunctionDeclaration, context: Context): boolean {
+    const visit = (node: TS.Node): boolean => {
+        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+            const model = context.functions.get(nameText(node.expression));
+            if (model && (model.requires.length || Object.keys(model.parameterRefinements ?? {}).length)) return true;
+        }
+        if (ts.isVariableDeclaration(node) && refinementFromType(node.type, context.refinements)) return true;
+        if (ts.isWhileStatement(node) && loopInvariants(node, context).length) return true;
+        return !!ts.forEachChild(node, child => visit(child) || undefined);
+    };
+    return !!statement.body && visit(statement.body);
+}
+
 export function collectProgramProofs(
     source: TSPPAnalysisSourceFile, diagnostics: TSPPAnalysisDiagnostic[], logic: LogicLibrary,
     nominalTypes: NominalTypesADTAPI | undefined,
@@ -477,6 +494,8 @@ export function collectProgramProofs(
             rejected.add(statement);
             continue;
         }
+        // Verification syntax decides what is verified. Any other function is not this plugin's, whatever it contains.
+        if (!participatesInVerification(statement, model) && !owesProof(statement, context)) continue;
         executeStatements(statement.body.statements, [initialState(model, logic)], context);
         base.nextTemporary = context.nextTemporary;
     }

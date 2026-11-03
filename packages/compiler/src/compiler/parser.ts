@@ -2190,7 +2190,6 @@ namespace Parser {
             parseSemicolon,
             parseExpression: () => parseExpression() as never,
             parseAssignmentExpression: () => parseAssignmentExpressionOrHigher(/*allowReturnTypeInArrowFunction*/ true) as never,
-            parseBlock: () => (functionFlags === undefined ? parseBlock(/*ignoreMissingOpenBrace*/ false) : parseFunctionBlock(functionFlags)) as never,
             parseStatement: () => parseStatement() as never,
             inAmbientContext: () => inContext(NodeFlags.Ambient),
             runInFunctionBody: callback => {

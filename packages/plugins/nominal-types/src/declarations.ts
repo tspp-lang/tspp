@@ -1,7 +1,7 @@
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { markGenerated } from "./synthesize";
+import { markGenerated } from "@tspp/plugin-sdk";
 
 /** What a `newtype` or `data` declaration restores in feature-rich declaration output. */
 export interface AuthoredDeclaration {

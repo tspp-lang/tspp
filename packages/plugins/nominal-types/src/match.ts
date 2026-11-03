@@ -1,7 +1,7 @@
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { markGenerated } from "./synthesize";
+import { markGenerated } from "@tspp/plugin-sdk";
 
 export interface MatchBinding {
     readonly kind: "binding";
@@ -51,7 +51,7 @@ export interface ValueMatches {
  * `_values`, and each binding is the parameter of an immediately invoked arrow, so it gets the narrowed field type.
  * The checker sees ordinary TypeScript; exhaustiveness and pattern errors are reported separately.
  */
-export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
+export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: () => readonly string[]): ValueMatches {
     const kinds = ts.SyntaxKind;
     const matches = new WeakMap<TS.Node, LoweredMatch>();
     let count = 0;
@@ -116,7 +116,8 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
         const temporaryName = "match";
         /** A fresh reference to the scrutinee itself when reading it again is free, as for `value` or `this.state.value`. */
         const copyOf = (expression: TS.Expression): TS.Expression | undefined => {
-            if (ts.isIdentifier(expression)) return f.createIdentifier(ts.idText(expression));
+            // A name another plugin's syntax gives a meaning to is not a free reference: it must stay where it was written.
+            if (ts.isIdentifier(expression)) return getClaimedExpressions().includes(ts.idText(expression)) ? undefined : f.createIdentifier(ts.idText(expression));
             if (expression.kind === kinds.ThisKeyword) return f.createThis();
             if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.name)) {
                 const object = copyOf(expression.expression);
@@ -219,6 +220,8 @@ export function createValueMatches(ts: TSPPTypeScript): ValueMatches {
         const callee = range(f.createParenthesizedExpression(arrow), pos, end);
         const call = range(f.createCallExpression(callee, undefined, f.createNodeArray<TS.Expression>([])), pos, end);
         if (direct && unnarrowedCopy) checkedScrutinee = unnarrowedCopy;
+        // Other syntax may replace the scrutinee inside the parameter; the parameter keeps its type either way.
+        if (!direct) checkedScrutinee = scrutineeParameter.name as TS.Identifier;
         matches.set(call, { scrutinee: checkedScrutinee, arms, start: pos, end, patternRanges: parsedArms.map(arm => ({ start: arm.patterns[0].start, end: arm.patterns[arm.patterns.length - 1].end })) });
         count++;
         return markGenerated(ts, call, closeStart);

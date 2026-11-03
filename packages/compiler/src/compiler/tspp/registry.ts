@@ -156,6 +156,10 @@ const compilerAPI: TSPPCompilerHostAPI = {
     getSyntaxKeywords(position) {
         return [...syntaxClaims.values()].filter(claim => claim.position === position).map(claim => claim.keyword).sort();
     },
+    getAuthoredText(sourceFile) {
+        const { fileName, text } = sourceFile as unknown as SourceFile;
+        return getOriginalTSPPSource(fileName, text);
+    },
 };
 
 const languageServiceAPI: TSPPLanguageServiceHostAPI = {

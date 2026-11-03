@@ -48,7 +48,7 @@ export function createReification(ts: TSPPTypeScript): Reification {
     // defeats the editor rule that hides parameter name hints matching their argument.
     const scrutineeName = "_tspp_scrutinee";
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end = pos): T => ts.setTextRange(node, { pos, end });
-    /** A synthesized name, which keeps its text; it must sit under an empty, positioned parent (see `markGenerated` in nominal-types). */
+    /** A synthesized name, which keeps its text; it must sit under an empty, positioned parent (see `markGenerated` in the SDK). */
     const name = (f: TS.NodeFactory, text: string) => range(f.createIdentifier(text), -1);
 
     /** `reify` and `typecase` stay ordinary identifiers unless their syntax follows on the same line. */

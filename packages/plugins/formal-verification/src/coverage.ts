@@ -77,15 +77,25 @@ export function reportUnvisited(sourceFile: TS.SourceFile, context: Context, rej
 export function mayWriteValues(node: TS.Node): boolean {
     const visit = (current: TS.Node): boolean => {
         if (ts.isBinaryExpression(current) && assignmentOperators().has(current.operatorToken.kind)) return true;
-        if (isIncrementOrDecrement(current) || ts.isFunctionLike(current)) return true;
+        if (isIncrementOrDecrement(current)) return true;
+        // A function invoked in place runs what it contains; any other could run anything later.
+        if (ts.isCallExpression(current)) {
+            let callee: TS.Expression = current.expression;
+            while (ts.isParenthesizedExpression(callee)) callee = callee.expression;
+            if (ts.isArrowFunction(callee) || ts.isFunctionExpression(callee)) {
+                return !!ts.forEachChild(callee, child => visit(child) || undefined) || current.arguments.some(visit);
+            }
+        }
+        if (ts.isFunctionLike(current)) return true;
         return !!ts.forEachChild(current, child => visit(child) || undefined);
     };
     return visit(node);
 }
 
 /** Whether an expression contains an operation that creates a proof obligation: division, a call to a function with a
- *  precondition, or arithmetic on a value the proof tracks. */
+ *  precondition, or, under the safe-integer model, arithmetic on a value the proof tracks. */
 export function mayCarryObligations(node: TS.Node, state: State, context: Context): boolean {
+    const safeInteger = context.currentFunction?.numberModel === "safe-integer";
     const tracked = (operand: TS.Expression) => {
         const name = ts.isIdentifier(operand) ? nameText(operand)
             : ts.isPropertyAccessExpression(operand) && ts.isIdentifier(operand.expression) ? `${nameText(operand.expression)}.${nameText(operand.name)}` : undefined;
@@ -95,7 +105,7 @@ export function mayCarryObligations(node: TS.Node, state: State, context: Contex
         if (ts.isBinaryExpression(current)) {
             const operator = current.operatorToken.kind;
             if (operator === ts.SyntaxKind.SlashToken || operator === ts.SyntaxKind.PercentToken) return true;
-            if ((operator === ts.SyntaxKind.PlusToken || operator === ts.SyntaxKind.MinusToken || operator === ts.SyntaxKind.AsteriskToken)
+            if (safeInteger && (operator === ts.SyntaxKind.PlusToken || operator === ts.SyntaxKind.MinusToken || operator === ts.SyntaxKind.AsteriskToken)
                 && (tracked(current.left) || tracked(current.right))) return true;
         }
         if (ts.isCallExpression(current) && ts.isIdentifier(current.expression)) {
