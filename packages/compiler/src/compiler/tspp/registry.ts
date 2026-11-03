@@ -34,6 +34,7 @@ import type {
 import {
     DiagnosticCategory,
     Extension,
+    NodeFlags,
     SyntaxKind,
 } from "../types.js";
 import { getTSPPTypeOperations } from "./types.js";
@@ -171,6 +172,12 @@ const languageServiceAPI: TSPPLanguageServiceHostAPI = {
     },
 };
 
+/** The parser marks what it finishes as ambient; nodes a plugin builds around them are ambient too. */
+function markAmbient(node: Node): void {
+    (node as { flags: NodeFlags; }).flags |= NodeFlags.Ambient;
+    ts.forEachChild(node, markAmbient);
+}
+
 /** Lets plugin syntax registered for `position` parse at the current token of a TS++ file, if one starts there. @internal */
 export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensionPosition, token: SyntaxKind, createCursor: () => TSPPSyntaxCursor): Node | undefined {
     const candidates = syntaxExtensions.get(position);
@@ -187,6 +194,7 @@ export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensi
     const [{ pluginId, extension }] = starting;
     const parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
     const [first, ...rest] = Array.isArray(parsed) ? parsed : [parsed];
+    if (cursor!.inAmbientContext() && typeof first !== "function") [first, ...rest].forEach(markAmbient);
     syntaxOwners.set(first, pluginId);
     if (rest.length) additionalListElements.set(first, rest);
     return first;

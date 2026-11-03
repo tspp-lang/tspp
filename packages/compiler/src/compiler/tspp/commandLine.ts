@@ -7,6 +7,7 @@ import {
     createDiagnosticReporter,
     createGetCanonicalFileName,
     createProgram,
+    createSourceFile,
     Diagnostics,
     emitFilesAndReportErrorsAndGetExitStatus,
     executeCommandLine,
@@ -23,6 +24,7 @@ import {
 import type {
     BuilderProgram,
     BuildOptions,
+    CompilerHost,
     CompilerOptions,
     CreateProgram,
     Diagnostic,
@@ -31,6 +33,7 @@ import type {
     ParsedCommandLine,
     Program,
     ReportEmitErrorSummary,
+    SourceFile,
     System,
 } from "../_namespaces/ts.js";
 import {
@@ -46,6 +49,7 @@ import {
 import { createProgramAsync } from "./rebuild.js";
 import {
     getActiveTSPPPlugins,
+    getOriginalTSPPSource,
     getTSPPPluginFromModule,
     registerTSPPCompilerPlugin,
     setActiveTSPPPlugins,
@@ -247,19 +251,36 @@ function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks,
  */
 export function enableTSPPBuildPlugins<T extends BuilderProgram>(sys: System, host: { createProgram: CreateProgram<T>; }): void {
     const createBuilderProgram = host.createProgram;
-    host.createProgram = (rootNames, options, ...rest) => {
+    const parsedWith = new WeakMap<SourceFile, readonly TSPPPlugin[]>();
+    host.createProgram = (rootNames, options, compilerHost, ...rest) => {
         const configFileName = options?.configFilePath;
         if (options && configFileName) {
             const plugins = resolveTSPPConfiguredPlugins(options, configFileName, sys);
             if (plugins) setActiveTSPPPlugins(plugins);
             else sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
         }
-        return createBuilderProgram(rootNames, options, ...rest);
+        return createBuilderProgram(rootNames, options, compilerHost && parseTSPPDeclarationsPerPluginSet(compilerHost, parsedWith), ...rest);
     };
 }
 
 /**
+ * The builder shares parsed declaration files between projects, but a `.d.tspp` file means what the active plugins read
+ * in it. A project whose plugins differ from those that parsed the shared file parses its own copy.
+ */
+function parseTSPPDeclarationsPerPluginSet(host: CompilerHost, parsedWith: WeakMap<SourceFile, readonly TSPPPlugin[]>): CompilerHost {
+    const plugins = getActiveTSPPPlugins();
+    const perSet: CompilerHost = Object.create(host);
+    perSet.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
+        const shared = host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
+        if (!shared || !fileName.endsWith(".d.tspp")) return shared;
+        const parsedBy = parsedWith.get(shared);
+        if (!parsedBy) parsedWith.set(shared, plugins);
+        if (!parsedBy || parsedBy.length === plugins.length && parsedBy.every(plugin => plugins.includes(plugin))) return shared;
+        const own = createSourceFile(fileName, getOriginalTSPPSource(fileName, shared.text), languageVersionOrOptions);
+        own.version = shared.version;
+        return own;
     };
+    return perSet;
 }
 
 /**

@@ -112,7 +112,8 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         const brandMember = f.createPropertyDeclaration(
             [f.createModifier(kinds.PrivateKeyword), f.createModifier(kinds.ReadonlyKeyword)],
             f.createIdentifier("__tsppNominal"),
-            f.createToken(kinds.ExclamationToken),
+            // An ambient file's members need no definite assignment, and may not say it.
+            cursor.inAmbientContext() ? undefined : f.createToken(kinds.ExclamationToken),
             f.createKeywordTypeNode(kinds.VoidKeyword),
             undefined,
         );

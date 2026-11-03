@@ -217,6 +217,61 @@ test("a project of a solution build sees only its own plugins, whatever was buil
   }
 });
 
+test("a project built from TS++ declarations stays buildable as its sources change", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    fs.symlinkSync(packageDirectories.get("nominal-types"), path.join(scope, "plugin-nominal-types"), "junction");
+    const project = (name, source, references = []) => {
+      fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
+      fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
+      fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
+      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, composite: true, plugins: [{ name: "@tspp/plugin-nominal-types", tspp: true }] },
+        include: ["src"],
+        references: references.map(reference => ({ path: `../${reference}` })),
+      }));
+    };
+    const library = `export data Flag = On | Off;
+export newtype Id = number;
+export data Opt<T> = None | Some(value: T);
+export const on: Flag = On;
+export function name(f: Flag): string { return match f { On => "on", Off => "off" }; }
+`;
+    const consumer = `import { type Flag, type Opt, on, name, Some, None } from "../../library/src/index";
+export const label: string = name(on);
+export const flag: Flag = on;
+const held: Opt<number> = Some(1);
+export const value = match held { Some(value) => value + 1, None => 0 };
+`;
+    project("library", library);
+    project("consumer", consumer, ["library"]);
+    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "library" }, { path: "consumer" }] }));
+    const build = args => spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, ...args], { cwd: directory, encoding: "utf8" });
+    const built = build(["-b"]);
+    assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
+    assert.ok(fs.existsSync(path.join(directory, "library", "out", "index.d.tspp")));
+    assert.ok(!fs.existsSync(path.join(directory, "consumer", "out", "library")), "a referenced project's declarations must not be emitted again");
+    // Both projects' signatures change, which is where the builder reads the declaration files it emitted.
+    fs.appendFileSync(path.join(directory, "library", "src", "index.tspp"), "export const added = 1;\n");
+    fs.appendFileSync(path.join(directory, "consumer", "src", "index.tspp"), "export const more = 2;\n");
+    const rebuilt = build(["-b"]);
+    assert.equal(rebuilt.status, 0, `${rebuilt.stdout}${rebuilt.stderr}`);
+    fs.appendFileSync(path.join(directory, "library", "src", "index.tspp"), "export const again = 3;\n");
+    const single = build(["-p", "library"]);
+    assert.equal(single.status, 0, `${single.stdout}${single.stderr}`);
+    // A declaration still reports what its consumer gets wrong.
+    fs.appendFileSync(path.join(directory, "consumer", "src", "index.tspp"), "export const bad: Flag = 1;\n");
+    const wrong = build(["-b"]);
+    assert.match(wrong.stdout, /consumer\/src\/index\.tspp\(\d+,\d+\): error TS2322/, `${wrong.stdout}${wrong.stderr}`);
+    assert.doesNotMatch(wrong.stdout, /\.d\.tspp\(/, wrong.stdout);
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 // Upstream's builder programs emit on their own path: an analyzer's errors must still reach the status and the output.
 for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, { composite: true, rootDir: "src" }]) {
   test(`analyzers run in ${Object.keys(mode)[0]} compilations`, () => {
