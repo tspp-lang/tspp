@@ -171,7 +171,7 @@ export interface TypeSyntaxModel {
     /** An alias's annotation as a term, for the kernel to check its body against. */
     readonly termAnnotations: WeakMap<TS.Node, MlttTerm>;
     /** The file being parsed: its earlier aliases, and the names it declares itself. */
-    file?: { readonly sourceText: string; readonly aliases: Map<string, MlttTerm>; declared?: ReadonlySet<string>; };
+    file?: { sourceText: string; readonly aliases: Map<string, MlttTerm>; declared?: ReadonlySet<string>; };
     /** Whether any kind annotation or type constructor was parsed, so that ordinary programs skip kind work. */
     used: boolean;
 }

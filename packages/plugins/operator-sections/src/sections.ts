@@ -68,11 +68,13 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): { extensions: r
     /** What each placeholder became, where a `_` in scope would have been read. */
     const placeholderReferences = new WeakSet<TS.Node>();
     let sectionCount = 0;
-    let placeholderFile: { readonly sourceText: string; readonly binds: boolean; } | undefined;
+    let placeholderFile: { sourceText: string; readonly binds: boolean; } | undefined;
 
     function isPlaceholderBound(cursor: TSPPSyntaxCursor): boolean {
         const sourceText = cursor.getSourceText();
         if (placeholderFile?.sourceText !== sourceText) placeholderFile = { sourceText, binds: bindsPlaceholder(sourceText) };
+        // Keep this very string: comparing an equal copy, as of a file parsed again, reads all of it on every call.
+        placeholderFile.sourceText = sourceText;
         return placeholderFile.binds;
     }
 

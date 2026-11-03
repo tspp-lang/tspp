@@ -83,6 +83,8 @@ export function fileDeclaredNames(model: TypeSyntaxModel, sourceText: string): R
 
 function fileStateOf(model: TypeSyntaxModel, sourceText: string) {
     if (model.file?.sourceText !== sourceText) model.file = { sourceText, aliases: new Map() };
+    // Keep this very string: comparing an equal copy, as of a file parsed again, reads all of it on every call.
+    model.file.sourceText = sourceText;
     return model.file;
 }
 
