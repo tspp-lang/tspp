@@ -155,6 +155,8 @@ describe('ts server client exit', () => {
                 useSyntaxServer,
             },
         );
+        // Servers start on demand, so ask something of one. Its answer does not matter, and these tests may kill it first.
+        client.execute(CommandTypes.GetSupportedCodeFixes, null).catch(() => {});
         return client;
     }
 
@@ -162,11 +164,13 @@ describe('ts server client exit', () => {
     // down from underneath the client, as a crash would. Checked at runtime so that a change to
     // the private layout fails here with a clear message rather than with a TypeError further on.
     type ServerWithProcess = { _process?: { _process?: unknown; }; };
+    type RoutingServer = { groups?: Map<string, { server?: ServerWithProcess & Record<string, ServerWithProcess | undefined>; }>; };
     function tsserverProcess(client: TsClient, kind?: 'syntaxServer' | 'semanticServer'): ChildProcess {
-        const server = (client as unknown as { serverState?: { server?: ServerWithProcess & Record<string, ServerWithProcess | undefined>; }; }).serverState?.server;
+        const router = (client as unknown as { serverState?: { server?: RoutingServer; }; }).serverState?.server;
+        const server = router?.groups?.values().next().value?.server;
         const tsserverProcess = (kind ? server?.[kind] : server)?._process?._process;
         if (!(tsserverProcess instanceof ChildProcess)) {
-            throw new Error(`Expected the tsserver ChildProcess at TsClient.serverState.server${kind ? `.${kind}` : ''}._process._process; the private layout has changed`);
+            throw new Error(`Expected the tsserver ChildProcess at TsClient.serverState.server.groups[0].server${kind ? `.${kind}` : ''}._process._process; the private layout has changed`);
         }
         return tsserverProcess;
     }

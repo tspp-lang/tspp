@@ -394,8 +394,45 @@ Product-layer slots belong to the host; no plugin registers with them:
 ## Current process boundary
 
 Compiler syntax registration is process-wide because the upstream TypeScript
-parser is process-global. The first slice therefore supports one accumulated
-feature set per tsserver process. True project isolation requires the LSP host
-to group projects by plugin set and run separate tsserver processes, or a later
-compiler change that threads a plugin context through parsing. This limitation
-is explicit; feature packages themselves must not work around it with globals.
+parser is process-global, so the process is the isolation boundary: a project's
+plugin set decides which process serves it, and feature packages themselves must
+not work around this with globals.
+
+- **Command line.** Each project of a build gets its own plugin set.
+- **Language server.** `PluginSetRoutingTsServer`
+  (`packages/language-server/src/tsServer/pluginSetRouting.ts`) looks like one
+  tsserver to the client and runs one per plugin set behind it. A file goes to the
+  server of the project tsserver would choose for it: the nearest config containing
+  the file, directly or through references, read with the compiler's own config
+  parsing (`pluginSets.ts`). Only `"tspp": true` entries count, as on the command
+  line. A server starts when a file of its set first opens, projects with the same
+  set share it, and it stops a minute after its last file closes unless it is the
+  only one. Settings reach every server, including later ones. When a config edit
+  changes a project's plugins, its open files move to the server of the new set.
+  If one server crashes all of them stop and the client restarts everything, as it
+  did with a single server.
+- **tsserver.** A server still reads configs that are not its files' projects: it
+  loads referencing projects to find references, and it reloads an edited config
+  before the host can move the files. So the host passes `--tsppPluginSet <names>`
+  and `enableTSPPPlugin` refuses any other feature plugin. A tsserver started
+  without the argument, as by another editor's own integration, still accumulates
+  every plugin it meets.
+- **VS Code extension host.** Hovers and preview commands build programs in the
+  extension host, with one compiler instance per plugin set.
+
+The boundary has consequences across plugin sets:
+
+- Find references and rename answer from the requested file's server, so they do
+  not see uses in projects of another plugin set.
+- A project that references one with a different plugin set reads the referenced
+  sources with its own plugins in the editor, unless
+  `disableSourceOfProjectReferenceRedirect` makes it read the built declarations,
+  as the command line does.
+- A file that two projects of different plugin sets both contain goes to the
+  server of the one found first.
+- Without a `typescript.js` next to tsserver, or with `useSyntaxServer: "always"`,
+  there is one server. Without the compiler the plugin sets cannot be read and
+  plugins accumulate; a syntax server never loads a project, so none activate.
+
+`packages/language-server/src/tspp-plugin-isolation.test.ts` drives real tsservers
+through the language server to hold this boundary.

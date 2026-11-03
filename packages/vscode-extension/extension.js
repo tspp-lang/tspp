@@ -6,7 +6,18 @@ const { getCodeDecorationSpans } = require("@tspp/plugin-sdk/editor");
 const contributions = require("./plugin-contributions.json");
 
 let languageClient;
-const activatedAnalysisPlugins = new Map();
+const compilers = new Map();
+
+// Registering a plugin changes the compiler instance for good, so each plugin set gets an instance of its own, the way
+// the language server gives each one its own tsserver.
+function loadCompiler(compilerPath, pluginSetKey) {
+  const key = `${compilerPath}:${pluginSetKey}`;
+  if (!compilers.has(key)) {
+    delete require.cache[compilerPath];
+    compilers.set(key, { ts: require(compilerPath), pluginModules: new Map() });
+  }
+  return compilers.get(key);
+}
 
 function resolveSdkPath(context) {
   const configuredPath = vscode.workspace.getConfiguration("tspp").get("sdkPath", "").trim();
@@ -150,24 +161,25 @@ async function activate(context) {
     const compilerPath = sdkPath.endsWith("tsserver.js")
       ? path.join(path.dirname(sdkPath), "typescript.js")
       : require.resolve("ts-plus-plus");
-    const ts = require(compilerPath);
-    const configPath = ts.findConfigFile(path.dirname(document.fileName), ts.sys.fileExists, "tsconfig.json");
+    const configTs = loadCompiler(compilerPath, "").ts;
+    const configPath = configTs.findConfigFile(path.dirname(document.fileName), configTs.sys.fileExists, "tsconfig.json");
     if (!configPath) return undefined;
-    const config = ts.readConfigFile(configPath, ts.sys.readFile);
+    const config = configTs.readConfigFile(configPath, configTs.sys.readFile);
     if (config.error) return undefined;
+    const parsed = configTs.parseJsonConfigFileContent(config.config, configTs.sys, path.dirname(configPath), undefined, configPath);
+    const pluginNames = [...new Set((parsed.options.plugins ?? []).filter(entry => entry?.tspp && typeof entry.name === "string").map(entry => entry.name))].sort();
+    const compiler = loadCompiler(compilerPath, pluginNames.join(","));
+    const ts = compiler.ts;
     const pluginModules = [];
-    for (const entry of config.config.compilerOptions?.plugins ?? []) {
-      if (!entry?.tspp || typeof entry.name !== "string") continue;
-      const key = `${compilerPath}:${entry.name}`;
-      if (!activatedAnalysisPlugins.has(key)) {
-        const modulePath = require.resolve(entry.name, { paths: [path.dirname(configPath), context.extensionPath] });
+    for (const name of pluginNames) {
+      if (!compiler.pluginModules.has(name)) {
+        const modulePath = require.resolve(name, { paths: [path.dirname(configPath), context.extensionPath] });
         const pluginModule = require(modulePath);
         ts.registerTSPPCompilerPlugin(pluginModule.default ?? pluginModule);
-        activatedAnalysisPlugins.set(key, pluginModule);
+        compiler.pluginModules.set(name, pluginModule);
       }
-      pluginModules.push(activatedAnalysisPlugins.get(key));
+      pluginModules.push(compiler.pluginModules.get(name));
     }
-    const parsed = ts.parseJsonConfigFileContent(config.config, ts.sys, path.dirname(configPath), undefined, configPath);
     const host = ts.createCompilerHost(parsed.options);
     const originalGetSourceFile = host.getSourceFile.bind(host);
     host.getSourceFile = (fileName, languageVersion, onError, createNew) => {

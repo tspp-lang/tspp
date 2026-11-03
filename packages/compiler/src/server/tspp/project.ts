@@ -21,6 +21,17 @@ import type {
 const projectsWithAnalysis = new WeakSet<Project>();
 
 /**
+ * Whether this server may activate a feature plugin. Activation lasts as long as the process, and looking for a file's
+ * project also loads configs that are not that project's, so a host that runs one server per plugin set names the set
+ * with `--tsppPluginSet` and every other plugin stays out. Without the argument the server takes any plugin it meets.
+ */
+function isTSPPPluginAllowed(project: Project, pluginName: string): boolean {
+    const { args } = project.projectService.host;
+    const index = args.indexOf("--tsppPluginSet");
+    return index < 0 || (args[index + 1] ?? "").split(",").includes(pluginName);
+}
+
+/**
  * Activates a TS++ feature plugin that a project's tsconfig names (`TSPP-SLOT(plugin-host)`), instead of enabling it as
  * a language service plugin. The first one also makes the project's semantic diagnostics include program analyzer
  * diagnostics: analysis runs in the background per program and refreshes the diagnostics when it settles. Returns
@@ -36,6 +47,10 @@ export function enableTSPPPlugin(
 ): boolean {
     const tsppPlugin = getTSPPPluginFromModule(pluginModuleFactory);
     if (!tsppPlugin) return false;
+    if (!isTSPPPluginAllowed(project, configEntry.name)) {
+        project.projectService.logger.info(`TSPP feature plugin '${tsppPlugin.manifest.id}' is outside this server's plugin set`);
+        return true;
+    }
     registerTSPPCompilerPlugin(tsppPlugin);
     project.projectService.logger.info(`TSPP feature plugin '${tsppPlugin.manifest.id}' activated`);
     if (!projectsWithAnalysis.has(project)) {

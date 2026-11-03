@@ -23,6 +23,8 @@ import type { TypeScriptPlugin, ts } from './ts-protocol.js';
 import type { ILogDirectoryProvider } from './tsServer/logDirectoryProvider.js';
 import { type AsyncTsServerRequests, ClientCapabilities, ClientCapability, type ExecConfig, type NoResponseTsServerRequests, type ITypeScriptServiceClient, ServerResponse, type StandardTsServerRequests, type TypeScriptRequestTypes, type ExecuteInfo } from './typescriptService.js';
 import { PluginManager } from './tsServer/plugins.js';
+import { PluginSetRoutingTsServer } from './tsServer/pluginSetRouting.js';
+import { PluginSetResolver, pluginsOfKey } from './tsServer/pluginSets.js';
 import type { ITypeScriptServer, TypeScriptServerExitEvent } from './tsServer/server.js';
 import { TypeScriptServerError } from './tsServer/serverError.js';
 import { TypeScriptServerSpawner } from './tsServer/spawner.js';
@@ -371,9 +373,23 @@ export class TsClient implements ITypeScriptServiceClient {
         this.documents.initialize(modeIds);
 
         const tsServerSpawner = new TypeScriptServerSpawner(this.apiVersion, options.logDirectoryProvider, this.logger, this.tracer);
-        const tsServer = tsServerSpawner.spawn(options.typescriptVersion, this.capabilities, options, this.pluginManager, {
+        const spawn = (pluginSet?: readonly string[]) => tsServerSpawner.spawn(options.typescriptVersion, this.capabilities, options, this.pluginManager, {
             onFatalError: (command, err) => this.fatalError(command, err),
-        });
+        }, pluginSet);
+        // A syntax server never loads a project, so it never activates a plugin.
+        const pluginSets = options.useSyntaxServer === SyntaxServerConfiguration.Always ? undefined : PluginSetResolver.load(options.typescriptVersion.tsServerPath);
+        if (!pluginSets) {
+            this.logger.info('Projects share one tsserver: no compiler to read their plugin sets with');
+        }
+        const tsServer = pluginSets
+            ? new PluginSetRoutingTsServer({
+                spawn: key => spawn(pluginsOfKey(key)),
+                resolve: (file, projectRootPath) => pluginSets.resolve(file, projectRootPath ?? workspaceRoot),
+                invalidate: () => pluginSets.invalidate(),
+                getDocumentText: file => this.documents.get(file)?.getText(),
+                workspaceRoot,
+            })
+            : spawn();
         this.serverState = new ServerState.Running(tsServer, this.apiVersion, undefined, true);
         tsServer.onExit((data: TypeScriptServerExitEvent) => {
             this.serverState = ServerState.None;

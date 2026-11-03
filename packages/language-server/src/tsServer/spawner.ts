@@ -51,6 +51,7 @@ export class TypeScriptServerSpawner {
         configuration: TsClientOptions,
         pluginManager: PluginManager,
         delegate: TsServerDelegate,
+        pluginSet?: readonly string[],
     ): ITypeScriptServer {
         let primaryServer: ITypeScriptServer;
         const serverType = this.getCompositeServerType(version, capabilities, configuration);
@@ -61,19 +62,19 @@ export class TypeScriptServerSpawner {
             {
                 const enableDynamicRouting = serverType === CompositeServerType.DynamicSeparateSyntax;
                 primaryServer = new SyntaxRoutingTsServer({
-                    syntax: this.spawnTsServer(TsServerProcessKind.Syntax, version, configuration, pluginManager),
-                    semantic: this.spawnTsServer(TsServerProcessKind.Semantic, version, configuration, pluginManager),
+                    syntax: this.spawnTsServer(TsServerProcessKind.Syntax, version, configuration, pluginManager, pluginSet),
+                    semantic: this.spawnTsServer(TsServerProcessKind.Semantic, version, configuration, pluginManager, pluginSet),
                 }, delegate, enableDynamicRouting);
                 break;
             }
             case CompositeServerType.Single:
             {
-                primaryServer = this.spawnTsServer(TsServerProcessKind.Main, version, configuration, pluginManager);
+                primaryServer = this.spawnTsServer(TsServerProcessKind.Main, version, configuration, pluginManager, pluginSet);
                 break;
             }
             case CompositeServerType.SyntaxOnly:
             {
-                primaryServer = this.spawnTsServer(TsServerProcessKind.Syntax, version, configuration, pluginManager);
+                primaryServer = this.spawnTsServer(TsServerProcessKind.Syntax, version, configuration, pluginManager, pluginSet);
                 break;
             }
         }
@@ -112,10 +113,11 @@ export class TypeScriptServerSpawner {
         version: TypeScriptVersion,
         configuration: TsClientOptions,
         pluginManager: PluginManager,
+        pluginSet: readonly string[] | undefined,
     ): ITypeScriptServer {
         const processFactory = new NodeTsServerProcessFactory();
         const canceller = nodeRequestCancellerFactory.create(kind, this._tracer);
-        const { args, tsServerLogFile } = this.getTsServerArgs(kind, configuration, this._apiVersion, pluginManager, canceller.cancellationPipeName);
+        const { args, tsServerLogFile } = this.getTsServerArgs(kind, configuration, this._apiVersion, pluginManager, canceller.cancellationPipeName, pluginSet);
 
         if (this.isLoggingEnabled(configuration)) {
             if (tsServerLogFile) {
@@ -157,6 +159,7 @@ export class TypeScriptServerSpawner {
         apiVersion: API,
         pluginManager: PluginManager,
         cancellationPipeName: string | undefined,
+        pluginSet: readonly string[] | undefined,
     ): { args: string[]; tsServerLogFile: string | undefined; tsServerTraceDirectory?: never; } {
         const args: string[] = [];
         let tsServerLogFile: string | undefined;
@@ -219,6 +222,12 @@ export class TypeScriptServerSpawner {
 
         if (pluginPaths.length !== 0) {
             args.push('--pluginProbeLocations', pluginPaths.join(','));
+        }
+
+        // The only TS++ feature plugins this server may activate, whatever configs it comes across while searching for
+        // a file's project or following references. Plugins the client configured are global by request.
+        if (pluginSet) {
+            args.push('--tsppPluginSet', [...pluginSet, ...pluginManager.plugins.map(x => x.name)].join(','));
         }
 
         if (npmLocation) {
