@@ -29,7 +29,7 @@ function literalsOf(file) {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) return;
     if (ts.isStringLiteralLike(node) || ts.isRegularExpressionLiteral(node) || ts.isTemplateHead(node) || ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
       const { line } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-      literals.push({ text: node.text, line: line + 1 });
+      literals.push({ text: node.text, line: line + 1, regular: ts.isRegularExpressionLiteral(node) });
     }
     ts.forEachChild(node, visit);
   };
@@ -75,6 +75,27 @@ test("a plugin spells no other plugin's id or keywords, except a declared depend
     const own = new Set(termsOf(plugin));
     const terms = plugins.filter(other => other !== plugin && !dependencies.has(other.manifest.id)).flatMap(termsOf).filter(term => !own.has(term));
     found.push(...violations(sourceFiles(path.join(plugin.packageDirectory, "src")), terms));
+  }
+  assert.deepEqual(found, []);
+});
+
+// A word like `data` is everywhere in strings, but a regular expression that spells it is reading that syntax out of text.
+test("no plugin's regular expressions read another plugin's keywords, however short", () => {
+  const found = [];
+  // TypeScript's own words (`let`, `with`) mean TypeScript in a pattern, whoever else uses them.
+  const wordsOf = plugin => (plugin.manifest.syntax?.keywords ?? []).map(({ keyword }) => keyword).filter(word => /^[A-Za-z]\w*$/.test(word) && ts.stringToToken?.(word) === undefined);
+  for (const plugin of plugins) {
+    const own = new Set(wordsOf(plugin));
+    const dependencies = new Set([...plugin.manifest.requires ?? [], ...plugin.manifest.optionalDependencies ?? []]);
+    const words = new Set(plugins.filter(other => other !== plugin && !dependencies.has(other.manifest.id)).flatMap(wordsOf).filter(word => !own.has(word)));
+    for (const file of sourceFiles(path.join(plugin.packageDirectory, "src"))) {
+      for (const { text, line, regular } of literalsOf(file)) {
+        if (!regular) continue;
+        for (const word of words) {
+          if (mentions(text, word)) found.push(`${path.relative(packagesRoot, file)}:${line} reads '${word}' in ${text.slice(0, 70)}`);
+        }
+      }
+    }
   }
   assert.deepEqual(found, []);
 });
