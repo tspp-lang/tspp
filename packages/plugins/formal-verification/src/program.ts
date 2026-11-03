@@ -6,7 +6,7 @@ import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import { matchingBrace, reportWithClauseIssues, parseProperties } from "./contracts";
 import { immediatelyInvoked, lowerCallArguments, lowerConditional, lowerImmediateCall, lowerPositionalField, lowerStructuredResult, type Lowering } from "./lowered-code";
 import type { PendingProof } from "./contracts";
-import type { RefinementModel } from "./refinements";
+import { reportMisplacedRefinements, type RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import { collectTopLevelProofVariables } from "./proof-scope";
 import {
@@ -439,6 +439,7 @@ export function collectProgramProofs(
     reportWithClauseIssues(source.fileName, source.text, diagnostics);
     const prepared = prepareVerificationSource(source, nominalTypes);
     const { sourceFile, refinements, records, constructors } = prepared;
+    reportMisplacedRefinements(sourceFile, diagnostics);
     const functions = new Map(prepared.functions);
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;

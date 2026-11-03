@@ -10660,6 +10660,7 @@ export function isDeclarationFileName(fileName: string): boolean {
 
 /** @internal */
 export function getDeclarationFileExtension(fileName: string): string | undefined {
+    if (fileExtensionIs(fileName, ".d.tspp")) return ".d.tspp"; // TSPP-SLOT(tspp-extension)
     const standardExtension = getAnyExtensionFromPath(fileName, supportedDeclarationExtensions, /*ignoreCase*/ false);
     if (standardExtension) {
         return standardExtension;

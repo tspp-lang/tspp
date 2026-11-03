@@ -430,13 +430,11 @@ import {
     emitTSPPRestoredFunctionPrefix,
     getTSPPCompatibilityImportTypeArgument,
     getTSPPCompatibilityModuleSpecifier,
+    getTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
     isTSPPCompatibilityDeclarationBlocked,
 } from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
-import {
-    getPreprocessedTypeAliasDeclaration,
-    getTSPPRestoredDeclaration,
-} from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
+import { getTSPPRestoredDeclaration } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
 
 const brackets = createBracketsMap();
 
@@ -1024,6 +1022,11 @@ export function emitFiles(
             );
         }
 
+        const tsppDeclarationHeader = getTSPPDeclarationHeader(jsFilePath); // TSPP-SLOT(declaration-output)
+        if (tsppDeclarationHeader) {
+            writer.writeComment(tsppDeclarationHeader);
+            writer.writeLine();
+        } // TSPP-SLOT(declaration-output)
         if (bundle) {
             printer.writeBundle(bundle, writer, sourceMapGenerator);
         }
@@ -3633,13 +3636,10 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         writeSpace();
         emit(node.name);
         emitTypeParameters(node, node.typeParameters);
-        const restored = !tsppCompatibilityDeclaration && currentSourceFile ? getPreprocessedTypeAliasDeclaration(currentSourceFile.fileName, idText(node.name), node.pos) : undefined; // TSPP-SLOT(source-projection)
-        if (restored?.annotation) write(restored.annotation); // TSPP-SLOT(source-projection)
         writeSpace();
         writePunctuation("=");
         writeSpace();
-        if (restored) write(restored.type); // TSPP-SLOT(source-projection)
-        else emit(node.type); // TSPP-SLOT(source-projection)
+        emit(node.type);
         writeTrailingSemicolon();
     }
 

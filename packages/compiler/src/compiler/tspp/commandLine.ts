@@ -1,3 +1,5 @@
+import type { TSPPPlugin } from "@tspp/plugin-sdk";
+
 import {
     changeCompilerHostLikeToUseCache,
     combinePaths,
@@ -5,6 +7,7 @@ import {
     createDiagnosticReporter,
     createGetCanonicalFileName,
     createProgram,
+    createSourceFile,
     Diagnostics,
     emitFilesAndReportErrorsAndGetExitStatus,
     executeCommandLine,
@@ -21,6 +24,7 @@ import {
 import type {
     BuilderProgram,
     BuildOptions,
+    CompilerHost,
     CompilerOptions,
     CreateProgram,
     Diagnostic,
@@ -29,6 +33,7 @@ import type {
     ParsedCommandLine,
     Program,
     ReportEmitErrorSummary,
+    SourceFile,
     System,
 } from "../_namespaces/ts.js";
 import {
@@ -43,8 +48,11 @@ import {
 } from "./analysis.js";
 import { createProgramAsync } from "./rebuild.js";
 import {
+    getActiveTSPPPlugins,
+    getOriginalTSPPSource,
     getTSPPPluginFromModule,
     registerTSPPCompilerPlugin,
+    setActiveTSPPPlugins,
 } from "./registry.js";
 
 // The `tspp` command line: product branding, plugins loaded from tsconfig, and one-shot compilations that wait for
@@ -68,30 +76,38 @@ export function getTSPPHelpText(text: string): string {
     return text.replace(/\btsc\b(?!-)/g, "tspp");
 }
 
-/** Loads the feature plugins a tsconfig declares with `"tspp": true`; false after reporting a failure. @internal */
-export function loadTSPPConfiguredPlugins(options: CompilerOptions, configFileName: string, sys: System): boolean {
+/** The feature plugins a tsconfig declares with `"tspp": true`; undefined after reporting a failure. */
+function resolveTSPPConfiguredPlugins(options: CompilerOptions, configFileName: string, sys: System): readonly TSPPPlugin[] | undefined {
     const plugins = options.plugins?.filter(config => config.tspp);
-    if (!plugins?.length) return true;
+    if (!plugins?.length) return [];
     if (!sys.require) {
         sys.write(`error TSPP1000: This host cannot load configured TSPP plugins.${sys.newLine}`);
-        return false;
+        return undefined;
     }
 
     const nodeModules = combinePaths(getDirectoryPath(configFileName), "node_modules");
+    const resolved: TSPPPlugin[] = [];
     for (const config of plugins) {
         const result = sys.require(nodeModules, config.name);
         if (result.error) {
             sys.write(`error TSPP1001: Cannot load plugin '${config.name}': ${result.error.message}${sys.newLine}`);
-            return false;
+            return undefined;
         }
         const plugin = getTSPPPluginFromModule(result.module);
         if (!plugin) {
             sys.write(`error TSPP1002: Package '${config.name}' is not a TSPP feature plugin.${sys.newLine}`);
-            return false;
+            return undefined;
         }
-        registerTSPPCompilerPlugin(plugin);
+        resolved.push(plugin);
     }
-    return true;
+    return resolved;
+}
+
+/** Loads the feature plugins a tsconfig declares; false after reporting a failure. @internal */
+export function loadTSPPConfiguredPlugins(options: CompilerOptions, configFileName: string, sys: System): boolean {
+    const plugins = resolveTSPPConfiguredPlugins(options, configFileName, sys);
+    plugins?.forEach(registerTSPPCompilerPlugin);
+    return !!plugins;
 }
 
 /** Functions of the upstream command line that a TS++ compilation reuses. @internal */
@@ -181,7 +197,7 @@ export function performTSPPCompilation(
  */
 function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks, options: { readonly pretty?: boolean; readonly watch?: boolean; }): { system: System; cb: ExecuteCommandLineCallbacks; pending(): Promise<void> | undefined; } {
     const reportDiagnostic = createDiagnosticReporter(system, options.pretty ?? !!system.writeOutputIsTTY?.());
-    const programs: Program[] = [];
+    const programs: { readonly program: Program; readonly plugins: readonly TSPPPlugin[]; }[] = [];
     const builds = new Map<string | undefined, number>();
     let pending: Promise<void> | undefined;
     const analyze = async (program: Program, isCurrent: () => boolean = () => true) => {
@@ -198,8 +214,12 @@ function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks,
         if (!programs.length) return system.exit(exitCode);
         pending = (async () => {
             let failed = false;
-            for (const program of programs) failed = await analyze(program) || failed;
-            const failedStatus = programs[0].getCompilerOptions().noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
+            // A solution build has moved on to other projects by now, and an analyzer parses with its project's plugins.
+            for (const { program, plugins } of programs) {
+                setActiveTSPPPlugins(plugins);
+                failed = await analyze(program) || failed;
+            }
+            const failedStatus = programs[0].program.getCompilerOptions().noEmit ? ExitStatus.DiagnosticsPresent_OutputsSkipped : ExitStatus.DiagnosticsPresent_OutputsGenerated;
             system.exit(exitCode || (failed ? failedStatus : ExitStatus.Success));
         })();
     };
@@ -215,7 +235,7 @@ function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks,
                     pending = analyze(built, () => builds.get(project) === current).then(noop);
                 }
                 else {
-                    programs.push(built);
+                    programs.push({ program: built, plugins: getActiveTSPPPlugins() });
                 }
             }
             cb(programOrConfig);
@@ -225,17 +245,42 @@ function analyzeBuilderPrograms(system: System, cb: ExecuteCommandLineCallbacks,
 }
 
 /**
- * Solution builds read each project's configuration inside the builder, so a project's plugins load when its program is
- * created. They stay loaded for the projects after it, as everywhere in one process (docs/plugin-framework.md).
+ * Solution builds read each project's configuration inside the builder, so a project's plugins become the active ones when
+ * its program is created, and it checks and emits before the builder creates the next program (docs/plugin-framework.md).
  * @internal
  */
 export function enableTSPPBuildPlugins<T extends BuilderProgram>(sys: System, host: { createProgram: CreateProgram<T>; }): void {
     const createBuilderProgram = host.createProgram;
-    host.createProgram = (rootNames, options, ...rest) => {
+    const parsedWith = new WeakMap<SourceFile, readonly TSPPPlugin[]>();
+    host.createProgram = (rootNames, options, compilerHost, ...rest) => {
         const configFileName = options?.configFilePath;
-        if (options && configFileName && !loadTSPPConfiguredPlugins(options, configFileName, sys)) sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
-        return createBuilderProgram(rootNames, options, ...rest);
+        if (options && configFileName) {
+            const plugins = resolveTSPPConfiguredPlugins(options, configFileName, sys);
+            if (plugins) setActiveTSPPPlugins(plugins);
+            else sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
+        }
+        return createBuilderProgram(rootNames, options, compilerHost && parseTSPPDeclarationsPerPluginSet(compilerHost, parsedWith), ...rest);
     };
+}
+
+/**
+ * The builder shares parsed declaration files between projects, but a `.d.tspp` file means what the active plugins read
+ * in it. A project whose plugins differ from those that parsed the shared file parses its own copy.
+ */
+function parseTSPPDeclarationsPerPluginSet(host: CompilerHost, parsedWith: WeakMap<SourceFile, readonly TSPPPlugin[]>): CompilerHost {
+    const plugins = getActiveTSPPPlugins();
+    const perSet: CompilerHost = Object.create(host);
+    perSet.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) => {
+        const shared = host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile);
+        if (!shared || !fileName.endsWith(".d.tspp")) return shared;
+        const parsedBy = parsedWith.get(shared);
+        if (!parsedBy) parsedWith.set(shared, plugins);
+        if (!parsedBy || parsedBy.length === plugins.length && parsedBy.every(plugin => plugins.includes(plugin))) return shared;
+        const own = createSourceFile(fileName, getOriginalTSPPSource(fileName, shared.text), languageVersionOrOptions);
+        own.version = shared.version;
+        return own;
+    };
+    return perSet;
 }
 
 /**

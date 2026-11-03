@@ -1,8 +1,7 @@
 import { maskNonCode } from "@tspp/plugin-sdk";
-import type { TSPPAnalysisDiagnostic, TSPPPreprocessedFunctionRequest } from "@tspp/plugin-sdk/compiler";
+import type { TSPPAnalysisDiagnostic, TSPPPreprocessedFunctionRequest, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 
 import type { Z3Query } from "./solver";
-import { maskRefinementClauses } from "./refinements";
 
 export interface PendingProof {
     readonly query: Z3Query;
@@ -12,11 +11,39 @@ export interface PendingProof {
     readonly name: string;
 }
 
-const verificationSuffix = ".verification.tspp";
+let keepingDirectives = false;
 
-/** The name the verifier parses a file under, which keeps its proof directives as labeled statements. */
-export function verificationFileName(fileName: string): string {
-    return fileName + verificationSuffix;
+/** Runs `parse` so that proof directives stay the labeled statements the verifier reads, instead of being erased. */
+export function keepingProofDirectives<T>(parse: () => T): T {
+    keepingDirectives = true;
+    try {
+        return parse();
+    }
+    finally {
+        keepingDirectives = false;
+    }
+}
+
+const directiveKeywords = ["assert", "assume"];
+
+/** `assert: condition;` and `assume: condition;` at the start of a statement. They run only in the verifier, so a program has none. */
+export function createProofDirectives(ts: TSPPTypeScript): TSPPSyntaxExtension {
+    const kinds = ts.SyntaxKind;
+    return {
+        position: "statement",
+        // `assert` is a contextual keyword of TypeScript's, with a token of its own.
+        startTokens: [kinds.Identifier, kinds.AssertKeyword],
+        keywords: directiveKeywords,
+        isStart: cursor => !keepingDirectives && directiveKeywords.includes(cursor.tokenText()) && cursor.lookAhead(() => cursor.nextToken() === kinds.ColonToken),
+        parse(cursor) {
+            const pos = cursor.getNodePos();
+            cursor.nextToken();
+            cursor.nextToken();
+            const condition = cursor.parseExpression();
+            cursor.parseSemicolon();
+            return cursor.finishNode(cursor.factory.createNotEmittedStatement(condition), pos);
+        },
+    };
 }
 
 export function matchingBrace(text: string, open: number): number {
@@ -110,7 +137,7 @@ export function restoreContractFunctionClause(request: TSPPPreprocessedFunctionR
     return closest && request.sourceText.slice(closest.clauseStart, closest.close + 1);
 }
 
-export function maskContractClauses(fileName: string, sourceText: string): string {
+export function maskContractClauses(_fileName: string, sourceText: string): string {
     const code = maskNonCode(sourceText);
     const characters = sourceText.split("");
     const blank = (start: number, end: number) => {
@@ -118,7 +145,6 @@ export function maskContractClauses(fileName: string, sourceText: string): strin
             if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
         }
     };
-    maskRefinementClauses(sourceText, characters);
     for (const clause of collectFunctionClauses(sourceText)) blank(clause.clauseStart, clause.close + 1);
     const loopPattern = /\bwith\s*\{/g;
     for (let match; (match = loopPattern.exec(code));) {
@@ -132,27 +158,7 @@ export function maskContractClauses(fileName: string, sourceText: string): strin
         blank(match.index, close + 1);
         loopPattern.lastIndex = close + 1;
     }
-    if (!fileName.endsWith(verificationSuffix)) {
-        const directivePattern = /\b(?:assert|assume)\s*:\s*[^;]+;/g;
-        for (let match; (match = directivePattern.exec(code));) {
-            // `{ assert: 1 }; ` is an object literal: a directive's expression closes nothing it did not open.
-            if (closesOuterBrace(match[0])) {
-                directivePattern.lastIndex = match.index + 1;
-                continue;
-            }
-            blank(match.index, match.index + match[0].length);
-        }
-    }
     return characters.join("");
-}
-
-function closesOuterBrace(text: string): boolean {
-    let depth = 0;
-    for (const character of text) {
-        if (character === "{") depth++;
-        else if (character === "}" && --depth < 0) return true;
-    }
-    return false;
 }
 
 export function splitClauseExpressions(value: string): string[] {
@@ -213,7 +219,7 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
         const end = previousToken(code, match.index);
         const owner = functionOfClause(code, match.index) ? { owner: "a function", properties: functionProperties }
             : code[end] === ")" && /\bwhile\s*$/.test(code.slice(Math.max(0, matchingOpen(code, end, "(", ")") - 20), Math.max(0, matchingOpen(code, end, "(", ")")))) ? { owner: "a loop", properties: loopProperties }
-            : /\btype\s+[A-Za-z_$][\w$]*(?:\s*:(?:[^=;{}]|=>)*?)?\s*=\s*(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 500), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
+            : /\b(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 20), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
             : undefined;
         if (!owner) continue;
         const open = code.indexOf("{", match.index);

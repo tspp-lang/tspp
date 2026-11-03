@@ -6,7 +6,6 @@ import type {
     TSPPCompilerHostAPI,
     TSPPDiagnosticProvider,
     TSPPInterfaceMemberBinding,
-    TSPPPreprocessedTypeAlias,
     TSPPProgramAnalyzer,
     TSPPProgramRebuilder,
     TSPPSourcePreprocessor,
@@ -35,8 +34,10 @@ import type {
 import {
     DiagnosticCategory,
     Extension,
+    NodeFlags,
     SyntaxKind,
 } from "../types.js";
+import { getTSPPCompatibilityDeclarationFilePath } from "./files.js";
 import { getTSPPTypeOperations } from "./types.js";
 
 const interfaceMemberBindings = new Map<string, TSPPInterfaceMemberBinding>();
@@ -172,6 +173,12 @@ const languageServiceAPI: TSPPLanguageServiceHostAPI = {
     },
 };
 
+/** The parser marks what it finishes as ambient; nodes a plugin builds around them are ambient too. */
+function markAmbient(node: Node): void {
+    (node as { flags: NodeFlags; }).flags |= NodeFlags.Ambient;
+    ts.forEachChild(node, markAmbient);
+}
+
 /** Lets plugin syntax registered for `position` parse at the current token of a TS++ file, if one starts there. @internal */
 export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensionPosition, token: SyntaxKind, createCursor: () => TSPPSyntaxCursor): Node | undefined {
     const candidates = syntaxExtensions.get(position);
@@ -188,6 +195,7 @@ export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensi
     const [{ pluginId, extension }] = starting;
     const parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
     const [first, ...rest] = Array.isArray(parsed) ? parsed : [parsed];
+    if (cursor!.inAmbientContext() && typeof first !== "function") [first, ...rest].forEach(markAmbient);
     syntaxOwners.set(first, pluginId);
     if (rest.length) additionalListElements.set(first, rest);
     return first;
@@ -395,6 +403,47 @@ export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
     return true;
 }
 
+/** The first line of a `.d.tspp` file: the plugins of the project that wrote it, which a reader must have to read it. @internal */
+export const tsppDeclarationPluginsHeader = "// @tspp-plugins ";
+
+/**
+ * The file to read in place of a `.d.tspp` file written with plugins that are not all active: its compatible `.d.ts`. By
+ * design a project reads declarations of plugins it lacks as what they lower to, so a type TypeScript cannot express
+ * arrives as that output's `unknown`. Undefined when the file itself is to be read, including one without a header.
+ * @internal
+ */
+export function getTSPPReadableDeclaration(fileName: string, host: { fileExists(fileName: string): boolean; readFile(fileName: string): string | undefined; }): string | undefined {
+    if (!fileName.endsWith(".d.tspp")) return undefined;
+    const text = host.readFile(fileName);
+    if (!text?.startsWith(tsppDeclarationPluginsHeader)) return undefined;
+    const required = text.slice(tsppDeclarationPluginsHeader.length, text.search(/\r?\n/)).split(",");
+    if (required.every(id => activePlugins.some(plugin => plugin.manifest.id === id))) return undefined;
+    const compatible = getTSPPCompatibilityDeclarationFilePath(fileName)!;
+    return host.fileExists(compatible) ? compatible : undefined;
+}
+
+/** The compiler facets active in this process, in activation order. @internal */
+export function getActiveTSPPPlugins(): readonly TSPPPlugin[] {
+    return [...activePlugins];
+}
+
+/**
+ * Makes `plugins` exactly the active compiler facets, for a process that serves projects with different plugin sets one
+ * after another. A plugin both sets share stays active with its state.
+ * @internal
+ */
+export function setActiveTSPPPlugins(plugins: readonly TSPPPlugin[]): void {
+    initializeTSPPCompilerPlugins(version);
+    for (let index = activePlugins.length - 1; index >= 0; index--) {
+        if (plugins.includes(activePlugins[index])) continue;
+        pluginHost!.deactivate(activePlugins[index].manifest.id);
+        activePlugins.splice(index, 1);
+    }
+    for (const plugin of plugins) {
+        if (!activePlugins.includes(plugin)) registerTSPPCompilerPlugin(plugin);
+    }
+}
+
 /**
  * The module paths of the active plugins, found among the loaded modules because tsserver hands the host a plugin's
  * exports, not its path. Undefined when one was not loaded as a module, as in a browser or from a bundle. @internal
@@ -549,26 +598,6 @@ export function projectTSPPSource(fileName: string, sourceText: string): string 
 export function getOriginalTSPPSource(fileName: string, projected: string): string {
     const entry = projectedSources.get(fileName);
     return entry?.projected === projected ? entry.original : projected;
-}
-
-/** Restores plugin-owned type syntax for feature-rich declaration emit. @internal */
-export function getPreprocessedTypeAliasDeclaration(
-    fileName: string,
-    name: string,
-    declarationStart: number,
-): TSPPPreprocessedTypeAlias | undefined {
-    const entry = projectedSources.get(fileName);
-    if (!entry) return undefined;
-    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
-        const restored = preprocessor.restoreTypeAliasDeclaration?.({
-            fileName,
-            sourceText: entry.original,
-            name,
-            declarationStart,
-        });
-        if (restored) return restored;
-    }
-    return undefined;
 }
 
 /** Restores plugin-owned syntax before a function's `function` keyword for feature-rich declaration emit. @internal */

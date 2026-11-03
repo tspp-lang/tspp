@@ -101,6 +101,18 @@ export class TSPPPluginHost {
         }
     }
 
+    /** Removes one active feature, for a host whose next project does not declare it. */
+    public deactivate(id: string): void {
+        const registration = this.registrations.get(id);
+        if (!registration) return;
+        const dependent = this.activationOrder.find(item => item.plugin.manifest.requires?.includes(id));
+        if (dependent) throw new Error(`TSPP plugin '${dependent.plugin.manifest.id}' requires '${id}', so it cannot be deactivated.`);
+        this.registrations.delete(id);
+        const index = this.activationOrder.indexOf(registration);
+        if (index >= 0) this.activationOrder.splice(index, 1);
+        disposeRegistration(registration);
+    }
+
     public dispose(): void {
         if (this.state === "disposed") return;
         this.state = "disposed";

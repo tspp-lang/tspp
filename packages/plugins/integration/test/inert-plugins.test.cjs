@@ -22,10 +22,10 @@ function filesUnder(directory, root = directory) {
     entry.isDirectory() ? filesUnder(path.join(directory, entry.name), root) : [path.relative(root, path.join(directory, entry.name))]);
 }
 
-function compile(example, set) {
+function compile(populate, set) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-inert-"));
   try {
-    fs.cpSync(path.join(examplesRoot, example, "src"), path.join(directory, "src"), { recursive: true });
+    populate(path.join(directory, "src"));
     const scope = path.join(directory, "node_modules", "@tspp");
     fs.mkdirSync(scope, { recursive: true });
     for (const name of set) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
@@ -51,12 +51,40 @@ function compile(example, set) {
 for (const example of examples) {
   const tsconfig = fs.readFileSync(path.join(examplesRoot, example, "tsconfig.json"), "utf8");
   const declared = plugins.filter(name => tsconfig.includes(`@tspp/plugin-${name}"`));
+  const populate = source => fs.cpSync(path.join(examplesRoot, example, "src"), source, { recursive: true });
   test(`${example} does not notice plugins it does not use`, () => {
-    const base = compile(example, declared);
+    const base = compile(populate, declared);
     for (const extra of plugins.filter(name => !declared.includes(name))) {
-      const got = compile(example, [...declared, extra]);
+      const got = compile(populate, [...declared, extra]);
       assert.deepEqual(got.errors, base.errors, `errors changed with ${extra}`);
       assert.deepEqual(got.javascript, base.javascript, `JavaScript changed with ${extra}`);
     }
+  });
+}
+
+// A keyword is a keyword only where its plugin parses it. Written where TypeScript takes any word as a name, every keyword a
+// manifest lists must leave the program as it was, whatever the plugin does to find its syntax.
+const memberNames = word => `export interface Interface${word.id} { ${word.text}: boolean; name: string; }
+export const value${word.id}: Interface${word.id} = { ${word.text}: true, name: "x" };
+export type Alias${word.id} = { ${word.text}: number; other: { ${word.text}: string; }; };
+export const alias${word.id}: Alias${word.id} = { ${word.text}: 1, other: { ${word.text}: "y" } };
+export class Class${word.id} { ${word.text} = 1; }
+export const read${word.id} = [value${word.id}.${word.text}, alias${word.id}.other.${word.text}, new Class${word.id}().${word.text}];
+`;
+
+for (const { packageDirectory, plugin } of allPlugins()) {
+  const name = path.basename(packageDirectory);
+  const words = [...new Set((plugin.manifest.syntax?.keywords ?? []).map(({ keyword }) => keyword))].filter(word => /^[A-Za-z_$][\w$]*$/.test(word));
+  if (!words.length) continue;
+  test(`the keywords of ${name} stay ordinary member names`, () => {
+    const populate = source => {
+      fs.mkdirSync(source);
+      fs.writeFileSync(path.join(source, "names.tspp"), words.map((text, id) => memberNames({ text, id })).join("\n"));
+    };
+    const base = compile(populate, []);
+    assert.deepEqual(base.errors, []);
+    const got = compile(populate, [name]);
+    assert.deepEqual(got.errors, base.errors);
+    assert.deepEqual(got.javascript, base.javascript);
   });
 }

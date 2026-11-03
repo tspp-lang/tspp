@@ -60,24 +60,10 @@ export interface TSPPSourcePreprocessor {
      * `.d.tspp` output. Compatibility `.d.ts` output continues to use the
      * projected syntax seen by TypeScript.
      */
-    restoreTypeAliasDeclaration?(request: TSPPPreprocessedTypeAliasRequest): TSPPPreprocessedTypeAlias | undefined;
     /** Restores a preprocessed clause after a function's parameters for `.d.tspp` output. */
     restoreFunctionClause?(request: TSPPPreprocessedFunctionRequest): string | undefined;
     /** Restores preprocessed syntax written before a function's `function` keyword for `.d.tspp` output. */
     restoreFunctionPrefix?(request: TSPPPreprocessedFunctionRequest): string | undefined;
-}
-
-export interface TSPPPreprocessedTypeAliasRequest {
-    readonly fileName: string;
-    readonly sourceText: string;
-    readonly name: string;
-    readonly declarationStart: number;
-}
-
-export interface TSPPPreprocessedTypeAlias {
-    /** The text between the alias's name and its `=`, including any separator such as `::`. */
-    readonly annotation?: string;
-    readonly type: string;
 }
 
 export interface TSPPPreprocessedFunctionRequest {

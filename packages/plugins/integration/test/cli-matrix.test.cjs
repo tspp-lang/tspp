@@ -171,6 +171,173 @@ test("solution builds load each project's plugins and do not call a refuted proj
   }
 });
 
+test("a project of a solution build sees only its own plugins, whatever was built before it", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    for (const name of ["formal-verification", "nominal-types"]) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
+    const project = (name, plugins, source, references = []) => {
+      fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
+      fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
+      fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
+      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, skipLibCheck: false, composite: true, plugins: plugins.map(plugin => ({ name: `@tspp/plugin-${plugin}`, tspp: true })) },
+        include: ["src"],
+        references: references.map(reference => ({ path: `../${reference}` })),
+      }));
+    };
+    const reading = `import type { Flag } from "../../data/src/index";\nexport type Read = Flag;\n`;
+    project("data", ["nominal-types"], "export data Flag = On | Off;\n");
+    project("user", ["nominal-types"], reading, ["data"]);
+    project("reader", [], reading, ["data"]);
+    project("plain", [], "export data Leak = A | B;\n");
+    project("proof", ["formal-verification"], `${features["formal-verification"].bad}\n`);
+    project("after", [], "export const after = 1;\n");
+    const build = order => {
+      for (const name of order) {
+        fs.rmSync(path.join(directory, name, "out"), { recursive: true, force: true });
+        fs.rmSync(path.join(directory, name, "tsconfig.tsbuildinfo"), { force: true });
+      }
+      fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: order.map(name => ({ path: name })) }));
+      const built = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-b"], { cwd: directory, encoding: "utf8" });
+      return { ...built, errors: built.stdout.split(/\r?\n/).filter(line => /error TS/.test(line)).sort() };
+    };
+    const first = build(["proof", "data", "user", "reader", "plain", "after"]);
+    assert.match(first.stdout, /plain\/src\/index\.tspp\(1,\d+\): error TS1\d\d\d:/, `a project without the plugin must not read its syntax\n${first.stdout}${first.stderr}`);
+    assert.doesNotMatch(first.stdout, /\.d\.tspp\(/, `a project without the plugin reads the compatible declarations\n${first.stdout}${first.stderr}`);
+    assert.ok(!first.errors.some(line => line.startsWith("reader/")), first.errors.join("\n"));
+    assert.match(fs.readFileSync(path.join(directory, "data", "out", "index.d.tspp"), "utf8"), /^\/\/ @tspp-plugins nominal-types\r?\n/);
+    assert.match(first.stdout, features["formal-verification"].message, `an analyzer did not run under its project's plugins\n${first.stdout}${first.stderr}`);
+    assert.ok(!first.errors.some(line => /^(data\/src|after)\//.test(line) || /^user\/.*error TS1\d\d\d:/.test(line)), first.errors.join("\n"));
+    assert.notEqual(first.status, 0);
+    const second = build(["after", "plain", "reader", "data", "user", "proof"]);
+    assert.deepEqual(second.errors, first.errors, "the build order changed the result");
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a project built from TS++ declarations stays buildable as its sources change", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    fs.symlinkSync(packageDirectories.get("nominal-types"), path.join(scope, "plugin-nominal-types"), "junction");
+    const project = (name, source, references = []) => {
+      fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
+      fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
+      fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
+      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, composite: true, plugins: [{ name: "@tspp/plugin-nominal-types", tspp: true }] },
+        include: ["src"],
+        references: references.map(reference => ({ path: `../${reference}` })),
+      }));
+    };
+    const library = `export data Flag = On | Off;
+export newtype Id = number;
+export data Opt<T> = None | Some(value: T);
+export const on: Flag = On;
+export function name(f: Flag): string { return match f { On => "on", Off => "off" }; }
+`;
+    const consumer = `import { type Flag, type Opt, on, name, Some, None } from "../../library/src/index";
+export const label: string = name(on);
+export const flag: Flag = on;
+const held: Opt<number> = Some(1);
+export const value = match held { Some(value) => value + 1, None => 0 };
+`;
+    project("library", library);
+    project("consumer", consumer, ["library"]);
+    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "library" }, { path: "consumer" }] }));
+    const build = args => spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, ...args], { cwd: directory, encoding: "utf8" });
+    const built = build(["-b"]);
+    assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
+    assert.ok(fs.existsSync(path.join(directory, "library", "out", "index.d.tspp")));
+    assert.ok(!fs.existsSync(path.join(directory, "consumer", "out", "library")), "a referenced project's declarations must not be emitted again");
+    // Both projects' signatures change, which is where the builder reads the declaration files it emitted.
+    fs.appendFileSync(path.join(directory, "library", "src", "index.tspp"), "export const added = 1;\n");
+    fs.appendFileSync(path.join(directory, "consumer", "src", "index.tspp"), "export const more = 2;\n");
+    const rebuilt = build(["-b"]);
+    assert.equal(rebuilt.status, 0, `${rebuilt.stdout}${rebuilt.stderr}`);
+    fs.appendFileSync(path.join(directory, "library", "src", "index.tspp"), "export const again = 3;\n");
+    const single = build(["-p", "library"]);
+    assert.equal(single.status, 0, `${single.stdout}${single.stderr}`);
+    // A declaration still reports what its consumer gets wrong.
+    fs.appendFileSync(path.join(directory, "consumer", "src", "index.tspp"), "export const bad: Flag = 1;\n");
+    const wrong = build(["-b"]);
+    assert.match(wrong.stdout, /consumer\/src\/index\.tspp\(\d+,\d+\): error TS2322/, `${wrong.stdout}${wrong.stderr}`);
+    assert.doesNotMatch(wrong.stdout, /\.d\.tspp\(/, wrong.stdout);
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("a TS++ file lacking a plugin of its dependency reads the compatible declarations, by design", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    for (const name of ["nominal-types", "modern-syntax", "type-computation"]) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
+    const compile = (cwd, plugins, extra = {}) => {
+      fs.writeFileSync(path.join(cwd, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "nodenext", moduleResolution: "nodenext", outDir: "out", rootDir: "src", types: [], strict: true, declaration: true, plugins: plugins.map(plugin => ({ name: `@tspp/plugin-${plugin}`, tspp: true })), ...extra },
+        include: ["src"],
+      }));
+      return spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-p", "."], { cwd, encoding: "utf8" });
+    };
+    // A package, as other projects install it: its types through both `tsppTypes` and the `tspp-types` condition.
+    const library = path.join(directory, "node_modules", "library");
+    fs.mkdirSync(path.join(library, "src"), { recursive: true });
+    fs.writeFileSync(path.join(library, "src", "index.tspp"), `export data Flag = On | Off;
+export interface Holds<F: Type => Type> { items: F<number>; }
+export const flag: Flag = On;
+`);
+    fs.writeFileSync(path.join(library, "package.json"), JSON.stringify({
+      name: "library", type: "module", tsppTypes: "./out/index.d.tspp", types: "./out/index.d.ts",
+      exports: { ".": { "tspp-types": "./out/index.d.tspp", types: "./out/index.d.ts", default: "./out/index.js" } },
+    }));
+    fs.symlinkSync(path.join(directory, "node_modules"), path.join(library, "node_modules"), "junction");
+    const built = compile(library, ["nominal-types", "type-computation"]);
+    assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
+    assert.match(fs.readFileSync(path.join(library, "out", "index.d.tspp"), "utf8"), /^\/\/ @tspp-plugins nominal-types,type-computation\r?\n/);
+
+    const consumer = (name, plugins, source) => {
+      const root = path.join(directory, name);
+      fs.mkdirSync(path.join(root, "src"), { recursive: true });
+      fs.symlinkSync(path.join(directory, "node_modules"), path.join(root, "node_modules"), "junction");
+      fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ type: "module" }));
+      fs.writeFileSync(path.join(root, "src", "index.tspp"), source);
+      const result = compile(root, plugins);
+      return `${result.stdout}${result.stderr}`;
+    };
+    // No plugin, or only some of them: never a syntax error in the library, and the types still hold.
+    const lowered = `import { flag, type Flag, type Holds } from "library";
+export const held: Flag = flag;
+export const holds: Holds<unknown> = { items: 1 };
+export const wrong: Flag = 1;
+`;
+    for (const [name, plugins] of [["none", []], ["some", ["nominal-types"]], ["other", ["modern-syntax"]]]) {
+      const output = consumer(name, plugins, lowered);
+      assert.doesNotMatch(output, /\.d\.tspp/, `${name}\n${output}`);
+      assert.deepEqual(output.split(/\r?\n/).filter(line => /error TS/.test(line)).map(line => /error (TS\d+)/.exec(line)[1]), ["TS2322"], `${name}\n${output}`);
+    }
+    // Every plugin, with more besides: the declaration keeps its kinds, so a type constructor is an argument. Without
+    // them it is a generic type with no arguments.
+    const kinded = `import { flag, type Flag, type Holds } from "library";
+export const held: Flag = flag;
+export const holds: Holds<Array> = { items: [1] };
+`;
+    const all = consumer("all", ["nominal-types", "type-computation", "modern-syntax"], kinded);
+    assert.deepEqual(all.split(/\r?\n/).filter(line => /error TS/.test(line)), [], all);
+    assert.match(consumer("partial", ["nominal-types"], kinded), /error TS2314/);
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 // Upstream's builder programs emit on their own path: an analyzer's errors must still reach the status and the output.
 for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, { composite: true, rootDir: "src" }]) {
   test(`analyzers run in ${Object.keys(mode)[0]} compilations`, () => {

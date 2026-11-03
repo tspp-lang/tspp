@@ -313,6 +313,20 @@ dependent-types 并入 type-computation（"互相依赖就合并"，HKT 是先�
 - 插件不再绕过公共 API：type-computation 的项用解析器的 factory 降级，`typecase` 就地替换捕获。仍需要内部细节的两件事（`getGeneratedNameForNode` 的内部重载、改写刚解析的节点）收进 SDK 的 `createGeneratedName` 与 `replaceChild`，这样依赖只有一处。
 - `interface-member-binding` 评估后保留：脱糖成伴生接口会让静态成员不再是接口节点的子节点，而悬停、跳转、引用都按位置在子节点里找；`.d.tspp` 还要靠导出伴生接口才能保住静态成员用到的导入。函数改名为 `isTSPPStaticSideMember`。
 
+**进度记录（2026-11-03，架构审查发现的加法关系问题）**
+
+- **`tspp -b` 按项目隔离插件。** 之前插件只加不减，后面的项目能读懂前面项目的语法，错误代码可以 exit 0，结果取决于构建顺序。现在创建每个项目的程序时切换到它的插件集（`setActiveTSPPPlugins`，SDK 的 `TSPPPluginHost.deactivate`），分析器在构建结束后运行时也切回所属项目的插件集。**行为变更**：没有插件的项目里写插件语法，`-b` 现在和 `-p` 一样报语法错误。
+- **证明指令改走语法扩展。** `assert:`/`assume:` 原来靠正则投影，会抹掉 `interface I { assert: boolean; }` 这样的成员。现在是 `statement` 位置的语法扩展，降级成 `NotEmittedStatement`；验证器用 `keepingProofDirectives` 解析时保留标签语句，不再需要 `.verification.tspp` 后缀。
+- **`typecase` 的分支是降级函数。** 分支的 `=>` 改用 `createLoweredArrowToken`，`(typecase d { number => _ + 1, _ => 0 })` 的 `_` 能找到 section。
+- **精化子句改走语法扩展。** `bigint with { ... }` 是 `postfix-type` 位置的语法扩展，形式验证不再用正则猜类型别名的 `:` 注解。`restoreTypeAliasDeclaration`、`TSPPPreprocessedTypeAlias` 及 emitter 的调用点删除，SDK API 版本升到 5。**行为变更**：`with` 必须和基础类型在同一行；写在类型别名之外的精化子句由分析器报 19005。
+- **`interface-member-binding` 登记为受控例外**，见 `docs/plugin-framework.md` 的 "Slot registry"。
+- **新增护栏**：关键词作为成员名的不变性（`inert-plugins`）、`_` 穿过每个持有表达式的插件（`nesting-matrix`）、正则字面量不得出现其他插件的任何关键词（`boundaries`）、`-b` 下每个项目只有自己的插件（`cli-matrix`）。
+- `core-diff`：24 个上游文件 +292 −43，预算降为 24 个文件 +296 −45。
+
+- **`.d.tspp` 是声明文件。** `getDeclarationFileExtension` 原来不认 `.d.tspp`，于是它被当作源文件：composite 项目引用另一个 `.tspp` 项目时报 TS6059/TS6307，单个 composite 项目改动后再次构建会在 builder 的 `File extension for signature expected to be dts` 断言处崩溃，与插件无关。现在加一行调用点（`tspp-extension`）。声明文件是环境上下文，宿主给插件在其中构建的节点补上 `NodeFlags.Ambient`（解析器只标记自己 `finishNode` 的节点）；nominal-types 的品牌类在环境上下文里不写 `!`。
+
+- **跨插件集读声明是设计好的行为。** 项目缺少写出 `.d.tspp` 的项目的任何一个插件时，一律读旁边的兼容 `.d.ts`，TS 表达不了的类型在其中是 `unknown`。`.d.tspp` 首行记录写出方的插件（`// @tspp-plugins a,b`），宿主在 `findSourceFileWorker` 一处比较，`tsppTypes`、`tspp-types` 条件和项目引用都遵守。规则见 `docs/plugin-framework.md` 的 "Reading declarations across plugin sets"。预算回到 24 个文件 +300 −46。
+
 ## 风险与待定
 
 - **类型层特性可能无法完全迁出。** HKT、类型宇宙、类型构造器需要介入 checker 的类型解析和实例化。若通用插槽设计不出来，需要明确记录为"受控例外"，并限定在一个文件内。结果：第 8 步用通用的"类型层扩展"插槽完成，没有使用受控例外（见进度记录）。

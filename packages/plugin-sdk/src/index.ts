@@ -4,7 +4,7 @@ import type { TSPPLanguageServicePlugin } from "./language-service";
 import type { TSPPLSPPlugin } from "./lsp";
 
 /** The plugin contract version understood by this host generation. */
-export const TSPP_PLUGIN_API_VERSION = 4 as const;
+export const TSPP_PLUGIN_API_VERSION = 5 as const;
 
 export interface TSPPPluginManifest {
     /** Stable, repository-wide identity such as `modern-syntax`. */
