@@ -171,6 +171,52 @@ test("solution builds load each project's plugins and do not call a refuted proj
   }
 });
 
+test("a project of a solution build sees only its own plugins, whatever was built before it", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    const scope = path.join(directory, "node_modules", "@tspp");
+    fs.mkdirSync(scope, { recursive: true });
+    for (const name of ["formal-verification", "nominal-types"]) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
+    const project = (name, plugins, source, references = []) => {
+      fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
+      fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
+      fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
+      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, skipLibCheck: false, composite: true, plugins: plugins.map(plugin => ({ name: `@tspp/plugin-${plugin}`, tspp: true })) },
+        include: ["src"],
+        references: references.map(reference => ({ path: `../${reference}` })),
+      }));
+    };
+    const reading = `import type { Flag } from "../../data/src/index";\nexport type Read = Flag;\n`;
+    project("data", ["nominal-types"], "export data Flag = On | Off;\n");
+    project("user", ["nominal-types"], reading, ["data"]);
+    project("reader", [], reading, ["data"]);
+    project("plain", [], "export data Leak = A | B;\n");
+    project("proof", ["formal-verification"], `${features["formal-verification"].bad}\n`);
+    project("after", [], "export const after = 1;\n");
+    const build = order => {
+      for (const name of order) {
+        fs.rmSync(path.join(directory, name, "out"), { recursive: true, force: true });
+        fs.rmSync(path.join(directory, name, "tsconfig.tsbuildinfo"), { force: true });
+      }
+      fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: order.map(name => ({ path: name })) }));
+      const built = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-b"], { cwd: directory, encoding: "utf8" });
+      return { ...built, errors: built.stdout.split(/\r?\n/).filter(line => /error TS/.test(line)).sort() };
+    };
+    const first = build(["proof", "data", "user", "reader", "plain", "after"]);
+    assert.match(first.stdout, /plain\/src\/index\.tspp\(1,\d+\): error TS1\d\d\d:/, `a project without the plugin must not read its syntax\n${first.stdout}${first.stderr}`);
+    assert.match(first.stdout, /data\/out\/index\.d\.tspp\(1,\d+\): error TS1\d\d\d:/, `a project without the plugin must not read its declaration syntax\n${first.stdout}${first.stderr}`);
+    assert.match(first.stdout, features["formal-verification"].message, `an analyzer did not run under its project's plugins\n${first.stdout}${first.stderr}`);
+    assert.ok(!first.errors.some(line => /^(data\/src|after)\//.test(line) || /^user\/.*error TS1\d\d\d:/.test(line)), first.errors.join("\n"));
+    assert.notEqual(first.status, 0);
+    const second = build(["after", "plain", "reader", "data", "user", "proof"]);
+    assert.deepEqual(second.errors, first.errors, "the build order changed the result");
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 // Upstream's builder programs emit on their own path: an analyzer's errors must still reach the status and the output.
 for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, { composite: true, rootDir: "src" }]) {
   test(`analyzers run in ${Object.keys(mode)[0]} compilations`, () => {

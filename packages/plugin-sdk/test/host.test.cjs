@@ -208,3 +208,17 @@ test("maskNonCode blanks comments and literal text, keeping offsets and line bre
   expectMask(`a "b\nc`, "a \nc");
   expectMask("const a = `b${c}`; // d\r\nfunction f() {}", "const a = c ; \r\nfunction f() {}");
 });
+
+test("deactivating a plugin disposes it and lets it activate again", () => {
+  const events = [];
+  const host = new TSPPPluginHost({ compilerVersion: "1", logger, ts: {}, compiler });
+  const dependency = plugin("test/dependency", () => { events.push("activate"); return () => events.push("dispose"); });
+  host.activateAll();
+  host.registerAndActivate(dependency);
+  host.deactivate("test/dependency");
+  assert.deepEqual(host.list(), []);
+  host.registerAndActivate(dependency);
+  assert.deepEqual(events, ["activate", "dispose", "activate"]);
+  host.registerAndActivate(plugin("test/dependent", () => {}, { requires: ["test/dependency"] }));
+  assert.throws(() => host.deactivate("test/dependency"), /requires 'test\/dependency'/);
+});

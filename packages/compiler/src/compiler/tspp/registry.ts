@@ -395,6 +395,28 @@ export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
     return true;
 }
 
+/** The compiler facets active in this process, in activation order. @internal */
+export function getActiveTSPPPlugins(): readonly TSPPPlugin[] {
+    return [...activePlugins];
+}
+
+/**
+ * Makes `plugins` exactly the active compiler facets, for a process that serves projects with different plugin sets one
+ * after another. A plugin both sets share stays active with its state.
+ * @internal
+ */
+export function setActiveTSPPPlugins(plugins: readonly TSPPPlugin[]): void {
+    initializeTSPPCompilerPlugins(version);
+    for (let index = activePlugins.length - 1; index >= 0; index--) {
+        if (plugins.includes(activePlugins[index])) continue;
+        pluginHost!.deactivate(activePlugins[index].manifest.id);
+        activePlugins.splice(index, 1);
+    }
+    for (const plugin of plugins) {
+        if (!activePlugins.includes(plugin)) registerTSPPCompilerPlugin(plugin);
+    }
+}
+
 /**
  * The module paths of the active plugins, found among the loaded modules because tsserver hands the host a plugin's
  * exports, not its path. Undefined when one was not loaded as a module, as in a browser or from a bundle. @internal
