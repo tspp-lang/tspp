@@ -14,6 +14,13 @@ self.MonacoEnvironment = {
 
 const element = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const status = element("status");
+// Read from the running bundle, so a stale cache shows the commit it actually serves.
+const buildCommit = element<HTMLAnchorElement>("build-commit");
+if (__TSPP_BUILD_COMMIT__) {
+  buildCommit.textContent = __TSPP_BUILD_COMMIT__.slice(0, 9);
+  buildCommit.href = `https://github.com/tspp-lang/tspp/commit/${__TSPP_BUILD_COMMIT__}`;
+  buildCommit.hidden = false;
+}
 const exampleSelect = element<HTMLSelectElement>("examples");
 const shareButton = element<HTMLButtonElement>("share");
 const shareLink = element<HTMLInputElement>("share-link");

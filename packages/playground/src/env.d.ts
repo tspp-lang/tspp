@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** The full hash of the commit this bundle was built from, or an empty string outside a git checkout. */
+declare const __TSPP_BUILD_COMMIT__: string;
+
 interface Window {
   MonacoEnvironment: { getWorker(): Worker };
 }

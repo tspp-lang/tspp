@@ -35,6 +35,15 @@ const isolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
 };
 
+function buildCommit(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", cwd: import.meta.dirname }).trim();
+  }
+  catch {
+    return "";
+  }
+}
+
 /**
  * Regenerates diagnosticInformationMap.generated.ts, which is not tracked: a copy left
  * from an older checkout lacks newer messages, and the compiler then fails on them at
@@ -305,6 +314,7 @@ function z3Runtime(): Plugin {
 
 export default defineConfig({
   base: "./",
+  define: { __TSPP_BUILD_COMMIT__: JSON.stringify(buildCommit()) },
   resolve: { alias: [
     { find: "ts-plus-plus/source", replacement: compilerEntry },
     { find: /^monaco-editor\/(.*\.css)$/, replacement: `${monacoRoot}/esm/vs/$1` },
