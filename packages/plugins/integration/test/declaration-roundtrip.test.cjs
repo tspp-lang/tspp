@@ -17,6 +17,8 @@ export type Apply<F: Type => Type, X> = F<X>;
 export type Wrap = <T> =>> { wrapped: T };
 export type Twice<T> = let X = { value: T } in [X, X];
 export type Classify<T> = match T { string: "text", _: "other" };
+export data Term = Term(pair: let X = string in [X, X], size: (x: Nat) -> Nat);
+export newtype Label = let X = string in X;
 export interface Parser {
     static parse(text: string): number;
 }
@@ -37,7 +39,7 @@ const consumerMessages = (declarations, consumer) =>
 test("TS++ declarations keep nominal types, data types, kinds, and computed types for consumers", () => {
   const { tspp } = emitLibrary();
   assert.ok(tspp, "no .d.tspp was emitted");
-  const imports = `import { Apply, Box, Classify, Err, makeId, Ok, Parser, Result, Twice, UserId, Wrap } from "./lib/index";\n`;
+  const imports = `import { Apply, Box, Classify, Err, Label, makeId, Ok, Parser, Result, Term, Twice, UserId, Wrap } from "./lib/index";\n`;
   assert.deepEqual(consumerMessages(tspp, `${imports}
     const id: UserId = makeId(1);
     const plain: number = id;
@@ -48,7 +50,10 @@ test("TS++ declarations keep nominal types, data types, kinds, and computed type
     const twice: Twice<number> = [{ value: 1 }, { value: 2 }];
     const classified: Classify<"a"> = "text";
     class NumberParser implements Parser { static parse(text: string): number { return text === "" ? 0 : 1; } }
-    void [plain, selected, applied, wrapped, twice, classified, NumberParser, Err];
+    declare const term: Term;
+    const pair: [string, string] = term.pair;
+    const label: string = Label("x");
+    void [plain, selected, applied, wrapped, twice, classified, NumberParser, Err, pair, label];
   `), []);
 
   const errors = consumerMessages(tspp, `${imports}
@@ -60,9 +65,12 @@ test("TS++ declarations keep nominal types, data types, kinds, and computed type
     const badTwice: Twice<number> = [{ value: 1 }, { value: "x" }];
     const badClass: Classify<1> = "text";
     class TextParser implements Parser { static parse(text: string): string { return text; } }
-    void [forged, partial, badWrap, badTwice, badClass, TextParser, makeId, Err, Box];
+    declare const badTerm: Term;
+    const badPair: [number, number] = badTerm.pair;
+    void [forged, partial, badWrap, badTwice, badClass, TextParser, makeId, Err, Box, Label, badPair];
   `).join("\n");
   assert.match(errors, /Type 'number' is not assignable to type 'UserId'/);
+  assert.match(errors, /Type 'string' is not assignable to type 'number'/);
   assert.match(errors, /Non-exhaustive match\. Missing patterns: Err/);
   assert.match(errors, /Type 'number' has kind 'Type', but kind 'Type => Type' was expected/);
   assert.match(errors, /Type 'string' is not assignable to type 'number'/);

@@ -297,7 +297,9 @@ and return ordinary upstream declaration nodes built with the parser's factory.
 The host records plugin ownership out of band; the binder, checker, and
 transformers process the lowered declarations unchanged, and the extension's
 `restoreDeclaration`/`restoreCompatibilityDeclaration` give the text of
-`.d.tspp` and compatible `.d.ts` output.
+`.d.tspp` and compatible `.d.ts` output. `restoreDeclaration` prints what it holds
+with the `printNested` it receives, so another plugin's syntax inside a declaration
+is restored by that plugin instead of printing as what it lowered to.
 
 ### Plugin-owned diagnostics and checks
 

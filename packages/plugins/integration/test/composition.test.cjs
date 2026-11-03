@@ -116,6 +116,18 @@ test("type-computation and nominal-types: kinded parameters in both declaration 
   assert.deepEqual(ts.createSourceFile("/main.d.ts", outputs.get("/main.d.ts"), ts.ScriptTarget.ES2022).parseDiagnostics, []);
 });
 
+test("type-computation and nominal-types: type-level terms in fields keep their syntax in declaration output", () => {
+  const { messages, outputs, program } = compile(`
+    export data W = W(f: (x: Nat) -> Nat, nested: { a: let A = string in A }[]);
+    export newtype N = let A = string in A;`, { declaration: true });
+  assert.deepEqual(messages, []);
+  program.emit();
+  const declarations = outputs.get("/main.d.tspp");
+  assert.match(declarations, /export data W = W\(f: \(x: Nat\) -> Nat, nested: \{\s*a: let A = string in A;?\s*\}\[\]\);/);
+  assert.match(declarations, /export newtype N = let A = string in A;/);
+  assert.doesNotMatch(outputs.get("/main.d.ts"), /->|let A/);
+});
+
 test("static-interface-members and type-computation: both shape one interface's declaration output", () => {
   const { messages, outputs, program } = compile(`
     export interface P<F: Type => Type> {

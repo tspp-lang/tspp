@@ -238,8 +238,13 @@ export interface TSPPSyntaxExtension {
      * The text of a node in feature-rich `.d.tspp` output, such as the authored declaration or type; an empty string
      * omits a statement. `node` is the declaration emitter's node, a statement or a type-level node. Nodes parsed by
      * another plugin's syntax never reach this method; of the others, at most one plugin may answer for a node.
+     * `printNested` prints a node inside the declaration, such as a type the author wrote, so that any plugin's syntax
+     * in it is restored too; a printer of the plugin's own would print what that syntax lowered to.
      */
-    restoreDeclaration?(node: import("typescript-upstream").Node): string | undefined;
+    restoreDeclaration?(
+        node: import("typescript-upstream").Node,
+        printNested: (nested: import("typescript-upstream").Node) => string,
+    ): string | undefined;
     /** The text of a node in the TypeScript-compatible `.d.ts` output that accompanies `.d.tspp` output. */
     restoreCompatibilityDeclaration?(node: import("typescript-upstream").Node): string | undefined;
 }

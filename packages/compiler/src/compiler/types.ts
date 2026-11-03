@@ -9886,6 +9886,7 @@ export interface PrinterOptions {
     /** @internal */ terminateUnterminatedLiterals?: boolean;
     /** @internal */ tsppCompatibilityDeclaration?: boolean; // TSPP-SLOT(declaration-output)
     /** @internal */ tsppJavaScriptEmit?: boolean; // TSPP-SLOT(declaration-output)
+    /** @internal */ tsppNestedDeclaration?: boolean; // TSPP-SLOT(syntax-extension)
 }
 
 /** @internal */

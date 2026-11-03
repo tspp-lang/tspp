@@ -1588,7 +1588,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
             Debug.assertNode(node, isEmptyStatement);
             return emitEmptyStatement(/*isEmbeddedStatement*/ true);
         }
-        if (hint === EmitHint.Unspecified && !tsppJavaScriptEmit && currentSourceFile?.isDeclarationFile) { // TSPP-SLOT(syntax-extension)
+        if (hint === EmitHint.Unspecified && !tsppJavaScriptEmit && (currentSourceFile?.isDeclarationFile || printerOptions.tsppNestedDeclaration)) { // TSPP-SLOT(syntax-extension)
             const restored = getTSPPRestoredDeclaration(node, tsppCompatibilityDeclaration); // TSPP-SLOT(syntax-extension)
             if (restored !== undefined) return void write(restored); // TSPP-SLOT(syntax-extension)
         }

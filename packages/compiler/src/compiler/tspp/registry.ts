@@ -256,6 +256,15 @@ function getTSPPSyntaxOwners(sourceFile: SourceFile, start: number, end: number,
 }
 
 /**
+ * Prints a node inside the declaration `container` restores, restoring whatever plugin syntax it holds. Each call has
+ * its own printer because a restorer it reaches may print nested nodes in turn.
+ */
+function printNestedDeclaration(container: Node, nested: Node): string {
+    const printer = ts.createPrinter({ removeComments: true, tsppNestedDeclaration: true });
+    return printer.printNode(ts.EmitHint.Unspecified, nested, ts.getSourceFileOfNode(ts.getOriginalNode(container)));
+}
+
+/**
  * The text a plugin restores for a node in feature-rich declaration output, or the text it gives the node in the
  * TypeScript-compatible declaration output. Only the plugin that parsed a node answers for it; for other nodes, such
  * as ordinary declarations a plugin omits, at most one plugin may answer.
@@ -263,12 +272,13 @@ function getTSPPSyntaxOwners(sourceFile: SourceFile, start: number, end: number,
  */
 export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean): string | undefined {
     const owner = syntaxOwners.get(ts.getOriginalNode(node));
+    const printNested = (nested: Node) => printNestedDeclaration(node, nested);
     let restored: string | undefined;
     let answeredBy: string | undefined;
     for (const candidates of syntaxExtensions.values()) {
         for (const { pluginId, extension } of candidates) {
             if (owner && pluginId !== owner) continue;
-            const text = compatibility ? extension.restoreCompatibilityDeclaration?.(node as never) : extension.restoreDeclaration?.(node as never);
+            const text = compatibility ? extension.restoreCompatibilityDeclaration?.(node as never) : extension.restoreDeclaration?.(node as never, printNested as never);
             if (text === undefined) continue;
             if (answeredBy && answeredBy !== pluginId && text !== restored) throw new Error(`TSPP plugins '${answeredBy}' and '${pluginId}' both restore the same declaration.`);
             restored = text;

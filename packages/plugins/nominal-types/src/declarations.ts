@@ -6,7 +6,7 @@ import { markGenerated } from "@tspp/plugin-sdk";
 /** What a `newtype` or `data` declaration restores in feature-rich declaration output. */
 export interface AuthoredDeclaration {
     readonly keyword: "newtype" | "data";
-    readonly render: (sourceFile: TS.SourceFile) => string;
+    readonly render: (sourceFile: TS.SourceFile, printNested: (nested: TS.Node) => string) => string;
 }
 
 export interface NominalDeclarations {
@@ -60,7 +60,6 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
      */
     let rootAt = -1;
     const root = <T extends TS.Node>(node: T): T => ts.setTextRange(node, { pos: rootAt, end: rootAt });
-    const printer = ts.createPrinter({ removeComments: true });
 
     function isStartOf(keyword: "newtype" | "data") {
         return (cursor: TSPPSyntaxCursor) => cursor.tokenText() === keyword && cursor.lookAhead(() => {
@@ -186,7 +185,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
 
         authored.set(alias, {
             keyword: "newtype",
-            render: sourceFile => `newtype ${text}${printTypeParameters(typeParameters, sourceFile)} = ${printer.printNode(ts.EmitHint.Unspecified, underlying, sourceFile)};`,
+            render: (sourceFile, printNested) => `newtype ${text}${printTypeParameters(typeParameters, sourceFile)} = ${printNested(underlying)};`,
         });
         newtypes.set(alias, underlying);
         newtypeCount++;
@@ -339,9 +338,9 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
 
         authored.set(alias, {
             keyword: "data",
-            render: sourceFile => `data ${text}${printTypeParameters(typeParameters, sourceFile)} = ${variants.map(variant =>
+            render: (sourceFile, printNested) => `data ${text}${printTypeParameters(typeParameters, sourceFile)} = ${variants.map(variant =>
                 variant.fields.length
-                    ? `${ts.idText(variant.name)}(${variant.fields.map(field => `${ts.idText(field.name)}: ${printer.printNode(ts.EmitHint.Unspecified, field.type, sourceFile)}`).join(", ")})`
+                    ? `${ts.idText(variant.name)}(${variant.fields.map(field => `${ts.idText(field.name)}: ${printNested(field.type)}`).join(", ")})`
                     : ts.idText(variant.name)).join(" | ")};`,
         });
         // Companions follow the alias in the statement list, so their nodes sit at the next token.
@@ -371,7 +370,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         keywords: ["newtype", "data"],
         isStart: cursor => newtypeStart(cursor) || dataStart(cursor),
         parse: cursor => cursor.tokenText() === "newtype" ? parseNewtype(cursor) : parseData(cursor),
-        restoreDeclaration: statement => {
+        restoreDeclaration: (statement, printNested) => {
             const original = ts.getOriginalNode(statement);
             if (companions.has(original)) return "";
             const declaration = authored.get(original);
@@ -379,7 +378,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             let sourceFile: TS.Node = original;
             while (!ts.isSourceFile(sourceFile)) sourceFile = sourceFile.parent;
             const exported = ts.canHaveModifiers(statement) && ts.getModifiers(statement)?.some(modifier => modifier.kind === kinds.ExportKeyword);
-            return `${exported ? "export " : ""}${declaration.render(sourceFile)}`;
+            return `${exported ? "export " : ""}${declaration.render(sourceFile, printNested)}`;
         },
     };
     /** Per source file: where companions name themselves, and where declarations generated inside them sit. */
