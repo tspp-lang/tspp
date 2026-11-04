@@ -30,6 +30,7 @@
     "@tspp/plugin-sdk": "workspace:*",
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*",
+    "@tspp/plugin-advanced-classes": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
     "@tspp/plugin-modern-syntax": "workspace:*",

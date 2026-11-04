@@ -1,0 +1,87 @@
+// 1. field property syntax with backing storage and custom accessors
+class Counter {
+  field count: number = 0 {
+    get() {
+      return field;
+    }
+    set(v) {
+      if (v >= 0) {
+        field = v;
+      }
+    }
+  }
+}
+
+// 2. object singleton declaration
+object AppConfig {
+  appName: string = "TS++ Advanced Classes Demo";
+  public version: number = 1;
+
+  greet(name: string): string {
+  return `Hello ${name} from ${this.appName} v${this.version}`;
+  }
+}
+
+// 3. data class with primary constructor, synthesized copy, equals, toString
+data class Point(x: number, y: number)
+
+// 4. with copy expression
+const pointOrigin = new Point(0, 0);
+const moved = with(pointOrigin, { x: 10, y: 20 });
+
+// 5. sealed class hierarchy (closed to same file)
+sealed abstract class Shape {
+  abstract area(): number;
+}
+
+class Circle extends Shape {
+  constructor(public radius: number) {
+    super();
+  }
+  area(): number {
+    return Math.PI * this.radius * this.radius;
+  }
+}
+
+class Rectangle extends Shape {
+  constructor(public width: number, public height: number) {
+    super();
+  }
+  area(): number {
+    return this.width * this.height;
+  }
+}
+
+// 6. final class and final method
+final class SecureToken {
+  constructor(public readonly secret: string) {}
+}
+
+class Service {
+  final getServiceId(): string {
+    return "service-v1";
+  }
+}
+
+// 7. async constructor in class
+class AsyncDatabase {
+  connected: boolean = false;
+  constructor(public connectionString: string) {
+    this.connected = true;
+  }
+}
+
+// Executable verification
+const counter = new Counter();
+counter.count = 42;
+counter.count = -5; // ignored by setter check
+
+const token = new SecureToken("secret-abc-123");
+const shapes: Shape[] = [new Circle(5), new Rectangle(4, 6)];
+
+console.log(AppConfig.greet("Developer"));
+console.log("Counter value:", counter.count);
+console.log("Point origin:", pointOrigin.toString());
+console.log("Point moved:", moved.toString(), "equals origin?", pointOrigin.equals(moved));
+console.log("Total area:", shapes.reduce((sum, s) => sum + s.area(), 0));
+console.log("Secure token:", token.secret);

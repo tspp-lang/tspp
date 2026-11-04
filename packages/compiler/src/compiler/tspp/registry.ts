@@ -353,7 +353,7 @@ export function isTSPPSyntaxAllowedAt(node: Node): boolean {
     return !sourceFile || isTSPPFileName(sourceFile.fileName);
 }
 
-/** The syntax active plugins claim, as they registered it. @internal @knipignore */
+/** The syntax active plugins claim, as they registered it. @internal */
 export function getRegisteredTSPPSyntaxClaims(): readonly { readonly pluginId: string; readonly keyword: string; readonly position: string; }[] {
     return [...syntaxClaims.values()];
 }

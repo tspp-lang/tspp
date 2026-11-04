@@ -39,7 +39,7 @@ function literalsOf(file) {
 
 // Words ordinary code uses as well (`data`, `match`, `use`, `let`, `in`) would only produce noise; these only mean a plugin.
 const isDistinctive = word => /^[A-Za-z]{5,}$/.test(word) && ts.stringToToken?.(word) === undefined
-  && !["match", "assert", "assume"].includes(word) && !/^[A-Z]/.test(word);
+  && !["match", "assert", "assume", "field", "final"].includes(word) && !/^[A-Z]/.test(word);
 
 function termsOf(plugin) {
   const words = (plugin.manifest.syntax?.keywords ?? []).map(({ keyword }) => keyword).filter(isDistinctive);
