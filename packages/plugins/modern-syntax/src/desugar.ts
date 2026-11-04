@@ -139,13 +139,21 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             : range(f.createCallExpression(target, /*typeArguments*/ undefined, range(f.createNodeArray([closure]), target.end, end)), target.pos, end);
     }
 
+    /** `parseStatement` reports a token no statement can start with but leaves it there, where a loop would never end. */
+    function parseStatementAndAdvance(cursor: TSPPSyntaxCursor): TS.Statement {
+        const pos = cursor.getNodePos();
+        const statement = cursor.parseStatement();
+        if (cursor.getNodePos() === pos) cursor.nextToken();
+        return statement;
+    }
+
     /** The statements of a completion block up to its closing brace, with `use` bindings nested into closures. */
     function parseCompletionStatements(cursor: TSPPSyntaxCursor): TS.Statement[] {
         const f = cursor.factory;
         const statements: TS.Statement[] = [];
         while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) {
             if (!isUseStart(cursor)) {
-                statements.push(cursor.parseStatement());
+                statements.push(parseStatementAndAdvance(cursor));
                 continue;
             }
             const head = parseUseHead(cursor);
@@ -268,7 +276,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             // Lowered as it would be in a completion block, minus the return, so the rest still sees the binding.
             const head = parseUseHead(cursor);
             const rest: TS.Statement[] = [];
-            while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) rest.push(cursor.parseStatement());
+            while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) rest.push(parseStatementAndAdvance(cursor));
             const call = createTrailingClosureCall(cursor, head, rest);
             const statement = range(cursor.factory.createExpressionStatement(call), head.pos, call.end);
             misplacedUses.set(statement, head.end);

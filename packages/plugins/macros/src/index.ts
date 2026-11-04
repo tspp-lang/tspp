@@ -16,6 +16,24 @@ export const macrosPlugin = definePlugin({
     },
   },
   facets: {
+    languageService: {
+      activate(context) {
+        // The preprocessor blanks all of this for the parser, so only the authored text can tell what is under the cursor.
+        return context.languageService.registerQuickInfoProvider(({ sourceText, position }) => {
+          for (const { index, 0: head } of sourceText.matchAll(/^[ \t]*(?:(?:export|default|declare|async)\s+)*macro\b(?:\s*\((?:[^()]|\([^()]*\))*\))?/gm)) {
+            if (position < index || position > index + head.length) continue;
+            for (const word of head.matchAll(/[A-Za-z_$][\w$]*/g)) {
+              const start = index + word.index;
+              if (position < start || position > start + word[0].length) continue;
+              if (word[0] === "macro") return { start, length: word[0].length, display: "(TS++ keyword) macro" };
+              if (/^(?:export|default|declare|async)$/.test(word[0])) return undefined;
+              return { start, length: word[0].length, display: `(macro option) ${word[0]}` };
+            }
+          }
+          return undefined;
+        });
+      },
+    },
     compiler: {
       activate(context) {
         const disposePreprocessor = context.compiler.registerSourcePreprocessor(createMacroPreprocessor(context.ts));

@@ -179,7 +179,7 @@ test("Quick Info describes directives and clauses, and calls no proof term `any`
   assert.match(hover("assert"), /proof obligation/);
   assert.match(hover("assume"), /Adds a fact/);
   assert.equal(hover("value >"), "(TS++ verification term) value");
-  assert.equal(hover("shifted > 0n;\n  assume"), "(TS++ verification term) shifted");
+  assert.equal(hover("shifted > 0n;\n  assume"), "const shifted: 1n");
   assert.equal(hover("Positive"), "type Positive = bigint");
 });
 

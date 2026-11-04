@@ -407,7 +407,7 @@ import {
     createTSPPDiagnosticMessage,
     expandTSPPListElement,
     isStartOfTSPPSyntax,
-    isTSPPSyntaxNode,
+    isTSPPFileName,
     projectTSPPSource,
     tryParseTSPPSyntax,
 } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
@@ -3220,7 +3220,7 @@ namespace Parser {
         // Can't reuse a node that intersected the change range.
         // Can't reuse a node that contains a parse error.  This is necessary so that we
         // produce the same set of errors again.
-        if (nodeIsMissing(node) || intersectsIncrementalChange(node) || containsParseError(node) || isTSPPSyntaxNode(node)) { // TSPP-SLOT(syntax-extension)
+        if (nodeIsMissing(node) || intersectsIncrementalChange(node) || containsParseError(node)) {
             return undefined;
         }
 
@@ -10054,7 +10054,7 @@ namespace IncrementalParser {
             return sourceFile;
         }
 
-        if (sourceFile.statements.length === 0) {
+        if (sourceFile.statements.length === 0 || isTSPPFileName(sourceFile.fileName)) { // TSPP-SLOT(syntax-extension)
             // If we don't have any statements in the current source file, then there's no real
             // way to incrementally parse.  So just do a full parse instead.
             return Parser.parseSourceFile(sourceFile.fileName, newText, sourceFile.languageVersion, /*syntaxCursor*/ undefined, /*setParentNodes*/ true, sourceFile.scriptKind, sourceFile.setExternalModuleIndicator, sourceFile.jsDocParsingMode);

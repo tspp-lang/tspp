@@ -1,0 +1,16 @@
+{
+  "name": "@tspp/editor-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Checks highlighting, Quick Info and editing of TS++ sources without anyone looking at the editor.",
+  "scripts": {
+    "report": "node src/report.cjs",
+    "test": "node --test --test-concurrency=1 test/*.test.cjs"
+  },
+  "devDependencies": {
+    "tm-grammars": "1.32.22",
+    "tm-themes": "1.12.12",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

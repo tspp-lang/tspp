@@ -4,7 +4,9 @@
   "scopeName": "source.tspp.higher-kinded-types",
   "injectionSelector": "L:source.tspp",
   "patterns": [
-    { "match": "\\bType(?:0|[1-9][0-9]*)?\\b", "name": "storage.type.kind.tspp" },
-    { "match": "=>", "name": "keyword.operator.kind.tspp" }
+    {
+      "match": "\\bType(?:0|[1-9]\\d*)?\\b",
+      "name": "support.type.universe.tspp"
+    }
   ]
 }

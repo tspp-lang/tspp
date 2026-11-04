@@ -27,7 +27,15 @@ export function parseClassBodyMembers(
 
     cursor.parseExpected(kinds.OpenBraceToken);
 
+    let previousMemberPos = -1;
     while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) {
+        // A token no member can start with stays where it is, and this loop must not parse it forever.
+        if (cursor.getNodePos() === previousMemberPos) {
+            cursor.nextToken();
+            continue;
+        }
+        previousMemberPos = cursor.getNodePos();
+
         if (cursor.token() === kinds.SemicolonToken) {
             cursor.nextToken();
             continue;

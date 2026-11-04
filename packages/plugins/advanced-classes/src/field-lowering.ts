@@ -227,7 +227,7 @@ export function parseFieldProperty(opts: ParseFieldPropertyOptions): void {
             getterModifiers.length ? f.createNodeArray(getterModifiers) : undefined,
             propName,
             f.createNodeArray([]),
-            propType,
+            cloneTypeNode(ts, f, propType),
             f.createBlock(
                 f.createNodeArray([
                     f.createReturnStatement(
@@ -252,7 +252,7 @@ export function parseFieldProperty(opts: ParseFieldPropertyOptions): void {
                 undefined,
                 f.createIdentifier("value"),
                 undefined,
-                propType,
+                cloneTypeNode(ts, f, propType),
                 undefined,
             );
             const setter = f.createSetAccessorDeclaration(

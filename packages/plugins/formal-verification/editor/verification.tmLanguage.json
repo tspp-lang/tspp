@@ -10,7 +10,7 @@
     },
     {
       "match": "\\b(requires|ensures|invariant|predicate|numberModel)(?=\\s*:)",
-      "name": "support.type.contract-property.tspp"
+      "name": "keyword.control.verification.tspp"
     },
     {
       "match": "\\bresult\\b",

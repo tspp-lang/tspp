@@ -1,12 +1,169 @@
 {
   "patterns": [
     {
-      "match": "\\b(?:newtype|data)\\b",
-      "name": "keyword.declaration.nominal-types.tspp"
+      "comment": "`data Name<T> = A | B(field: T)`. It ends at a semicolon or at a line that does not continue it.",
+      "begin": "(?<![.\\w$])(data)\\s+([A-Za-z_$][\\w$]*)(?=\\s*(?:<|=|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.declaration.nominal-types.tspp"
+        },
+        "2": {
+          "name": "entity.name.type.tspp"
+        }
+      },
+      "end": "(?=;)|^(?=\\s*[^\\s|=</])",
+      "patterns": [
+        {
+          "include": "source.ts#comment"
+        },
+        {
+          "include": "source.ts#type-parameters"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.ts"
+        },
+        {
+          "match": "\\|",
+          "name": "keyword.operator.type.ts"
+        },
+        {
+          "begin": "([A-Za-z_$][\\w$]*)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.function.tspp"
+            },
+            "2": {
+              "name": "meta.brace.round.ts"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "meta.brace.round.ts"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.ts#comment"
+            },
+            {
+              "match": "([A-Za-z_$][\\w$]*)\\s*(?=:)",
+              "captures": {
+                "1": {
+                  "name": "variable.object.property.ts"
+                }
+              }
+            },
+            {
+              "match": ":",
+              "name": "keyword.operator.type.annotation.ts"
+            },
+            {
+              "include": "source.ts#punctuation-comma"
+            },
+            {
+              "include": "source.ts#type"
+            }
+          ]
+        },
+        {
+          "match": "[A-Za-z_$][\\w$]*",
+          "name": "entity.name.function.tspp"
+        }
+      ]
     },
     {
-      "match": "\\bmatch\\b",
-      "name": "keyword.control.match.tspp"
+      "comment": "`newtype Name<T> = Type`.",
+      "begin": "(?<![.\\w$])(newtype)\\s+([A-Za-z_$][\\w$]*)(?=\\s*(?:<|=|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.declaration.nominal-types.tspp"
+        },
+        "2": {
+          "name": "entity.name.type.tspp"
+        }
+      },
+      "end": "(?=;)|^(?=\\s*[^\\s|=</&])",
+      "patterns": [
+        {
+          "include": "source.ts#comment"
+        },
+        {
+          "include": "source.ts#type-parameters"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.ts"
+        },
+        {
+          "include": "source.ts#type"
+        }
+      ]
+    },
+    {
+      "comment": "`match scrutinee { arms }`: the arms are not an object literal, and no TypeScript state may outlive them.",
+      "begin": "(?<![.\\w$])(match)(?![\\w$])(?=[^;{\\n]*\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.match.tspp"
+        }
+      },
+      "end": "(?<=\\})",
+      "patterns": [
+        {
+          "begin": "\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.ts#comment"
+            },
+            {
+              "match": "(?<![.\\w$])(?:true|false|null|undefined)(?=\\s*(?:=>|:))",
+              "name": "constant.language.ts"
+            },
+            {
+              "match": "(?<![.\\w$])(?:string|number|bigint|boolean|symbol|object|unknown|never|any|void)(?=\\s*:)",
+              "name": "support.type.primitive.ts"
+            },
+            {
+              "match": "(?<![.\\w$])([A-Za-z_$][\\w$]*)(?=\\s*(?:=>|:|\\bif\\b))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.readwrite.ts"
+                }
+              }
+            },
+            {
+              "match": "=>",
+              "name": "storage.type.function.arrow.ts"
+            },
+            {
+              "match": "(?<![.\\w$])if(?![\\w$])",
+              "name": "keyword.control.conditional.ts"
+            },
+            {
+              "include": "source.ts#punctuation-comma"
+            },
+            {
+              "include": "source.ts#expression"
+            }
+          ]
+        },
+        {
+          "include": "source.ts#expression"
+        }
+      ]
     }
   ]
 }

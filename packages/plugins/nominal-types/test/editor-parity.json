@@ -1,0 +1,22 @@
+[
+  {
+    "name": "the body of a match arm is code",
+    "tspp": "const a = match x {\n  Some(v) => §f(1) + \"s\"§,\n};",
+    "ts": "const a = §f(1) + \"s\"§;"
+  },
+  {
+    "name": "code after a match reads as code",
+    "tspp": "const a = match x { None => 0 };\n§const b: string = f(\"s\");§",
+    "ts": "§const b: string = f(\"s\");§"
+  },
+  {
+    "name": "code after a data declaration reads as code",
+    "tspp": "data T = A | B(value: string);\n§const b: string = f(\"s\");§",
+    "ts": "§const b: string = f(\"s\");§"
+  },
+  {
+    "name": "exporting a data declaration changes nothing after it",
+    "tspp": "export data T = A;\n§const b: string = f(\"s\");§",
+    "ts": "§const b: string = f(\"s\");§"
+  }
+]

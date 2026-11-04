@@ -190,7 +190,7 @@ function verifyTypeComputationDeclarations(outputDirectory) {
     ]) {
         if (!output.includes(expected)) throw new Error(`Feature-rich declaration lost type-computation syntax: ${expected}`);
     }
-    if (!compatibility.includes("extends [infer Payload]")) {
+    if (!compatibility.replace(/\s+/g, " ").includes("extends [ infer Payload ]")) {
         throw new Error("Type-computation compatibility declaration no longer contains its TypeScript projection.");
     }
 }

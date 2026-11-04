@@ -1,6 +1,70 @@
 {
   "patterns": [
     {
+      "comment": "`typecase scrutinee { arms }`: the arms are not an object literal, and no TypeScript state may outlive them.",
+      "begin": "(?<![.\\w$])(typecase)(?![\\w$])(?=[^;{\\n]*\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.mltt.tspp"
+        }
+      },
+      "end": "(?<=\\})",
+      "patterns": [
+        {
+          "begin": "\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.ts#comment"
+            },
+            {
+              "match": "(?<![.\\w$])(?:true|false|null|undefined)(?=\\s*(?:=>|:))",
+              "name": "constant.language.ts"
+            },
+            {
+              "match": "(?<![.\\w$])(?:string|number|bigint|boolean|symbol|object|unknown|never|any|void)(?=\\s*:)",
+              "name": "support.type.primitive.ts"
+            },
+            {
+              "match": "(?<![.\\w$])([A-Za-z_$][\\w$]*)(?=\\s*(?:=>|:|\\bif\\b))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.readwrite.ts"
+                }
+              }
+            },
+            {
+              "match": "=>",
+              "name": "storage.type.function.arrow.ts"
+            },
+            {
+              "match": "(?<![.\\w$])if(?![\\w$])",
+              "name": "keyword.control.conditional.ts"
+            },
+            {
+              "include": "source.ts#punctuation-comma"
+            },
+            {
+              "include": "source.ts#expression"
+            }
+          ]
+        },
+        {
+          "include": "source.ts#expression"
+        }
+      ]
+    },
+    {
       "match": "\\bType(?:0|[1-9]\\d*)?\\b",
       "name": "support.type.universe.tspp"
     },
@@ -9,7 +73,7 @@
       "name": "support.type.mltt.tspp"
     },
     {
-      "match": "\\b(?:reify|typecase|auto)\\b",
+      "match": "\\b(?:reify|auto)\\b",
       "name": "keyword.control.mltt.tspp"
     },
     {
@@ -18,4 +82,3 @@
     }
   ]
 }
-

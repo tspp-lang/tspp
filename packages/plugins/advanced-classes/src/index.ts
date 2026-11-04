@@ -185,6 +185,8 @@ export const advancedClassesPlugin = definePlugin({
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
                     if (!token) return undefined;
+                    const generatedConstructor = /^constructor ([A-Za-z_$][\w$]*)\.__constructor$/.exec(request.upstream?.display ?? "");
+                    if (generatedConstructor) return { start: token.start, length: token.length, display: `class ${generatedConstructor[1]}` };
 
                     // 1. Hover on 'field' keyword or backing variable
                     if (token.text === "field") {

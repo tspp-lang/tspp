@@ -1,4 +1,6 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { isTypeScriptKeyword, scanTSPPCode } from "@tspp/plugin-sdk/language-service";
+import type { TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import type * as TS from "typescript-upstream";
 
 import { createKindChecker } from "./checker";
@@ -57,13 +59,14 @@ export const typeComputationPlugin = definePlugin({
                     context.compiler.registerDiagnosticProvider({
                         id: "let-bindings",
                         getSemanticDiagnostics: () => [],
-                        // A `let` binding lowers to an `infer` with no source text of its own; report on its name.
+                        // A `let` binding lowers to an `infer` whose range runs over the bound value; report on its name.
                         filterDiagnostic: diagnostic => {
-                            if (diagnostic.length !== 0 || !diagnostic.file || diagnostic.start === undefined) return true;
+                            if (!diagnostic.file || diagnostic.start === undefined) return true;
                             const name = findLetBinding(ts, model, diagnostic.file, diagnostic.start);
                             if (!name) return true;
                             const length = ts.idText(name).length;
-                            return { ...diagnostic, start: name.end - length, length };
+                            // Under its own code: the fixes for an unused name would delete a type parameter from a list it isn't in.
+                            return { ...diagnostic, start: name.end - length, length, code: letBindingDiagnosticCode };
                         },
                     }),
                 ];
@@ -74,7 +77,12 @@ export const typeComputationPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerSemanticTokensProvider(typeLevelSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
+                    // `auto` is blanked before parsing, so it is no token of the tree.
+                    if (/^auto(?![\w$])/.test(request.sourceText.slice(request.position, request.position + 5)) && request.sourceText[request.position - 1] !== ".") {
+                        return { start: request.position, length: 4, display: "(TS++ keyword) auto", documentation: "Lets the checker infer this type argument." };
+                    }
                     const alias = request.owned ? dependentAliasAt(request.sourceText, request.position) : undefined;
                     if (alias) {
                         return {
@@ -96,6 +104,16 @@ export const typeComputationPlugin = definePlugin({
                     }
                     const universe = universeQuickInfo(token);
                     if (universe) return universe;
+                    const authored = authoredQuickInfo(token, request.upstream?.display, request.sourceText);
+                    if (authored) return authored;
+                    // A name only the kernel reads, such as a binder of a dependent type, has no TypeScript symbol to show.
+                    const unbound = !request.upstream || request.upstream.display === "any";
+                    if (unbound && kernelConstants.has(token.text)) return { start: token.start, length: token.length, display: `(type-level constant) ${token.text}` };
+                    if (request.owned && token.text === "_") return { start: token.start, length: token.length, display: "(wildcard pattern) _" };
+                    if (request.owned && unbound && !reificationDocumentation[token.text]
+                        && /^[A-Za-z_$][\w$]*$/.test(token.text) && !["let", "in", "match", "infer"].includes(token.text)) {
+                        return { start: token.start, length: token.length, display: `(type-level name) ${token.text}` };
+                    }
                     if (request.owned && ["let", "in", "match", "infer"].includes(token.text)) {
                         return {
                             start: token.start,
@@ -281,15 +299,54 @@ function normalizeSource(source: string): string {
     return source.replace(/\s+/g, " ").trim();
 }
 
+const kernelConstants = new Set(["Bool", "True", "False", "BoolElim", "If", "Nat", "Zero", "Succ", "NatAdd", "NatElim", "Eq", "Refl", "J", "Sigma", "Pair", "First", "Second", "Lam", "Ann"]);
+
+/**
+ * Names the kernel reads have no TypeScript symbol, so nothing classifies them: all binders render alike here, and so do
+ * all constants. Anything the language service did classify keeps its token.
+ */
+function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemanticToken[] {
+    const classified = new Set(request.tokens.map(token => token.start));
+    const tokens: TSPPSemanticToken[] = [];
+    let previous: string | undefined;
+    for (const token of scanTSPPCode(request.sourceText)) {
+        const afterInfer = previous === "infer";
+        previous = token.kind === "name" ? token.text : undefined;
+        if (token.kind !== "name" || classified.has(token.start)) continue;
+        const end = token.start + token.text.length;
+        if (request.sourceText[token.start - 1] === "." && request.sourceText[token.start - 2] !== ".") continue;
+        if (kernelConstants.has(token.text)) tokens.push({ start: token.start, length: token.text.length, type: "type" });
+        else if (afterInfer || (token.text !== "_" && !/^Type\d*$/.test(token.text) && !isTypeScriptKeyword(token.text) && !["match", "reify", "typecase", "auto"].includes(token.text) && request.isOwned(token.start, end))) {
+            tokens.push({ start: token.start, length: token.text.length, type: "typeParameter" });
+        }
+    }
+    return tokens;
+}
+
+/** Type-level syntax shown as it was written: what it lowers to, with generated parameters and conditionals, is no one's code. */
+function authoredQuickInfo(token: { readonly start: number; readonly length: number; readonly text: string; }, display: string | undefined, sourceText: string) {
+    const shown = (text: string) => ({ start: token.start, length: token.length, display: text });
+    if (display && /\b_?_tspp_/.test(display)) return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(/ in <[\s\S]*$/, ""));
+    if (display?.startsWith(`type ${token.text}`) && /\bextends\b/.test(display)) {
+        const declaration = new RegExp(`\\btype\\s+${escapeRegExp(token.text)}\\b[^\\n]*?=\\s*(?:match|let)\\b[^\\n]*`).exec(sourceText);
+        if (declaration) return shown(declaration[0].trimEnd());
+    }
+    return undefined;
+}
+
 function escapeRegExp(value: string): string {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+/** The code of plugin diagnostics without a code of their own. */
+const letBindingDiagnosticCode = 18086;
 
 function findLetBinding(ts: typeof TS, model: ReturnType<typeof createTypeSyntaxModel>, sourceFile: TS.SourceFile, position: number) {
     let found: TS.Identifier | undefined;
     const visit = (node: TS.Node): void => {
         if (found || node.pos > position || node.end < position) return;
-        found = node.pos === position ? model.letBindings.get(node) : undefined;
+        const name = model.letBindings.get(node);
+        found = name?.getStart(sourceFile) === position ? name : undefined;
         if (!found) ts.forEachChild(node, visit);
     };
     visit(sourceFile);

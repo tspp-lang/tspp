@@ -1,0 +1,17 @@
+[
+  {
+    "name": "the body of a type-level let is a type",
+    "tspp": "type T = let A = number in §string | A§;",
+    "ts": "type T = §string | A§;"
+  },
+  {
+    "name": "code after a type match reads as code",
+    "tspp": "type T = match U { string: 1 };\n§const b: string = f(\"s\");§",
+    "ts": "§const b: string = f(\"s\");§"
+  },
+  {
+    "name": "for-in keeps its in",
+    "tspp": "§for (const k in o) {}§",
+    "ts": "§for (const k in o) {}§"
+  }
+]

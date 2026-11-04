@@ -411,6 +411,7 @@ Feature slots are what plugins register with, through `context.compiler` (or
 | `program-analysis` | `registerProgramAnalyzer` | `compiler/tspp/analysis.ts` | none of its own: runs from the `command-line` and `plugin-host` call sites |
 | `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, which also serves diagnostic providers, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |
 | `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` | `services/services.ts` (`getQuickInfoAtPosition` of the language service object) |
+| `semantic-tokens` | `languageService.registerSemanticTokensProvider` | `services/tspp/syntax.ts` | `services/services.ts` (`getEncodedSemanticClassifications` of the language service object) |
 
 `interface-member-binding` is a controlled exception to rule 6: its one consumer's feature
 is what the slot does, so it cannot really be described without naming that feature. It

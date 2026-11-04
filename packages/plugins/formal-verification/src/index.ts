@@ -1,4 +1,6 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { isTypeScriptKeyword, scanTSPPCode } from "@tspp/plugin-sdk/language-service";
+import type { TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type {
     TSPPAnalysisDiagnostic,
@@ -125,11 +127,12 @@ export const formalVerificationPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerSemanticTokensProvider(verificationTermTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
                     const match = request.owned ? wordAt(request.sourceText, request.position) : undefined;
                     const documentation = match && contractDocumentation[match.text];
                     // A name in a directive or a clause means something only to proofs, so the checker has no type for it.
-                    if (match && !documentation && request.upstream?.display === "any") {
+                    if (match && !documentation && (!request.upstream || request.upstream.display === "any")) {
                         return { start: match.start, length: match.text.length, display: `(TS++ verification term) ${match.text}` };
                     }
                     if (!match || !documentation) return undefined;
@@ -165,8 +168,19 @@ const contractDocumentation: Readonly<Record<string, string>> = {
     invariant: "Declares a loop invariant checked before and after every iteration.",
 };
 
+/** Terms of proofs are names only the solver reads, which nothing classifies: they render alike, as variables do. */
+function verificationTermTokens(request: TSPPSemanticTokensRequest): TSPPSemanticToken[] {
+    const classified = new Set(request.tokens.map(token => token.start));
+    const tokens: TSPPSemanticToken[] = [];
+    for (const token of scanTSPPCode(request.sourceText)) {
+        if (token.kind !== "name" || classified.has(token.start) || contractDocumentation[token.text] || isTypeScriptKeyword(token.text)) continue;
+        if (request.isOwned(token.start, token.start + token.text.length)) tokens.push({ start: token.start, length: token.text.length, type: "variable" });
+    }
+    return tokens;
+}
+
 function wordAt(sourceText: string, position: number): { readonly start: number; readonly text: string; } | undefined {
-    const expression = /[A-Za-z]+/g;
+    const expression = /[A-Za-z_$][\w$]*/g;
     for (let match = expression.exec(sourceText); match; match = expression.exec(sourceText)) {
         if (match.index <= position && position <= match.index + match[0].length) {
             return { start: match.index, text: match[0] };

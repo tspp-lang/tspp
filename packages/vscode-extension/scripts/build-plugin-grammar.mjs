@@ -41,7 +41,7 @@ const grammar = {
   $schema: "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   name: "TS++ plugin contributions",
   scopeName: "source.tspp.plugins",
-  injectionSelector: "L:source.tspp",
+  injectionSelector: "L:source.tspp -comment -string, L:meta.template.expression -comment -string.quoted",
   patterns,
 };
 const contributions = {

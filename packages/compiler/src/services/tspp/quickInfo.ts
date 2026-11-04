@@ -1,21 +1,29 @@
 import {
+    createTextSpanFromNode,
     displayPartsToString,
     getContainerNode,
+    getNameOfDeclaration,
     getRegisteredTSPPSyntaxClaims,
+    getSourceFileOfNode,
     getTouchingPropertyName,
     getTSPPQuickInfo,
     hasTSPPQuickInfoProviders,
+    isIdentifier,
     ScriptElementKind,
     ScriptElementKindModifier,
     stringToToken,
+    SymbolDisplay,
+    SymbolFlags,
     SyntaxKind,
 } from "../_namespaces/ts.js";
 import type {
     CancellationToken,
+    Identifier,
     LanguageServiceHost,
     Node,
     Program,
     QuickInfo,
+    SourceFile,
 } from "../_namespaces/ts.js";
 
 function tokenizeDisplayParts(display: string): { text: string; kind: string; }[] {
@@ -58,6 +66,50 @@ function tokenizeDisplayParts(display: string): { text: string; kind: string; }[
     return parts.length ? parts : [{ text: display, kind: "text" }];
 }
 
+/** Source a preprocessor blanked for the parser has no token, but it is still authored text a plugin can describe. */
+function providerQuickInfoWithoutToken(sourceFile: SourceFile, host: LanguageServiceHost, fileName: string, position: number, upstream: QuickInfo | undefined): QuickInfo | undefined {
+    const snapshot = host.getScriptSnapshot(fileName);
+    const contribution = getTSPPQuickInfo(sourceFile, snapshot?.getText(0, snapshot.getLength()) ?? sourceFile.text, position);
+    if (!contribution) return upstream;
+    return {
+        kind: ScriptElementKind.unknown,
+        kindModifiers: ScriptElementKindModifier.none,
+        textSpan: { start: contribution.start, length: contribution.length },
+        displayParts: tokenizeDisplayParts(contribution.display),
+        documentation: contribution.documentation ? [{ text: contribution.documentation, kind: "text" }] : undefined,
+    };
+}
+
+/** Lowering leaves some declarations without a name node, which display as `(Missing)`; the hovered word is that name. */
+function withAuthoredName(info: QuickInfo, node: Node, sourceFile: SourceFile): QuickInfo {
+    if (!isIdentifier(node) || !info.displayParts?.some(part => part.text === "(Missing)")) return info;
+    const name = node.getText(sourceFile);
+    return { ...info, displayParts: info.displayParts.map(part => part.text === "(Missing)" ? { ...part, text: name } : part) };
+}
+
+/** A bare `any` means the checker found no symbol: plugin syntax can hold names that lowering never bound. */
+function isUnresolvedName(node: Node, upstream: QuickInfo) {
+    return isIdentifier(node) && upstream.kind === ScriptElementKind.unknown && displayPartsToString(upstream.displayParts) === "any";
+}
+
+/** What a name in plugin syntax refers to in its scope, if anything: an unresolved name is not a name of type `any`. */
+function quickInfoOfNameInScope(program: Program, node: Node): QuickInfo | undefined {
+    const checker = program.getTypeChecker();
+    const symbol = checker.resolveName((node as Identifier).text, node, SymbolFlags.Value | SymbolFlags.Type | SymbolFlags.Namespace | SymbolFlags.Alias, /*excludeGlobals*/ false);
+    const declaration = symbol?.declarations?.[0];
+    const name = declaration && getNameOfDeclaration(declaration);
+    if (!symbol || !name || name.pos < 0) return undefined;
+    const { symbolKind, displayParts, documentation, tags } = SymbolDisplay.getSymbolDisplayPartsDocumentationAndSymbolKind(checker, symbol, getSourceFileOfNode(name), getContainerNode(name), name);
+    return {
+        kind: symbolKind,
+        kindModifiers: SymbolDisplay.getSymbolModifiers(checker, symbol),
+        textSpan: createTextSpanFromNode(node),
+        displayParts,
+        documentation,
+        tags,
+    };
+}
+
 /**
  * Lets a plugin's Quick Info provider replace the upstream Quick Info at a position (TSPP-SLOT(quick-info)).
  * Providers see the authored TS++ text, the token, its type, and the upstream result; the first one that answers wins, starting with the plugins whose syntax contains the position.
@@ -76,8 +128,9 @@ export function addTSPPQuickInfo(
     if (!hasTSPPQuickInfoProviders()) return upstream;
     const sourceFile = program.getSourceFile(fileName)!;
     const node = getTouchingPropertyName(sourceFile, position);
-    if (node === sourceFile) return upstream;
+    if (node === sourceFile) return providerQuickInfoWithoutToken(sourceFile, host, fileName, position, upstream);
     const nodeForQuickInfo = getNodeForQuickInfo(node);
+    if (upstream && isUnresolvedName(nodeForQuickInfo, upstream)) upstream = quickInfoOfNameInScope(program, nodeForQuickInfo);
     const tokenStart = nodeForQuickInfo.getStart(sourceFile);
     const semanticType = program.getTypeChecker().runWithCancellationToken(
         cancellationToken,
@@ -103,7 +156,7 @@ export function addTSPPQuickInfo(
             kind: upstream.kind,
         },
     });
-    if (!contribution) return upstream;
+    if (!contribution) return upstream && withAuthoredName(upstream, nodeForQuickInfo, sourceFile);
     return {
         kind: upstream?.kind ?? ScriptElementKind.unknown,
         kindModifiers: upstream?.kindModifiers ?? ScriptElementKindModifier.none,

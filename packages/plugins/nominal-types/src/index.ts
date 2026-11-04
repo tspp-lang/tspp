@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import type { TSPPClearedSemanticToken, TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import { nominalTypesADTAPI, nominalTypesADTAPIName } from "./adt";
 import { createNominalDeclarations } from "./declarations";
 import { createNominalDiagnostics } from "./diagnostics";
@@ -37,6 +38,7 @@ export const nominalTypesPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerSemanticTokensProvider(nominalSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
                     if (!token) return undefined;
@@ -58,6 +60,12 @@ export const nominalTypesPlugin = definePlugin({
                                 : ""}`,
                         );
                     }
+
+                    const parameterInBody = !/^\s*\(/.test(request.sourceText.slice(token.start + token.length)) && findTypeParameterInDeclaration(request.sourceText, token);
+                    if (parameterInBody) return quickInfo(token, `(type parameter) ${token.text}`);
+                    if (request.owned && token.text === "_") return quickInfo(token, "(wildcard pattern) _");
+                    // An arm that can't match, as after narrowing, binds a name with no type to show.
+                    if (request.owned && request.upstream?.display === `(parameter) ${token.text}: any`) return quickInfo(token, `(pattern binding) ${token.text}`);
 
                     const newtype = findNewtype(request.sourceText, token.text);
                     if (newtype) {
@@ -82,7 +90,7 @@ export const nominalTypesPlugin = definePlugin({
                             formatVariantQuickInfo(declaration, variant, instantiationAt(request.sourceText, token.start, declaration)),
                         );
                     }
-                    return undefined;
+                    return hideRepresentation(token, request.upstream?.display, request.sourceText);
                 });
             },
         },
@@ -138,6 +146,60 @@ function findNewtype(sourceText: string, name: string): {
     return match ? { name, parameters: match[1]?.replace(/\s+/g, " ") ?? "", underlying: match[2].trim() } : undefined;
 }
 
+/**
+ * A value of a `data` type is shown by its constructor: the object behind it, with its `_tag` and `_values`, is how it
+ * lowers. Sources that spell `_tag` themselves work with that object, so they keep seeing it.
+ */
+function hideRepresentation(token: SourceToken, display: string | undefined, sourceText: string) {
+    if (!display || !/\b_values\b/.test(display) || /\b_values\b/.test(sourceText)) return undefined;
+    const shown = display
+        .replace(/\{\s*readonly _tag: "([^"]+)";(?:[^{}]|\{[^{}]*\})*\}/g, "$1")
+        .replace(/\(([A-Za-z_$][\w$]*)\)/g, "$1");
+    return { start: token.start, length: token.length, display: shown };
+}
+
+const typeLikeTokens = new Set<string>(["class", "enum", "interface", "namespace", "typeParameter", "type"]);
+
+/**
+ * Constructors of `data` and `newtype` are one kind of name wherever they appear, but much of their use is in patterns and
+ * declarations the language service never classified. A name that is also a type keeps what it was classified as there.
+ */
+function nominalSemanticTokens(request: TSPPSemanticTokensRequest): (TSPPSemanticToken | TSPPClearedSemanticToken)[] {
+    // A wildcard binds nothing, though it lowers to a parameter.
+    const keywords = request.tokens.filter(token => {
+        const word = request.sourceText.slice(token.start, token.start + token.length);
+        return word === "match" || word === "_" && request.isOwned(token.start, token.start + 1);
+    });
+    return [...keywords.map(token => ({ start: token.start, length: token.length, type: "none" as const })), ...constructorTokens(request)];
+}
+
+function constructorTokens(request: TSPPSemanticTokensRequest): TSPPSemanticToken[] {
+    const constructorsIn = (sourceText: string) => [
+        ...findDataDeclarations(sourceText).flatMap(declaration => declaration.variants.map(variant => variant.name)),
+        ...[...sourceText.matchAll(/\bnewtype\s+([A-Za-z_$][\w$]*)/g)].map(match => match[1]),
+    ];
+    const constructors = new Set(constructorsIn(request.sourceText));
+    for (const { name, importedName, sourceText } of request.imports) {
+        if (constructorsIn(sourceText).includes(importedName)) constructors.add(name);
+    }
+    if (!constructors.size) return [];
+    const typeLike = new Map(request.tokens.map(token => [token.start, typeLikeTokens.has(token.type)]));
+    const tokens: TSPPSemanticToken[] = [];
+    for (const match of request.sourceText.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`|[A-Za-z_$][\w$]*/g)) {
+        const start = match.index;
+        // Followed by arguments it is the constructor, even where a type parameter of the same name is in scope.
+        const called = /^\s*\(/.test(request.sourceText.slice(start + match[0].length, start + match[0].length + 8));
+        if (!constructors.has(match[0]) || request.sourceText[start - 1] === "." || typeLike.get(start) && !called) continue;
+        if (!called && findTypeParameterInDeclaration(request.sourceText, { start, length: match[0].length, text: match[0] })) {
+            tokens.push({ start, length: match[0].length, type: "typeParameter" });
+            continue;
+        }
+        const declaresType = /\b(?:data|newtype)\s+$/.test(request.sourceText.slice(Math.max(0, start - 16), start));
+        tokens.push({ start, length: match[0].length, type: declaresType ? "type" : "function" });
+    }
+    return tokens;
+}
+
 function findDataDeclarations(sourceText: string): readonly SourceDataDeclaration[] {
     const declarations: SourceDataDeclaration[] = [];
     const expression = /\bdata\s+([A-Za-z_$][\w$]*)(\s*<([^;=]+)>)?\s*=\s*([\s\S]*?)\s*;/g;
@@ -153,6 +215,15 @@ function findDataDeclarations(sourceText: string): readonly SourceDataDeclaratio
         });
     }
     return declarations;
+}
+
+/** A word in the body of a `data` or `newtype` that names one of its type parameters, which lowering moved to generated functions. */
+function findTypeParameterInDeclaration(sourceText: string, token: SourceToken & { readonly text: string; }): boolean {
+    for (const match of sourceText.matchAll(/\b(?:data|newtype)\s+[A-Za-z_$][\w$]*\s*<([^;=]+)>\s*=[^;]*;/g)) {
+        if (token.start < match.index || token.start >= match.index + match[0].length) continue;
+        if (splitTopLevel(match[1], ",").some(parameter => parameter.trim().split(/[\s:]/)[0] === token.text)) return true;
+    }
+    return false;
 }
 
 function findDeclarationTypeParameter(sourceText: string, token: SourceToken): SourceTypeParameter | undefined {

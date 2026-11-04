@@ -200,6 +200,7 @@ export class TSPPPluginHost {
             logger: prefixLogger(this.environment.logger, pluginId),
             languageService: {
                 registerQuickInfoProvider: provider => host.registerQuickInfoProvider(pluginId, provider),
+                registerSemanticTokensProvider: provider => host.registerSemanticTokensProvider(pluginId, provider),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

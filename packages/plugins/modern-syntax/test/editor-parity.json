@@ -1,0 +1,22 @@
+[
+  {
+    "name": "a do block holds statements",
+    "tspp": "const a = do {\n  §const b: string = f(\"s\");\n  return b;§\n};",
+    "ts": "function g() {\n  §const b: string = f(\"s\");\n  return b;§\n}"
+  },
+  {
+    "name": "code after a do block reads as code",
+    "tspp": "const a = do { 1; };\n§const b: string = f(\"s\");§",
+    "ts": "§const b: string = f(\"s\");§"
+  },
+  {
+    "name": "a plain let stays TypeScript's",
+    "tspp": "§let a: string = f(\"s\");§",
+    "ts": "§let a: string = f(\"s\");§"
+  },
+  {
+    "name": "an arrow outside plugin syntax stays TypeScript's",
+    "tspp": "§const a = (b: string) => b;§",
+    "ts": "§const a = (b: string) => b;§"
+  }
+]

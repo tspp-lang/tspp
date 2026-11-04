@@ -5,8 +5,118 @@
   "injectionSelector": "L:source.tspp",
   "patterns": [
     {
-      "match": "\\b(let|in|match|infer)\\b",
-      "name": "keyword.control.type-computation.tspp"
+      "comment": "`let name = value in body`, on one line or after an `=`, in values and in types. A plain `let` is TypeScript's.",
+      "begin": "(?<![.\\w$])(?:(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)|(?:(?<==)|(?<==\\s))(let)(?=\\s+[A-Za-z_$][\\w$]*\\s*(?::[^=\\n]*)?=))",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.let.tspp"
+        },
+        "2": {
+          "name": "keyword.control.let.tspp"
+        }
+      },
+      "end": "(?<![.\\w$])in(?![\\w$])",
+      "endCaptures": {
+        "0": {
+          "name": "keyword.control.in.tspp"
+        }
+      },
+      "patterns": [
+        {
+          "match": "(?<![.\\w$])in(?![\\w$])",
+          "name": "keyword.control.in.tspp"
+        },
+        {
+          "include": "source.ts#comment"
+        },
+        {
+          "match": "(?<![.\\w$])([A-Za-z_$][\\w$]*)\\s*(?=(?::[^=\\n]*)?=)",
+          "captures": {
+            "1": {
+              "name": "variable.other.constant.ts"
+            }
+          }
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.ts"
+        },
+        {
+          "match": ":",
+          "name": "keyword.operator.type.annotation.ts"
+        },
+        {
+          "include": "source.ts#type"
+        }
+      ]
+    },
+    {
+      "comment": "`match scrutinee { arms }`: the arms are not an object literal, and no TypeScript state may outlive them.",
+      "begin": "(?<![.\\w$])(match)(?![\\w$])(?=[^;{\\n]*\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.match.tspp"
+        }
+      },
+      "end": "(?<=\\})",
+      "patterns": [
+        {
+          "begin": "\\{",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "end": "\\}",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.ts#comment"
+            },
+            {
+              "match": "(?<![.\\w$])(?:true|false|null|undefined)(?=\\s*(?:=>|:))",
+              "name": "constant.language.ts"
+            },
+            {
+              "match": "(?<![.\\w$])(?:string|number|bigint|boolean|symbol|object|unknown|never|any|void)(?=\\s*:)",
+              "name": "support.type.primitive.ts"
+            },
+            {
+              "match": "(?<![.\\w$])([A-Za-z_$][\\w$]*)(?=\\s*(?:=>|:|\\bif\\b))",
+              "captures": {
+                "1": {
+                  "name": "variable.other.readwrite.ts"
+                }
+              }
+            },
+            {
+              "match": "=>",
+              "name": "storage.type.function.arrow.ts"
+            },
+            {
+              "match": "(?<![.\\w$])if(?![\\w$])",
+              "name": "keyword.control.conditional.ts"
+            },
+            {
+              "include": "source.ts#punctuation-comma"
+            },
+            {
+              "include": "source.ts#expression"
+            }
+          ]
+        },
+        {
+          "include": "source.ts#expression"
+        }
+      ]
+    },
+    {
+      "match": "(?:(?<=\\.\\.\\.)|(?<![.\\w$]))infer(?=\\s+[A-Za-z_$])",
+      "name": "keyword.operator.expression.infer.ts"
     },
     {
       "match": "=>>",

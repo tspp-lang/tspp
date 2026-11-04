@@ -106,8 +106,9 @@ manifest: {
 | 程序分析 | 已有 | 不可变快照 + 异步诊断 + artifact | dependent-types、formal-verification |
 | 类型层扩展 | checker 类型解析、实例化与打印（`checker.ts` 五处带标记的调用点，宿主在 `compiler/tspp/types.ts`） | 插件为类型节点给出类型、实例化并打印自己创建的类型（`registerTypeExtension`）：`resolveTypeNode` 在 `getTypeFromTypeNodeWorker` 开头先问插件；插件用宿主的 `createType` 创建归自己所有的类型，`instantiateTypeWorker` 遇到这些类型时交给插件的 `instantiateType`，节点构造器遇到时交给 `typeToTypeNode`；`isTypeParameterApplicable` 让带类型实参的引用也能指向某个类型参数（决定匿名类型需要带哪些外层类型参数实例化）。宿主（每个 checker 一个）只提供与特性无关的类型操作：解析引用名、取泛型符号的类型参数、实例化泛型别名或类与接口、创建与组合 mapper、按 mapper 实例化、检查类型实参约束、报告错误。**已实现** | type-computation |
 | Quick Info | language service | 已有 | 多个插件 |
+| 语义 token | language service | 已有 | nominal-types |
 
-代码里的标记名依次是 `source-projection`、`syntax-extension`、`diagnostics`、`interface-member-binding`、`program-rebuild`、`program-analysis`、`type-extension`、`quick-info`。
+代码里的标记名依次是 `source-projection`、`syntax-extension`、`diagnostics`、`interface-member-binding`、`program-rebuild`、`program-analysis`、`type-extension`、`quick-info`、`semantic-tokens`。
 
 产品层插槽只归宿主，没有插件注册（规则 2；阶段 3 登记）：
 

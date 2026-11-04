@@ -18,8 +18,12 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 import type {
+    TSPPClearedSemanticToken,
     TSPPLanguageServiceHostAPI,
     TSPPQuickInfoProvider,
+    TSPPSemanticToken,
+    TSPPSemanticTokenImport,
+    TSPPSemanticTokensProvider,
 } from "@tspp/plugin-sdk/language-service";
 
 import * as ts from "../_namespaces/ts.js";
@@ -55,6 +59,7 @@ const syntaxOwners = new WeakMap<object, string>();
 const syntaxClaims = new Map<string, { pluginId: string; keyword: string; position: string; }>();
 const additionalListElements = new WeakMap<Node, readonly Node[]>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
+const semanticTokensProviders = new Map<string, TSPPSemanticTokensProvider>();
 const projectedSources = new Map<string, ProjectedSource>();
 let pluginHost: TSPPPluginHost | undefined;
 
@@ -66,8 +71,16 @@ interface ProjectedSource {
     readonly conflicts: readonly { readonly start: number; readonly length: number; readonly message: string; }[];
 }
 
-/** Plugin syntax only exists in TS++ files; every other file is plain TypeScript, whatever plugins are active. */
-function isTSPPFileName(fileName: string): boolean {
+/**
+ * Plugin syntax only exists in TS++ files; every other file is plain TypeScript, whatever plugins are active.
+ *
+ * These files are also never parsed incrementally. Their text is projected before parsing and plugins synthesize nodes,
+ * while incremental parsing moves old nodes by a change range of the unprojected text. A tree patched that way has
+ * ranges out of order, which crashes the services and can make token walks like signature help loop forever.
+ *
+ * @internal
+ */
+export function isTSPPFileName(fileName: string): boolean {
     return fileName.endsWith(Extension.Tspp);
 }
 
@@ -171,12 +184,75 @@ const languageServiceAPI: TSPPLanguageServiceHostAPI = {
         quickInfoProviders.set(pluginId, provider);
         return () => quickInfoProviders.delete(pluginId);
     },
+    registerSemanticTokensProvider(pluginId, provider) {
+        if (semanticTokensProviders.has(pluginId)) {
+            throw new Error(`TSPP plugin '${pluginId}' registered more than one semantic tokens provider.`);
+        }
+        semanticTokensProviders.set(pluginId, provider);
+        return () => semanticTokensProviders.delete(pluginId);
+    },
 };
 
 /** The parser marks what it finishes as ambient; nodes a plugin builds around them are ambient too. */
 function markAmbient(node: Node): void {
     (node as { flags: NodeFlags; }).flags |= NodeFlags.Ambient;
     ts.forEachChild(node, markAmbient);
+}
+
+/** Moves a zero-width node with everything in it, which has no width either. */
+function moveEmptySyntax(node: Node, pos: number): void {
+    if (node.pos >= 0) ts.setTextRangePosEnd(node, pos, pos);
+    ts.forEachChild(node, child => moveEmptySyntax(child, pos));
+}
+
+/**
+ * Services walk a tree trusting that children lie inside their parent, but what plugins lower to rarely does: a name moves
+ * into a generated declaration, and generated nodes sit wherever they were made. So a node stays in the source the plugin
+ * parsed, grows to cover its children, and a zero-width child moves to its end, behind any real tokens. Sibling order can't be kept: lowering reorders.
+ */
+function nestSyntaxRanges(node: Node, start: number, limit: number): void {
+    let pos = node.pos < 0 ? Infinity : Math.min(Math.max(node.pos, start), limit);
+    let end = node.pos < 0 ? -Infinity : Math.min(Math.max(node.end, pos), limit);
+    const cover = (range: ts.TextRange) => {
+        if (range.pos < 0 || range.pos === range.end) return;
+        pos = Math.min(pos, range.pos);
+        end = Math.max(end, range.end);
+    };
+    ts.forEachChild(
+        node,
+        child => {
+            nestSyntaxRanges(child, start, limit);
+            cover(child);
+        },
+        children => {
+            children.forEach(child => nestSyntaxRanges(child, start, limit));
+            nestSyntaxListRange(children);
+            cover(children);
+        },
+    );
+    if (pos === Infinity) return;
+    ts.setTextRangePosEnd(node, pos, end);
+    ts.forEachChild(
+        node,
+        child => {
+            if (child.pos >= 0 && child.pos === child.end && (child.pos < pos || child.end > end)) moveEmptySyntax(child, end);
+        },
+        children => {
+            if (children.pos >= 0 && children.pos === children.end && (children.pos < pos || children.end > end)) ts.setTextRangePosEnd(children, end, end);
+            children.forEach(child => {
+                if (child.pos >= 0 && child.pos === child.end && (child.pos < pos || child.end > end)) moveEmptySyntax(child, end);
+            });
+        },
+    );
+}
+
+/** A list covers its elements: services skip a list without a range, and everything in it, when they walk tokens. */
+function nestSyntaxListRange(list: ts.NodeArray<Node>): void {
+    const positioned = list.filter(element => element.pos >= 0 && element.pos !== element.end);
+    if (!positioned.length) return;
+    const pos = Math.min(...positioned.map(element => element.pos), list.pos < 0 ? Infinity : list.pos);
+    const end = Math.max(...positioned.map(element => element.end), list.end);
+    ts.setTextRangePosEnd(list, pos, end);
 }
 
 /** Lets plugin syntax registered for `position` parse at the current token of a TS++ file, if one starts there. @internal */
@@ -193,8 +269,10 @@ export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensi
     // Which plugin parses must not depend on the order plugins were loaded in.
     if (starting.length > 1) throw new Error(`TSPP plugins ${starting.map(({ pluginId }) => `'${pluginId}'`).join(" and ")} both claim this syntax.`);
     const [{ pluginId, extension }] = starting;
+    const start = Math.min(cursor!.getNodePos(), cursor!.modifiers?.pos ?? Infinity, cursor!.precedingType?.pos ?? Infinity);
     const parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
     const [first, ...rest] = Array.isArray(parsed) ? parsed : [parsed];
+    if (typeof first !== "function") [first, ...rest].forEach(node => nestSyntaxRanges(node, start, cursor!.getNodePos()));
     if (cursor!.inAmbientContext() && typeof first !== "function") [first, ...rest].forEach(markAmbient);
     syntaxOwners.set(first, pluginId);
     if (rest.length) additionalListElements.set(first, rest);
@@ -227,7 +305,7 @@ export function annotateTSPPSyntax<T extends Node>(declaration: T, annotation: u
     return declaration;
 }
 
-/** Plugin syntax is parsed again rather than reused by incremental parsing, so it never reuses a partial result. @internal */
+/** Whether a plugin parsed this node. @internal */
 export function isTSPPSyntaxNode(node: Node): boolean {
     return syntaxOwners.has(node);
 }
@@ -522,6 +600,25 @@ export function getTSPPQuickInfo(
         if (result) return result;
     }
     return undefined;
+}
+
+/** Whether any plugin decides semantic tokens, so that gathering what providers read can be skipped. @internal */
+export function hasTSPPSemanticTokensProviders(): boolean {
+    return semanticTokensProviders.size !== 0;
+}
+
+/** What plugins replace among the semantic tokens of a TS++ file, in plugin id order. @internal */
+export function getTSPPSemanticTokens(sourceFile: SourceFile, tokens: readonly TSPPSemanticToken[], imports: readonly TSPPSemanticTokenImport[]): readonly (TSPPSemanticToken | TSPPClearedSemanticToken)[] {
+    const sourceText = getOriginalTSPPSource(sourceFile.fileName, sourceFile.text);
+    return [...semanticTokensProviders.keys()].sort().flatMap(pluginId =>
+        semanticTokensProviders.get(pluginId)!({
+            fileName: sourceFile.fileName,
+            sourceText,
+            tokens,
+            imports,
+            isOwned: (start, end) => getTSPPSyntaxOwners(sourceFile, start, end, /*includeEmptyNodes*/ false).includes(pluginId),
+        })
+    );
 }
 
 /** @internal */

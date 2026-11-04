@@ -3,20 +3,99 @@
   "injectionSelector": "L:source.tspp",
   "patterns": [
     {
-      "match": "\\b(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)",
-      "name": "keyword.control.let.tspp"
+      "comment": "A `do` block holds statements wherever it stands, where TypeScript would expect an object literal after `=`.",
+      "begin": "(?<![.\\w$])(do)\\s*(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.do.tspp"
+        },
+        "2": {
+          "name": "punctuation.definition.block.ts"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.definition.block.ts"
+        }
+      },
+      "patterns": [
+        {
+          "include": "source.ts#statements"
+        }
+      ]
     },
     {
-      "match": "\\b(do)(?=\\s*\\{)",
-      "name": "keyword.control.do.tspp"
+      "comment": "`let name = value in body`, on one line or after an `=`, in values and in types. A plain `let` is TypeScript's.",
+      "begin": "(?<![.\\w$])(?:(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)|(?:(?<==)|(?<==\\s))(let)(?=\\s+[A-Za-z_$][\\w$]*\\s*(?::[^=\\n]*)?=))",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.let.tspp"
+        },
+        "2": {
+          "name": "keyword.control.let.tspp"
+        }
+      },
+      "end": "(?<![.\\w$])in(?![\\w$])",
+      "endCaptures": {
+        "0": {
+          "name": "keyword.control.in.tspp"
+        }
+      },
+      "patterns": [
+        {
+          "match": "(?<![.\\w$])in(?![\\w$])",
+          "name": "keyword.control.in.tspp"
+        },
+        {
+          "include": "source.ts#comment"
+        },
+        {
+          "match": "(?<![.\\w$])([A-Za-z_$][\\w$]*)\\s*(?=(?::[^=\\n]*)?=)",
+          "captures": {
+            "1": {
+              "name": "variable.other.constant.ts"
+            }
+          }
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.ts"
+        },
+        {
+          "match": ":",
+          "name": "keyword.operator.type.annotation.ts"
+        },
+        {
+          "include": "source.ts#type"
+        }
+      ]
     },
     {
-      "match": "\\b(use)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*<-)" ,
+      "match": "\\b(use)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*<-)",
       "name": "keyword.control.use.tspp"
     },
     {
-      "match": "\\b(def)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{))",
-      "name": "storage.type.def.tspp"
+      "comment": "`def name = value`. After `export`, TypeScript would read `name =` as an export assignment.",
+      "begin": "(?<![.\\w$])(def)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.def.tspp"
+        }
+      },
+      "end": "(?=;)|^(?=\\s*[^\\s.,?:+\\-*/|&=<>])",
+      "patterns": [
+        {
+          "include": "source.ts#comment"
+        },
+        {
+          "match": "=",
+          "name": "keyword.operator.assignment.ts"
+        },
+        {
+          "include": "source.ts#expression"
+        }
+      ]
     }
   ]
 }
