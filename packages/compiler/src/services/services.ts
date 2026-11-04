@@ -358,10 +358,7 @@ import {
 import * as classifier from "./classifier.js";
 import * as classifier2020 from "./classifier2020.js";
 import { addTSPPQuickInfo } from "./tspp/quickInfo.js"; // TSPP-SLOT(quick-info)
-import {
-    addTSPPSemanticTokens,
-    createTSPPChildren,
-} from "./tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
+import * as tsppSyntax from "./tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
 
 /** The version of the language service API */
 export const servicesVersion = "0.8";
@@ -466,7 +463,7 @@ class NodeObject<TKind extends SyntaxKind> implements Node {
 
     public getChildren(sourceFile: SourceFileLike = getSourceFileOfNode(this)): readonly Node[] {
         this.assertHasRealPosition("Node without a real position cannot be scanned and thus has no token nodes - use forEachChild and collect the result if that's fine");
-        return getNodeChildren(this, sourceFile) ?? setNodeChildren(this, sourceFile, createTSPPChildren(this, sourceFile, createNode) ?? createChildren(this, sourceFile)); // TSPP-SLOT(syntax-extension)
+        return getNodeChildren(this, sourceFile) ?? setNodeChildren(this, sourceFile, tsppSyntax.createTSPPChildren(this, sourceFile, createNode) ?? createChildren(this, sourceFile)); // TSPP-SLOT(syntax-extension)
     }
 
     public getFirstToken(sourceFile?: SourceFileLike): Node | undefined {
@@ -3408,7 +3405,7 @@ export function createLanguageService(
         getSyntacticClassifications,
         getSemanticClassifications,
         getEncodedSyntacticClassifications,
-        getEncodedSemanticClassifications: (fileName: string, span: TextSpan, format?: SemanticClassificationFormat) => addTSPPSemanticTokens(fileName, program, getEncodedSemanticClassifications(fileName, span, format), format), // TSPP-SLOT(semantic-tokens)
+        getEncodedSemanticClassifications: (fileName: string, span: TextSpan, format?: SemanticClassificationFormat) => tsppSyntax.addTSPPSemanticTokens(fileName, program, getEncodedSemanticClassifications(fileName, span, format), format), // TSPP-SLOT(semantic-tokens)
         getCompletionsAtPosition,
         getCompletionEntryDetails,
         getCompletionEntrySymbol,
