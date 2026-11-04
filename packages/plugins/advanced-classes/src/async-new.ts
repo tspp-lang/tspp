@@ -12,7 +12,7 @@ export function createAsyncNewSyntax(ts: TSPPTypeScript): {
 
     const preprocessor: TSPPSourcePreprocessor = {
         id: "async-constructor-preprocessor",
-        claims: [{ keyword: "async", position: "declaration" }],
+        claims: [],
         preprocess(fileName, sourceText) {
             // Find `async constructor(` inside class bodies
             const pattern = /\b(async)\s+(constructor)\s*\(/g;

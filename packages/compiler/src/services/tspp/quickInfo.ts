@@ -1,11 +1,14 @@
 import {
     displayPartsToString,
     getContainerNode,
+    getRegisteredTSPPSyntaxClaims,
     getTouchingPropertyName,
     getTSPPQuickInfo,
     hasTSPPQuickInfoProviders,
     ScriptElementKind,
     ScriptElementKindModifier,
+    stringToToken,
+    SyntaxKind,
 } from "../_namespaces/ts.js";
 import type {
     CancellationToken,
@@ -16,49 +19,14 @@ import type {
 } from "../_namespaces/ts.js";
 
 function tokenizeDisplayParts(display: string): { text: string; kind: string; }[] {
-    const keywords = new Set([
-        "class",
-        "abstract",
-        "final",
-        "sealed",
-        "data",
-        "object",
-        "field",
-        "with",
-        "export",
-        "default",
-        "extends",
-        "implements",
-        "constructor",
-        "return",
-        "string",
-        "number",
-        "boolean",
-        "void",
-        "unknown",
-        "any",
-        "never",
-        "readonly",
-        "static",
-        "public",
-        "private",
-        "protected",
-        "override",
-        "async",
-        "const",
-        "let",
-        "var",
-        "function",
-        "interface",
-        "type",
-        "typeof",
-        "keyof",
-        "in",
-        "as",
-        "new",
-    ]);
+    const claimKeywords = new Set(getRegisteredTSPPSyntaxClaims?.()?.map(c => c.keyword) ?? []);
+    const isKeyword = (text: string) => {
+        if (claimKeywords.has(text) || text === "constructor") return true;
+        const tok = stringToToken(text);
+        return tok !== undefined && tok >= SyntaxKind.FirstKeyword && tok <= SyntaxKind.LastKeyword;
+    };
     const parts: { text: string; kind: string; }[] = [];
-    const regex = /\s+|[(){}[\]:;,.<>=?]|[a-z_$][\w$]*|"[^"]*"|'[^']*'|[^\s(){}[\]:;,.<>=?a-z_$"\\']+/gi;
+    const regex = /\s+|[(){}[\]:;,.<>=?]|[a-z_$][\w$]*|"[^"]*"|'[^']*'|[^\s(){}[\]:;,.<>=?a-z_$"']+/gi;
     let match: RegExpExecArray | undefined;
     let prev = "";
     while ((match = regex.exec(display) ?? undefined) !== undefined) {
@@ -70,7 +38,7 @@ function tokenizeDisplayParts(display: string): { text: string; kind: string; }[
             parts.push({ text, kind: "punctuation" });
             prev = text;
         }
-        else if (keywords.has(text)) {
+        else if (isKeyword(text)) {
             parts.push({ text, kind: "keyword" });
             prev = text;
         }

@@ -98,6 +98,12 @@ export function parseClassBodyMembers(
                 seenMemberModifiers.set("async", modStart);
                 cursor.nextToken();
             } else if (text === "final") {
+                const isModifier = cursor.lookAhead(() => {
+                    cursor.nextToken();
+                    const next = cursor.token();
+                    return next === kinds.Identifier || next === kinds.StringLiteral || next === kinds.NumericLiteral;
+                });
+                if (!isModifier) break;
                 if (seenMemberModifiers.has("final")) {
                     recordModifierError(fileName, modStart, modLen, "Duplicate 'final' modifier.");
                 }
@@ -105,6 +111,12 @@ export function parseClassBodyMembers(
                 seenMemberModifiers.set("final", modStart);
                 cursor.nextToken();
             } else if (text === "field") {
+                const isModifier = cursor.lookAhead(() => {
+                    cursor.nextToken();
+                    const next = cursor.token();
+                    return next === kinds.Identifier || next === kinds.StringLiteral || next === kinds.NumericLiteral;
+                });
+                if (!isModifier) break;
                 if (seenMemberModifiers.has("field")) {
                     recordModifierError(fileName, modStart, modLen, "Duplicate 'field' modifier.");
                 }

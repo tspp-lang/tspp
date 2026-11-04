@@ -44,7 +44,7 @@ export function createWithSyntax(ts: TSPPTypeScript): {
             patch = cursor.parseAssignmentExpression();
         }
 
-        const endPos = cursor.getNodePos();
+        const after = cursor.getTokenStart();
 
         // Lowers to: target.copy(patch)
         const targetExpr = ts.isIdentifier(target) ? target : f.createParenthesizedExpression(target);
@@ -54,16 +54,54 @@ export function createWithSyntax(ts: TSPPTypeScript): {
                 f.createIdentifier("copy"),
             ),
             startPos,
-            endPos,
+            after,
         );
         const callCopy = range(
             f.createCallExpression(copyAccess, undefined, f.createNodeArray([patch])),
             startPos,
-            endPos,
+            after,
         );
 
+        let currentExpr: TS.Expression = callCopy;
+        while (true) {
+            if (cursor.token() === kinds.DotToken) {
+                cursor.nextToken();
+                const prop = cursor.parseIdentifier();
+                currentExpr = range(
+                    f.createPropertyAccessExpression(currentExpr, prop),
+                    startPos,
+                    cursor.getNodePos(),
+                );
+            } else if (cursor.token() === kinds.OpenBracketToken) {
+                cursor.nextToken();
+                const elem = cursor.parseAssignmentExpression();
+                cursor.parseExpected(kinds.CloseBracketToken);
+                currentExpr = range(
+                    f.createElementAccessExpression(currentExpr, elem),
+                    startPos,
+                    cursor.getNodePos(),
+                );
+            } else if (cursor.token() === kinds.OpenParenToken) {
+                cursor.nextToken();
+                const args: TS.Expression[] = [];
+                while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
+                    args.push(cursor.parseAssignmentExpression());
+                    if (cursor.token() === kinds.CommaToken) cursor.nextToken();
+                    else break;
+                }
+                cursor.parseExpected(kinds.CloseParenToken);
+                currentExpr = range(
+                    f.createCallExpression(currentExpr, undefined, f.createNodeArray(args)),
+                    startPos,
+                    cursor.getNodePos(),
+                );
+            } else {
+                break;
+            }
+        }
+
         withExpressions.add(callCopy);
-        return markGenerated(ts, callCopy, startPos);
+        return markGenerated(ts, currentExpr, startPos);
     }
 
     const extension: TSPPSyntaxExtension = {

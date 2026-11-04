@@ -94,7 +94,14 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
                 cursor.nextToken();
                 let depth = 1;
                 while (depth > 0 && cursor.token() !== kinds.EndOfFileToken) {
-                    if (depth >= 1 && (cursor.tokenText() === "field" || cursor.tokenText() === "final")) {
+                    if (depth === 1 && (cursor.tokenText() === "field" || cursor.tokenText() === "final")) {
+                        const isModifier = cursor.lookAhead(() => {
+                            cursor.nextToken();
+                            const next = cursor.token();
+                            return next === kinds.Identifier || next === kinds.StringLiteral || next === kinds.NumericLiteral;
+                        });
+                        if (isModifier) return true;
+                    } else if (depth > 1 && cursor.tokenText() === "field") {
                         return true;
                     }
                     if (cursor.token() === kinds.OpenBraceToken) depth++;
@@ -515,7 +522,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
     const extension: TSPPSyntaxExtension = {
         position: "declaration",
         startTokens: [kinds.Identifier, kinds.ClassKeyword, kinds.AbstractKeyword],
-        keywords: ["final", "sealed", "data", "class"],
+        keywords: ["final", "sealed"],
         isStart: isAdvancedClassStart,
         parse: parseAdvancedClass,
         restoreDeclaration: node => authoredDeclarations.get(node),

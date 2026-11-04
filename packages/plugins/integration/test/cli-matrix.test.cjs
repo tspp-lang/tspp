@@ -24,6 +24,12 @@ const macro = `macro function named([target], context) {
  * and optionally a declaration that macros must be able to target, written with its syntax.
  */
 const features = {
+  "advanced-classes": {
+    code: "object Config { val: number = 42; }\nexport const advanced = Config.val;",
+    expected: { advanced: 42 },
+    bad: "final class Base {}\nclass Sub extends Base {}",
+    message: /Cannot inherit from final class 'Base'/,
+  },
   "formal-verification": {
     code: "export function proved(v: bigint) with { requires: v >= 0n; ensures: result >= 0n; }: bigint { return v; }\nexport const fv = 1;",
     expected: { fv: 1 },

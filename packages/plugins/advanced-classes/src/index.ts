@@ -52,12 +52,12 @@ function parseAdvancedClassesFromSource(sourceText: string): { classes: Map<stri
     const objects = new Map<string, ParsedObject>();
 
     // Parse classes
-    const classRegex = /(?:(export\s+)?(default\s+)?)?(?:(final|sealed|data)\s+)?(?:(abstract)\s+)?(?:(final|sealed|data)\s+)?class\s+([A-Za-z_$][\w$]*)(?:<[^>]*>)?(?:\s*\(([^)]*)\))?/g;
+    const classRegex = /(?:(export\s+)?(default\s+)?)?((?:[a-z]+\s+)*)class\s+([A-Za-z_$][\w$]*)(?:<[^>]*>)?(?:\s*\(([^)]*)\))?/g;
     let match: RegExpExecArray | null;
     while ((match = classRegex.exec(clean)) !== null) {
-        const rawMods = [match[3], match[4], match[5]].filter(Boolean);
-        const className = match[6];
-        const primaryParams = match[7];
+        const rawMods = match[3] ? match[3].split(/\s+/).filter(Boolean) : [];
+        const className = match[4];
+        const primaryParams = match[5];
         const cls: ParsedClass = {
             name: className,
             isFinal: rawMods.includes("final"),
@@ -95,9 +95,9 @@ function parseAdvancedClassesFromSource(sourceText: string): { classes: Map<stri
     }
 
     // Parse members inside braces
-    const declBlockRegex = /(?:(final|sealed|data|abstract)\s+)*(?:class|object)\s+([A-Za-z_$][\w$]*)[^{;]*\{/g;
+    const declBlockRegex = /(?:[a-z]+\s+)*(?:class|object)\s+([A-Za-z_$][\w$]*)[^{;]*\{/g;
     while ((match = declBlockRegex.exec(clean)) !== null) {
-        const declName = match[2];
+        const declName = match[1];
         const openBrace = declBlockRegex.lastIndex - 1;
         let depth = 1;
         let i = openBrace + 1;
@@ -155,11 +155,8 @@ export const advancedClassesPlugin = definePlugin({
                 { keyword: "object", position: "declaration" },
                 { keyword: "final", position: "declaration" },
                 { keyword: "sealed", position: "declaration" },
-                { keyword: "data", position: "declaration" },
-                { keyword: "class", position: "declaration" },
                 { keyword: "field", position: "primary-expression" },
                 { keyword: "with", position: "expression" },
-                { keyword: "async", position: "declaration" },
             ],
         },
     },
@@ -217,41 +214,52 @@ export const advancedClassesPlugin = definePlugin({
 
                     // 1.5. Hover on parameter of set accessor inside field property: set(v)
                     const cleanText = stripComments(request.sourceText);
-                    const setParamRegex = new RegExp(`\\bfield\\s+([A-Za-z_$][\\w$]*)\\s*(?::\\s*([^={;]+))?[^{]*\\{[\\s\\S]*?\\bset\\s*\\(\\s*${token.text}\\s*(?::\\s*([^)]+))?\\s*\\)`, "g");
-                    let spMatch: RegExpExecArray | null;
-                    while ((spMatch = setParamRegex.exec(cleanText)) !== null) {
-                        const setIndex = spMatch[0].lastIndexOf("set");
-                        const fullSetStart = spMatch.index + setIndex;
-                        let depth = 0;
-                        let bodyEnd = -1;
-                        for (let j = fullSetStart; j < cleanText.length; j++) {
-                            if (cleanText[j] === "{") depth++;
-                            else if (cleanText[j] === "}") {
-                                depth--;
-                                if (depth === 0) {
-                                    bodyEnd = j;
-                                    break;
+                    if (/^[A-Za-z_$][\w$]*$/.test(token.text) && cleanText.includes("field") && cleanText.includes("set")) {
+                        const escapedToken = token.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+                        const setParamRegex = new RegExp(String.raw`\bfield\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^={;]+))?[^{]*\{[\s\S]*?\bset\s*\(\s*${escapedToken}\s*(?::\s*([^)]+))?\s*\)`, "g");
+                        let spMatch: RegExpExecArray | null;
+                        while ((spMatch = setParamRegex.exec(cleanText)) !== null) {
+                            const setIndex = spMatch[0].lastIndexOf("set");
+                            const fullSetStart = spMatch.index + setIndex;
+                            let depth = 0;
+                            let bodyEnd = -1;
+                            for (let j = fullSetStart; j < cleanText.length; j++) {
+                                if (cleanText[j] === "{") depth++;
+                                else if (cleanText[j] === "}") {
+                                    depth--;
+                                    if (depth === 0) {
+                                        bodyEnd = j;
+                                        break;
+                                    }
                                 }
                             }
-                        }
-                        if (token.start >= fullSetStart && (bodyEnd === -1 || token.start <= bodyEnd)) {
-                            const fieldType = spMatch[3]?.trim() || spMatch[2]?.trim() || "any";
-                            return {
-                                start: token.start,
-                                length: token.length,
-                                display: `(parameter) ${token.text}: ${fieldType}`,
-                            };
+                            if (token.start >= fullSetStart && (bodyEnd === -1 || token.start <= bodyEnd)) {
+                                const fieldType = spMatch[3]?.trim() || spMatch[2]?.trim() || "any";
+                                return {
+                                    start: token.start,
+                                    length: token.length,
+                                    display: `(parameter) ${token.text}: ${fieldType}`,
+                                };
+                            }
                         }
                     }
 
                     // 2. Hover on other TS++ keywords: object, final, sealed, data, with
                     if (keywordDocs[token.text]) {
+                        if (token.text === "data") {
+                            const afterToken = request.sourceText.slice(token.start);
+                            if (!/^\bdata\s+class\b/.test(afterToken)) return undefined;
+                        }
                         return {
                             start: token.start,
                             length: token.length,
                             display: `(TS++ keyword) ${token.text}`,
                             documentation: keywordDocs[token.text],
                         };
+                    }
+
+                    if (!cleanText.includes("class") && !cleanText.includes("object")) {
+                        return undefined;
                     }
 
                     const { classes, objects } = parseAdvancedClassesFromSource(request.sourceText);

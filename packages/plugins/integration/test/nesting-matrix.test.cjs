@@ -25,6 +25,20 @@ const contract = "with { ensures: result >= v; }";
 
 // Expressions offered here evaluate to 3, and types offered here accept 3 and refuse a string.
 const features = {
+  "advanced-classes": {
+    scopes: true,
+    offers: {
+      expression: [{
+        prelude: "data class DataVal(a: number);\nconst dBox = new DataVal(1);",
+        code: "(with(dBox, { a: 3 }).a)",
+      }],
+    },
+    holds: {
+      expression: [{
+        wrap: code => `data class Holder(a: number);\nconst hBox = new Holder(0);\nexport const value = with(hBox, { a: ${code} }).a;`,
+      }],
+    },
+  },
   "formal-verification": {
     scopes: true,
     offers: {

@@ -773,6 +773,9 @@ importers:
 
   packages/plugins/integration:
     devDependencies:
+      '@tspp/plugin-advanced-classes':
+        specifier: workspace:*
+        version: link:../advanced-classes
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:../formal-verification
