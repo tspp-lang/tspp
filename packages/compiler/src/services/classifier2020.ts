@@ -136,7 +136,7 @@ function collectTokens(program: Program, sourceFile: SourceFile, span: TextSpan,
                 cancellationToken.throwIfCancellationRequested();
         }
 
-        if (!node || node.pos < 0 || node.end < 0 || !textSpanIntersectsWith(span, node.pos, node.end - node.pos) || (node.end - node.pos) === 0) {
+        if (!node || !textSpanIntersectsWith(span, node.pos, node.getFullWidth()) || node.getFullWidth() === 0) {
             return;
         }
         const prevInJSXElement = inJSXElement;
