@@ -1,0 +1,121 @@
+{
+  "scopeName": "tspp.advanced-classes.injection",
+  "injectionSelector": "L:source.tspp",
+  "patterns": [
+    {
+      "comment": "data class Name(params) — full primary-constructor declaration up to end of line or semicolon or body",
+      "begin": "(?<![.\\w$])(data)(?![\\w$])\\s+(class)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)",
+      "beginCaptures": {
+        "1": { "name": "storage.modifier.data.tspp" },
+        "2": { "name": "storage.type.class.ts" },
+        "3": { "name": "entity.name.type.class.ts" }
+      },
+      "end": "(?=$|;|\\{)",
+      "name": "meta.declaration.class.data.tspp",
+      "patterns": [
+        {
+          "begin": "(\\()",
+          "beginCaptures": {
+            "1": { "name": "punctuation.definition.parameters.begin.ts" }
+          },
+          "end": "(\\))",
+          "endCaptures": {
+            "1": { "name": "punctuation.definition.parameters.end.ts" }
+          },
+          "patterns": [
+            {
+              "match": "\\b(val|var|readonly)\\b",
+              "name": "storage.modifier.ts"
+            },
+            {
+              "match": "([A-Za-z_$][\\w$]*)\\s*(?=[:,)]|$)",
+              "captures": {
+                "1": { "name": "variable.parameter.ts" }
+              }
+            },
+            { "include": "source.ts#type-annotation" },
+            { "include": "source.ts#punctuation-comma" },
+            { "include": "source.ts" }
+          ]
+        }
+      ]
+    },
+    {
+      "comment": "object Name { ... } — singleton object declaration and body",
+      "begin": "(?<![.\\w$])(object)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)(?:\\s+(?:extends|implements)\\s+[^{]+)?\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "storage.type.class.object.tspp" },
+        "2": { "name": "entity.name.type.class.object.tspp" },
+        "3": { "name": "punctuation.definition.block.ts" }
+      },
+      "end": "(\\})",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.block.ts" }
+      },
+      "name": "meta.declaration.object.tspp",
+      "patterns": [
+        {
+          "match": "\\b(public|private|protected|readonly|static|override|abstract|final|async)\\b",
+          "name": "storage.modifier.ts"
+        },
+        {
+          "match": "\\bfield\\b(?=\\s+[A-Za-z_$][\\w$]*)",
+          "name": "storage.modifier.field.tspp"
+        },
+        {
+          "match": "\\bfield\\b",
+          "name": "variable.language.this.field.tspp"
+        },
+        {
+          "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=\\()",
+          "captures": {
+            "1": { "name": "entity.name.function.ts" }
+          }
+        },
+        {
+          "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=:)",
+          "captures": {
+            "1": { "name": "variable.object.property.ts" }
+          }
+        },
+        { "include": "source.ts" }
+      ]
+    },
+    {
+      "comment": "object Name header without same-line brace",
+      "match": "(?<![.\\w$])(object)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)",
+      "captures": {
+        "1": { "name": "storage.type.class.object.tspp" },
+        "2": { "name": "entity.name.type.class.object.tspp" }
+      }
+    },
+    {
+      "match": "(?<![.\\w$])object(?![\\w$])(?=\\s+[A-Za-z_$][\\w$]*|$|\\))",
+      "name": "storage.type.class.object.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])final(?![\\w$])(?=\\s+(?:class|abstract|data|sealed|public|private|protected|static|readonly|override|async|field|[A-Za-z_$][\\w$]*)|$|\\))",
+      "name": "storage.modifier.final.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])sealed(?![\\w$])(?=\\s+(?:class|abstract|data|final|[A-Za-z_$][\\w$]*)|$|\\))",
+      "name": "storage.modifier.sealed.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])data(?![\\w$])(?=\\s+(?:class|abstract|final|sealed\\b)|$|\\))",
+      "name": "storage.modifier.data.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])with(?![\\w$])(?=\\s*\\()",
+      "name": "keyword.control.with.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])field(?![\\w$])(?=\\s+[A-Za-z_$][\\w$]*)",
+      "name": "storage.modifier.field.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])field(?![\\w$])(?!\\s*:)",
+      "name": "variable.language.this.field.tspp"
+    }
+  ]
+}

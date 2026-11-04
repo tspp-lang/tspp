@@ -11,7 +11,7 @@ function commandInvocation(command, args) {
   if (process.platform !== "win32") return { command, args };
   return {
     command: process.env.ComSpec ?? "cmd.exe",
-    args: ["/d", "/s", "/c", `${command}.cmd`, ...args],
+    args: ["/d", "/s", "/c", command, ...args],
   };
 }
 

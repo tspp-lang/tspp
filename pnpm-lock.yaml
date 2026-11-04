@@ -166,6 +166,9 @@ importers:
 
   .:
     devDependencies:
+      '@tspp/plugin-advanced-classes':
+        specifier: workspace:*
+        version: link:packages/plugins/advanced-classes
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:packages/plugins/formal-verification
@@ -494,6 +497,18 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
+  packages/examples/12-advanced-classes:
+    devDependencies:
+      '@tspp/plugin-advanced-classes':
+        specifier: workspace:*
+        version: link:../../plugins/advanced-classes
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/language-server:
     devDependencies:
       '@eslint/js':
@@ -613,6 +628,9 @@ importers:
 
   packages/playground:
     dependencies:
+      '@tspp/plugin-advanced-classes':
+        specifier: workspace:*
+        version: link:../plugins/advanced-classes
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:../plugins/formal-verification
@@ -693,6 +711,31 @@ importers:
       typescript-eslint:
         specifier: ^8.70.0
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
+
+  packages/plugins/advanced-classes:
+    dependencies:
+      '@tspp/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../plugin-sdk
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      globals:
+        specifier: ^17.12.0
+        version: 17.13.0
+      rimraf:
+        specifier: ^6.1.3
+        version: 6.1.3
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      typescript-eslint:
+        specifier: ^8.70.0
+        version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
+      typescript-upstream:
+        specifier: npm:typescript@6.0.3
+        version: typescript@6.0.3
 
   packages/plugins/formal-verification:
     dependencies:
@@ -907,6 +950,9 @@ importers:
 
   packages/vscode-extension:
     dependencies:
+      '@tspp/plugin-advanced-classes':
+        specifier: workspace:*
+        version: link:../plugins/advanced-classes
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
         version: link:../plugins/formal-verification

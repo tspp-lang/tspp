@@ -28,6 +28,8 @@ output published by `03-nominal-types` across a package boundary.
 | `08-static-interface-members` | static and instance contracts together |
 | `09-typescript-interop` | dual declarations and the one-way source boundary |
 | `10-macros` | synchronous, asynchronous, recursive, and bounded macros |
+| `11-operator-sections` | leading, trailing, binary, and element sections |
+| `12-advanced-classes` | object declarations, field properties, data/sealed/final classes, with copy, and async constructors |
 
 Examples migrated from the pre-plugin implementation are adapted to use the
 smallest useful capsule set. They are not allowed to rely on a repository-wide

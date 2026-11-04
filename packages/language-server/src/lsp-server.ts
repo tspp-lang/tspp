@@ -736,7 +736,8 @@ export class LspServer {
         const contents = new MarkdownString();
         const { displayString, documentation, tags } = result;
         if (displayString) {
-            contents.appendCodeblock('typescript', displayString);
+            const lang = document.filepath.endsWith('.tspp') ? 'tspp' : 'typescript';
+            contents.appendCodeblock(lang, displayString);
         }
         Previewer.addMarkdownDocumentation(contents, documentation, tags, this.tsClient);
         return {

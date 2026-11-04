@@ -4,6 +4,9 @@
   "scopeName": "source.tspp",
   "patterns": [
     {
+      "include": "source.tspp.plugins"
+    },
+    {
       "include": "source.ts"
     }
   ]
