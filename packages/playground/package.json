@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tspp/plugin-advanced-classes": "workspace:*",
+    "@tspp/plugin-algebraic-effects": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",
     "@tspp/plugin-modern-syntax": "workspace:*",

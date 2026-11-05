@@ -1,0 +1,19 @@
+{
+  "name": "TS++ Algebraic Effects",
+  "scopeName": "tspp.plugin.algebraic-effects",
+  "injectionSelector": "L:source.tspp -comment -string",
+  "patterns": [
+    {
+      "name": "keyword.declaration.effect.tspp",
+      "match": "(?<![._$[:alnum:]])effect(?=\\s+[_$[:alpha:]])"
+    },
+    {
+      "name": "keyword.control.effect.tspp",
+      "match": "(?<![._$[:alnum:]])(perform|handle)(?=\\s+[_$[:alpha:]])"
+    },
+    {
+      "name": "storage.modifier.effect.tspp",
+      "match": "(?<![._$[:alnum:]])(suspend|control)(?=\\s+[_$[:alpha:]][_$[:alnum:]]*\\s*[(<])"
+    }
+  ]
+}

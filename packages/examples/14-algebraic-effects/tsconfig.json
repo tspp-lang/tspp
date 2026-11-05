@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "plugins": [{ "name": "@tspp/plugin-algebraic-effects", "tspp": true }]
+  },
+  "include": ["src/**/*.tspp"]
+}
+

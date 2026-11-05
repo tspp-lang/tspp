@@ -120,6 +120,25 @@ const features = {
       }],
     },
   },
+  "algebraic-effects": {
+    reaches: [
+      { prelude: "effect Reach { touch(): void; }", wrap: hole => `handle Reach { touch() {} } in { ${hole} }` },
+    ],
+    offers: {
+      expression: [{
+        prelude: "effect Give { three(): number; }",
+        code: "handle Give { three: () => 3 } in { perform Give.three() }",
+      }],
+      statement: [{ code: "effect Local { touch(): void; }" }],
+    },
+    holds: {
+      expression: [
+        { wrap: code => `effect Hold { hold(): any; }\nhandle Hold { hold: () => 0 } in { perform Hold.hold(); };\nexport const value = handle Hold { hold: () => ${code} } in { perform Hold.hold() };` },
+        { wrap: code => `effect Held { hold(v: any): any; }\nexport const value = handle Held { hold: v => v } in { perform Held.hold(${code}) };` },
+      ],
+      statement: [{ wrap: code => `effect Hold { hold(): void; }\nexport const value = handle Hold { hold() {} } in { ${code} 3; };` }],
+    },
+  },
   typeclasses: {
     scopes: true,
     offers: {

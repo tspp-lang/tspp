@@ -85,16 +85,22 @@ export interface FunctionClause {
     readonly close: number;
 }
 
-/** The token before another plugin's `word <...>` clause ending at `close`, which may stand between parameters and `with`. */
+/**
+ * The `)` before another plugin's clause ending at `close`, which may stand between parameters and `with`; `close` when
+ * what comes before it cannot be a clause. A clause holds words and balanced brackets, after a word or token of its own.
+ */
 function beforeFunctionClause(code: string, close: number): number {
     let depth = 0;
     for (let index = close; index >= 0; index--) {
-        if (code[index] === ">" && code[index - 1] !== "=") depth++;
-        else if (code[index] === "<" && --depth === 0) {
-            const word = previousToken(code, index);
-            let start = word;
-            while (start > 0 && /[\w$]/.test(code[start - 1])) start--;
-            return /[\w$]/.test(code[word]) ? previousToken(code, start) : close;
+        const character = code[index];
+        if (character === ">" && code[index - 1] === "=") continue;
+        if (character === ">" || character === "}" || character === "]") depth++;
+        else if (character === "<" || character === "{" || character === "[") {
+            if (depth-- === 0) return close;
+        }
+        else if (depth === 0) {
+            if (character === ")") return index;
+            if (character === ":" || character === ";" || character === "=" || character === "(") return close;
         }
     }
     return close;
@@ -106,7 +112,7 @@ function beforeFunctionClause(code: string, close: number): number {
  */
 function functionOfClause(code: string, withStart: number): Omit<FunctionClause, "clauseStart" | "open" | "close"> | undefined {
     let parametersEnd = previousToken(code, withStart);
-    if (code[parametersEnd] === ">") parametersEnd = beforeFunctionClause(code, parametersEnd);
+    if (code[parametersEnd] !== ")") parametersEnd = beforeFunctionClause(code, parametersEnd);
     if (code[parametersEnd] !== ")") return undefined;
     const parametersStart = matchingOpen(code, parametersEnd, "(", ")");
     if (parametersStart < 0) return undefined;

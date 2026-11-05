@@ -281,6 +281,9 @@ export function createTypeclassEmit(ts: TSPPTypeScript, syntax: TypeclassSyntax,
         },
     };
 
+    /** The classes this plugin has written, whose members other plugins' syntax may still answer for as they print. */
+    const writtenClasses = new WeakSet<TS.Node>();
+
     /** A declaration as compatible output writes it, with its dictionaries as parameters; undefined when it stays as it is. */
     const compatibleNode = (node: TS.Node): TS.Node | undefined => {
         const source = ts.getOriginalNode(node);
@@ -315,7 +318,9 @@ export function createTypeclassEmit(ts: TSPPTypeScript, syntax: TypeclassSyntax,
             if (!changed) return undefined;
             const derived = node.heritageClauses?.some(heritage => heritage.token === ts.SyntaxKind.ExtendsKeyword);
             if (!found && dictionaries.length) members.unshift(f.createConstructorDeclaration(undefined, [...dictionaries, ...derived ? [parameter("args", f.createArrayTypeNode(f.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)), /*rest*/ true)] : []], undefined));
-            return f.createClassDeclaration(node.modifiers, node.name, node.typeParameters, node.heritageClauses, members);
+            const compatible = f.createClassDeclaration(node.modifiers, node.name, node.typeParameters, node.heritageClauses, members);
+            writtenClasses.add(compatible);
+            return compatible;
         }
         if (!ts.isFunctionDeclaration(node) && !ts.isMethodDeclaration(node) && !ts.isMethodSignature(node) && !ts.isFunctionTypeNode(node) && !ts.isConstructorTypeNode(node)) return undefined;
 
@@ -338,9 +343,10 @@ export function createTypeclassEmit(ts: TSPPTypeScript, syntax: TypeclassSyntax,
     const restoreCompatibility = (node: TS.Node) => {
         const source = ts.getOriginalNode(node);
         if (syntax.inherent.has(source) || syntax.helpers.has(source)) return "";
+        if (writtenClasses.has(node)) return undefined;
         const compatible = compatibleNode(node);
         if (!compatible) return undefined;
-        return ts.createPrinter({ removeComments: true, tsppCompatibilityDeclaration: true } as TS.PrinterOptions).printNode(ts.EmitHint.Unspecified, compatible, sourceFileOf(source));
+        return ts.createPrinter({ removeComments: true, tsppCompatibilityDeclaration: true, tsppNestedDeclaration: ts.isClassDeclaration(compatible) } as TS.PrinterOptions).printNode(ts.EmitHint.Unspecified, compatible, sourceFileOf(source));
     };
 
     return { rebuilder, restoreCompatibility };

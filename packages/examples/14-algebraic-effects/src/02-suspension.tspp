@@ -1,0 +1,71 @@
+// Operations marked `suspend` hand their handler the continuation `k`, which it resumes once,
+// now or later. Code that may suspend is written in direct style: no `async`, no `await`.
+
+effect Clock {
+    suspend sleep(ms: number): void;
+    now(): number;
+}
+
+effect Http {
+    suspend get<T>(url: string, fallback: T): T;
+}
+
+// A function whose clause lists an effect with suspending operations compiles to a
+// generator, and its calls to `yield*`. Everything else stays plain JavaScript.
+function load(id: number) / { Clock, Http }: string {
+    perform Clock.sleep(10);
+    const user = perform Http.get(`/users/${id}`, { name: `user ${id}` });
+    return `${user.name} at ${perform Clock.now()}`;
+}
+
+function loadAll(ids: number[]) / { Clock, Http }: string[] {
+    const names: string[] = [];
+    // A callback cannot suspend, so a loop delegates to each call.
+    for (const id of ids) names.push(load(id));
+    return names;
+}
+
+let started = 0;
+
+// A `handle` with `control` clauses runs its body and promises its value.
+const loaded: Promise<string[]> = handle Clock {
+    control sleep(ms, k) {
+        setTimeout(() => k.resume(), ms);
+    },
+    now: () => started += 1,
+} in handle Http {
+    control get(url, fallback, k) {
+        // A real handler would fetch here, and abort on failure.
+        queueMicrotask(() => k.resume(fallback));
+    },
+} in {
+    loadAll([1, 2, 3]);
+};
+
+loaded.then(names => console.log(names));
+
+// Aborting throws where the operation was performed, so the body can catch it and retry.
+effect Flaky {
+    suspend attempt(): string;
+}
+
+function withRetry() / Flaky: string {
+    try {
+        return perform Flaky.attempt();
+    }
+    catch (error) {
+        return `retried after: ${(error as Error).message}`;
+    }
+}
+
+let failures = 1;
+const retried = handle Flaky {
+    control attempt(k) {
+        if (failures-- > 0) k.abort(new Error("timeout"));
+        else k.resume("ok");
+    },
+} in {
+    withRetry();
+};
+
+retried.then(result => console.log(result));
