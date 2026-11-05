@@ -27,7 +27,6 @@ export interface OutputController {
 export function createOutputController(client: LanguageClient, enabledFeatures: () => readonly string[]): OutputController {
   const editorColumn = element("editor-column");
   const outputTabs = element("output-tabs");
-  const outputItems = element<HTMLSelectElement>("output-items");
   const outputStatus = element("outputs-status");
   const outputEmpty = element("output-empty");
   const runButton = element<HTMLButtonElement>("run-javascript");
@@ -74,45 +73,41 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   function renderTabs(loading?: OutputCategory): void {
     for (const definition of categories) {
       const button = categoryButtons.get(definition.id)!;
-      const count = loaded.get(definition.id)?.items.length ?? 0;
+      const count = outputsForActiveFile(loaded.get(definition.id)?.items ?? [], definition.id).length;
       button.disabled = loading !== undefined;
       button.classList.toggle("active", definition.id === category);
       button.textContent = `${definition.label}${count > 1 ? ` (${count})` : ""}`;
     }
   }
 
-  function renderItems(preferredId?: string): void {
-    const items = itemsForCategory();
-    outputItems.replaceChildren(...items.map(item => new Option(item.label, item.id)));
-    outputItems.disabled = items.length < 2;
-    outputItems.hidden = items.length === 0;
-    showItem(items.find(item => item.id === preferredId) ?? outputForActiveFile(items) ?? items[0]);
+  function renderItems(): void {
+    showItems(outputsForActiveFile(itemsForCategory()));
     renderTabs();
   }
 
-  function showItem(item: OutputItem | undefined): void {
-    current = item;
+  function showItems(items: readonly OutputItem[]): void {
+    current = items.length === 1 ? items[0] : undefined;
     outputModel?.dispose();
     outputModel = undefined;
     artifactEditor.setModel(null);
     outputEmpty.classList.remove("loading");
-    outputEmpty.hidden = !!item;
-    if (!item) {
+    outputEmpty.hidden = items.length > 0;
+    if (!items.length) {
       const label = categories.find(definition => definition.id === category)?.label;
       outputEmpty.textContent = loaded.has(category)
-        ? "This artifact is not produced by the enabled features."
+        ? `No ${label} output was produced for ${fileName.replace(/^.*\//, "")}.`
         : `Select ${label} to generate or refresh it.`;
       return;
     }
-    outputItems.value = item.id;
-    const language = item.language === "plaintext" ? "plaintext" : languageId;
-    outputModel = monaco.editor.createModel(item.content, language);
+    const language = items.every(item => item.language === items[0].language) && items[0].language !== "plaintext" ? languageId : "plaintext";
+    const content = items.length === 1
+      ? items[0].content
+      : items.map(item => `// ── ${item.label} ──\n${item.content}`).join("\n\n");
+    outputModel = monaco.editor.createModel(content, language);
     artifactEditor.setModel(outputModel);
   }
 
-  outputItems.onchange = () => showItem(itemsForCategory().find(item => item.id === outputItems.value));
-
-  async function loadCategory(nextCategory: OutputCategory, preferredId?: string): Promise<void> {
+  async function loadCategory(nextCategory: OutputCategory): Promise<void> {
     category = nextCategory;
     const cached = loaded.get(nextCategory);
     if (cached) {
@@ -132,7 +127,6 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     outputModel?.dispose();
     outputModel = undefined;
     artifactEditor.setModel(null);
-    outputItems.hidden = true;
     outputEmpty.hidden = false;
     outputEmpty.classList.add("loading");
     const label = definition.label;
@@ -143,10 +137,10 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       const snapshot = await client.outputs(fileName, nextCategory);
       if (generation !== requestGeneration) return;
       loaded.set(nextCategory, snapshot);
-      renderItems(preferredId);
+      renderItems();
       outputStatus.textContent = snapshot.diagnostics.some(item => item.category === "error")
         ? "Generated with errors"
-        : snapshot.items.length ? "Up to date" : "Not produced";
+        : outputsForActiveFile(snapshot.items, nextCategory).length ? "Up to date" : "Not produced";
       updateRunButton();
     }
     catch (error) {
@@ -189,9 +183,8 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   /** Generates what is on show, or being generated, again. Nothing the user has not asked for since the last edit. */
   function refresh(): void {
     if (!loaded.has(category) && !outputEmpty.classList.contains("loading")) return;
-    const shown = current?.id;
     loaded.clear();
-    void loadCategory(category, shown);
+    void loadCategory(category);
   }
 
   function markStale(): void {
@@ -223,10 +216,18 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     runOutput.scrollTop = runOutput.scrollHeight;
   }
 
-  function outputForActiveFile(items: readonly OutputItem[], outputCategory = category): OutputItem | undefined {
+  function outputsForActiveFile(items: readonly OutputItem[], outputCategory = category): readonly OutputItem[] {
     const suffix = outputCategory === "javascript" ? ".js" : outputCategory === "dts" ? ".d.ts" : outputCategory === "dtspp" ? ".d.tspp" : undefined;
     const expected = suffix && fileName.replace(/^\//, "").replace(/\.(?:tspp|ts)$/, suffix);
-    return items.find(item => item.fileName === fileName || expected && item.label.replace(/^\//, "") === expected);
+    const exact = items.filter(item => item.fileName === fileName || expected && item.label.replace(/^\//, "") === expected);
+    if (exact.length || !suffix) return exact;
+    const expectedBase = fileName.replace(/^.*\//, "").replace(/\.(?:tspp|ts)$/, suffix);
+    const byBaseName = items.filter(item => !item.fileName && item.label.replace(/^.*\//, "") === expectedBase);
+    return byBaseName.length === 1 ? byBaseName : [];
+  }
+
+  function outputForActiveFile(items: readonly OutputItem[], outputCategory = category): OutputItem | undefined {
+    return outputsForActiveFile(items, outputCategory)[0];
   }
 
   async function runJavaScript(): Promise<void> {

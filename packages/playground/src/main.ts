@@ -10,6 +10,7 @@ import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeState, encodeState, type SharedState } from "./share";
 import { languageId, registerTsppLanguage } from "./tsppLanguage";
+import { renderEditorTabs, setupHorizontalResizer } from "./workspaceUi";
 
 self.MonacoEnvironment = {
   getWorker: () => new Worker(new URL("./editorWorker.ts", import.meta.url), { type: "module" }),
@@ -91,6 +92,7 @@ bootOverlay.hidden = true;
 const models = new Map<string, monaco.editor.ITextModel>();
 const resources = new Map<string, string>();
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
+let openFiles: string[] = [];
 const directories = new Set<string>();
 const expandedDirectories = new Set<string>();
 const selected = new Set<string>();
@@ -133,6 +135,7 @@ function loadProject(state: SharedState) {
   models.clear();
   resources.clear();
   viewStates.clear();
+  openFiles = [];
   directories.clear();
   expandedDirectories.clear();
   const stateFiles = state.files["/tsconfig.json"]
@@ -149,6 +152,7 @@ function loadProject(state: SharedState) {
   state.directories?.map(normalizedPath).filter(path => path !== "/").forEach(path => directories.add(path));
   directories.forEach(path => expandedDirectories.add(path));
   selectedProjectItem = state.active;
+  openFiles = [...new Set([...(state.open ?? []), state.active])].filter(path => models.has(path));
   applyConfiguration(true);
   outputs.markStale();
   renderTabs();
@@ -159,29 +163,44 @@ function loadProject(state: SharedState) {
 function openFile(path: string, refreshOutput = false) {
   const model = models.get(path);
   if (!model) return;
+  if (!openFiles.includes(path)) openFiles.push(path);
   if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
   active = path;
   outputs.setFile(path, refreshOutput, isSourceFile(path));
   editor.setModel(model);
   const viewState = viewStates.get(path);
   if (viewState) editor.restoreViewState(viewState);
-  for (const tab of Array.from(tabBar.children)) tab.classList.toggle("active", (tab as HTMLElement).dataset.path === path);
+  renderTabs();
   selectedProjectItem = path;
   renderProjectTree();
   scheduleCheck();
 }
 
 function renderTabs() {
-  tabBar.hidden = models.size < 2;
-  tabBar.replaceChildren(...[...models.keys()].map(path => {
-    const tab = document.createElement("button");
-    tab.type = "button";
-    tab.className = "tab";
-    tab.dataset.path = path;
-    tab.textContent = path.slice(1);
-    tab.onclick = () => openFile(path);
-    return tab;
-  }));
+  renderEditorTabs(tabBar, openFiles.filter(path => models.has(path)), active, openFile, closeFile);
+}
+
+function closeFile(path: string): void {
+  const index = openFiles.indexOf(path);
+  if (index < 0) return;
+  openFiles.splice(index, 1);
+  if (active !== path) {
+    renderTabs();
+    scheduleCheck();
+    return;
+  }
+  const next = openFiles[Math.min(index, openFiles.length - 1)];
+  if (next) {
+    openFile(next);
+    return;
+  }
+  if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
+  active = "";
+  editor.setModel(null);
+  outputs.setFile("", true, false);
+  renderTabs();
+  renderProjectTree();
+  scheduleCheck();
 }
 
 function renderProjectTree(): void {
@@ -305,6 +324,7 @@ function renameSelectedItem(): void {
     for (const path of movedExpanded) expandedDirectories.delete(path);
     movedExpanded.forEach(path => expandedDirectories.add(replacePathPrefix(path, oldPath, nextPath)));
     if (active.startsWith(`${oldPath}/`)) active = replacePathPrefix(active, oldPath, nextPath);
+    openFiles = openFiles.map(path => path.startsWith(`${oldPath}/`) ? replacePathPrefix(path, oldPath, nextPath) : path);
   }
   else if (models.has(oldPath)) {
     const oldModel = models.get(oldPath)!;
@@ -316,6 +336,7 @@ function renameSelectedItem(): void {
     if (viewState) viewStates.set(nextPath, viewState);
     viewStates.delete(oldPath);
     if (active === oldPath) active = nextPath;
+    openFiles = openFiles.map(path => path === oldPath ? nextPath : path);
   }
   else {
     const text = resources.get(oldPath)!;
@@ -348,6 +369,7 @@ function deleteSelectedProjectItem(): void {
     models.delete(file);
     viewStates.delete(file);
   }
+  openFiles = openFiles.filter(file => !affectedModels.includes(file));
   for (const file of [...resources.keys()]) {
     if (file === path || directory && file.startsWith(`${path}/`)) resources.delete(file);
   }
@@ -375,29 +397,7 @@ element<HTMLButtonElement>("collapse-tree").onclick = () => {
 element<HTMLButtonElement>("collapse-project").onclick = () => editorColumn.classList.add("project-collapsed");
 element<HTMLButtonElement>("expand-project").onclick = () => editorColumn.classList.remove("project-collapsed");
 
-const projectResizer = element("project-resizer");
-projectResizer.onpointerdown = event => {
-  projectResizer.setPointerCapture(event.pointerId);
-  projectResizer.classList.add("dragging");
-};
-projectResizer.onpointermove = event => {
-  if (!projectResizer.hasPointerCapture(event.pointerId)) return;
-  const left = element("source-workspace").getBoundingClientRect().left;
-  const width = Math.max(160, Math.min(360, event.clientX - left));
-  element("source-workspace").style.setProperty("--project-width", `${width}px`);
-};
-projectResizer.onpointerup = event => {
-  projectResizer.releasePointerCapture(event.pointerId);
-  projectResizer.classList.remove("dragging");
-};
-projectResizer.onkeydown = event => {
-  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-  const workspace = element("source-workspace");
-  const current = Number.parseFloat(getComputedStyle(workspace).getPropertyValue("--project-width")) || 220;
-  const next = Math.max(160, Math.min(360, current + (event.key === "ArrowLeft" ? -10 : 10)));
-  workspace.style.setProperty("--project-width", `${next}px`);
-  event.preventDefault();
-};
+setupHorizontalResizer(element("project-resizer"), element("source-workspace"));
 
 // go to definition across files switches tabs
 monaco.editor.registerEditorOpener({
@@ -468,6 +468,7 @@ function scheduleCheck() {
     files: projectFiles(),
     features: [...selected],
     active,
+    open: openFiles,
     directories: [...directories].sort(),
   }));
   shareLink.hidden = true;

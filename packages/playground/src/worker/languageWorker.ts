@@ -286,14 +286,16 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
   const items: OutputItem[] = [];
   let diagnostics: readonly ts.Diagnostic[] = [];
   if (requested === "javascript" || requested === "dts" || requested === "dtspp") {
-    const emit = program.emit(undefined, (outputName, content) => {
+    const emit = program.emit(undefined, (outputName, content, _bom, _onError, sourceFiles) => {
       const type = outputCategory(outputName);
       if (!type || type.category !== requested) return;
+      const sourceFile = sourceFiles?.find(source => /\.(?:tspp|ts)$/.test(source.fileName) && !source.isDeclarationFile);
       items.push({
         id: `${type.category}:${outputName}`,
         ...type,
         label: outputName.replace(/^\//, ""),
         content,
+        fileName: sourceFile?.fileName,
       });
     });
     // whole-program diagnostics only tell whether emitted files may be wrong
