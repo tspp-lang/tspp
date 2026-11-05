@@ -327,9 +327,9 @@ function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemant
 function authoredQuickInfo(token: { readonly start: number; readonly length: number; readonly text: string; }, display: string | undefined, sourceText: string) {
     const shown = (text: string) => ({ start: token.start, length: token.length, display: text });
     if (display && /\b_?_tspp_/.test(display)) return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(/ in <[\s\S]*$/, ""));
-    if (display?.startsWith(`type ${token.text}`) && /\bextends\b/.test(display)) {
-        const declaration = new RegExp(`\\btype\\s+${escapeRegExp(token.text)}\\b[^\\n]*?=\\s*(?:match|let)\\b[^\\n]*`).exec(sourceText);
-        if (declaration) return shown(declaration[0].trimEnd());
+    if (display?.startsWith(`type ${token.text}`)) {
+        const declaration = new RegExp(`(\\btype\\s+${escapeRegExp(token.text)}\\b[^\\n]*?)\\s*=\\s*(?:match|let)\\b`).exec(sourceText);
+        if (declaration) return shown(declaration[1].trimEnd());
     }
     return undefined;
 }

@@ -5,20 +5,23 @@
   "injectionSelector": "L:source.tspp -comment -string, L:meta.template.expression -comment -string.quoted",
   "patterns": [
     {
-      "comment": "data class Name(params) — full primary-constructor declaration up to end of line or semicolon or body",
-      "begin": "(?<![.\\w$])(data)(?![\\w$])\\s+(class)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)",
+      "comment": "data class Name(params) [extends/implements] — full primary-constructor declaration and optional body",
+      "begin": "(?<![.\\w$])(?:(final|sealed)\\s+)?(data)(?![\\w$])\\s+(class)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)",
       "beginCaptures": {
         "1": {
-          "name": "storage.modifier.data.tspp"
+          "name": "storage.modifier.ts"
         },
         "2": {
-          "name": "storage.type.class.ts"
+          "name": "storage.modifier.data.tspp"
         },
         "3": {
+          "name": "storage.type.class.ts"
+        },
+        "4": {
           "name": "entity.name.type.class.ts"
         }
       },
-      "end": "(?=$|;|\\{)",
+      "end": "(?<=\\})|(?=[;\\n]|$)",
       "name": "meta.declaration.class.data.tspp",
       "patterns": [
         {
@@ -57,58 +60,57 @@
               "include": "source.ts"
             }
           ]
-        }
-      ]
-    },
-    {
-      "comment": "object Name { ... } — singleton object declaration and body",
-      "begin": "(?<![.\\w$])(object)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)(?:\\s+(?:extends|implements)\\s+[^{]+)?\\s*(\\{)",
-      "beginCaptures": {
-        "1": {
-          "name": "storage.type.class.object.tspp"
         },
-        "2": {
-          "name": "entity.name.type.class.object.tspp"
-        },
-        "3": {
-          "name": "punctuation.definition.block.ts"
-        }
-      },
-      "end": "(\\})",
-      "endCaptures": {
-        "1": {
-          "name": "punctuation.definition.block.ts"
-        }
-      },
-      "name": "meta.declaration.object.tspp",
-      "patterns": [
         {
-          "match": "\\b(public|private|protected|readonly|static|override|abstract|final|async)\\b",
+          "match": "\\b(extends|implements)\\b",
           "name": "storage.modifier.ts"
         },
         {
-          "match": "\\bfield\\b(?=\\s+[A-Za-z_$][\\w$]*)",
-          "name": "storage.modifier.field.tspp"
-        },
-        {
-          "match": "\\bfield\\b",
-          "name": "variable.language.this.field.tspp"
-        },
-        {
-          "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=\\()",
-          "captures": {
+          "begin": "(\\{)",
+          "beginCaptures": {
             "1": {
-              "name": "entity.name.function.ts"
+              "name": "punctuation.definition.block.ts"
             }
-          }
-        },
-        {
-          "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=:)",
-          "captures": {
+          },
+          "end": "(\\})",
+          "endCaptures": {
             "1": {
-              "name": "variable.object.property.ts"
+              "name": "punctuation.definition.block.ts"
             }
-          }
+          },
+          "patterns": [
+            {
+              "match": "\\b(public|private|protected|readonly|static|override|abstract|final|async)\\b",
+              "name": "storage.modifier.ts"
+            },
+            {
+              "match": "\\bfield\\b(?=\\s+[A-Za-z_$][\\w$]*)",
+              "name": "storage.modifier.field.tspp"
+            },
+            {
+              "match": "\\bfield\\b",
+              "name": "variable.language.this.field.tspp"
+            },
+            {
+              "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.ts"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=:)",
+              "captures": {
+                "1": {
+                  "name": "variable.object.property.ts"
+                }
+              }
+            },
+            {
+              "include": "source.ts"
+            }
+          ]
         },
         {
           "include": "source.ts"
@@ -116,16 +118,74 @@
       ]
     },
     {
-      "comment": "object Name header without same-line brace",
-      "match": "(?<![.\\w$])(object)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)",
-      "captures": {
+      "comment": "object Name [extends/implements] { ... } — singleton object declaration and body",
+      "begin": "(?<![.\\w$])(object)(?![\\w$])\\s+([A-Za-z_$][\\w$]*)",
+      "beginCaptures": {
         "1": {
           "name": "storage.type.class.object.tspp"
         },
         "2": {
           "name": "entity.name.type.class.object.tspp"
         }
-      }
+      },
+      "end": "(?<=\\})|(?=[;\\n]|$)",
+      "name": "meta.declaration.object.tspp",
+      "patterns": [
+        {
+          "match": "\\b(extends|implements)\\b",
+          "name": "storage.modifier.ts"
+        },
+        {
+          "begin": "(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "end": "(\\})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.block.ts"
+            }
+          },
+          "patterns": [
+            {
+              "match": "\\b(public|private|protected|readonly|static|override|abstract|final|async)\\b",
+              "name": "storage.modifier.ts"
+            },
+            {
+              "match": "\\bfield\\b(?=\\s+[A-Za-z_$][\\w$]*)",
+              "name": "storage.modifier.field.tspp"
+            },
+            {
+              "match": "\\bfield\\b",
+              "name": "variable.language.this.field.tspp"
+            },
+            {
+              "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=\\()",
+              "captures": {
+                "1": {
+                  "name": "entity.name.function.ts"
+                }
+              }
+            },
+            {
+              "match": "\\b([A-Za-z_$][\\w$]*)\\s*(?=:)",
+              "captures": {
+                "1": {
+                  "name": "variable.object.property.ts"
+                }
+              }
+            },
+            {
+              "include": "source.ts"
+            }
+          ]
+        },
+        {
+          "include": "source.ts"
+        }
+      ]
     },
     {
       "match": "(?<![.\\w$])object(?![\\w$])(?=\\s+[A-Za-z_$][\\w$]*|$|\\))",
@@ -154,6 +214,10 @@
     {
       "match": "(?<![.\\w$])field(?![\\w$])(?!\\s*:)",
       "name": "variable.language.this.field.tspp"
+    },
+    {
+      "match": "(?<![.\\w$])(extends|implements)(?![\\w$])",
+      "name": "storage.modifier.ts"
     },
     {
       "match": "\\b(assert|assume)(?=\\s*:)",

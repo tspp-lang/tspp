@@ -34,6 +34,12 @@ test("highlights keywords with modifier combinations", () => {
   assertScoped(grammars, "final data class Point(x: number, y: number);", "data");
   assertScoped(grammars, "final data class Point(x: number, y: number);", "final");
   assertScoped(grammars, "class Counter { field count = 0 { get() { return field; } } }", "field");
+  assertScoped(grammars, "object Loading extends NetworkResult { }", "extends");
+  assertScoped(grammars, "object Loading implements IResult { }", "implements");
+  assertScoped(grammars, "data class Success(msg: string) extends NetworkResult;", "extends");
+  assertScoped(grammars, "data class Success(msg: string) implements IResult;", "implements");
+  assertScoped(grammars, "sealed class Shape extends Base implements IShape {}", "extends");
+  assertScoped(grammars, "sealed class Shape extends Base implements IShape {}", "implements");
 });
 
 test("leaves angle-bracket classification to TypeScript", () => assertLeavesAngleBracketsToTypeScript(grammars));

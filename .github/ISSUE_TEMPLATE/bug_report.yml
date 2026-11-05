@@ -40,8 +40,3 @@ body:
       label: Expected behavior
     validations:
       required: true
-  - type: textarea
-    id: upstream
-    attributes:
-      label: Upstream TypeScript comparison
-      description: Explain whether the same input behaves differently under upstream `tsc`.

@@ -71,7 +71,7 @@ export function createFieldSyntax(ts: TSPPTypeScript): {
 
         // Lower directly to: this.__field_name (without 'as any', preserving strict types)
         const thisExpr = range(f.createThis(), startPos, endPos);
-        const backingIdent = range(f.createIdentifier(backingPropName), startPos, endPos);
+        const backingIdent = f.createIdentifier(backingPropName);
         const fieldAccess = range(
             f.createPropertyAccessExpression(
                 thisExpr,

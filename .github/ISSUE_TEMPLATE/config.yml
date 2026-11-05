@@ -3,6 +3,4 @@ contact_links:
   - name: TS++ support guide
     about: Read the support and reporting guidance before filing an issue.
     url: https://github.com/tspp-lang/tspp/blob/master/SUPPORT.md
-  - name: Upstream TypeScript issues
-    about: Report behavior that belongs to unmodified TypeScript upstream.
-    url: https://github.com/microsoft/TypeScript/issues
+
