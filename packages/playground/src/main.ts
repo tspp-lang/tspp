@@ -3,6 +3,7 @@ import { startLanguageWorker } from "./client";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import * as monaco from "./monaco";
 import { createOutputController } from "./outputs";
+import { baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree } from "./projectTree";
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeState, encodeState, type SharedState } from "./share";
@@ -24,7 +25,11 @@ if (__TSPP_BUILD_COMMIT__) {
 const exampleSelect = element<HTMLSelectElement>("examples");
 const shareButton = element<HTMLButtonElement>("share");
 const shareLink = element<HTMLInputElement>("share-link");
+const editorColumn = element("editor-column");
 const tabBar = element("tabs");
+const projectTree = element("project-tree");
+const renameProjectItem = element<HTMLButtonElement>("rename-project-item");
+const deleteProjectItem = element<HTMLButtonElement>("delete-project-item");
 const featureList = element("features");
 const problemList = element("problems");
 const problemCount = element("problem-count");
@@ -83,8 +88,11 @@ bootOverlay.hidden = true;
 const models = new Map<string, monaco.editor.ITextModel>();
 const resources = new Map<string, string>();
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
+const directories = new Set<string>();
+const expandedDirectories = new Set<string>();
 const selected = new Set<string>();
 let active = "";
+let selectedProjectItem = "";
 
 const currentFeatures = () => effectiveFeatures(definitions, selected);
 const isEditorFile = (path: string) => /\.(tspp|ts)$/.test(path);
@@ -93,30 +101,45 @@ const projectFiles = (): ProjectFiles => Object.fromEntries([
   ...[...models].map(([path, model]) => [path, model.getValue()] as const),
 ]);
 
+function addParentDirectories(path: string, target = directories): void {
+  for (let parent = parentDirectory(path); parent !== "/"; parent = parentDirectory(parent)) target.add(parent);
+}
+
+function createSourceModel(path: string, text: string): monaco.editor.ITextModel {
+  const model = monaco.editor.createModel(text, languageId, monaco.Uri.file(path));
+  model.onDidChangeContent(() => {
+    void client.editFile(path, model.getValue());
+    outputs.markStale();
+    scheduleCheck();
+  });
+  return model;
+}
+
 function loadProject(state: SharedState) {
   for (const model of models.values()) model.dispose();
   models.clear();
   resources.clear();
   viewStates.clear();
+  directories.clear();
+  expandedDirectories.clear();
   for (const [path, text] of Object.entries(state.files)) {
+    addParentDirectories(path);
     if (!isEditorFile(path)) {
       resources.set(path, text);
       continue;
     }
-    const model = monaco.editor.createModel(text, /\.(tspp|ts)$/.test(path) ? languageId : "plaintext", monaco.Uri.file(path));
-    model.onDidChangeContent(() => {
-      void client.editFile(path, model.getValue());
-      outputs.markStale();
-      scheduleCheck();
-    });
-    models.set(path, model);
+    models.set(path, createSourceModel(path, text));
   }
+  state.directories?.map(normalizedPath).filter(path => path !== "/").forEach(path => directories.add(path));
+  directories.forEach(path => expandedDirectories.add(path));
   selected.clear();
   state.features.forEach(name => selected.add(name));
+  selectedProjectItem = state.active;
   refreshFeatures();
   void client.setProject(projectFiles(), currentFeatures());
   outputs.markStale();
   renderTabs();
+  renderProjectTree();
   openFile(state.active, true);
 }
 
@@ -130,6 +153,8 @@ function openFile(path: string, refreshOutput = false) {
   const viewState = viewStates.get(path);
   if (viewState) editor.restoreViewState(viewState);
   for (const tab of Array.from(tabBar.children)) tab.classList.toggle("active", (tab as HTMLElement).dataset.path === path);
+  selectedProjectItem = path;
+  renderProjectTree();
   scheduleCheck();
 }
 
@@ -145,6 +170,220 @@ function renderTabs() {
     return tab;
   }));
 }
+
+function renderProjectTree(): void {
+  const files = new Map([
+    ...[...models.keys()].map(path => [path, true] as const),
+    ...[...resources.keys()].map(path => [path, false] as const),
+  ]);
+  const hasSelection = renderTree(projectTree, {
+    directories,
+    expandedDirectories,
+    files,
+    active,
+    selected: selectedProjectItem,
+  }, (path, directory) => {
+    selectedProjectItem = path;
+    if (directory) {
+      if (expandedDirectories.has(path)) expandedDirectories.delete(path);
+      else expandedDirectories.add(path);
+      renderProjectTree();
+    }
+    else if (models.has(path)) openFile(path);
+    else renderProjectTree();
+  });
+  renameProjectItem.disabled = !hasSelection;
+  deleteProjectItem.disabled = !hasSelection;
+}
+
+function selectedDirectory(): string {
+  if (directories.has(selectedProjectItem)) return selectedProjectItem;
+  if (models.has(selectedProjectItem) || resources.has(selectedProjectItem)) return parentDirectory(selectedProjectItem);
+  return directories.has("/src") ? "/src" : "/";
+}
+
+function validItemName(value: string | null): string | undefined {
+  const name = value?.trim();
+  return name && name !== "." && name !== ".." && !/[\\/]/.test(name) ? name : undefined;
+}
+
+function projectPathExists(path: string): boolean {
+  return directories.has(path) || models.has(path) || resources.has(path);
+}
+
+function syncProjectChange(nextActive = active): void {
+  void client.setProject(projectFiles(), currentFeatures());
+  outputs.markStale();
+  renderTabs();
+  renderProjectTree();
+  openFile(models.has(nextActive) ? nextActive : models.keys().next().value!, true);
+}
+
+function createFile(): void {
+  const name = validItemName(prompt("New source file name", "untitled.tspp"));
+  if (!name) return;
+  if (!isEditorFile(name)) {
+    alert("Source files must end in .tspp or .ts.");
+    return;
+  }
+  const path = normalizedPath(`${selectedDirectory()}/${name}`);
+  if (projectPathExists(path)) {
+    alert(`${path} already exists.`);
+    return;
+  }
+  addParentDirectories(path);
+  models.set(path, createSourceModel(path, ""));
+  selectedProjectItem = path;
+  active = path;
+  syncProjectChange(path);
+  editor.focus();
+}
+
+function createFolder(): void {
+  const name = validItemName(prompt("New folder name", "folder"));
+  if (!name) return;
+  const path = normalizedPath(`${selectedDirectory()}/${name}`);
+  if (projectPathExists(path)) {
+    alert(`${path} already exists.`);
+    return;
+  }
+  directories.add(path);
+  expandedDirectories.add(path);
+  selectedProjectItem = path;
+  renderProjectTree();
+  scheduleCheck();
+}
+
+function replacePrefix(path: string, oldPrefix: string, nextPrefix: string): string {
+  return path === oldPrefix ? nextPrefix : nextPrefix + path.slice(oldPrefix.length);
+}
+
+function renameSelectedItem(): void {
+  const oldPath = selectedProjectItem;
+  if (!projectPathExists(oldPath)) return;
+  const directory = directories.has(oldPath);
+  const name = validItemName(prompt(`Rename ${baseName(oldPath)}`, baseName(oldPath)));
+  if (!name || name === baseName(oldPath)) return;
+  if (!directory && models.has(oldPath) && !isEditorFile(name)) {
+    alert("Source files must end in .tspp or .ts.");
+    return;
+  }
+  const nextPath = normalizedPath(`${parentDirectory(oldPath)}/${name}`);
+  if (projectPathExists(nextPath)) {
+    alert(`${nextPath} already exists.`);
+    return;
+  }
+  if (directory) {
+    const movedModels = [...models].filter(([path]) => path.startsWith(`${oldPath}/`));
+    const movedResources = [...resources].filter(([path]) => path.startsWith(`${oldPath}/`));
+    for (const [path, model] of movedModels) {
+      const movedPath = replacePrefix(path, oldPath, nextPath);
+      const text = model.getValue();
+      model.dispose();
+      models.delete(path);
+      models.set(movedPath, createSourceModel(movedPath, text));
+      const viewState = viewStates.get(path);
+      if (viewState) viewStates.set(movedPath, viewState);
+      viewStates.delete(path);
+    }
+    for (const [path, text] of movedResources) {
+      resources.delete(path);
+      resources.set(replacePrefix(path, oldPath, nextPath), text);
+    }
+    const movedDirectories = [...directories].filter(path => path === oldPath || path.startsWith(`${oldPath}/`));
+    for (const path of movedDirectories) directories.delete(path);
+    movedDirectories.forEach(path => directories.add(replacePrefix(path, oldPath, nextPath)));
+    const movedExpanded = [...expandedDirectories].filter(path => path === oldPath || path.startsWith(`${oldPath}/`));
+    for (const path of movedExpanded) expandedDirectories.delete(path);
+    movedExpanded.forEach(path => expandedDirectories.add(replacePrefix(path, oldPath, nextPath)));
+    if (active.startsWith(`${oldPath}/`)) active = replacePrefix(active, oldPath, nextPath);
+  }
+  else if (models.has(oldPath)) {
+    const oldModel = models.get(oldPath)!;
+    const text = oldModel.getValue();
+    oldModel.dispose();
+    models.delete(oldPath);
+    models.set(nextPath, createSourceModel(nextPath, text));
+    const viewState = viewStates.get(oldPath);
+    if (viewState) viewStates.set(nextPath, viewState);
+    viewStates.delete(oldPath);
+    if (active === oldPath) active = nextPath;
+  }
+  else {
+    const text = resources.get(oldPath)!;
+    resources.delete(oldPath);
+    resources.set(nextPath, text);
+  }
+  addParentDirectories(nextPath);
+  selectedProjectItem = nextPath;
+  syncProjectChange(active);
+}
+
+function deleteSelectedProjectItem(): void {
+  const path = selectedProjectItem;
+  if (!projectPathExists(path)) return;
+  const directory = directories.has(path);
+  const affectedSources = [...models.keys()].filter(file => file === path || directory && file.startsWith(`${path}/`));
+  if (models.size - affectedSources.length < 1) {
+    alert("A playground project must keep at least one source file.");
+    return;
+  }
+  if (!confirm(`Delete ${directory ? "folder" : "file"} ${baseName(path)}${directory ? " and its contents" : ""}?`)) return;
+  for (const file of affectedSources) {
+    models.get(file)?.dispose();
+    models.delete(file);
+    viewStates.delete(file);
+  }
+  for (const file of [...resources.keys()]) {
+    if (file === path || directory && file.startsWith(`${path}/`)) resources.delete(file);
+  }
+  if (directory) {
+    for (const candidate of [...directories]) {
+      if (candidate === path || candidate.startsWith(`${path}/`)) directories.delete(candidate);
+    }
+    for (const candidate of [...expandedDirectories]) {
+      if (candidate === path || candidate.startsWith(`${path}/`)) expandedDirectories.delete(candidate);
+    }
+  }
+  selectedProjectItem = parentDirectory(path);
+  if (!directories.has(selectedProjectItem)) selectedProjectItem = "";
+  syncProjectChange(models.has(active) ? active : models.keys().next().value!);
+}
+
+element<HTMLButtonElement>("new-file").onclick = createFile;
+element<HTMLButtonElement>("new-folder").onclick = createFolder;
+renameProjectItem.onclick = renameSelectedItem;
+deleteProjectItem.onclick = deleteSelectedProjectItem;
+element<HTMLButtonElement>("collapse-tree").onclick = () => {
+  expandedDirectories.clear();
+  renderProjectTree();
+};
+element<HTMLButtonElement>("collapse-project").onclick = () => editorColumn.classList.add("project-collapsed");
+element<HTMLButtonElement>("expand-project").onclick = () => editorColumn.classList.remove("project-collapsed");
+
+const projectResizer = element("project-resizer");
+projectResizer.onpointerdown = event => {
+  projectResizer.setPointerCapture(event.pointerId);
+  projectResizer.classList.add("dragging");
+};
+projectResizer.onpointermove = event => {
+  if (!projectResizer.hasPointerCapture(event.pointerId)) return;
+  const left = element("source-workspace").getBoundingClientRect().left;
+  const width = Math.max(160, Math.min(360, event.clientX - left));
+  element("source-workspace").style.setProperty("--project-width", `${width}px`);
+};
+projectResizer.onpointerup = event => {
+  projectResizer.releasePointerCapture(event.pointerId);
+  projectResizer.classList.remove("dragging");
+};
+projectResizer.onkeydown = event => {
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  const workspace = element("source-workspace");
+  const current = Number.parseFloat(getComputedStyle(workspace).getPropertyValue("--project-width")) || 220;
+  const next = Math.max(160, Math.min(360, current + (event.key === "ArrowLeft" ? -10 : 10)));
+  workspace.style.setProperty("--project-width", `${next}px`);
+  event.preventDefault();
+};
 
 // go to definition across files switches tabs
 monaco.editor.registerEditorOpener({
@@ -208,7 +447,12 @@ function requestCheck(delay: number) {
 /** Type checks the open file after a pause, and keeps the share link in the URL current. */
 function scheduleCheck() {
   requestCheck(300);
-  history.replaceState(null, "", "#" + encodeState({ files: projectFiles(), features: [...selected], active }));
+  history.replaceState(null, "", "#" + encodeState({
+    files: projectFiles(),
+    features: [...selected],
+    active,
+    directories: [...directories].sort(),
+  }));
   shareLink.hidden = true;
   syncExampleSelect();
 }

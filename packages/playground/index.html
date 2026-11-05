@@ -34,9 +34,29 @@
       </div>
       <div id="editor-column">
         <div id="editor-workspace">
-          <div id="source-pane">
-            <nav id="tabs" hidden></nav>
-            <div id="editor"></div>
+          <div id="source-workspace">
+            <section id="project-pane" aria-label="Project files">
+              <div class="project-header">
+                <h2>Project</h2>
+                <div class="project-actions">
+                  <button id="new-file" class="tree-action" type="button" aria-label="New file" title="New file"><span class="codicon codicon-new-file"></span></button>
+                  <button id="new-folder" class="tree-action" type="button" aria-label="New folder" title="New folder"><span class="codicon codicon-new-folder"></span></button>
+                  <button id="rename-project-item" class="tree-action" type="button" aria-label="Rename selected item" title="Rename" disabled><span class="codicon codicon-edit"></span></button>
+                  <button id="delete-project-item" class="tree-action" type="button" aria-label="Delete selected item" title="Delete" disabled><span class="codicon codicon-trash"></span></button>
+                  <button id="collapse-tree" class="tree-action" type="button" aria-label="Collapse folders" title="Collapse folders"><span class="codicon codicon-collapse-all"></span></button>
+                  <button id="collapse-project" class="tree-action" type="button" aria-label="Collapse project explorer" title="Collapse project explorer"><span class="codicon codicon-chevron-left"></span></button>
+                </div>
+              </div>
+              <div id="project-tree" role="tree" aria-label="Project files"></div>
+              <div id="project-resizer" role="separator" aria-orientation="vertical" aria-label="Resize project explorer" tabindex="0"></div>
+            </section>
+            <button id="expand-project" class="collapsed-project-button" type="button" aria-label="Expand project explorer" title="Expand project explorer">
+              <span class="codicon codicon-files"></span><span>Project</span>
+            </button>
+            <div id="source-pane">
+              <nav id="tabs" hidden></nav>
+              <div id="editor"></div>
+            </div>
           </div>
           <section id="outputs-pane" aria-label="Compiler outputs">
             <div class="pane-header">

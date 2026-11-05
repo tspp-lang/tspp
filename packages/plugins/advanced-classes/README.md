@@ -7,5 +7,4 @@ TS++ Advanced Classes plugin providing modern OOP features:
 - `field` implicit backing property syntax
 - `data class` with auto-synthesized `copy`, `equals`, `toString`
 - `with` copy expressions
-- `async new` for asynchronous constructors
 

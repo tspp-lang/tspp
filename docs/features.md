@@ -10,7 +10,7 @@ Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins
 
 | Feature Capsule | Package Name | Status | Key Capabilities | Example Project |
 | :--- | :--- | :--- | :--- | :--- |
-| [**Advanced Classes**](#1-advanced-classes) | `@tspp/plugin-advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods, `async constructor` | [`12-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/12-advanced-classes) |
+| [**Advanced Classes**](#1-advanced-classes) | `@tspp/plugin-advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods | [`12-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/12-advanced-classes) |
 | [**Modern Syntax**](#2-modern-syntax) | `@tspp/plugin-modern-syntax` | Stable | `let ... in ...` expressions, `do { ... }` blocks, completion-valued bodies, `def` deep-readonly declarations, `use <-` trailing closures | [`01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax) |
 | [**Formal Verification**](#3-formal-verification) | `@tspp/plugin-formal-verification` | Stable | SMT/Z3 automated theorem proving, `requires`/`ensures` contracts, `assert:`/`assume:` proof points, `invariant:` loop invariants, refinement types | [`02-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/02-formal-verification) |
 | [**Nominal Types & ADTs**](#4-nominal-types--algebraic-data-types) | `@tspp/plugin-nominal-types` | Stable | Zero-cost `newtype` nominal abstractions, tagged union `data` declarations, exhaustive pattern `match` expressions with guards | [`03-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/03-nominal-types), [`04-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/04-newtype-consumer) |
@@ -38,7 +38,6 @@ Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins
 * **`with` Expressions**: Non-destructive copy expression for data classes and objects (`with(point, { x: 10 })`).
 * **`sealed class`**: Closed type hierarchies restricted to inheritance within the declaring file, enabling full Algebraic Data Types (ADTs) when combined with `object` and `data class`.
 * **`final class` & `final` Methods**: Compile-time prevention of subclassing and method overrides.
-* **`async constructor`**: Asynchronous initialization pipeline during object instantiation (`await new AsyncDatabase(...)`).
 
 ```typescript
 sealed abstract class NetworkResult {

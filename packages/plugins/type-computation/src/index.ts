@@ -4,6 +4,7 @@ import type { TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-
 import type * as TS from "typescript-upstream";
 
 import { createKindChecker } from "./checker";
+import { computedAliasDisplay } from "./computed-quick-info";
 import { createDeclarationRestorers } from "./declarations";
 import { createNormalFormAnalyzer, createTermDiagnostics, dependentAliasAt, partialInferencePreprocessor } from "./dependent";
 import { createReification } from "./reification";
@@ -323,13 +324,13 @@ function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemant
     return tokens;
 }
 
-/** Type-level syntax shown as it was written: what it lowers to, with generated parameters and conditionals, is no one's code. */
+/** Type-level syntax shown without generated names: computed aliases expand to their readable semantic result. */
 function authoredQuickInfo(token: { readonly start: number; readonly length: number; readonly text: string; }, display: string | undefined, sourceText: string) {
     const shown = (text: string) => ({ start: token.start, length: token.length, display: text });
     if (display && /\b_?_tspp_/.test(display)) return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(/ in <[\s\S]*$/, ""));
     if (display?.startsWith(`type ${token.text}`)) {
-        const declaration = new RegExp(`(\\btype\\s+${escapeRegExp(token.text)}\\b[^\\n]*?)\\s*=\\s*(?:match|let)\\b`).exec(sourceText);
-        if (declaration) return shown(declaration[1].trimEnd());
+        const declaration = computedAliasDisplay(token.text, sourceText);
+        if (declaration) return shown(declaration);
     }
     return undefined;
 }

@@ -148,25 +148,7 @@ class MaliciousGateway extends PaymentGateway {
 */
 
 // ----------------------------------------------------------------------------
-// 7. `async constructor`
-// Asynchronous initialization pipeline during object instantiation
-// ----------------------------------------------------------------------------
-class AsyncDatabase {
-  url: string;
-  connected: boolean = false;
-
-  async constructor(url: string) {
-    this.url = url;
-    this.connected = true;
-  }
-
-  query(sql: string): string {
-    return `[${this.url}] Result of: ${sql}`;
-  }
-}
-
-// ----------------------------------------------------------------------------
-// 8. Advanced Interplay: Multi-Feature Compositions
+// 7. Advanced Interplay: Multi-Feature Compositions
 // ----------------------------------------------------------------------------
 
 // (A) Combining `field` property + `final` method
@@ -191,25 +173,10 @@ class BankAccount {
   }
 }
 
-// (B) Combining `async constructor` + `object` singleton configuration
-class ManagedConnectionPool {
-  poolName: string;
-  ready: boolean = false;
-
-  async constructor(public config: AppConfig) {
-    this.poolName = `${config.appName}-Pool`;
-    this.ready = true;
-  }
-
-  status(): string {
-    return `${this.poolName} active (version=${this.config.version})`;
-  }
-}
-
 // ============================================================================
 // Executable Demonstration & Verification
 // ============================================================================
-async function main(): Promise<void> {
+function main(): void {
   console.log("=== 1. field Property Syntax ===");
   const counter = new Counter();
   console.log("Initial count (from backing field):", counter.count);
@@ -251,19 +218,11 @@ async function main(): Promise<void> {
   console.log("Gateway prefix (final):", gateway.getRoutingPrefix());
   console.log(gateway.processPayment(250));
 
-  console.log("\n=== 7. async constructor ===");
-  const db = await new AsyncDatabase("postgres://localhost:5432/app");
-  console.log(`Database connected (${db.connected}):`, db.query("SELECT * FROM users"));
-
-  console.log("\n=== 8. Feature Interplay ===");
+  console.log("\n=== 7. Feature Interplay ===");
   // BankAccount (field + final)
   const account = new BankAccount();
   account.deposit(50);
   console.log(`BankAccount (${account.getAccountType()}): balance = $${account.balance}`);
-
-  // Async connection pool taking singleton config
-  const pool = await new ManagedConnectionPool(AppConfig);
-  console.log(`Connection Pool initialized: ${pool.status()}`);
 }
 
-void main();
+main();

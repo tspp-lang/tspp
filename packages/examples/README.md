@@ -29,7 +29,7 @@ output published by `03-nominal-types` across a package boundary.
 | `09-typescript-interop` | dual declarations and the one-way source boundary |
 | `10-macros` | synchronous, asynchronous, recursive, and bounded macros |
 | `11-operator-sections` | leading, trailing, binary, and element sections |
-| `12-advanced-classes` | object declarations, field properties, data/sealed/final classes, with copy, and async constructors |
+| `12-advanced-classes` | object declarations, field properties, data/sealed/final classes, and with copy expressions |
 | `13-typeclasses` | typeclasses, implementations, `where` constraints, and implicit dictionary passing |
 | `14-algebraic-effects` | effects, handlers, effect clauses, and capabilities passed as plain method calls |
 

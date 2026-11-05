@@ -1,6 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 
-import { createAsyncNewSyntax } from "./async-new";
 import { createAdvancedClassDeclarations } from "./class-decl";
 import { createAdvancedClassDiagnostics } from "./diagnostics";
 import { createFieldSyntax, findEnclosingAccessorName } from "./field";
@@ -168,13 +167,11 @@ export const advancedClassesPlugin = definePlugin({
                 const classDecls = createAdvancedClassDeclarations(ts);
                 const fieldSyntax = createFieldSyntax(ts);
                 const withSyntax = createWithSyntax(ts);
-                const asyncNewSyntax = createAsyncNewSyntax(ts);
 
                 context.onDispose(context.compiler.registerSyntaxExtension(objects.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(classDecls.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(fieldSyntax.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(withSyntax.extension));
-                context.onDispose(context.compiler.registerSourcePreprocessor(asyncNewSyntax.preprocessor));
 
                 const diagnostics = createAdvancedClassDiagnostics(ts, classDecls, fieldSyntax, withSyntax);
                 return context.compiler.registerDiagnosticProvider(diagnostics);

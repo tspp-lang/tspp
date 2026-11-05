@@ -1,7 +1,7 @@
 {
   "name": "@tspp/plugin-advanced-classes",
   "version": "0.1.0",
-  "description": "TS++ advanced classes plugin: object, final, sealed, field, data class, with expression, and async new.",
+  "description": "TS++ advanced classes plugin: object, final, sealed, field, data class, and with expressions.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
