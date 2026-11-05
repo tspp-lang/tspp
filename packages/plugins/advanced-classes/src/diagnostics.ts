@@ -5,7 +5,7 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import type { createAdvancedClassDeclarations } from "./class-decl";
+import type { AdvancedClassInfo, createAdvancedClassDeclarations } from "./class-decl";
 import type { createFieldSyntax } from "./field";
 import type { createWithSyntax } from "./with";
 
@@ -36,6 +36,36 @@ export function createAdvancedClassDiagnostics(
 ): TSPPDiagnosticProvider {
     const kinds = ts.SyntaxKind;
 
+    /**
+     * The classes `node` inherits from, nearest first, as the checker sees them: a base can be written as a name, a
+     * variable or a call, and a mixin's base is one part of an intersection. `direct` marks those `node` itself extends.
+     */
+    function getBaseClasses(node: TS.ClassLikeDeclaration, checker: TS.TypeChecker) {
+        const bases: { declaration: TS.ClassLikeDeclaration; info: AdvancedClassInfo | undefined; direct: boolean; }[] = [];
+        const own = checker.getTypeAtLocation(node).symbol as TS.Symbol | undefined;
+        if (!own) return bases;
+        // Checks flags, not the `isIntersection` method: the command-line compiler's types have no methods.
+        const parts = (type: TS.Type): TS.Type[] => type.flags & ts.TypeFlags.Intersection ? (type as TS.IntersectionType).types.flatMap(parts) : [type];
+        const seen = new Set([own]);
+        let level = [own];
+        for (let direct = true; level.length; direct = false) {
+            const next: TS.Symbol[] = [];
+            for (const symbol of level) {
+                for (const baseType of checker.getBaseTypes(checker.getDeclaredTypeOfSymbol(symbol) as TS.InterfaceType).flatMap(parts)) {
+                    const base = baseType.symbol as TS.Symbol | undefined;
+                    if (!base || !(base.flags & ts.SymbolFlags.Class) || seen.has(base)) continue;
+                    seen.add(base);
+                    next.push(base);
+                    const declarations = base.declarations?.filter(ts.isClassLike) ?? [];
+                    const declaration = declarations.find(candidate => classDecls.getClassInfo(candidate)) ?? declarations[0];
+                    if (declaration) bases.push({ declaration, info: classDecls.getClassInfo(declaration), direct });
+                }
+            }
+            level = next;
+        }
+        return bases;
+    }
+
     return {
         id: "advanced-classes-diagnostics",
         getSemanticDiagnostics(sourceFile, checker) {
@@ -60,53 +90,56 @@ export function createAdvancedClassDiagnostics(
                     if (node.heritageClauses) {
                         for (const clause of node.heritageClauses) {
                             if (clause.token === kinds.ExtendsKeyword) {
-                                for (const typeNode of clause.types) {
-                                    const baseExpr = typeNode.expression;
-                                    const baseName = ts.isIdentifier(baseExpr) ? ts.idText(baseExpr) : undefined;
-                                    if (baseName) {
+                                // The checker bases a class on the first type; a second one is an error it reports.
+                                for (const typeNode of clause.types.slice(0, 1)) {
+                                    const bases = getBaseClasses(node, checker);
+                                    if (bases.length) {
                                         const nodeStart = typeof typeNode.getStart === "function" ? typeNode.getStart(sourceFile) : typeNode.pos;
                                         const nodeEnd = typeof typeNode.getEnd === "function" ? typeNode.getEnd() : typeNode.end;
                                         const nodeLen = Math.max(1, nodeEnd - nodeStart);
 
-                                        // 1. Check final class inheritance
-                                        if (classDecls.finalClasses.has(baseName)) {
-                                            diagnostics.push({
-                                                file: sourceFile,
-                                                start: nodeStart,
-                                                length: nodeLen,
-                                                messageText: `Cannot inherit from final class '${baseName}'.`,
-                                                category: ts.DiagnosticCategory.Error,
-                                                code: DIAGNOSTIC_CANNOT_INHERIT_FINAL,
-                                            });
-                                        }
+                                        for (const { declaration, info, direct } of bases) {
+                                            if (!direct || !info) continue;
 
-                                        // 2. Check sealed class same-file inheritance
-                                        const sealedDeclaringFile = classDecls.sealedClasses.get(baseName);
-                                        if (sealedDeclaringFile !== undefined && sealedDeclaringFile !== sourceFile.fileName && sealedDeclaringFile !== sourceFile.text) {
-                                            diagnostics.push({
-                                                file: sourceFile,
-                                                start: nodeStart,
-                                                length: nodeLen,
-                                                messageText: `Cannot extend sealed class '${baseName}' outside of its declaring file.`,
-                                                category: ts.DiagnosticCategory.Error,
-                                                code: DIAGNOSTIC_CANNOT_EXTEND_SEALED,
-                                            });
+                                            // 1. Check final class inheritance
+                                            if (info.isFinal) {
+                                                diagnostics.push({
+                                                    file: sourceFile,
+                                                    start: nodeStart,
+                                                    length: nodeLen,
+                                                    messageText: `Cannot inherit from final class '${info.name}'.`,
+                                                    category: ts.DiagnosticCategory.Error,
+                                                    code: DIAGNOSTIC_CANNOT_INHERIT_FINAL,
+                                                });
+                                            }
+
+                                            // 2. Check sealed class same-file inheritance
+                                            if (info.isSealed && ts.findAncestor(declaration, ts.isSourceFile) !== sourceFile) {
+                                                diagnostics.push({
+                                                    file: sourceFile,
+                                                    start: nodeStart,
+                                                    length: nodeLen,
+                                                    messageText: `Cannot extend sealed class '${info.name}' outside of its declaring file.`,
+                                                    category: ts.DiagnosticCategory.Error,
+                                                    code: DIAGNOSTIC_CANNOT_EXTEND_SEALED,
+                                                });
+                                            }
                                         }
 
                                         // 3. Check final member overrides
-                                        const finalMethods = classDecls.finalMethodsByClass.get(baseName);
-                                        if (finalMethods && node.members) {
+                                        if (node.members) {
                                             for (const member of node.members) {
                                                 if (member.name && ts.isIdentifier(member.name)) {
                                                     const memberName = ts.idText(member.name);
-                                                    if (finalMethods.has(memberName)) {
+                                                    const finalIn = bases.find(base => base.info?.finalMethods.has(memberName))?.info;
+                                                    if (finalIn) {
                                                         const mStart = typeof member.name.getStart === "function" ? member.name.getStart(sourceFile) : member.name.pos;
                                                         const mEnd = typeof member.name.getEnd === "function" ? member.name.getEnd() : member.name.end;
                                                         diagnostics.push({
                                                             file: sourceFile,
                                                             start: mStart,
                                                             length: Math.max(1, mEnd - mStart),
-                                                            messageText: `Cannot override final member '${memberName}' of class '${baseName}'.`,
+                                                            messageText: `Cannot override final member '${memberName}' of class '${finalIn.name}'.`,
                                                             category: ts.DiagnosticCategory.Error,
                                                             code: DIAGNOSTIC_CANNOT_OVERRIDE_FINAL_MEMBER,
                                                         });

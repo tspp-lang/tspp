@@ -18,30 +18,23 @@ export interface DataClassProperty {
 }
 
 export interface AdvancedClassInfo {
-    name: string;
-    fileName: string;
-    isFinal: boolean;
-    isSealed: boolean;
-    isData: boolean;
-    subclasses: string[];
-    finalMethods: Set<string>;
-    dataProperties?: DataClassProperty[];
+    readonly name: string;
+    readonly isFinal: boolean;
+    readonly isSealed: boolean;
+    readonly finalMethods: ReadonlySet<string>;
+    /** The modifiers lowered away, as written before `class` in a declaration file. */
+    readonly prefix: string;
 }
 
 export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
     extension: TSPPSyntaxExtension;
-    getClassInfo: (className: string) => AdvancedClassInfo | undefined;
-    getAllClasses: () => ReadonlyMap<string, AdvancedClassInfo>;
-    finalClasses: Set<string>;
-    sealedClasses: Map<string, string>; // className -> declaringFileText
-    finalMethodsByClass: Map<string, Set<string>>;
+    getClassInfo: (declaration: TS.Node) => AdvancedClassInfo | undefined;
 } {
     const kinds = ts.SyntaxKind;
-    const classRegistry = new Map<string, AdvancedClassInfo>();
-    const finalClasses = new Set<string>();
-    const sealedClasses = new Map<string, string>();
-    const finalMethodsByClass = new Map<string, Set<string>>();
-    const authoredDeclarations = new WeakMap<TS.Node, { readonly prefix: string; readonly finalMethods: ReadonlySet<string>; }>();
+    // By the parsed declaration: a name can mean unrelated classes, and this outlives any one program.
+    const classInfo = new WeakMap<TS.Node, AdvancedClassInfo>();
+    // A program rebuild copies the declarations on the path to a replacement, and each copy points back at the parsed one.
+    const getClassInfo = (declaration: TS.Node) => classInfo.get(ts.getOriginalNode(declaration));
     let restoring = false;
 
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end: number): T =>
@@ -500,24 +493,13 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
 
         headerClause?.(classDeclaration);
 
-        // Record in registry
-        const info: AdvancedClassInfo = {
+        classInfo.set(classDeclaration, {
             name: className,
-            fileName,
             isFinal,
             isSealed,
-            isData,
-            subclasses: [],
             finalMethods,
-            dataProperties: isData ? dataProperties : undefined,
-        };
-        classRegistry.set(className, info);
-        if (isFinal) finalClasses.add(className);
-        if (isSealed) sealedClasses.set(className, fileName);
-        if (finalMethods.size > 0) finalMethodsByClass.set(className, finalMethods);
-
-        const prefix = `${isFinal ? "final " : ""}${isSealed ? "sealed " : ""}${isData ? "data " : ""}${isAbstract ? "abstract " : ""}`;
-        if (prefix || finalMethods.size) authoredDeclarations.set(classDeclaration, { prefix, finalMethods });
+            prefix: `${isFinal ? "final " : ""}${isSealed ? "sealed " : ""}${isData ? "data " : ""}${isAbstract ? "abstract " : ""}`,
+        });
 
         const after = cursor.getTokenStart();
         return markGenerated(ts, classDeclaration, after, { pos: startPos, end: endPos });
@@ -531,8 +513,8 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         parse: parseAdvancedClass,
         // The declaration prints as ordinary output, which holds everything else, and this writes back what it lowered away.
         restoreDeclaration(node, printNested) {
-            const authored = authoredDeclarations.get(ts.getOriginalNode(node));
-            if (!authored || restoring) return undefined;
+            const authored = getClassInfo(node);
+            if (!authored || !authored.prefix && !authored.finalMethods.size || restoring) return undefined;
             restoring = true;
             try {
                 let text = printNested(node).replace(/\bclass\b/, `${authored.prefix}class`);
@@ -547,10 +529,6 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
 
     return {
         extension,
-        getClassInfo: name => classRegistry.get(name),
-        getAllClasses: () => classRegistry,
-        finalClasses,
-        sealedClasses,
-        finalMethodsByClass,
+        getClassInfo,
     };
 }
