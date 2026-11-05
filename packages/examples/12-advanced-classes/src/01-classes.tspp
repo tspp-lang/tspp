@@ -1,4 +1,13 @@
-// 1. field property syntax with backing storage and custom accessors
+// ============================================================================
+// @tspp/example-advanced-classes
+// Demonstrates modern OOP features in TS++, their mutual composition (ADTs,
+// singletons, data classes), and their unique compile-time safety constraints.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. `field` Property Syntax
+// Semi-automatic property declaration with implicit backing storage ('field')
+// ----------------------------------------------------------------------------
 class Counter {
   field count: number = 0 {
     get() {
@@ -12,76 +21,249 @@ class Counter {
   }
 }
 
-// 2. object singleton declaration
+/*
+// [DIAGNOSTIC TS19104]: 'field' is only allowed inside a getter or setter.
+function illegalFieldUsage(): number {
+  return field;
+}
+*/
+
+// ----------------------------------------------------------------------------
+// 2. `object` Singleton Declarations
+// First-class singleton instances that also serve as their own type definitions
+// ----------------------------------------------------------------------------
 object AppConfig {
   appName: string = "TS++ Advanced Classes Demo";
-  public version: number = 1;
+  version: number = 1;
+  debugMode: boolean = true;
 
   greet(name: string): string {
-  return `Hello ${name} from ${this.appName} v${this.version}`;
+    return `Hello ${name} from ${this.appName} (v${this.version})`;
   }
 }
 
-// 3. data class with primary constructor, synthesized copy, equals, toString
-data class Point(x: number, y: number)
+function displayConfig(cfg: AppConfig): string {
+  return `[Config] ${cfg.appName} v${cfg.version} (debug=${cfg.debugMode})`;
+}
 
-// 4. with copy expression
+// ----------------------------------------------------------------------------
+// 3. `data class`
+// Primary constructor parameter syntax with auto-synthesized copy, equals, and toString
+// ----------------------------------------------------------------------------
+data class Point(x: number, y: number)
+data class User(id: number, username: string, active: boolean)
+
+// ----------------------------------------------------------------------------
+// 4. `with` Expressions
+// Non-destructive copy expression for data classes and objects
+// ----------------------------------------------------------------------------
 const pointOrigin = new Point(0, 0);
 const moved = with(pointOrigin, { x: 10, y: 20 });
 
-// 5. sealed class hierarchy (closed to same file)
-sealed abstract class Shape {
-  abstract area(): number;
+const user = new User(101, "alice", true);
+const deactivatedUser = with(user, { active: false });
+
+/*
+// [TYPE ERROR TS2353]: 'with' validates that patch properties strictly exist on target type.
+// const badCopy = with(pointOrigin, { nonExistentCoord: 999 });
+*/
+
+// ----------------------------------------------------------------------------
+// 5. `sealed class` Hierarchy: The Complete Algebraic Data Type (ADT) Pattern
+// Sealed hierarchies represent closed Sum Types by composing with:
+// - `object` singletons for stateless variants (e.g. Loading, Idle)
+// - `data class` for payload-carrying variants (e.g. Success, Failure)
+// - `final` methods for invariant methods shared by the whole hierarchy
+// ----------------------------------------------------------------------------
+sealed abstract class NetworkResult {
+  abstract describe(): string;
+
+  // Shared final method across all variants in the sealed family:
+  final isTerminal(): boolean {
+    // Note: `Loading` is a singleton instance (use `===`), while `Success`/`Failure` are classes (use `instanceof`)
+    return this !== Loading;
+  }
 }
 
-class Circle extends Shape {
-  constructor(public radius: number) {
-    super();
-  }
-  area(): number {
-    return Math.PI * this.radius * this.radius;
+// (A) Stateless variant: Singleton object extending the sealed base
+object Loading extends NetworkResult {
+  describe(): string {
+    return "Loading network request...";
   }
 }
 
-class Rectangle extends Shape {
-  constructor(public width: number, public height: number) {
-    super();
-  }
-  area(): number {
-    return this.width * this.height;
+// (B) Payload variants: Data classes extending the sealed base with auto copy/equals/toString
+data class Success(payload: string, statusCode: number) extends NetworkResult {
+  describe(): string {
+    return `Success (${this.statusCode}): "${this.payload}"`;
   }
 }
 
-// 6. final class and final method
+data class Failure(error: string, retryable: boolean) extends NetworkResult {
+  describe(): string {
+    return `Failure: ${this.error} (retryable=${this.retryable})`;
+  }
+}
+
+/*
+// [DIAGNOSTIC TS19102]: Cannot extend sealed class 'NetworkResult' outside of its declaring file.
+// In another file (e.g. `client.tspp`):
+// import { NetworkResult } from "./01-classes";
+// class ThirdPartyResult extends NetworkResult { ... }
+*/
+
+// ----------------------------------------------------------------------------
+// 6. `final class` & `final` Methods
+// Prevent unauthorized subclassing and method overrides
+// ----------------------------------------------------------------------------
 final class SecureToken {
   constructor(public readonly secret: string) {}
 }
 
-class Service {
-  final getServiceId(): string {
-    return "service-v1";
+/*
+// [DIAGNOSTIC TS19101]: Cannot inherit from final class 'SecureToken'.
+class InsecureTokenSubclass extends SecureToken {
+  customField: string = "leaked";
+}
+*/
+
+class PaymentGateway {
+  // Final method cannot be overridden by any subclass
+  final getRoutingPrefix(): string {
+    return "GATEWAY-US-EAST";
+  }
+
+  processPayment(amount: number): string {
+    return `Processed standard payment: $${amount}`;
   }
 }
 
-// 7. async constructor in class
+/*
+// [DIAGNOSTIC TS19103]: Cannot override final member 'getRoutingPrefix' of class 'PaymentGateway'.
+class MaliciousGateway extends PaymentGateway {
+  override getRoutingPrefix(): string {
+    return "COMPROMISED";
+  }
+}
+*/
+
+// ----------------------------------------------------------------------------
+// 7. `async constructor`
+// Asynchronous initialization pipeline during object instantiation
+// ----------------------------------------------------------------------------
 class AsyncDatabase {
+  url: string;
   connected: boolean = false;
-  constructor(public connectionString: string) {
+
+  async constructor(url: string) {
+    this.url = url;
     this.connected = true;
   }
+
+  query(sql: string): string {
+    return `[${this.url}] Result of: ${sql}`;
+  }
 }
 
-// Executable verification
-const counter = new Counter();
-counter.count = 42;
-counter.count = -5; // ignored by setter check
+// ----------------------------------------------------------------------------
+// 8. Advanced Interplay: Multi-Feature Compositions
+// ----------------------------------------------------------------------------
 
-const token = new SecureToken("secret-abc-123");
-const shapes: Shape[] = [new Circle(5), new Rectangle(4, 6)];
+// (A) Combining `field` property + `final` method
+class BankAccount {
+  field balance: number = 100 {
+    get() {
+      return field;
+    }
+    set(amount) {
+      if (amount >= 0) {
+        field = amount;
+      }
+    }
+  }
 
-console.log(AppConfig.greet("Developer"));
-console.log("Counter value:", counter.count);
-console.log("Point origin:", pointOrigin.toString());
-console.log("Point moved:", moved.toString(), "equals origin?", pointOrigin.equals(moved));
-console.log("Total area:", shapes.reduce((sum, s) => sum + s.area(), 0));
-console.log("Secure token:", token.secret);
+  final getAccountType(): string {
+    return "SAVINGS_TIER_1";
+  }
+
+  deposit(amount: number): void {
+    this.balance += amount;
+  }
+}
+
+// (B) Combining `async constructor` + `object` singleton configuration
+class ManagedConnectionPool {
+  poolName: string;
+  ready: boolean = false;
+
+  async constructor(public config: AppConfig) {
+    this.poolName = `${config.appName}-Pool`;
+    this.ready = true;
+  }
+
+  status(): string {
+    return `${this.poolName} active (version=${this.config.version})`;
+  }
+}
+
+// ============================================================================
+// Executable Demonstration & Verification
+// ============================================================================
+async function main(): Promise<void> {
+  console.log("=== 1. field Property Syntax ===");
+  const counter = new Counter();
+  console.log("Initial count (from backing field):", counter.count);
+  counter.count = 42;
+  console.log("Updated count:", counter.count);
+  counter.count = -5; // Ignored by setter validation
+  console.log("After negative assignment (ignored):", counter.count);
+
+  console.log("\n=== 2. object Singleton Declaration ===");
+  console.log(AppConfig.greet("Developer"));
+  console.log(displayConfig(AppConfig));
+
+  console.log("\n=== 3. data class Synthesized Methods ===");
+  console.log("pointOrigin.toString():", pointOrigin.toString());
+  console.log("pointOrigin.equals(new Point(0, 0)):", pointOrigin.equals(new Point(0, 0)));
+  console.log("pointOrigin.equals(moved):", pointOrigin.equals(moved));
+  console.log("pointOrigin.copy({ y: 50 }):", pointOrigin.copy({ y: 50 }).toString());
+
+  console.log("\n=== 4. with Copy Expressions ===");
+  console.log("Origin before:", pointOrigin.toString());
+  console.log("Moved via with():", moved.toString());
+  console.log("Original User:", user.toString());
+  console.log("Deactivated User via with():", deactivatedUser.toString());
+
+  console.log("\n=== 5. sealed Class ADT Hierarchy (sealed + object + data class) ===");
+  const responses: NetworkResult[] = [
+    Loading,
+    new Success("User profile payload", 200),
+    new Failure("Network timeout", true),
+  ];
+  for (const res of responses) {
+    console.log(` - ${res.describe()} [terminal=${res.isTerminal()}]`);
+  }
+
+  console.log("\n=== 6. final Class and Member ===");
+  const token = new SecureToken("secret-abc-123");
+  const gateway = new PaymentGateway();
+  console.log("Secure token:", token.secret);
+  console.log("Gateway prefix (final):", gateway.getRoutingPrefix());
+  console.log(gateway.processPayment(250));
+
+  console.log("\n=== 7. async constructor ===");
+  const db = await new AsyncDatabase("postgres://localhost:5432/app");
+  console.log(`Database connected (${db.connected}):`, db.query("SELECT * FROM users"));
+
+  console.log("\n=== 8. Feature Interplay ===");
+  // BankAccount (field + final)
+  const account = new BankAccount();
+  account.deposit(50);
+  console.log(`BankAccount (${account.getAccountType()}): balance = $${account.balance}`);
+
+  // Async connection pool taking singleton config
+  const pool = await new ManagedConnectionPool(AppConfig);
+  console.log(`Connection Pool initialized: ${pool.status()}`);
+}
+
+void main();
