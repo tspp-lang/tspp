@@ -25,6 +25,57 @@ export function parseClassBodyMembers(
     const blockContainsField = (block: TS.Block): boolean => checkBlockContainsField(ts, block);
     const replaceFieldInBlock = (block: TS.Block, id: string): TS.Block => doReplaceFieldInBlock(ts, f, block, id);
 
+    /** The parameters after an opening parenthesis, through the closing one. */
+    const parseParameters = (): TS.ParameterDeclaration[] => {
+        const params: TS.ParameterDeclaration[] = [];
+        while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
+            const paramModifiers: TS.Modifier[] = [];
+            while (
+                cursor.token() === kinds.PublicKeyword ||
+                cursor.token() === kinds.PrivateKeyword ||
+                cursor.token() === kinds.ProtectedKeyword ||
+                cursor.token() === kinds.ReadonlyKeyword
+            ) {
+                paramModifiers.push(f.createModifier(cursor.token() as any));
+                cursor.nextToken();
+            }
+            const dotDotDot = cursor.parseOptional(kinds.DotDotDotToken) ? f.createToken(kinds.DotDotDotToken) : undefined;
+            const paramName = cursor.parseBindingName();
+            const question = cursor.parseOptional(kinds.QuestionToken) ? f.createToken(kinds.QuestionToken) : undefined;
+            let paramType: TS.TypeNode | undefined;
+            if (cursor.token() === kinds.ColonToken) {
+                cursor.nextToken();
+                paramType = cursor.parseType();
+            }
+            let paramInit: TS.Expression | undefined;
+            if (cursor.token() === kinds.EqualsToken) {
+                cursor.nextToken();
+                paramInit = cursor.parseAssignmentExpression();
+            }
+            params.push(
+                f.createParameterDeclaration(
+                    paramModifiers.length ? f.createNodeArray(paramModifiers) : undefined,
+                    dotDotDot,
+                    paramName,
+                    question,
+                    paramType,
+                    paramInit,
+                ),
+            );
+            if (cursor.token() === kinds.CommaToken) cursor.nextToken();
+            else break;
+        }
+        cursor.parseExpected(kinds.CloseParenToken);
+        return params;
+    };
+
+    /** A body, or none in a declaration file or an overload, which ends with a semicolon. */
+    const parseBody = (): TS.Block | undefined => {
+        if (cursor.token() === kinds.OpenBraceToken) return cursor.parseStatement() as TS.Block;
+        cursor.parseOptional(kinds.SemicolonToken);
+        return undefined;
+    };
+
     cursor.parseExpected(kinds.OpenBraceToken);
 
     let previousMemberPos = -1;
@@ -168,44 +219,8 @@ export function parseClassBodyMembers(
         if (cursor.token() === kinds.ConstructorKeyword) {
             cursor.nextToken(); // consume 'constructor'
             cursor.parseExpected(kinds.OpenParenToken);
-            const params: TS.ParameterDeclaration[] = [];
-            while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
-                const paramModifiers: TS.Modifier[] = [];
-                while (
-                    cursor.token() === kinds.PublicKeyword ||
-                    cursor.token() === kinds.PrivateKeyword ||
-                    cursor.token() === kinds.ProtectedKeyword ||
-                    cursor.token() === kinds.ReadonlyKeyword
-                ) {
-                    paramModifiers.push(f.createModifier(cursor.token() as any));
-                    cursor.nextToken();
-                }
-                const paramName = cursor.parseIdentifier();
-                let paramType: TS.TypeNode | undefined;
-                if (cursor.token() === kinds.ColonToken) {
-                    cursor.nextToken();
-                    paramType = cursor.parseType();
-                }
-                let paramInit: TS.Expression | undefined;
-                if (cursor.token() === kinds.EqualsToken) {
-                    cursor.nextToken();
-                    paramInit = cursor.parseAssignmentExpression();
-                }
-                params.push(
-                    f.createParameterDeclaration(
-                        paramModifiers.length ? f.createNodeArray(paramModifiers) : undefined,
-                        undefined,
-                        paramName,
-                        undefined,
-                        paramType,
-                        paramInit,
-                    ),
-                );
-                if (cursor.token() === kinds.CommaToken) cursor.nextToken();
-                else break;
-            }
-            cursor.parseExpected(kinds.CloseParenToken);
-            const body = cursor.parseStatement() as TS.Block;
+            const params = parseParameters();
+            const body = parseBody();
 
             const ctorModifiers: TS.Modifier[] = [];
             if (accessKind) ctorModifiers.push(f.createModifier(accessKind as any));
@@ -259,7 +274,12 @@ export function parseClassBodyMembers(
                 cursor.nextToken();
                 returnType = cursor.parseType();
             }
-            const rawBody = cursor.parseStatement() as TS.Block;
+            const rawBody = parseBody();
+            if (!rawBody) {
+                const signature = f.createGetAccessorDeclaration(memberModifiers.length ? f.createNodeArray(memberModifiers) : undefined, memberName, f.createNodeArray([]), returnType, undefined);
+                members.push(ts.setTextRange(signature, { pos: memberStart, end: cursor.getNodePos() }));
+                continue;
+            }
             const backingPropId = `__field_${memberNameText}`;
             let body = rawBody;
 
@@ -303,7 +323,12 @@ export function parseClassBodyMembers(
                 paramType = cursor.parseType();
             }
             cursor.parseExpected(kinds.CloseParenToken);
-            const rawBody = cursor.parseStatement() as TS.Block;
+            const rawBody = parseBody();
+            if (!rawBody) {
+                const signature = f.createSetAccessorDeclaration(memberModifiers.length ? f.createNodeArray(memberModifiers) : undefined, memberName, f.createNodeArray([f.createParameterDeclaration(undefined, undefined, paramName, undefined, paramType)]), undefined);
+                members.push(ts.setTextRange(signature, { pos: memberStart, end: cursor.getNodePos() }));
+                continue;
+            }
             const backingPropId = `__field_${memberNameText}`;
             let body = rawBody;
 
@@ -336,46 +361,14 @@ export function parseClassBodyMembers(
             continue;
         }
 
+        const questionToken = cursor.parseOptional(kinds.QuestionToken) ? f.createToken(kinds.QuestionToken) : undefined;
+
         // Method: `inc(): number { ... }`
-        if (cursor.token() === kinds.OpenParenToken) {
-            cursor.nextToken();
-            const params: TS.ParameterDeclaration[] = [];
-            while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
-                const paramModifiers: TS.Modifier[] = [];
-                while (
-                    cursor.token() === kinds.PublicKeyword ||
-                    cursor.token() === kinds.PrivateKeyword ||
-                    cursor.token() === kinds.ProtectedKeyword ||
-                    cursor.token() === kinds.ReadonlyKeyword
-                ) {
-                    paramModifiers.push(f.createModifier(cursor.token() as any));
-                    cursor.nextToken();
-                }
-                const paramName = cursor.parseIdentifier();
-                let paramType: TS.TypeNode | undefined;
-                if (cursor.token() === kinds.ColonToken) {
-                    cursor.nextToken();
-                    paramType = cursor.parseType();
-                }
-                let paramInit: TS.Expression | undefined;
-                if (cursor.token() === kinds.EqualsToken) {
-                    cursor.nextToken();
-                    paramInit = cursor.parseAssignmentExpression();
-                }
-                params.push(
-                    f.createParameterDeclaration(
-                        paramModifiers.length ? f.createNodeArray(paramModifiers) : undefined,
-                        undefined,
-                        paramName,
-                        undefined,
-                        paramType,
-                        paramInit,
-                    ),
-                );
-                if (cursor.token() === kinds.CommaToken) cursor.nextToken();
-                else break;
-            }
-            cursor.parseExpected(kinds.CloseParenToken);
+        if (cursor.token() === kinds.OpenParenToken || cursor.token() === kinds.LessThanToken) {
+            const typeParameters = cursor.parseTypeParameters();
+            cursor.parseExpected(kinds.OpenParenToken);
+            const params = parseParameters();
+            const clause = cursor.parseClause("function-clause");
 
             let returnType: TS.TypeNode | undefined;
             if (cursor.token() === kinds.ColonToken) {
@@ -383,23 +376,19 @@ export function parseClassBodyMembers(
                 returnType = cursor.parseType();
             }
 
-            let body: TS.Block | undefined;
-            if (cursor.token() === kinds.OpenBraceToken) {
-                body = cursor.parseStatement() as TS.Block;
-            } else {
-                cursor.parseOptional(kinds.SemicolonToken);
-            }
+            const body = parseBody();
             const methodDecl = f.createMethodDeclaration(
                 memberModifiers.length ? f.createNodeArray(memberModifiers) : undefined,
                 undefined,
                 memberName,
-                undefined,
-                undefined,
+                questionToken,
+                typeParameters,
                 f.createNodeArray(params),
                 returnType,
                 body,
             );
             ts.setTextRange(methodDecl, { pos: memberStart, end: cursor.getNodePos() });
+            clause?.(methodDecl);
             members.push(methodDecl);
         } else {
             // Property: `count = 0;` or `count: number = 0;`
@@ -418,7 +407,7 @@ export function parseClassBodyMembers(
             const propDecl = f.createPropertyDeclaration(
                 memberModifiers.length ? f.createNodeArray(memberModifiers) : undefined,
                 memberName,
-                undefined,
+                questionToken,
                 propType,
                 initializer,
             );

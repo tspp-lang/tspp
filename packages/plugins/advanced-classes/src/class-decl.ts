@@ -41,7 +41,8 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
     const finalClasses = new Set<string>();
     const sealedClasses = new Map<string, string>();
     const finalMethodsByClass = new Map<string, Set<string>>();
-    const authoredDeclarations = new WeakMap<TS.Node, string>();
+    const authoredDeclarations = new WeakMap<TS.Node, { readonly prefix: string; readonly finalMethods: ReadonlySet<string>; }>();
+    let restoring = false;
 
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end: number): T =>
         ts.setTextRange(node, { pos, end });
@@ -516,7 +517,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         if (finalMethods.size > 0) finalMethodsByClass.set(className, finalMethods);
 
         const prefix = `${isFinal ? "final " : ""}${isSealed ? "sealed " : ""}${isData ? "data " : ""}${isAbstract ? "abstract " : ""}`;
-        authoredDeclarations.set(classDeclaration, `${prefix}class ${className}`);
+        if (prefix || finalMethods.size) authoredDeclarations.set(classDeclaration, { prefix, finalMethods });
 
         const after = cursor.getTokenStart();
         return markGenerated(ts, classDeclaration, after, { pos: startPos, end: endPos });
@@ -528,7 +529,20 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         keywords: ["final", "sealed"],
         isStart: isAdvancedClassStart,
         parse: parseAdvancedClass,
-        restoreDeclaration: node => authoredDeclarations.get(node),
+        // The declaration prints as ordinary output, which holds everything else, and this writes back what it lowered away.
+        restoreDeclaration(node, printNested) {
+            const authored = authoredDeclarations.get(ts.getOriginalNode(node));
+            if (!authored || restoring) return undefined;
+            restoring = true;
+            try {
+                let text = printNested(node).replace(/\bclass\b/, `${authored.prefix}class`);
+                for (const method of authored.finalMethods) text = text.replace(new RegExp(`^(\\s+)(${method}\\s*[(<])`, "m"), "$1final $2");
+                return text;
+            }
+            finally {
+                restoring = false;
+            }
+        },
     };
 
     return {
