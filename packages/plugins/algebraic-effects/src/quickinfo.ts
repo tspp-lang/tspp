@@ -5,6 +5,8 @@ const keywords: Record<string, string> = {
     effect: "Declares an effect: operations whose meaning the enclosing `handle` gives.",
     perform: "Calls an operation of an effect, through the handler in scope.",
     handle: "Gives the operations of an effect a meaning in the code after `in`.",
+    suspend: "Marks an operation whose handler takes the continuation `k`, and may go on with it later.",
+    control: "A handler clause that takes the continuation `k` as its last argument, and resumes or aborts it once.",
 };
 
 /** The word of source text around `position`. */

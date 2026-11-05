@@ -5,7 +5,7 @@
   "scripts": {
     "check": "tspp --project tsconfig.json --pretty false",
     "build": "tspp --project tsconfig.json --pretty false --noEmit false",
-    "start": "node dist/01-algebraic-effects.js",
+    "start": "node dist/01-algebraic-effects.js && node dist/02-suspension.js",
     "lint": "eslint src"
   },
   "devDependencies": {

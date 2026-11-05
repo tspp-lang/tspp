@@ -10,6 +10,10 @@
     {
       "name": "keyword.control.effect.tspp",
       "match": "(?<![._$[:alnum:]])(perform|handle)(?=\\s+[_$[:alpha:]])"
+    },
+    {
+      "name": "storage.modifier.effect.tspp",
+      "match": "(?<![._$[:alnum:]])(suspend|control)(?=\\s+[_$[:alpha:]][_$[:alnum:]]*\\s*[(<])"
     }
   ]
 }

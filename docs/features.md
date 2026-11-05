@@ -18,7 +18,7 @@ Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins
 | [**Static Interface Members**](#6-static-interface-members) | `@tspp/plugin-static-interface-members` | Stable | Static-side contracts in interfaces (`static deserialize(): this`), typeclasses, static factories enforced on implementing classes | [`08-static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/examples/08-static-interface-members) |
 | [**Compile-Time Macros**](#7-compile-time-macros) | `@tspp/plugin-macros` | Stable | Asynchronous compile-time AST macros, hygienic quasiquoting (`$()`), macro expansion budgeting, IDE preview | [`10-macros`](file:///e:/Repos/ts-plus-plus/packages/examples/10-macros) |
 | [**Operator Sections**](#8-operator-sections) | `@tspp/plugin-operator-sections` | Stable | Placeholder-based partial application using `_` (e.g., `(_ + 1)`, `(10 - _)`, `values.map(_ * 2)`) | [`11-operator-sections`](file:///e:/Repos/ts-plus-plus/packages/examples/11-operator-sections) |
-| [**Algebraic Effects**](#9-algebraic-effects) | `@tspp/plugin-algebraic-effects` | Preview | `effect` declarations, `perform`, `handle ... in`, effect clauses (`/ { A, B }`), zero-overhead capability passing | [`14-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/examples/14-algebraic-effects) |
+| [**Algebraic Effects**](#9-algebraic-effects) | `@tspp/plugin-algebraic-effects` | Preview | `effect` declarations, `perform`, `handle ... in`, effect clauses (`/ { A, B }`), zero-overhead capability passing, `suspend` operations with one-shot continuations | [`14-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/examples/14-algebraic-effects) |
 
 ---
 
@@ -223,13 +223,14 @@ const filtered = numbers.filter(_ > 1);
 
 * **Package**: [`@tspp/plugin-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/plugins/algebraic-effects)
 * **Example**: [`packages/examples/14-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/examples/14-algebraic-effects)
-* **Description**: Direct-style effects that compile to a hidden capability parameter and plain method calls. This is the first phase: operations resume where they were performed; continuations are not available yet.
+* **Description**: Direct-style effects that compile to a hidden capability parameter and plain method calls. Operations marked `suspend` hand their handler a one-shot continuation, for asynchronous code without `async`.
 
 **Features**:
 
 * **Effect Clauses**: A function lists what it needs after its parameters: `function f(x: string) / { Logger, Config }: number`.
 * **Handlers**: `handle E { ... } in { ... }` gives an effect its meaning, chains with `in handle`, and maps the value with a `return` clause.
 * **Zero Runtime Overhead**: `perform Logger.info(x)` becomes `$effects.Logger.info(x)`, with no generators and no allocation per call.
+* **Suspension**: `suspend` operations are handled by `control` clauses that take the continuation `k`; functions that may suspend compile to generators, and a `handle` with `control` clauses promises its value.
 
 ```typescript
 effect Logger { info(message: string): void; }

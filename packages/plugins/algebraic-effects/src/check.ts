@@ -3,6 +3,7 @@ import type * as TS from "typescript-upstream";
 
 import { createEffectScope } from "./scope";
 import type { EffectContext, EffectScope } from "./scope";
+import { createSuspensionChecks } from "./suspension";
 import type { EffectSyntax } from "./syntax";
 
 const codes = {
@@ -20,16 +21,22 @@ const codes = {
 /** What a call passes: for each effect the callee requires, the context that offers it. */
 export interface CallResolution {
     readonly needs: readonly { readonly name: string; readonly context: EffectContext; }[];
+    /** Whether the callee is a generator, whose call is delegated to with `yield*`. */
+    readonly colored: boolean;
 }
 
 export interface PerformResolution {
     readonly name: string;
     readonly context: EffectContext;
+    /** Whether the operation suspends, which yields a request to the driver instead of calling the handler. */
+    readonly suspends: boolean;
 }
 
 export interface FileResolutions {
     readonly calls: Map<TS.Node, CallResolution>;
     readonly performs: Map<TS.Node, PerformResolution>;
+    /** The inner calls of `handle`s without `control` clauses whose bodies suspend, and so are generators. */
+    readonly generatorHandles: Set<TS.Node>;
 }
 
 export interface EffectChecks {
@@ -97,6 +104,13 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
                 const matches = (other: TS.Type) => type.symbol === other.symbol && (!!(type.flags & ts.TypeFlags.Any) || sameEffectArguments(checker, type, other));
                 if (!targetTypes.some(matches)) return { code: codes.relation, message: `This function requires '${sourceClause.itemTexts.get(item)}', which a function of the expected type is not given.` };
             }
+            // A function that may suspend is a generator, which a caller delegates to; the others are called directly.
+            const scope = createEffectScope(ts, syntax, checker);
+            if (scope.isColored(source!) !== scope.isColored(target!)) {
+                return { code: codes.relation, message: scope.isColored(source!)
+                    ? "This function may suspend, so it cannot stand for a function whose effects do not."
+                    : "This function cannot suspend, so it cannot stand for a function whose effects may: list the same suspending effects." };
+            }
             return undefined;
         },
     };
@@ -111,10 +125,11 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
 
     function analyze(sourceFile: TS.SourceFile, checker: TS.TypeChecker, types: TSPPTypeOperations, diagnostics: TS.Diagnostic[], resolutions: FileResolutions) {
         const scope: EffectScope = createEffectScope(ts, syntax, checker);
-        const report = (node: TS.Node, code: number, message: string) => {
+        const report = (node: TS.Node, code: number, message: string, category = ts.DiagnosticCategory.Error) => {
             const start = startOf(node, sourceFile);
-            diagnostics.push({ file: sourceFile, start, length: node.end - start, messageText: message, category: ts.DiagnosticCategory.Error, code, source: "algebraic-effects" });
+            diagnostics.push({ file: sourceFile, start, length: node.end - start, messageText: message, category, code, source: "algebraic-effects" });
         };
+        const suspension = createSuspensionChecks(ts, syntax, scope, checker, report, resolutions.generatorHandles);
 
         const resolveAlias = (symbol: TS.Symbol) => symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
         const show = (type: TS.Type) => checker.typeToString(type);
@@ -184,7 +199,7 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
         const missing = (name: string) => `The effect '${name}' is not available here: list it in the clause of the enclosing function ('/ ${name}') or handle it around this code.`;
 
         const checkPerform = (call: TS.CallExpression) => {
-            const { effect } = syntax.performs.get(call)!;
+            const { effect, operation } = syntax.performs.get(call)!;
             keepNames(effect, /*visible*/ false);
             const name = effect.typeName;
             const located = checker.getSymbolAtLocation(ts.isQualifiedName(name) ? name.right : name);
@@ -200,11 +215,14 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
                 report(effect, codes.unavailable, missing(ts.symbolName(symbol)));
                 return;
             }
-            resolutions.performs.set(call, { name: found.entry.name, context: found.context });
+            const suspends = scope.suspendingOperations(symbol).has(ts.idText(operation));
+            if (suspends) suspension.suspendsAt(call, `'perform ${ts.symbolName(symbol)}.${ts.idText(operation)}'`);
+            resolutions.performs.set(call, { name: found.entry.name, context: found.context, suspends });
         };
 
         const checkHandle = (call: TS.CallExpression) => {
-            const { effect } = syntax.handles.get(call)!;
+            const handle = syntax.handles.get(call)!;
+            const { effect } = handle;
             keepNames(effect, /*visible*/ false);
             const type = checker.getTypeFromTypeNode(effect);
             if (isErrorType(type)) return;
@@ -216,6 +234,7 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
             const name = ts.symbolName(symbol);
             const other = scope.contextsAt(call.parent).flatMap(context => scope.entriesOf(context)).find(entry => entry.name === name && entry.symbol !== symbol);
             if (other) report(effect, codes.handle, `Two effects named '${name}' would share a capability here: rename one.`);
+            suspension.checkHandlers(handle, symbol);
         };
 
         const mapperOf = (call: TS.CallExpression, signature: TS.Signature, declaration: TS.SignatureDeclaration) => {
@@ -273,7 +292,10 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
                 }
                 else needs.push({ name: found.entry.name, context: found.context });
             }
-            if (complete) resolutions.calls.set(call, { needs });
+            if (!complete) return;
+            const colored = scope.isColored(declaration);
+            if (colored) suspension.suspendsAt(call, "This call");
+            resolutions.calls.set(call, { needs, colored });
         };
 
         const signatureHasClause = (type: TS.Type) => checker.getSignaturesOfType(type, ts.SignatureKind.Call).some(signature => !!signature.declaration && syntax.clauses.has(signature.declaration));
@@ -314,7 +336,10 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
                     if (syntax.clauses.has(member)) report(member, codes.declaration, "An operation cannot require effects: its handler runs with those around the 'handle'.");
                 }
             }
-            if (ts.isFunctionLike(node) && syntax.clauses.has(node)) checkClause(node);
+            if (ts.isFunctionLike(node) && syntax.clauses.has(node)) {
+                checkClause(node);
+                suspension.checkColoredFunction(node);
+            }
             if (ts.isFunctionDeclaration(node)) checkOverloads(node);
             if (ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node)) checkInferredType(node);
             if (ts.isCallExpression(node)) {
@@ -336,7 +361,7 @@ export function createEffectChecks(ts: TSPPTypeScript, syntax: EffectSyntax): Ef
         getSemanticDiagnostics(sourceFile, checker, types) {
             const diagnostics: TS.Diagnostic[] = [];
             if (!syntax.used() || sourceFile.isDeclarationFile) return diagnostics;
-            const resolutions: FileResolutions = { calls: new Map(), performs: new Map() };
+            const resolutions: FileResolutions = { calls: new Map(), performs: new Map(), generatorHandles: new Set() };
             analyze(sourceFile, checker, types, diagnostics, resolutions);
             if (options.isolatedModules) {
                 for (const call of resolutions.calls.keys()) {

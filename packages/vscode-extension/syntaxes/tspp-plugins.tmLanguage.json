@@ -228,6 +228,10 @@
       "match": "(?<![._$[:alnum:]])(perform|handle)(?=\\s+[_$[:alpha:]])"
     },
     {
+      "name": "storage.modifier.effect.tspp",
+      "match": "(?<![._$[:alnum:]])(suspend|control)(?=\\s+[_$[:alpha:]][_$[:alnum:]]*\\s*[(<])"
+    },
+    {
       "match": "\\b(assert|assume)(?=\\s*:)",
       "name": "keyword.control.verification.tspp"
     },

@@ -142,6 +142,26 @@ test("algebraic-effects and modern-syntax: a handle in a let, and a do body with
   assert.equal(exports.value, 2);
 });
 
+test("algebraic-effects with typeclasses and modern-syntax: a suspending function calls both", async () => {
+  const { program, outputs, messages } = compile(`
+    typeclass Show<A> { show(a: A): string; }
+    impl NumberShow = Show<number> { show(a) { return "n" + a; } }
+    effect Wait { suspend wait<T>(value: T): T; }
+    function shown<T>(value: T) where <Show<T>>: string { return Show.show(value); }
+    declare function setTimeout(run: () => void): void;
+    function waited(n: number) / Wait: string do {
+      const value = perform Wait.wait(n);
+      (let doubled = value * 2 in shown(doubled))
+    }
+    export const done = handle Wait { control wait(value, k) { setTimeout(() => k.resume(value)); } } in { waited(2) };
+  `);
+  assert.deepEqual(messages, []);
+  program.emit();
+  const module = { exports: {} };
+  vm.runInNewContext(outputs.get("/main.js"), { module, exports: module.exports, setTimeout });
+  assert.equal(await module.exports.done, "n4");
+});
+
 test("typeclasses and formal-verification: a where clause before a contract", () => {
   const { program, outputs } = createProgram({ "/lib/index.tspp": `
     export typeclass Eq<A> { same(a: A, b: A): boolean; }

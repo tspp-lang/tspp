@@ -2,6 +2,8 @@ import { createLoweredArrowToken, markGenerated } from "@tspp/plugin-sdk";
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
+import { createOperationParser, handlerProperty } from "./operations";
+
 export const syntaxErrorCode = 19200;
 
 /** The `/ { A, B }` of a signature. */
@@ -19,7 +21,12 @@ export interface HandleSyntax {
     readonly call: TS.CallExpression;
     readonly effect: TS.TypeNode;
     readonly body: TS.ArrowFunction;
-    readonly handlers: TS.Expression;
+    readonly handlers: TS.ObjectLiteralExpression;
+    readonly onReturn?: TS.Expression;
+    /** Whether a clause takes the continuation, which makes the value of the `handle` a promise. */
+    readonly control: boolean;
+    /** The clauses written with `control`. */
+    readonly controls: ReadonlySet<TS.Node>;
 }
 
 /** What a `perform` lowered to. */
@@ -49,6 +56,10 @@ export interface EffectSyntax {
     readonly handles: SyntaxTable<HandleSyntax>;
     /** By the function that holds the body of a `handle`. */
     readonly handleBodies: SyntaxTable<HandleSyntax>;
+    /** By the outermost node a `handle` lowered to, which emit replaces as a whole. */
+    readonly handleResults: SyntaxTable<HandleSyntax>;
+    /** By the interface of an effect, the names of its operations marked `suspend`. */
+    readonly suspending: SyntaxTable<ReadonlySet<string>>;
     /** Whether any syntax of this plugin has been parsed in this process. */
     readonly used: () => boolean;
 }
@@ -62,6 +73,8 @@ export interface EffectSyntax {
  * - `handle Logger { ... } in { body }` becomes `((__tspp_handler) => { body })({ ... } satisfies Logger)`, passed through
  *   the `return` clause when there is one. Emit makes the argument the capabilities the body sees.
  * - `/ { A, B }` leaves the signature as it is and only records its items, whose kinds need names to be bound.
+ * - An effect with `suspend` operations also has a `__tspp_handler` property, the type of its handlers, in which those
+ *   operations take a continuation. A `handle` with `control` clauses satisfies that type, and its value is a promise.
  */
 export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
     const kinds = ts.SyntaxKind;
@@ -71,6 +84,8 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
     const performEffects = new WeakMap<TS.Node, true>();
     const handles = new WeakMap<TS.Node, HandleSyntax>();
     const handleBodies = new WeakMap<TS.Node, HandleSyntax>();
+    const handleResults = new WeakMap<TS.Node, HandleSyntax>();
+    const suspending = new WeakMap<TS.Node, ReadonlySet<string>>();
     const restored = new WeakMap<TS.Node, string>();
     let used = false;
 
@@ -100,6 +115,13 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
     const isWordFollowedByName = (cursor: TSPPSyntaxCursor, word: string) =>
         cursor.tokenText() === word && cursor.lookAhead(() => cursor.nextToken() === kinds.Identifier && !cursor.hasPrecedingLineBreak());
 
+    /** `word` before the name of an operation, which may be any word, such as `get`. */
+    const isWordFollowedByAnyName = (cursor: TSPPSyntaxCursor, word: string) =>
+        cursor.tokenText() === word && cursor.lookAhead(() => {
+            cursor.nextToken();
+            return isName(cursor.tokenText()) && !cursor.hasPrecedingLineBreak();
+        });
+
     const isName = (text: string) => /^[\p{ID_Start}$_][\p{ID_Continue}$‌‍]*$/u.test(text);
 
     /** A name after a dot or in a handler, where TypeScript takes any word. */
@@ -110,6 +132,12 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
         cursor.nextToken();
         return cursor.finishNode(cursor.factory.createIdentifier(text), pos);
     };
+
+    const operations = createOperationParser(ts, {
+        parseAnyName,
+        isWordFollowedByName: isWordFollowedByAnyName,
+        report: (cursor, start, end, message) => cursor.parseErrorAt(start, end, message, syntaxErrorCode),
+    });
 
     /** `/ E` or `/ { A, B }` at the current token. */
     const parseClause = (cursor: TSPPSyntaxCursor): EffectClause => {
@@ -185,15 +213,14 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
             cursor.nextToken();
             const name = cursor.parseIdentifier();
             const typeParameters = cursor.parseTypeParameters();
-            if (cursor.token() !== kinds.OpenBraceToken) cursor.parseExpected(kinds.OpenBraceToken);
-            const body = cursor.parseType();
+            // A handler's type holds its own copy of each operation, so the operations are read twice.
+            const copy = cursor.lookAhead(() => operations.parseOperations(cursor));
+            const { members, suspending: suspended } = operations.parseOperations(cursor);
             const end = cursor.getNodePos();
-            const members = ts.isTypeLiteralNode(body) ? body.members : f.createNodeArray<TS.TypeElement>([]);
-            for (const member of members) {
-                if (!ts.isMethodSignature(member)) cursor.parseErrorAt(member.pos, member.end, "An effect may only declare operations, written as methods.", syntaxErrorCode);
-            }
-            const declaration = cursor.finishNode(f.createInterfaceDeclaration(cursor.modifiers as readonly TS.ModifierLike[] | undefined, name, typeParameters, undefined, members), cursor.modifiers?.pos ?? pos, end);
+            const allMembers = suspended.size ? f.createNodeArray([...members, operations.handlerMember(f, copy, end)]) : members;
+            const declaration = cursor.finishNode(f.createInterfaceDeclaration(cursor.modifiers as readonly TS.ModifierLike[] | undefined, name, typeParameters, undefined, allMembers), cursor.modifiers?.pos ?? pos, end);
             effects.set(declaration, true);
+            if (suspended.size) suspending.set(declaration, suspended);
             const prefix = (cursor.modifiers ?? []).map(modifier => `${ts.tokenToString(modifier.kind)} `).join("");
             restored.set(declaration, `${prefix}${cursor.getSourceText().slice(start, end).trimEnd()}`);
             return declaration;
@@ -245,29 +272,7 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
     const parseHandlerMethod = (cursor: TSPPSyntaxCursor, pos: number, name: TS.Identifier) => {
         const f = cursor.factory;
         const typeParameters = cursor.parseTypeParameters();
-        const parametersPos = cursor.getNodePos();
-        cursor.parseExpected(kinds.OpenParenToken);
-        const parameters: TS.ParameterDeclaration[] = [];
-        while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
-            const parameterPos = cursor.getNodePos();
-            const rest = cursor.token() === kinds.DotDotDotToken ? f.createToken(kinds.DotDotDotToken) : undefined;
-            if (rest) {
-                cursor.finishNode(rest, parameterPos);
-                cursor.nextToken();
-            }
-            const binding = cursor.parseBindingName();
-            const question = cursor.token() === kinds.QuestionToken ? f.createToken(kinds.QuestionToken) : undefined;
-            if (question) {
-                cursor.finishNode(question, cursor.getNodePos());
-                cursor.nextToken();
-            }
-            const type = cursor.parseTypeAnnotation();
-            const initializer = cursor.parseOptional(kinds.EqualsToken) ? cursor.parseAssignmentExpression() : undefined;
-            parameters.push(cursor.finishNode(f.createParameterDeclaration(undefined, rest, binding, question, type, initializer), parameterPos));
-            if (!cursor.parseOptional(kinds.CommaToken)) break;
-        }
-        const parameterList = range(f.createNodeArray(parameters), parametersPos, cursor.getNodePos());
-        cursor.parseExpected(kinds.CloseParenToken);
+        const parameterList = operations.parseParameters(cursor);
         const returnType = cursor.parseTypeAnnotation();
         const body = cursor.token() === kinds.OpenBraceToken ? cursor.parseStatement() : undefined;
         if (!body) cursor.parseExpected(kinds.OpenBraceToken);
@@ -285,6 +290,7 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
         const propertiesPos = cursor.getNodePos();
         const properties: TS.ObjectLiteralElementLike[] = [];
         let onReturn: TS.Expression | undefined;
+        const controls = new Set<TS.Node>();
         while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) {
             const entryPos = cursor.getNodePos();
             const entryStart = cursor.getTokenStart();
@@ -292,10 +298,8 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
                 cursor.parseErrorAt(entryStart, entryStart + cursor.tokenText().length, "A handler holds a clause for each operation, named as the operation is.", syntaxErrorCode);
                 break;
             }
-            if ((cursor.tokenText() === "control" || cursor.tokenText() === "suspend") && isWordFollowedByName(cursor, cursor.tokenText())) {
-                cursor.parseErrorAt(entryStart, entryStart + cursor.tokenText().length, `'${cursor.tokenText()}' clauses, which take the continuation, are not supported yet.`, syntaxErrorCode);
-                cursor.nextToken();
-            }
+            const control = isWordFollowedByAnyName(cursor, "control");
+            if (control) cursor.nextToken();
             const name = parseAnyName(cursor);
             const isReturn = ts.idText(name) === "return";
             let property: TS.ObjectLiteralElementLike;
@@ -308,12 +312,16 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
                 else if (ts.isMethodDeclaration(property)) onReturn = cursor.finishNode(f.createFunctionExpression(undefined, undefined, undefined, property.typeParameters, property.parameters, property.type, property.body ?? f.createBlock([])), entryPos);
             }
             else properties.push(property);
+            if (control) {
+                if (isReturn || !ts.isMethodDeclaration(property)) cursor.parseErrorAt(entryStart, name.end, "A 'control' clause is written as a method of an operation: 'control name(arguments, k) { ... }'.", syntaxErrorCode);
+                else controls.add(property);
+            }
             if (!cursor.parseOptional(kinds.CommaToken)) break;
         }
         const propertyList = range(f.createNodeArray(properties), propertiesPos, cursor.getNodePos());
         cursor.parseExpected(kinds.CloseBraceToken);
         const handlers = cursor.finishNode(f.createObjectLiteralExpression(propertyList, /*multiLine*/ true), pos);
-        return { handlers, onReturn };
+        return { handlers, onReturn, controls };
     };
 
     /**
@@ -372,21 +380,36 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
         const start = cursor.getTokenStart();
         cursor.nextToken();
         const effect = cursor.parseType();
-        const { handlers, onReturn } = parseHandlers(cursor);
+        const { handlers, onReturn, controls } = parseHandlers(cursor);
         cursor.parseExpected(kinds.InKeyword);
         const block = parseHandleBody(cursor);
         const end = cursor.getNodePos();
         const parameter = markGenerated(ts, f.createParameterDeclaration(undefined, undefined, f.createIdentifier("__tspp_handler")), start);
         const body = range(f.createArrowFunction(undefined, undefined, range(f.createNodeArray([parameter]), pos, pos), undefined, createLoweredArrowToken(ts, f, pos), block), pos, end);
-        const checked = range(f.createSatisfiesExpression(handlers, effect), handlers.pos, handlers.end);
+        const control = controls.size > 0;
+        // With `control` clauses the handlers satisfy `E["__tspp_handler"]`, where suspending operations take `k`.
+        const expected = control ? markGenerated(ts, f.createIndexedAccessTypeNode(effect, f.createLiteralTypeNode(f.createStringLiteral(handlerProperty))), start) : effect;
+        const checked = range(f.createSatisfiesExpression(handlers, expected), handlers.pos, handlers.end);
         const callee = range(f.createParenthesizedExpression(body), pos, end);
         const call = range(f.createCallExpression(callee, undefined, range(f.createNodeArray<TS.Expression>([checked]), end, end)), pos, end);
-        const handle: HandleSyntax = { call, effect, body, handlers };
+        const handle: HandleSyntax = { call, effect, body, handlers, onReturn, control, controls };
         handles.set(call, handle);
         handleBodies.set(body, handle);
-        if (!onReturn) return call;
-        const returning = range(f.createParenthesizedExpression(onReturn), pos, end);
-        return range(f.createCallExpression(returning, undefined, range(f.createNodeArray<TS.Expression>([call]), end, end)), pos, end);
+        let result: TS.Expression = call;
+        if (onReturn) {
+            const returning = range(f.createParenthesizedExpression(onReturn), pos, end);
+            result = range(f.createCallExpression(returning, undefined, range(f.createNodeArray<TS.Expression>([call]), end, end)), pos, end);
+        }
+        if (control) {
+            // `(null! as <R>(value: R) => Promise<Awaited<R>>)(result)`: the value arrives later, as a promise.
+            const value = f.createTypeParameterDeclaration(undefined, "R");
+            const resolved = f.createTypeReferenceNode("Promise", [f.createTypeReferenceNode("Awaited", [f.createTypeReferenceNode("R")])]);
+            const promised = f.createFunctionTypeNode([value], [f.createParameterDeclaration(undefined, undefined, "value", undefined, f.createTypeReferenceNode("R"))], resolved);
+            const wrapper = markGenerated(ts, f.createParenthesizedExpression(f.createAsExpression(f.createNonNullExpression(f.createNull()), promised)), start);
+            result = range(f.createCallExpression(wrapper, undefined, range(f.createNodeArray<TS.Expression>([result]), end, end)), pos, end);
+        }
+        handleResults.set(result, handle);
+        return result;
     };
 
     const handleExpression: TSPPSyntaxExtension = {
@@ -408,6 +431,8 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
         performEffects: table(performEffects),
         handles: table(handles),
         handleBodies: table(handleBodies),
+        handleResults: table(handleResults),
+        suspending: table(suspending),
         used: () => used,
     };
 }

@@ -329,10 +329,9 @@ test("a body cannot leave through return", () => {
   assert.deepEqual(messages(`${prelude} handle Logger { info() {} } in { const f = () => { return 1; }; f(); };`), []);
 });
 
-test("does not support continuation clauses yet, and says so", () => {
-  assert.match(messages(`${prelude} handle Logger { control info(message, k) {} } in {};`).join("\n"), /not supported yet/);
+test("a control clause for an operation that does not suspend is reported", () => {
+  assert.match(messages(`${prelude} handle Logger { control info(message, k) { k.resume(); } } in {};`).join("\n"), /'info' does not suspend/);
 });
-
 test("relates functions by their clauses", () => {
   const relation = /effects|requires .(Config|State<number>).|no effect clause/;
   assert.match(messages(`${prelude}

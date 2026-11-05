@@ -26,6 +26,10 @@ export interface EffectScope {
     contextsAt(at: TS.Node): readonly EffectContext[];
     /** What `context` itself declares or handles. */
     entriesOf(context: EffectContext): readonly ContextEntry[];
+    /** The operations of `effect` marked `suspend`; empty for an effect that only resumes in place. */
+    suspendingOperations(effect: TS.Symbol | undefined): ReadonlySet<string>;
+    /** Whether `fn` has a clause listing an effect with `suspend` operations, which makes it a generator. */
+    isColored(fn: TS.Node): boolean;
     /** The nearest context offering `effect` at `at`. */
     find(effect: TS.Symbol, at: TS.Node): { readonly context: EffectContext; readonly entry: ContextEntry; } | undefined;
 }
@@ -34,6 +38,15 @@ export function createEffectScope(ts: TSPPTypeScript, syntax: EffectSyntax, chec
     const resolveAlias = (symbol: TS.Symbol) => symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
 
     const isEffect = (symbol: TS.Symbol | undefined) => !!symbol?.declarations?.some(declaration => syntax.effects.has(declaration));
+
+    const none: ReadonlySet<string> = new Set();
+    const suspendingOperations = (symbol: TS.Symbol | undefined) => {
+        for (const declaration of symbol?.declarations ?? []) {
+            const found = syntax.suspending.get(declaration);
+            if (found) return found;
+        }
+        return none;
+    };
 
     const effectOf = (type: TS.Type) => {
         const symbol = type.symbol && resolveAlias(type.symbol);
@@ -65,9 +78,21 @@ export function createEffectScope(ts: TSPPTypeScript, syntax: EffectSyntax, chec
         return nodes.flatMap(node => entry(node) ?? []);
     };
 
+    const colored = new Map<TS.Node, boolean>();
+    const isColored = (fn: TS.Node) => {
+        let result = colored.get(fn);
+        if (result === undefined) {
+            result = (syntax.clauses.get(fn)?.items ?? []).some(item => suspendingOperations(effectOf(checker.getTypeFromTypeNode(item))).size > 0);
+            colored.set(fn, result);
+        }
+        return result;
+    };
+
     return {
         effectOf,
         isEffect,
+        suspendingOperations,
+        isColored,
         keyOf: context => context.kind === "clause" ? context.fn : context.handle.call,
         contextsAt,
         entriesOf,
