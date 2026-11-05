@@ -2,6 +2,7 @@ export function renderEditorTabs(
   tabBar: HTMLElement,
   paths: readonly string[],
   active: string,
+  dirty: ReadonlySet<string>,
   onOpen: (path: string) => void,
   onClose: (path: string) => void,
 ): void {
@@ -14,6 +15,7 @@ export function renderEditorTabs(
     tab.tabIndex = 0;
     tab.title = path.slice(1);
     tab.classList.toggle("active", path === active);
+    tab.classList.toggle("dirty", dirty.has(path));
     tab.setAttribute("aria-selected", String(path === active));
     const label = document.createElement("span");
     label.className = "tab-label";
@@ -23,7 +25,7 @@ export function renderEditorTabs(
     close.className = "tab-close";
     close.setAttribute("aria-label", `Close ${path.slice(1)}`);
     close.title = "Close";
-    close.textContent = "×";
+    close.textContent = dirty.has(path) ? "●" : "×";
     close.onclick = event => {
       event.stopPropagation();
       onClose(path);
@@ -59,5 +61,51 @@ export function setupHorizontalResizer(resizer: HTMLElement, workspace: HTMLElem
     const next = Math.max(160, Math.min(360, current + (event.key === "ArrowLeft" ? -10 : 10)));
     workspace.style.setProperty("--project-width", `${next}px`);
     event.preventDefault();
+  };
+}
+
+export function setupSaveShortcut(save: () => void, hasUnsavedChanges: () => boolean): void {
+  window.addEventListener("keydown", event => {
+    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+    event.preventDefault();
+    save();
+  }, { capture: true });
+  window.addEventListener("beforeunload", event => {
+    if (!hasUnsavedChanges()) return;
+    event.preventDefault();
+  });
+}
+
+export function setupShareButton(button: HTMLButtonElement, manualLink: HTMLInputElement): void {
+  button.onclick = async () => {
+    try {
+      await navigator.clipboard.writeText(location.href);
+    }
+    catch {
+      manualLink.value = location.href;
+      manualLink.hidden = false;
+      manualLink.select();
+      return;
+    }
+    button.textContent = "Link copied";
+    setTimeout(() => button.textContent = "Share", 1500);
+  };
+}
+
+export function setupProjectSelector<T>(
+  select: HTMLSelectElement,
+  selectedState: () => T | undefined,
+  load: (state: T) => void,
+  hasUnsavedChanges: () => boolean,
+  restoreSelection: () => void,
+): void {
+  select.onchange = () => {
+    const state = selectedState();
+    if (!state) return;
+    if (hasUnsavedChanges() && !confirm("Discard all unsaved changes and open another example?")) {
+      restoreSelection();
+      return;
+    }
+    load(state);
   };
 }

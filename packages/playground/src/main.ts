@@ -5,12 +5,13 @@ import { effectiveFeatures, renderFeaturePanel } from "./features";
 import { jsoncLanguageId, registerJsoncLanguage } from "./jsoncLanguage";
 import * as monaco from "./monaco";
 import { createOutputController } from "./outputs";
+import { renderProblemList } from "./problems";
 import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, replacePathPrefix, validItemName } from "./projectTree";
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
-import { decodeState, encodeState, type SharedState } from "./share";
+import { decodeState, encodeState, onSharedStateChange, type SharedState } from "./share";
 import { languageId, registerTsppLanguage } from "./tsppLanguage";
-import { renderEditorTabs, setupHorizontalResizer } from "./workspaceUi";
+import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
 
 self.MonacoEnvironment = {
   getWorker: () => new Worker(new URL("./editorWorker.ts", import.meta.url), { type: "module" }),
@@ -90,6 +91,7 @@ bootOverlay.hidden = true;
 
 // ---- project ---------------------------------------------------------------------------
 const models = new Map<string, monaco.editor.ITextModel>();
+const savedContents = new Map<string, string>();
 const resources = new Map<string, string>();
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
 let openFiles: string[] = [];
@@ -98,41 +100,44 @@ const expandedDirectories = new Set<string>();
 const selected = new Set<string>();
 let active = "";
 let selectedProjectItem = "";
-let configurationTimer: ReturnType<typeof setTimeout> | undefined;
 
 const currentFeatures = () => effectiveFeatures(definitions, selected);
 const isSourceFile = (path: string) => /\.(tspp|ts)$/.test(path);
 const isEditorFile = (path: string) => isSourceFile(path) || path.endsWith(".json");
-const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...[...models].map(([path, model]) => [path, model.getValue()] as const)]);
+const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...savedContents]);
+const isDirty = (path: string) => models.get(path)?.getValue() !== savedContents.get(path);
+const dirtyFiles = () => new Set([...models.keys()].filter(isDirty));
 
 function createProjectModel(path: string, text: string): monaco.editor.ITextModel {
   const model = monaco.editor.createModel(text, path.endsWith(".json") ? jsoncLanguageId : isSourceFile(path) ? languageId : "plaintext", monaco.Uri.file(path));
   model.onDidChangeContent(() => {
-    if (path === "/tsconfig.json") applyConfiguration();
-    else void client.editFile(path, model.getValue());
-    outputs.markStale();
-    scheduleCheck();
+    checkGeneration++;
+    checkCancellation?.cancel();
+    setDiagnosticMarkers(model, []);
+    renderTabs();
+    if (path === active) outputs.setDirty(isDirty(path));
+    exampleSelect.value = "";
   });
   return model;
 }
 
-function applyConfiguration(immediate = false): void {
-  const model = models.get("/tsconfig.json");
-  if (!model) return;
-  const configuration = parseProjectConfiguration(model.getValue(), definitions);
+async function applyConfiguration(): Promise<void> {
+  const text = savedContents.get("/tsconfig.json");
+  if (text === undefined) return;
+  const configuration = parseProjectConfiguration(text, definitions);
   selected.clear();
   configuration.features.forEach(id => selected.add(id));
   refreshFeatures();
   outputs.setRunBlock(configuration.runBlockReason);
-  clearTimeout(configurationTimer);
-  const update = () => void client.setProject(projectFiles(), currentFeatures());
-  if (immediate) update();
-  else configurationTimer = setTimeout(update, 200);
+  await client.setProject(projectFiles(), currentFeatures());
 }
 
 function loadProject(state: SharedState) {
+  editor.setModel(null);
+  active = "";
   for (const model of models.values()) model.dispose();
   models.clear();
+  savedContents.clear();
   resources.clear();
   viewStates.clear();
   openFiles = [];
@@ -147,13 +152,14 @@ function loadProject(state: SharedState) {
       resources.set(path, text);
       continue;
     }
+    savedContents.set(path, text);
     models.set(path, createProjectModel(path, text));
   }
   state.directories?.map(normalizedPath).filter(path => path !== "/").forEach(path => directories.add(path));
   directories.forEach(path => expandedDirectories.add(path));
   selectedProjectItem = state.active;
   openFiles = [...new Set([...(state.open ?? []), state.active])].filter(path => models.has(path));
-  applyConfiguration(true);
+  void applyConfiguration();
   outputs.markStale();
   renderTabs();
   renderProjectTree();
@@ -167,6 +173,7 @@ function openFile(path: string, refreshOutput = false) {
   if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
   active = path;
   outputs.setFile(path, refreshOutput, isSourceFile(path));
+  outputs.setDirty(isDirty(path));
   editor.setModel(model);
   const viewState = viewStates.get(path);
   if (viewState) editor.restoreViewState(viewState);
@@ -177,12 +184,16 @@ function openFile(path: string, refreshOutput = false) {
 }
 
 function renderTabs() {
-  renderEditorTabs(tabBar, openFiles.filter(path => models.has(path)), active, openFile, closeFile);
+  renderEditorTabs(tabBar, openFiles.filter(path => models.has(path)), active, dirtyFiles(), openFile, closeFile);
 }
 
 function closeFile(path: string): void {
   const index = openFiles.indexOf(path);
   if (index < 0) return;
+  if (isDirty(path)) {
+    if (!confirm(`Discard the unsaved changes in ${baseName(path)} and close it?`)) return;
+    models.get(path)?.setValue(savedContents.get(path) ?? "");
+  }
   openFiles.splice(index, 1);
   if (active !== path) {
     renderTabs();
@@ -230,13 +241,10 @@ function renderProjectTree(): void {
 
 function selectedDirectory(): string {
   if (directories.has(selectedProjectItem)) return selectedProjectItem;
-  if (models.has(selectedProjectItem) || resources.has(selectedProjectItem)) return parentDirectory(selectedProjectItem);
-  return directories.has("/src") ? "/src" : "/";
+  return models.has(selectedProjectItem) || resources.has(selectedProjectItem) ? parentDirectory(selectedProjectItem) : directories.has("/src") ? "/src" : "/";
 }
 
-function projectPathExists(path: string): boolean {
-  return directories.has(path) || models.has(path) || resources.has(path);
-}
+const projectPathExists = (path: string) => directories.has(path) || models.has(path) || resources.has(path);
 
 function syncProjectChange(nextActive = active): void {
   void client.setProject(projectFiles(), currentFeatures());
@@ -245,6 +253,18 @@ function syncProjectChange(nextActive = active): void {
   renderProjectTree();
   openFile(models.has(nextActive) ? nextActive : models.keys().next().value!, true);
 }
+
+async function saveProject(): Promise<void> {
+  const dirty = dirtyFiles();
+  for (const path of dirty) savedContents.set(path, models.get(path)!.getValue());
+  renderTabs();
+  await applyConfiguration();
+  if (active) outputs.setFile(active, true, isSourceFile(active));
+  outputs.setDirty(active ? isDirty(active) : false);
+  scheduleCheck();
+}
+
+setupSaveShortcut(() => void saveProject(), () => dirtyFiles().size > 0);
 
 function createFile(): void {
   const name = validItemName(prompt("New source file name", "untitled.tspp"));
@@ -259,6 +279,7 @@ function createFile(): void {
     return;
   }
   addParentDirectories(path, directories);
+  savedContents.set(path, "");
   models.set(path, createProjectModel(path, ""));
   selectedProjectItem = path;
   active = path;
@@ -306,8 +327,11 @@ function renameSelectedItem(): void {
     for (const [path, model] of movedModels) {
       const movedPath = replacePathPrefix(path, oldPath, nextPath);
       const text = model.getValue();
+      const saved = savedContents.get(path) ?? text;
       model.dispose();
       models.delete(path);
+      savedContents.delete(path);
+      savedContents.set(movedPath, saved);
       models.set(movedPath, createProjectModel(movedPath, text));
       const viewState = viewStates.get(path);
       if (viewState) viewStates.set(movedPath, viewState);
@@ -329,8 +353,11 @@ function renameSelectedItem(): void {
   else if (models.has(oldPath)) {
     const oldModel = models.get(oldPath)!;
     const text = oldModel.getValue();
+    const saved = savedContents.get(oldPath) ?? text;
     oldModel.dispose();
     models.delete(oldPath);
+    savedContents.delete(oldPath);
+    savedContents.set(nextPath, saved);
     models.set(nextPath, createProjectModel(nextPath, text));
     const viewState = viewStates.get(oldPath);
     if (viewState) viewStates.set(nextPath, viewState);
@@ -367,6 +394,7 @@ function deleteSelectedProjectItem(): void {
   for (const file of affectedModels) {
     models.get(file)?.dispose();
     models.delete(file);
+    savedContents.delete(file);
     viewStates.delete(file);
   }
   openFiles = openFiles.filter(file => !affectedModels.includes(file));
@@ -422,10 +450,6 @@ const exampleState = (id: string): SharedState | undefined => {
   const example = examples.find(e => e.id === id);
   return example && { files: example.files, features: example.features, active: example.entry };
 };
-exampleSelect.onchange = () => {
-  const state = exampleState(exampleSelect.value);
-  if (state) loadProject(state);
-};
 
 /** Shows the example name while the project is still exactly that example. */
 function syncExampleSelect() {
@@ -435,6 +459,7 @@ function syncExampleSelect() {
   );
   exampleSelect.value = matching?.id ?? "";
 }
+setupProjectSelector(exampleSelect, () => exampleState(exampleSelect.value), loadProject, () => dirtyFiles().size > 0, syncExampleSelect);
 
 // ---- features ------------------------------------------------------------------------
 const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selected, (name, checked) => {
@@ -447,6 +472,8 @@ const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selec
     return;
   }
   configModel.setValue(text);
+  if (!openFiles.includes("/tsconfig.json")) openFiles.push("/tsconfig.json");
+  renderTabs();
 });
 
 // ---- checking ------------------------------------------------------------------------
@@ -461,9 +488,9 @@ function requestCheck(delay: number) {
   checkTimer = setTimeout(check, delay);
 }
 
-/** Type checks the open file after a pause, and keeps the share link in the URL current. */
+/** Type checks the saved open file after a pause, and keeps the saved project URL current. */
 function scheduleCheck() {
-  requestCheck(300);
+  if (!active || !isDirty(active)) requestCheck(300);
   history.replaceState(null, "", "#" + encodeState({
     files: projectFiles(),
     features: [...selected],
@@ -500,52 +527,25 @@ async function check() {
 }
 
 function renderProblems(problems: readonly DiagnosticInfo[]) {
-  problemCount.textContent = String(problems.length);
-  problemList.replaceChildren(...problems.map(problem => {
-    const item = document.createElement("li");
-    item.className = `problem ${problem.category}`;
-    const location = document.createElement("span");
-    location.className = "problem-location";
-    const message = document.createElement("span");
-    message.className = "problem-message";
-    message.textContent = problem.code ? `${problem.message} (TS${problem.code})` : problem.message;
-    const fileName = problem.fileName ?? active;
-    const model = models.get(fileName);
-    if (problem.span && model) {
-      const position = model.getPositionAt(problem.span.start);
-      location.textContent = `${fileName.replace(/^\//, "")}:${position.lineNumber}:${position.column}`;
-      item.onclick = () => {
-        openFile(fileName);
-        editor.setPosition(position);
-        editor.revealPositionInCenter(position);
-        editor.focus();
-      };
-    }
-    item.append(location, message);
-    return item;
-  }));
+  renderProblemList(problemList, problemCount, problems, active,
+    (problem, fileName) => problem.span && models.get(fileName)?.getPositionAt(problem.span.start),
+    (fileName, position) => {
+      openFile(fileName);
+      editor.setPosition(position);
+      editor.revealPositionInCenter(position);
+      editor.focus();
+    });
 }
 
 loadProject(decodeState(location.hash) ?? exampleState(examples[0].id)!);
 
-// a pasted share link in the same tab only changes the hash
-window.addEventListener("hashchange", () => {
-  const state = decodeState(location.hash);
-  if (state) loadProject(state);
-});
-
-// ---- sharing -------------------------------------------------------------------------
-shareButton.onclick = async () => {
-  try {
-    await navigator.clipboard.writeText(location.href);
-  }
-  catch {
-    // clipboard access denied (permissions, unfocused document): show the link to copy by hand
-    shareLink.value = location.href;
-    shareLink.hidden = false;
-    shareLink.select();
+// A pasted share link in the same tab only changes the hash.
+onSharedStateChange(state => {
+  if (dirtyFiles().size && !confirm("Discard all unsaved changes and open the shared project?")) {
+    scheduleCheck();
     return;
   }
-  shareButton.textContent = "Link copied";
-  setTimeout(() => shareButton.textContent = "Share", 1500);
-};
+  loadProject(state);
+});
+
+setupShareButton(shareButton, shareLink);

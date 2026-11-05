@@ -69,3 +69,10 @@ export function decodeState(hash: string): SharedState | undefined {
   const active = file && paths.includes(file) ? file : sources[0];
   return { files: files as ProjectFiles, features, active, open: open?.length ? [...new Set([...open, active])] : undefined, directories };
 }
+
+export function onSharedStateChange(listener: (state: SharedState) => void): void {
+  window.addEventListener("hashchange", () => {
+    const state = decodeState(location.hash);
+    if (state) listener(state);
+  });
+}

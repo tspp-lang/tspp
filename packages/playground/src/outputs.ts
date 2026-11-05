@@ -16,6 +16,8 @@ export interface OutputController {
   /** Adds the output tabs of the features the compiler offers, once it has loaded. */
   addFeatureOutputs(features: readonly FeatureDefinition[]): void;
   setFile(fileName: string, force?: boolean, sourceFile?: boolean): void;
+  /** Marks the editor as newer than the saved project whose artifacts are shown. */
+  setDirty(dirty: boolean): void;
   /** Explains why the current project cannot execute in the browser, or clears the restriction. */
   setRunBlock(reason: string | undefined): void;
   markStale(): void;
@@ -39,6 +41,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   let requestGeneration = 0;
   let fileName = "";
   let sourceFile = true;
+  let dirty = false;
   let runBlock: string | undefined;
   let runtime: Worker | undefined;
 
@@ -68,6 +71,14 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
 
   function itemsForCategory(): readonly OutputItem[] {
     return loaded.get(category)?.items ?? [];
+  }
+
+  function savedOutputStatus(): string {
+    if (!sourceFile) return "Project configuration";
+    const snapshot = loaded.get(category);
+    if (!snapshot) return "Load on demand";
+    if (snapshot.diagnostics.some(item => item.category === "error")) return "Generated with errors";
+    return outputsForActiveFile(snapshot.items).length ? "Up to date" : "Not produced";
   }
 
   function renderTabs(loading?: OutputCategory): void {
@@ -141,6 +152,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       outputStatus.textContent = snapshot.diagnostics.some(item => item.category === "error")
         ? "Generated with errors"
         : outputsForActiveFile(snapshot.items, nextCategory).length ? "Up to date" : "Not produced";
+      if (dirty) outputStatus.textContent = "Unsaved changes — showing saved output";
       updateRunButton();
     }
     catch (error) {
@@ -163,6 +175,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     if (fileName === nextFileName && sourceFile === nextSourceFile && !force) return;
     fileName = nextFileName;
     sourceFile = nextSourceFile;
+    dirty = false;
     if (!sourceFile) {
       requestGeneration++;
       loaded.clear();
@@ -327,6 +340,10 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       }
     },
     setFile,
+    setDirty(nextDirty) {
+      dirty = nextDirty;
+      outputStatus.textContent = dirty ? "Unsaved changes — showing saved output" : savedOutputStatus();
+    },
     setRunBlock(reason) {
       runBlock = reason;
       updateRunButton();
