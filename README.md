@@ -10,6 +10,8 @@ syntax, semantic analysis, language-service additions, and editor metadata;
 shared packages provide loading and narrow SDK contracts instead of accumulating
 feature branches in the TypeScript-derived core.
 
+👉 **Looking for existing features?** Explore the [**TS++ Features & Plugin Catalog**](docs/features.md) for a comprehensive overview of all 8 active feature capsules, syntax specifications, and status.
+
 ## Repository layout
 
 ```text
