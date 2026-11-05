@@ -264,7 +264,7 @@ async function saveProject(): Promise<void> {
   scheduleCheck();
 }
 
-setupSaveShortcut(() => void saveProject(), () => dirtyFiles().size > 0);
+setupSaveShortcut(() => void saveProject());
 
 function createFile(): void {
   const name = validItemName(prompt("New source file name", "untitled.tspp"));

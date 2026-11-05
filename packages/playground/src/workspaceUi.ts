@@ -64,15 +64,16 @@ export function setupHorizontalResizer(resizer: HTMLElement, workspace: HTMLElem
   };
 }
 
-export function setupSaveShortcut(save: () => void, hasUnsavedChanges: () => boolean): void {
+export function setupSaveShortcut(save: () => void): void {
   window.addEventListener("keydown", event => {
     if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
     event.preventDefault();
     save();
   }, { capture: true });
   window.addEventListener("beforeunload", event => {
-    if (!hasUnsavedChanges()) return;
     event.preventDefault();
+    // Required by older Chromium/WebKit versions; modern browsers ignore the value and show their own wording.
+    event.returnValue = "";
   });
 }
 
