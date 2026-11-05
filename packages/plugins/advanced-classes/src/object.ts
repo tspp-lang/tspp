@@ -38,22 +38,36 @@ export function createObjectSyntax(ts: TSPPTypeScript): {
         // Optional heritage clauses: extends / implements
         const heritageClauses: TS.HeritageClause[] = [];
         if (cursor.token() === kinds.ExtendsKeyword) {
+            const clauseStart = cursor.getTokenStart();
             cursor.nextToken();
-            const types: TS.ExpressionWithTypeArguments[] = [];
-            const expr = cursor.parseExpression() as TS.ExpressionWithTypeArguments;
-            types.push(expr);
-            heritageClauses.push(f.createHeritageClause(kinds.ExtendsKeyword, f.createNodeArray(types)));
+            const exprStart = cursor.getTokenStart();
+            const expr = cursor.parseExpression();
+            let typeArgs: TS.NodeArray<TS.TypeNode> | undefined;
+            if (cursor.token() === kinds.LessThanToken) {
+                typeArgs = cursor.parseTypeArguments();
+            }
+            const exprWithTypeArgs = range(f.createExpressionWithTypeArguments(expr, typeArgs), exprStart, cursor.getNodePos());
+            const clause = range(f.createHeritageClause(kinds.ExtendsKeyword, f.createNodeArray([exprWithTypeArgs])), clauseStart, cursor.getNodePos());
+            heritageClauses.push(clause);
         }
         if (cursor.token() === kinds.ImplementsKeyword) {
+            const clauseStart = cursor.getTokenStart();
             cursor.nextToken();
             const types: TS.ExpressionWithTypeArguments[] = [];
-            while (cursor.token() !== kinds.OpenBraceToken && cursor.token() !== kinds.EndOfFileToken) {
-                const expr = cursor.parseExpression() as TS.ExpressionWithTypeArguments;
-                types.push(expr);
+            while (cursor.token() !== kinds.OpenBraceToken && cursor.token() !== kinds.EndOfFileToken && !cursor.hasPrecedingLineBreak()) {
+                const exprStart = cursor.getTokenStart();
+                const expr = cursor.parseExpression();
+                let typeArgs: TS.NodeArray<TS.TypeNode> | undefined;
+                if (cursor.token() === kinds.LessThanToken) {
+                    typeArgs = cursor.parseTypeArguments();
+                }
+                const exprWithTypeArgs = range(f.createExpressionWithTypeArguments(expr, typeArgs), exprStart, cursor.getNodePos());
+                types.push(exprWithTypeArgs);
                 if (cursor.token() === kinds.CommaToken) cursor.nextToken();
                 else break;
             }
-            heritageClauses.push(f.createHeritageClause(kinds.ImplementsKeyword, f.createNodeArray(types)));
+            const clause = range(f.createHeritageClause(kinds.ImplementsKeyword, f.createNodeArray(types)), clauseStart, cursor.getNodePos());
+            heritageClauses.push(clause);
         }
 
         // Parse class body: { ... }
