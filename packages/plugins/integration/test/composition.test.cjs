@@ -53,6 +53,47 @@ test("modern-syntax and nominal-types: a match in a use continuation", () => {
   assert.equal(r, 5);
 });
 
+test("typeclasses and formal-verification: a where clause before a contract", () => {
+  const { program, outputs } = createProgram({ "/lib/index.tspp": `
+    export typeclass Eq<A> { same(a: A, b: A): boolean; }
+    export function checked<T>(v: bigint, t: T) where <Eq<T>> with { ensures: result >= v; }: bigint { return v; }
+  ` }, { declaration: true, emitDeclarationOnly: true });
+  assert.deepEqual(diagnosticMessages(program), []);
+  program.emit();
+  const read = extension => [...outputs].find(([fileName]) => fileName.endsWith(extension))[1];
+  assert.match(read(".d.tspp"), /checked<T>\(v: bigint, t: T\) where <Eq<T>> with \{ ensures: result >= v; \}: bigint;/);
+  assert.match(read(".d.ts"), /checked<T>\(__Eq: Eq<T>, v: bigint, t: T\): bigint;/);
+});
+
+test("typeclasses and advanced-classes: a where clause on a final class", () => {
+  const { program, outputs } = createProgram(`
+    typeclass Same<A> { same(a: A, b: A): boolean; }
+    impl NumberSame = Same<number> { same(a, b) { return a === b; } }
+    final class Kept<T> where <Same<T>> {
+      constructor(readonly value: T) {}
+      check(other: T): boolean { return Same.same(this.value, other); }
+    }
+    data class Pair<T> where <Same<T>> (first: T, second: T);
+    export const held = new Kept(1).check(1);
+    export const pair = new Pair(1, 2);
+    export const wrong = new Kept(true);
+  `);
+  assert.match(diagnosticMessages(program).join(), /'Same<boolean>'/);
+  program.emit();
+  assert.match(outputs.get("/main.js"), /new Kept\(NumberSame, 1\)/);
+  assert.match(outputs.get("/main.js"), /new Pair\(NumberSame, 1, 2\)/);
+
+  const declarations = createProgram({ "/lib/index.tspp": `
+    export typeclass Same<A> { same(a: A, b: A): boolean; }
+    export final class Kept<T> where <Same<T>> { constructor(readonly value: T) {} }
+  ` }, { declaration: true, emitDeclarationOnly: true });
+  assert.deepEqual(diagnosticMessages(declarations.program), []);
+  declarations.program.emit();
+  const read = extension => [...declarations.outputs].find(([fileName]) => fileName.endsWith(extension))[1];
+  assert.match(read(".d.tspp"), /class Kept<T> where <Same<T>>/);
+  assert.match(read(".d.ts"), /constructor\(__Same: Same<T>, value: T\)/);
+});
+
 test("operator-sections and nominal-types: a match in a section", () => {
   const { r } = run(`
     data S = A(x: number) | B;
@@ -455,6 +496,6 @@ test("the result does not depend on the order plugins are loaded in", () => {
   const sorted = [...names].sort();
   const baseline = script(sorted);
   assert.ok(JSON.parse(baseline).length > 0);
-  assert.equal(script(pluginOrder(sorted, 3)), baseline);
+  assert.equal(script(pluginOrder(sorted, 2)), baseline);
   assert.equal(script([...sorted].reverse()), baseline);
 });

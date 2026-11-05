@@ -16,6 +16,7 @@
     "@tspp/plugin-nominal-types": "workspace:*",
     "@tspp/plugin-operator-sections": "workspace:*",
     "@tspp/plugin-static-interface-members": "workspace:*",
-    "@tspp/plugin-type-computation": "workspace:*"
+    "@tspp/plugin-type-computation": "workspace:*",
+    "@tspp/plugin-typeclasses": "workspace:*"
   }
 }

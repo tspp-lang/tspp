@@ -3596,6 +3596,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         }
 
         emitTypeParameters(node, node.typeParameters);
+        emitTSPPRestoredFunctionClause(node, currentSourceFile, tsppCompatibilityDeclaration || tsppJavaScriptEmit, write, writeSpace); // TSPP-SLOT(syntax-extension)
         emitList(node, node.heritageClauses, ListFormat.ClassHeritageClauses);
         writeSpace();
         writePunctuation("{");

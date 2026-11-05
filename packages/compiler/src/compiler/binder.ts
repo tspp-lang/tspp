@@ -310,7 +310,10 @@ import {
     WithStatement,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
-import { isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
+import {
+    getTSPPBoundChild,
+    isTSPPStaticSideMember,
+} from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
 
 /** @internal */
 export const enum ModuleInstanceState {
@@ -1095,6 +1098,7 @@ function createBinder(): (file: SourceFile, options: CompilerOptions) => void {
     }
 
     function bindChildren(node: Node): void {
+        bind(getTSPPBoundChild(node)); // TSPP-SLOT(syntax-extension)
         const saveInAssignmentPattern = inAssignmentPattern;
         // Most nodes aren't valid in an assignment pattern, so we clear the value here
         // and set it before we descend into nodes that could actually be part of an assignment pattern.

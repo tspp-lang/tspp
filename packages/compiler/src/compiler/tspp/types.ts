@@ -1,5 +1,6 @@
 import type {
     TSPPDiagnosticMessage,
+    TSPPSignatureConstraint,
     TSPPTypeExtension,
     TSPPTypeHost,
     TSPPTypeMapper,
@@ -20,6 +21,8 @@ import type {
     GenericType,
     InterfaceType,
     Node,
+    NodeLinks,
+    Signature,
     Symbol,
     SymbolLinks,
     SymbolTable,
@@ -37,6 +40,7 @@ import {
 } from "../types.js";
 import {
     createTSPPDiagnosticMessage,
+    getRegisteredTSPPSignatureConstraints,
     getRegisteredTSPPTypeExtensions,
     isTSPPSyntaxAllowedAt,
 } from "./registry.js";
@@ -51,6 +55,7 @@ export interface TSPPTypeCheckerInternals {
     readonly resolveAlias: (symbol: Symbol) => Symbol;
     readonly getDeclaredTypeOfSymbol: (symbol: Symbol) => Type;
     readonly getSymbolLinks: (symbol: Symbol) => SymbolLinks;
+    readonly getNodeLinks: (node: Node) => NodeLinks;
     readonly getTypeAliasInstantiation: (symbol: Symbol, typeArguments: readonly Type[] | undefined) => Type;
     readonly createTypeReference: (target: GenericType, typeArguments: readonly Type[] | undefined) => Type;
     readonly createTypeMapper: (sources: readonly TypeParameter[], targets: readonly Type[] | undefined) => TypeMapper;
@@ -97,6 +102,10 @@ export function getTSPPTypeOperations(checkerHost: TypeCheckerHost): TSPPTypeOpe
     return typeOperations.get(checkerHost);
 }
 
+function typeOperationsOf(state: TSPPTypeState): TSPPTypeOperations {
+    return createTypeOperations(state.internals);
+}
+
 function toDiagnosticMessage(message: TSPPDiagnosticMessage): DiagnosticMessage {
     return createTSPPDiagnosticMessage(message.code, message.message);
 }
@@ -115,6 +124,12 @@ function createTypeOperations(internals: TSPPTypeCheckerInternals): TSPPTypeOper
             return internals.createAnonymousType(/*symbol*/ undefined, members, emptyArray, emptyArray, emptyArray) as never;
         },
         getIntersectionType: types => internals.getIntersectionType(types as unknown as readonly Type[]) as never,
+        markAliasReferenced: symbol => {
+            internals.getSymbolLinks(symbol as unknown as Symbol).referenced = true;
+        },
+        markAliasVisibleInDeclarations: symbol => {
+            for (const declaration of (symbol as unknown as Symbol).declarations ?? []) internals.getNodeLinks(declaration).isVisible = true;
+        },
         getAssignabilityError: (source, target, node, headMessage, containingMessage, containingArguments = []) => {
             const output: { errors?: Diagnostic[]; skipLogging?: boolean; } = { skipLogging: true };
             const assignable = internals.checkTypeAssignableTo(
@@ -199,6 +214,49 @@ export function isTSPPTypeParameterApplicable(typeParameter: TypeParameter): boo
         if (extension.isTypeParameterApplicable?.(typeParameter as never)) return true;
     }
     return false;
+}
+
+/** Whether every overload constraint lets `candidate` be chosen for the call `node`, as instantiated by the call. @internal */
+export function isTSPPOverloadApplicable(state: TSPPTypeState, node: Node, candidate: Signature, instantiated: Signature): boolean {
+    const declaration = candidate.declaration;
+    if (!declaration) return true;
+    const request: Parameters<TSPPSignatureConstraint["isOverloadApplicable"]>[0] = {
+        node: node as never,
+        declaration: declaration as never,
+        checker: state.getChecker() as never,
+        instantiate: type => state.internals.instantiateType(type as unknown as Type, instantiated.mapper) as never,
+    };
+    return getRegisteredTSPPSignatureConstraints().every(constraint => constraint.isOverloadApplicable(request));
+}
+
+/** Whether every signature constraint lets `source` stand for `target`; `report` hears why it does not. @internal */
+export function isTSPPSignatureRelated(state: TSPPTypeState, source: Signature, target: Signature, report: ((message: DiagnosticMessage, ...args: DiagnosticArguments) => void) | undefined): boolean {
+    if (source.declaration === target.declaration) return true;
+    for (const constraint of getRegisteredTSPPSignatureConstraints()) {
+        const problem = constraint.whyNotRelated({
+            source: source.declaration as never,
+            target: target.declaration as never,
+            checker: state.getChecker() as never,
+            instantiateSource: type => state.internals.instantiateType(type as unknown as Type, source.mapper) as never,
+            instantiateTarget: type => state.internals.instantiateType(type as unknown as Type, target.mapper) as never,
+        });
+        if (problem) {
+            report?.(createTSPPDiagnosticMessage(problem.code), problem.message);
+            return false;
+        }
+    }
+    return true;
+}
+
+/** A member that a signature constraint adds to `type` for the property access `node`. @internal */
+export function getTSPPMember(state: TSPPTypeState, node: Node, leftType: Type, apparentType: Type, name: string): Symbol | undefined {
+    if (!isTSPPSyntaxAllowedAt(node)) return undefined;
+    const operations = typeOperationsOf(state);
+    for (const constraint of getRegisteredTSPPSignatureConstraints()) {
+        const member = constraint.getMember?.({ node: node as never, leftType: leftType as never, apparentType: apparentType as never, name, checker: state.getChecker() as never, types: operations });
+        if (member) return member as unknown as Symbol;
+    }
+    return undefined;
 }
 
 /** How the type extension that created `type` writes it, if it does. @internal */

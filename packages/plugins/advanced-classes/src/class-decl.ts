@@ -193,6 +193,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         if (cursor.token() === kinds.LessThanToken) {
             typeParameters = cursor.parseTypeParameters();
         }
+        const headerClause = cursor.parseClause("header-clause");
 
         // Check if there is a primary constructor: (param: type, ...)
         const dataProperties: DataClassProperty[] = [];
@@ -495,6 +496,8 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
             startPos,
             endPos,
         );
+
+        headerClause?.(classDeclaration);
 
         // Record in registry
         const info: AdvancedClassInfo = {

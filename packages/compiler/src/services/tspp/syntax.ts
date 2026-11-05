@@ -8,6 +8,7 @@ import {
     forEachChild,
     getOriginalTSPPSource,
     getSourceFileOfNode,
+    getTSPPBoundChild,
     getTSPPSemanticTokens,
     hasTabstop,
     hasTSPPSemanticTokensProviders,
@@ -47,6 +48,18 @@ import {
 // keywords and names between parsed nodes.
 
 const scanner = createScanner(ScriptTarget.Latest, /*skipTrivia*/ true);
+
+/**
+ * The node under `position` among what a plugin bound beside `node`'s children, which has source positions but is not
+ * one of its children, so that editor features reach it.
+ * @internal
+ */
+export function getBoundChildAt(node: Node, position: number): Node | undefined {
+    const bound = getTSPPBoundChild(node);
+    if (!bound) return undefined;
+    const search = (parent: Node): Node | undefined => forEachChild(parent, child => child.pos >= 0 && child.pos <= position && position < child.end ? child : search(child));
+    return search(bound);
+}
 
 /**
  * The children of a node in a TS++ file or with factory-created children, for `Node.getChildren`; undefined for other

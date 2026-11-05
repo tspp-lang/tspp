@@ -38,6 +38,7 @@
     "@tspp/plugin-operator-sections": "workspace:*",
     "@tspp/plugin-static-interface-members": "workspace:*",
     "@tspp/plugin-type-computation": "workspace:*",
+    "@tspp/plugin-typeclasses": "workspace:*",
     "vscode-languageclient": "9.0.1"
   },
   "devDependencies": {

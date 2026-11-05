@@ -85,12 +85,28 @@ export interface FunctionClause {
     readonly close: number;
 }
 
+/** The token before another plugin's `word <...>` clause ending at `close`, which may stand between parameters and `with`. */
+function beforeFunctionClause(code: string, close: number): number {
+    let depth = 0;
+    for (let index = close; index >= 0; index--) {
+        if (code[index] === ">" && code[index - 1] !== "=") depth++;
+        else if (code[index] === "<" && --depth === 0) {
+            const word = previousToken(code, index);
+            let start = word;
+            while (start > 0 && /[\w$]/.test(code[start - 1])) start--;
+            return /[\w$]/.test(code[word]) ? previousToken(code, start) : close;
+        }
+    }
+    return close;
+}
+
 /**
  * The `with` clause a declaration's `function name<...>(...)` is followed by, for the clause at `withStart`: the
  * parameters are matched as brackets, so type parameters and function types in them need no special case.
  */
 function functionOfClause(code: string, withStart: number): Omit<FunctionClause, "clauseStart" | "open" | "close"> | undefined {
-    const parametersEnd = previousToken(code, withStart);
+    let parametersEnd = previousToken(code, withStart);
+    if (code[parametersEnd] === ">") parametersEnd = beforeFunctionClause(code, parametersEnd);
     if (code[parametersEnd] !== ")") return undefined;
     const parametersStart = matchingOpen(code, parametersEnd, "(", ")");
     if (parametersStart < 0) return undefined;

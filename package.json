@@ -11,6 +11,7 @@
     "@tspp/plugin-sdk": "workspace:*",
     "@tspp/plugin-static-interface-members": "workspace:*",
     "@tspp/plugin-type-computation": "workspace:*",
+    "@tspp/plugin-typeclasses": "workspace:*",
     "lefthook": "^2.2.2",
     "ts-plus-plus": "workspace:*",
     "tspp-language-server": "workspace:*"

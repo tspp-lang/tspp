@@ -404,6 +404,7 @@ import {
 import * as performance from "./_namespaces/ts.performance.js";
 import {
     annotateTSPPSyntax,
+    createTSPPClause, // TSPP-SLOT(syntax-extension)
     createTSPPDiagnosticMessage,
     expandTSPPListElement,
     isStartOfTSPPSyntax,
@@ -2217,6 +2218,8 @@ namespace Parser {
             parseType: () => parseType() as never,
             parseIdentifier: () => parseIdentifier() as never,
             parseTypeParameters: () => parseTypeParameters() as never,
+            parseClassMembers: () => parseClassMembers() as never, // TSPP-SLOT(syntax-extension)
+            parseClause: position => createTSPPClause(tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, position, token(), createTSPPSyntaxCursor))), // TSPP-SLOT(syntax-extension)
             parseTypeArguments: () => parseTypeArgumentsOfTypeReference() as never,
             parseVariableDeclarationList: inForStatementInitializer => parseVariableDeclarationList(inForStatementInitializer) as never,
             finishNode: (node, pos, end) => finishNode(node as unknown as Node, pos, end) as unknown as typeof node,
@@ -4348,11 +4351,13 @@ namespace Parser {
         const name = parsePropertyName();
         const questionToken = parseOptionalToken(SyntaxKind.QuestionToken);
         let node: PropertySignature | MethodSignature;
+        let annotation: unknown; // TSPP-SLOT(syntax-extension)
         if (token() === SyntaxKind.OpenParenToken || token() === SyntaxKind.LessThanToken) {
             // Method signatures don't exist in expression contexts.  So they have neither
             // [Yield] nor [Await]
             const typeParameters = parseTypeParameters();
             const parameters = parseParameters(SignatureFlags.Type);
+            annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
             const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ true);
             node = factory.createMethodSignature(modifiers, name, questionToken, typeParameters, parameters, type);
         }
@@ -4365,7 +4370,7 @@ namespace Parser {
             if (token() === SyntaxKind.EqualsToken) (node as Mutable<PropertySignature>).initializer = parseInitializer();
         }
         parseTypeMemberSemicolon();
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function isTypeMemberStart(): boolean {
@@ -4592,11 +4597,12 @@ namespace Parser {
         Debug.assert(!modifiers || isConstructorType, "Per isStartOfFunctionOrConstructorType, a function type cannot have modifiers.");
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(SignatureFlags.Type);
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const type = parseReturnType(SyntaxKind.EqualsGreaterThanToken, /*isType*/ false);
         const node = isConstructorType
             ? factory.createConstructorTypeNode(modifiers, typeParameters, parameters, type)
             : factory.createFunctionTypeNode(typeParameters, parameters, type);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseKeywordAndNoDot(): TypeNode | undefined {
@@ -5548,6 +5554,7 @@ namespace Parser {
             }
         }
 
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const hasReturnColon = token() === SyntaxKind.ColonToken;
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
         if (type && !allowAmbiguity && typeHasArrowFunctionBlockingParseError(type)) {
@@ -5611,7 +5618,7 @@ namespace Parser {
         }
 
         const node = factory.createArrowFunction(modifiers, typeParameters, parameters, type, equalsGreaterThanToken, body);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseArrowFunctionExpressionBody(isAsync: boolean, allowReturnTypeInArrowFunction: boolean): Block | Expression {
@@ -6877,6 +6884,7 @@ namespace Parser {
 
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(isGenerator | isAsync);
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
         const body = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-body", token(), () => createTSPPSyntaxCursor(isGenerator | isAsync))) as Block | undefined // TSPP-SLOT(syntax-extension)
             ?? parseFunctionBlock(isGenerator | isAsync);
@@ -6884,7 +6892,7 @@ namespace Parser {
         setDecoratorContext(savedDecoratorContext);
 
         const node = factory.createFunctionExpression(modifiers, asteriskToken, name, typeParameters, parameters, type, body);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseOptionalBindingIdentifier(): Identifier | undefined {
@@ -7843,11 +7851,12 @@ namespace Parser {
         const typeParameters = parseTypeParameters();
         if (modifierFlags & ModifierFlags.Export) setAwaitContext(/*value*/ true);
         const parameters = parseParameters(isGenerator | isAsync);
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
         const body = parseFunctionBlockOrSemicolon(isGenerator | isAsync, Diagnostics.or_expected);
         setAwaitContext(savedAwaitContext);
         const node = factory.createFunctionDeclaration(modifiers, asteriskToken, name, typeParameters, parameters, type, body);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseConstructorName() {
@@ -7893,6 +7902,7 @@ namespace Parser {
         const isAsync = some(modifiers, isAsyncModifier) ? SignatureFlags.Await : SignatureFlags.None;
         const typeParameters = parseTypeParameters();
         const parameters = parseParameters(isGenerator | isAsync);
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "function-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const type = parseReturnType(SyntaxKind.ColonToken, /*isType*/ false);
         const body = parseFunctionBlockOrSemicolon(isGenerator | isAsync, diagnosticMessage);
         const node = factory.createMethodDeclaration(
@@ -7908,7 +7918,7 @@ namespace Parser {
 
         // An exclamation token on a method is invalid syntax and will be handled by the grammar checker
         (node as Mutable<MethodDeclaration>).exclamationToken = exclamationToken;
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parsePropertyDeclaration(
@@ -8258,6 +8268,7 @@ namespace Parser {
         // We don't parse the name here in await context, instead we will report a grammar error in the checker.
         const name = parseNameOfClassDeclarationOrExpression();
         const typeParameters = parseTypeParameters();
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "header-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         if (some(modifiers, isExportModifier)) setAwaitContext(/*value*/ true);
         const heritageClauses = parseHeritageClauses();
 
@@ -8275,7 +8286,7 @@ namespace Parser {
         const node = kind === SyntaxKind.ClassDeclaration
             ? factory.createClassDeclaration(modifiers, name, typeParameters, heritageClauses, members)
             : factory.createClassExpression(modifiers, name, typeParameters, heritageClauses, members);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseNameOfClassDeclarationOrExpression(): Identifier | undefined {
@@ -8340,10 +8351,11 @@ namespace Parser {
         parseExpected(SyntaxKind.InterfaceKeyword);
         const name = parseIdentifier();
         const typeParameters = parseTypeParameters();
+        const annotation = tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, "header-clause", token(), createTSPPSyntaxCursor)); // TSPP-SLOT(syntax-extension)
         const heritageClauses = parseHeritageClauses();
         const members = parseObjectTypeMembers();
         const node = factory.createInterfaceDeclaration(modifiers, name, typeParameters, heritageClauses, members);
-        return withJSDoc(finishNode(node, pos), hasJSDoc);
+        return annotateTSPPSyntax(withJSDoc(finishNode(node, pos), hasJSDoc), annotation); // TSPP-SLOT(syntax-extension)
     }
 
     function parseTypeAliasDeclaration(pos: number, hasJSDoc: boolean, modifiers: NodeArray<ModifierLike> | undefined): TypeAliasDeclaration {

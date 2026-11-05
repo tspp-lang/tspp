@@ -120,6 +120,19 @@ const features = {
       }],
     },
   },
+  typeclasses: {
+    scopes: true,
+    offers: {
+      expression: [{
+        prelude: "typeclass Three<A> { three(a: A): number; }\nimpl NumberThree = Three<number> { three(a) { return a; } }",
+        code: "Three.three(3)",
+      }],
+    },
+    holds: {
+      expression: [{ wrap: code => `typeclass Hold<A> { hold(a: A): any; }\nimpl NumberHold = Hold<number> { hold(a) { return ${code}; } }\nexport const value = Hold.hold(0);` }],
+      statement: [{ wrap: code => `typeclass Hold<A> { hold(a: A): void; }\nimpl NumberHold = Hold<number> { hold(a) {} }\nfunction held<T>(v: T) where <Hold<T>>: number { ${code} return 3; }\nexport const value = held(0);` }],
+    },
+  },
   "static-interface-members": {
     offers: {
       statement: [{ code: "interface Local { static make(): number; }" }],

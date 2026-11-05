@@ -684,6 +684,14 @@
     {
       "match": "->",
       "name": "keyword.operator.dependent-function.tspp"
+    },
+    {
+      "name": "keyword.declaration.typeclass.tspp",
+      "match": "(?<![._$[:alnum:]])(typeclass|impl)(?=\\s+[_$[:alpha:]]|<)"
+    },
+    {
+      "name": "keyword.other.where.tspp",
+      "match": "(?<![._$[:alnum:]])where(?=\\s*<)"
     }
   ]
 }

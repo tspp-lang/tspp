@@ -114,8 +114,8 @@ export interface TSPPProgramRebuild {
     readonly replacements: ReadonlyMap<string, readonly TSPPStatementReplacement[]>;
     /** Semantic diagnostics added to the rebuilt program; their files are matched by name. */
     readonly diagnostics?: readonly import("typescript-upstream").Diagnostic[];
-    /** Return false to drop a semantic or suggestion diagnostic of the rebuilt program. */
-    filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean;
+    /** Return false to drop a semantic or suggestion diagnostic of the rebuilt program, or a diagnostic to report in its place. */
+    filterDiagnostic?(diagnostic: import("typescript-upstream").Diagnostic): boolean | import("typescript-upstream").Diagnostic;
     /** Transformers added whenever the rebuilt program emits. */
     readonly transformers?: import("typescript-upstream").CustomTransformers;
     /** Receives the rebuilt program, so the plugin can associate its results with it. */
@@ -137,7 +137,9 @@ export interface TSPPStatementReplacement {
  * Where plugin syntax may start: a unary expression, a primary expression (which calls and member accesses may follow,
  * and which prefix operators apply to), a call argument, a statement, a function body after its signature, a
  * declaration, which may follow modifiers such as `export`, a type, the continuation of an already parsed type
- * (`precedingType`), or an annotation after a type parameter's name or after a type alias's name and type parameters.
+ * (`precedingType`), or an annotation after a type parameter's name, after a type alias's name and type parameters,
+ * after the parameters of a signature with a return type (`function-clause`), or after the type parameters of a class or
+ * interface (`header-clause`).
  */
 export type TSPPSyntaxExtensionPosition =
     | "expression"
@@ -149,7 +151,9 @@ export type TSPPSyntaxExtensionPosition =
     | "type"
     | "postfix-type"
     | "type-parameter-annotation"
-    | "type-alias-annotation";
+    | "type-alias-annotation"
+    | "function-clause"
+    | "header-clause";
 
 /**
  * What an annotation position's `parse` returns: the parser calls it with the declaration the annotation belongs to,
@@ -190,6 +194,13 @@ export interface TSPPSyntaxCursor {
     parseType(): import("typescript-upstream").TypeNode;
     parseIdentifier(): import("typescript-upstream").Identifier;
     parseTypeParameters(): import("typescript-upstream").NodeArray<import("typescript-upstream").TypeParameterDeclaration> | undefined;
+    /** The members of a class body, up to its closing brace, which is left for the plugin. */
+    parseClassMembers(): import("typescript-upstream").NodeArray<import("typescript-upstream").ClassElement>;
+    /**
+     * Any plugin's clause at this position, for syntax that parses a declaration itself. Call the result with the finished
+     * declaration; it stays this plugin's.
+     */
+    parseClause(position: "function-clause" | "header-clause"): TSPPSyntaxAnnotation | undefined;
     /** Type arguments `<...>` at the current token, if it is `<` on the same line. */
     parseTypeArguments(): import("typescript-upstream").NodeArray<import("typescript-upstream").TypeNode> | undefined;
     /** In the `postfix-type` position, the type parsed so far, which the result replaces. */
@@ -233,6 +244,13 @@ export interface TSPPSyntaxExtension {
     ): string | undefined;
     /** The text of a node in the TypeScript-compatible `.d.ts` output that accompanies `.d.tspp` output. */
     restoreCompatibilityDeclaration?(node: import("typescript-upstream").Node): string | undefined;
+    /** The text of a `function-clause` or `header-clause` in `.d.tspp` output, written where it was parsed. */
+    restoreFunctionClause?(node: import("typescript-upstream").Node): string | undefined;
+    /**
+     * A node to bind with `node`'s children, in its scope, though it is not one of them: what a plugin recorded outside the
+     * tree that still holds names and types. Editor features reach it by position.
+     */
+    getBoundChild?(node: import("typescript-upstream").Node): import("typescript-upstream").Node | undefined;
 }
 
 /** A type the checker hands to a type extension's instantiation, mapping type parameters to types. Opaque. */
@@ -260,6 +278,10 @@ export interface TSPPTypeOperations {
     /** An anonymous object type with `properties`, each instantiated with `mapper` when present. */
     createObjectType(properties: readonly import("typescript-upstream").Symbol[], mapper?: TSPPTypeMapper): import("typescript-upstream").Type;
     getIntersectionType(types: readonly import("typescript-upstream").Type[]): import("typescript-upstream").Type;
+    /** Keeps the import of a value alias in JavaScript output, for a value only generated code will mention. */
+    markAliasReferenced(alias: import("typescript-upstream").Symbol): void;
+    /** Keeps the import of an alias in declaration output, for a name only restored declaration text will mention. */
+    markAliasVisibleInDeclarations(alias: import("typescript-upstream").Symbol): void;
     /**
      * The error the checker reports at `node` when `source` is not assignable to `target`, elaborated the same way;
      * undefined when it is assignable. `headMessage` replaces the generic first line and receives the source and
@@ -322,6 +344,47 @@ export interface TSPPTypeExtension {
     typeToTypeNode?(type: import("typescript-upstream").Type, host: TSPPTypeHost): import("typescript-upstream").TypeNode | undefined;
 }
 
+/** Lets a plugin take part in how the checker treats signatures and the members of types. */
+export interface TSPPSignatureConstraint {
+    /**
+     * Rules out an overload the checker would otherwise choose. Asked when more than one signature could apply and the
+     * arguments of this one are fine. If it rules out all of them, the checker keeps the first it ruled out instead of
+     * reporting a call error, and the plugin's diagnostic provider says what is wrong.
+     */
+    isOverloadApplicable(request: {
+        /** The call being resolved. */
+        readonly node: import("typescript-upstream").Node;
+        readonly declaration: import("typescript-upstream").SignatureDeclaration | import("typescript-upstream").JSDocSignature;
+        readonly checker: import("typescript-upstream").TypeChecker;
+        /** A type written in terms of the signature's type parameters, with the type arguments of this call. */
+        instantiate(type: import("typescript-upstream").Type): import("typescript-upstream").Type;
+    }): boolean;
+    /** Why a function with signature `source` cannot be used as one with signature `target`, or undefined if it can. */
+    whyNotRelated(request: {
+        readonly source: import("typescript-upstream").SignatureDeclaration | import("typescript-upstream").JSDocSignature | undefined;
+        readonly target: import("typescript-upstream").SignatureDeclaration | import("typescript-upstream").JSDocSignature | undefined;
+        readonly checker: import("typescript-upstream").TypeChecker;
+        /** A type written in terms of a signature's type parameters, as this comparison instantiates that signature. */
+        instantiateSource(type: import("typescript-upstream").Type): import("typescript-upstream").Type;
+        instantiateTarget(type: import("typescript-upstream").Type): import("typescript-upstream").Type;
+    }): { readonly code: number; readonly message: string; } | undefined;
+    /** A property a value has though its type does not list it; asked only when the type has no such property. */
+    getMember?(request: {
+        readonly node: import("typescript-upstream").Node;
+        readonly leftType: import("typescript-upstream").Type;
+        readonly apparentType: import("typescript-upstream").Type;
+        readonly name: string;
+        readonly checker: import("typescript-upstream").TypeChecker;
+        readonly types: TSPPTypeOperations;
+    }): import("typescript-upstream").Symbol | undefined;
+    /** Every property `getMember` could add to `type`, for completions. */
+    getMembers?(request: {
+        readonly type: import("typescript-upstream").Type;
+        readonly checker: import("typescript-upstream").TypeChecker;
+        readonly types: TSPPTypeOperations;
+    }): readonly import("typescript-upstream").Symbol[];
+}
+
 /** Semantic diagnostics a plugin adds to each source file; comment directives such as `@ts-expect-error` apply. */
 export interface TSPPDiagnosticProvider {
     readonly id: string;
@@ -357,6 +420,7 @@ export interface TSPPCompilerPluginAPI {
     registerSyntaxExtension(extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
     registerTypeExtension(extension: TSPPTypeExtension): TSPPPluginDisposer;
+    registerSignatureConstraint(constraint: TSPPSignatureConstraint): TSPPPluginDisposer;
     /**
      * The words active plugins claim at a syntax position, such as the keywords that declare a name at `declaration`.
      * Read them while working, since plugins may activate later. A plugin that must tell authored syntax apart uses this
@@ -375,6 +439,7 @@ export interface TSPPCompilerHostAPI {
     registerSyntaxExtension(pluginId: string, extension: TSPPSyntaxExtension): TSPPPluginDisposer;
     registerDiagnosticProvider(pluginId: string, provider: TSPPDiagnosticProvider): TSPPPluginDisposer;
     registerTypeExtension(pluginId: string, extension: TSPPTypeExtension): TSPPPluginDisposer;
+    registerSignatureConstraint(pluginId: string, constraint: TSPPSignatureConstraint): TSPPPluginDisposer;
     getSyntaxKeywords(position: TSPPSyntaxPosition): readonly string[];
     /** The text a source file's author wrote, before any plugin projected it. Positions in the parsed file apply to it. */
     getAuthoredText(sourceFile: import("typescript-upstream").SourceFile): string;

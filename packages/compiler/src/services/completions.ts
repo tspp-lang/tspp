@@ -114,6 +114,7 @@ import {
     getSynthesizedDeepClone,
     getTokenAtPosition,
     getTouchingPropertyName,
+    getTSPPMembers, // TSPP-SLOT(signature-constraint)
     hasDocComment,
     hasEffectiveModifier,
     hasInitializer,
@@ -3812,6 +3813,7 @@ function getCompletionData(
 
         const propertyAccess = node.kind === SyntaxKind.ImportType ? node as ImportTypeNode : node.parent as PropertyAccessExpression | QualifiedName;
         if (inCheckedFile) {
+            for (const symbol of getTSPPMembers(program, typeChecker, type)) addPropertySymbol(symbol, /*insertAwait*/ false, insertQuestionDot); // TSPP-SLOT(signature-constraint)
             for (const symbol of type.getApparentProperties()) {
                 if (typeChecker.isValidPropertyAccessForCompletions(propertyAccess, type, symbol)) {
                     addPropertySymbol(symbol, /*insertAwait*/ false, insertQuestionDot);

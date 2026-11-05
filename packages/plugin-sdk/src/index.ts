@@ -48,6 +48,7 @@ export type TSPPSyntaxPosition =
     | "type-parameter-annotation"
     | "type-alias-annotation"
     | "function-clause"
+    | "header-clause"
     | "loop-clause"
     | "type-clause"
     | "interface-member";

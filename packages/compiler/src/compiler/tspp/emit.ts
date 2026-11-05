@@ -25,6 +25,7 @@ import {
     getActiveTSPPPlugins,
     getPreprocessedFunctionClause,
     getPreprocessedFunctionPrefix,
+    getTSPPRestoredFunctionClause,
     tsppDeclarationPluginsHeader,
 } from "./registry.js";
 
@@ -103,7 +104,13 @@ export function emitTSPPRestoredFunctionPrefix(node: Node, sourceFile: SourceFil
  * @internal
  */
 export function emitTSPPRestoredFunctionClause(node: Node, sourceFile: SourceFile | undefined, erased: boolean, write: (text: string) => void, writeSpace: () => void): void {
-    if (erased || !isFunctionDeclaration(node) || !node.name || !sourceFile) return;
+    if (erased) return;
+    const parsedClause = getTSPPRestoredFunctionClause(node);
+    if (parsedClause) {
+        writeSpace();
+        write(parsedClause);
+    }
+    if (!isFunctionDeclaration(node) || !node.name || !sourceFile) return;
     const clause = getPreprocessedFunctionClause(sourceFile.fileName, idText(node.name), node.pos);
     if (clause) {
         writeSpace();

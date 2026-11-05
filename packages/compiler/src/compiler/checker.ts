@@ -1153,7 +1153,10 @@ import * as performance from "./_namespaces/ts.performance.js";
 import { isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
 import {
     createTSPPTypeState,
+    getTSPPMember, // TSPP-SLOT(signature-constraint)
     instantiateTSPPType,
+    isTSPPOverloadApplicable, // TSPP-SLOT(signature-constraint)
+    isTSPPSignatureRelated, // TSPP-SLOT(signature-constraint)
     isTSPPTypeParameterApplicable,
     resolveTSPPTypeNode,
     tsppTypeToTypeNode,
@@ -1496,7 +1499,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     // See: https://github.com/microsoft/TypeScript/issues/52924
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
-    var tsppTypes = createTSPPTypeState(host, () => checker, { createType, getErrorType: () => errorType, getUnknownSymbol: () => unknownSymbol, error, resolveTypeReferenceName, resolveAlias, getDeclaredTypeOfSymbol, getSymbolLinks, getTypeAliasInstantiation, createTypeReference, createTypeMapper, combineTypeMappers, instantiateType, checkTypeAssignableTo, getTypeWithThisArgument, createAnonymousType, createInstantiatedSymbolTable, getIntersectionType }); // TSPP-SLOT(type-extension)
+    var tsppTypes = createTSPPTypeState(host, () => checker, { createType, getErrorType: () => errorType, getUnknownSymbol: () => unknownSymbol, error, resolveTypeReferenceName, resolveAlias, getDeclaredTypeOfSymbol, getSymbolLinks, getNodeLinks, getTypeAliasInstantiation, createTypeReference, createTypeMapper, combineTypeMappers, instantiateType, checkTypeAssignableTo, getTypeWithThisArgument, createAnonymousType, createInstantiatedSymbolTable, getIntersectionType }); // TSPP-SLOT(type-extension)
 
     var addLazyDiagnostic = (arg: () => void) => {
         deferredDiagnosticsCallbacks.push(arg);
@@ -21966,6 +21969,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             target = getCanonicalSignature(target);
             source = instantiateSignatureInContextOf(source, target, /*inferenceContext*/ undefined, compareTypes);
         }
+        if (!isTSPPSignatureRelated(tsppTypes, source, target, reportErrors ? errorReporter : undefined)) return Ternary.False; // TSPP-SLOT(signature-constraint)
 
         const sourceCount = getParameterCount(source);
         const sourceRestType = getNonArrayRestType(source);
@@ -34958,6 +34962,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return isErrorType(apparentType) ? errorType : apparentType;
             }
             prop = getPropertyOfType(apparentType, right.escapedText, /*skipObjectFunctionPropertyAugment*/ isConstEnumObjectType(apparentType), /*includeTypeOnlyMembers*/ node.kind === SyntaxKind.QualifiedName);
+            prop ??= isPropertyAccessExpression(node) ? getTSPPMember(tsppTypes, node, leftType, apparentType, idText(right)) : undefined; // TSPP-SLOT(signature-constraint)
         }
         markLinkedReferences(node, ReferenceHint.Property, prop, leftType);
 
@@ -36821,6 +36826,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                 return candidate;
             }
 
+            let tsppRejected: Signature | undefined; // TSPP-SLOT(signature-constraint)
             for (let candidateIndex = 0; candidateIndex < candidates.length; candidateIndex++) {
                 const candidate = candidates[candidateIndex];
                 if (!hasCorrectTypeArgumentArity(candidate, typeArguments) || !hasCorrectArity(node, args, candidate, signatureHelpTrailingComma)) {
@@ -36881,10 +36887,15 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
                         continue;
                     }
                 }
+                if (candidates.length > 1 && !isTSPPOverloadApplicable(tsppTypes, node, candidate, checkCandidate)) {
+                    tsppRejected ??= checkCandidate;
+                    continue;
+                } // TSPP-SLOT(signature-constraint)
                 candidates[candidateIndex] = checkCandidate;
                 return checkCandidate;
             }
 
+            if (tsppRejected && relation === assignableRelation) return tsppRejected; // TSPP-SLOT(signature-constraint)
             return undefined;
         }
     }

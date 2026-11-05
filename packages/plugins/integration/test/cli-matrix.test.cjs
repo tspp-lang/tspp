@@ -55,6 +55,12 @@ const features = {
     bad: "export const badSection: string = (_ + 1);",
     message: /not assignable to type 'string'/,
   },
+  typeclasses: {
+    code: "typeclass TcEq<A> { same(a: A, b: A): boolean; }\nimpl TcNumberEq = TcEq<number> { same(a, b) { return a === b; } }\nfunction tcSame<T>(a: T, b: T) where <TcEq<T>>: boolean { return TcEq.same(a, b); }\nexport const classes = tcSame(1, 1);",
+    expected: { classes: true },
+    bad: "typeclass TcBad<A> { bad(a: A): void; }\nfunction tcBad<T>(a: T) where <TcBad<T>>: void {}\ntcBad(1);",
+    message: /Cannot satisfy the constraint 'TcBad<number>'/,
+  },
   "static-interface-members": {
     code: "interface Stat { static make(): number; }\nclass StatImpl implements Stat { static make() { return 4; } }\nexport const statics = StatImpl.make();",
     expected: { statics: 4 },

@@ -385,6 +385,7 @@ import {
     WriterContextOut,
     YieldExpression,
 } from "./_namespaces/ts.js";
+import { getBoundChildAt } from "./tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
 
 // These utilities are common to multiple language service features.
 // #region
@@ -1578,6 +1579,11 @@ function getTokenAtPositionWorker(sourceFile: SourceFile, position: number, allo
     while (true) {
         // find the child that contains 'position'
 
+        const tsppChild = getBoundChildAt(current, position); // TSPP-SLOT(syntax-extension)
+        if (tsppChild) {
+            current = tsppChild;
+            continue outer;
+        } // TSPP-SLOT(syntax-extension)
         const children = current.getChildren(sourceFile);
         const i = binarySearchKey(children, position, (_, i) => i, (middle, _) => {
             // This last callback is more of a selector than a comparator -

@@ -1,0 +1,74 @@
+// A typeclass names an ability, which may relate several types.
+typeclass Eq<A, B = A> {
+    equals(a: A, b: B): boolean;
+}
+
+// An implementation is an ordinary value that implicit search can also find.
+impl NumberEq = Eq<number> {
+    equals(a, b) {
+        return a === b;
+    }
+}
+
+const CloseEq: Eq<number> = {
+    equals(a, b) {
+        return Math.abs(a - b) < 0.5;
+    },
+};
+
+// A predicate is computed on types and erased.
+type IsNumber<T> = T extends number ? true : false;
+
+// The compiler finds the dictionary at each call and passes it first.
+function equal<A, B>(a: A, b: B) where <Eq<A, B>>: boolean {
+    return Eq.equals(a, b);
+}
+
+// A function forwards the evidence it was given.
+function allEqual<T>(first: T, second: T, third: T) where <Eq<T, T>, IsNumber<T>>: boolean {
+    return equal(first, second) && equal(second, third);
+}
+
+console.log(equal(1, 1)); // true: uses NumberEq
+console.log(equal(1, 1.25)); // false: uses NumberEq
+console.log(equal(@{ CloseEq }, 1, 1.25)); // true: the context comes first
+console.log(allEqual(2, 2, 2)); // true
+
+// A generic implementation is built from what its own clause finds.
+class Box<T> {
+    constructor(readonly value: T) {}
+}
+
+impl<T> BoxEq = Eq<Box<T>, Box<T>> where <Eq<T, T>> {
+    equals(a, b) {
+        return Eq.equals(a.value, b.value);
+    }
+}
+
+console.log(equal(new Box(1), new Box(1))); // true: BoxEq(NumberEq)
+
+// A class keeps its dictionaries from construction.
+class Counter<T> where <Eq<T, T>> {
+    constructor(readonly target: T) {}
+
+    count(values: T[]): number {
+        return values.filter(value => Eq.equals(value, this.target)).length;
+    }
+}
+
+console.log(new Counter(1).count([1, 2, 1])); // 2
+
+// Inherent methods read as members and compile to functions.
+impl<T> Box<T> {
+    get(self): T {
+        return self.value;
+    }
+}
+
+impl Box<number> {
+    doubled(self): number {
+        return self.value * 2;
+    }
+}
+
+console.log(new Box(4).get(), new Box(4).doubled()); // 4 8

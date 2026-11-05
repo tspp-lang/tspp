@@ -8,6 +8,7 @@ import type {
     TSPPInterfaceMemberBinding,
     TSPPProgramAnalyzer,
     TSPPProgramRebuilder,
+    TSPPSignatureConstraint,
     TSPPSourcePreprocessor,
     TSPPSyntaxAnnotation,
     TSPPSyntaxCursor,
@@ -51,6 +52,7 @@ const programRebuilders = new Map<string, TSPPProgramRebuilder>();
 const syntaxExtensions = new Map<TSPPSyntaxExtensionPosition, { pluginId: string; extension: TSPPSyntaxExtension; }[]>();
 const diagnosticProviders = new Map<string, { pluginId: string; provider: TSPPDiagnosticProvider; }>();
 const typeExtensions = new Map<string, TSPPTypeExtension>();
+const signatureConstraints = new Map<string, TSPPSignatureConstraint>();
 /** The active plugins, in activation order. */
 const activePlugins: TSPPPlugin[] = [];
 /** The plugin that parsed each syntax node or annotation. */
@@ -160,6 +162,11 @@ const compilerAPI: TSPPCompilerHostAPI = {
         if (typeExtensions.has(pluginId)) throw new Error(`TSPP plugin '${pluginId}' registered more than one type extension.`);
         typeExtensions.set(pluginId, extension);
         return () => typeExtensions.delete(pluginId);
+    },
+    registerSignatureConstraint(pluginId, constraint) {
+        if (signatureConstraints.has(pluginId)) throw new Error(`TSPP plugin '${pluginId}' registered more than one signature constraint.`);
+        signatureConstraints.set(pluginId, constraint);
+        return () => signatureConstraints.delete(pluginId);
     },
     registerProgramRebuilder(pluginId, rebuilder) {
         const key = `${pluginId}/${rebuilder.id}`;
@@ -305,6 +312,32 @@ export function annotateTSPPSyntax<T extends Node>(declaration: T, annotation: u
     return declaration;
 }
 
+/** What a plugin hands the binder beside a node's children, for what it recorded outside the tree. @internal */
+export function getTSPPBoundChild(node: Node): Node | undefined {
+    for (const candidates of syntaxExtensions.values()) {
+        for (const { extension } of candidates) {
+            const child = extension.getBoundChild?.(node as never);
+            if (child) return child as unknown as Node;
+        }
+    }
+    return undefined;
+}
+
+const clauseOwners = new WeakMap<Node, string>();
+
+/**
+ * A clause another plugin's syntax holds: applying it to the declaration that plugin builds runs the clause's annotation
+ * and leaves the declaration its owner's, while the clause's plugin still writes its compatible output. @internal
+ */
+export function createTSPPClause(annotation: unknown): TSPPSyntaxAnnotation | undefined {
+    if (typeof annotation !== "function") return undefined;
+    return declaration => {
+        (annotation as TSPPSyntaxAnnotation)(declaration);
+        const owner = syntaxOwners.get(annotation);
+        if (owner) clauseOwners.set(declaration as never, owner);
+    };
+}
+
 /** Whether a plugin parsed this node. @internal */
 export function isTSPPSyntaxNode(node: Node): boolean {
     return syntaxOwners.has(node);
@@ -357,7 +390,8 @@ function printNestedDeclaration(container: Node, nested: Node): string {
  * @internal
  */
 export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean): string | undefined {
-    const owner = syntaxOwners.get(ts.getOriginalNode(node));
+    const clauseOwner = compatibility ? clauseOwners.get(ts.getOriginalNode(node)) : undefined;
+    const owner = clauseOwner ?? syntaxOwners.get(ts.getOriginalNode(node));
     const printNested = (nested: Node) => printNestedDeclaration(node, nested);
     let restored: string | undefined;
     let answeredBy: string | undefined;
@@ -372,6 +406,18 @@ export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean):
         }
     }
     return restored;
+}
+
+/** The text of a clause plugin syntax parsed after a function's parameters, for `.d.tspp` output. @internal */
+export function getTSPPRestoredFunctionClause(node: Node): string | undefined {
+    const owner = clauseOwners.get(ts.getOriginalNode(node)) ?? syntaxOwners.get(ts.getOriginalNode(node));
+    if (!owner) return undefined;
+    for (const { pluginId, extension } of [...syntaxExtensions.get("function-clause") ?? [], ...syntaxExtensions.get("header-clause") ?? []]) {
+        if (pluginId !== owner) continue;
+        const text = extension.restoreFunctionClause?.(node as never);
+        if (text) return text;
+    }
+    return undefined;
 }
 
 /** A diagnostic as the plugins whose syntax contains it leave it: undefined when one drops it, or the last replacement. */
@@ -439,6 +485,18 @@ export function getRegisteredTSPPSyntaxClaims(): readonly { readonly pluginId: s
 /** @internal */
 export function getRegisteredTSPPTypeExtensions(): readonly TSPPTypeExtension[] {
     return sortedByKey(typeExtensions);
+}
+
+/** @internal */
+export function getRegisteredTSPPSignatureConstraints(): readonly TSPPSignatureConstraint[] {
+    return sortedByKey(signatureConstraints);
+}
+
+/** The members signature constraints add to `type`, for completions. @internal */
+export function getTSPPMembers(program: Program, checker: ts.TypeChecker, type: ts.Type): readonly ts.Symbol[] {
+    const operations = getTSPPTypeOperations(program);
+    if (!operations) return [];
+    return getRegisteredTSPPSignatureConstraints().flatMap(constraint => constraint.getMembers?.({ type: type as never, checker: checker as never, types: operations }) ?? []) as unknown as readonly ts.Symbol[];
 }
 
 /** @internal */

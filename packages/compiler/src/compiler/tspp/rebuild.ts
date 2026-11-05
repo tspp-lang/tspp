@@ -183,14 +183,23 @@ function addRebuildResults(rebuilt: Program, rebuilds: readonly TSPPProgramRebui
         const file = diagnostic.file && rebuilt.getSourceFile(diagnostic.file.fileName);
         return { ...diagnostic, file } as Diagnostic;
     });
-    const keep = (diagnostic: Diagnostic) => rebuilds.every(rebuild => rebuild.filterDiagnostic?.(diagnostic as never) ?? true);
+    const apply = <T extends Diagnostic>(diagnostics: readonly T[]) =>
+        diagnostics.flatMap(diagnostic => {
+            let result = diagnostic;
+            for (const rebuild of rebuilds) {
+                const filtered = rebuild.filterDiagnostic?.(result as never) ?? true;
+                if (filtered === false) return [];
+                if (filtered !== true) result = filtered as unknown as T;
+            }
+            return [result];
+        });
     const getSemanticDiagnostics = rebuilt.getSemanticDiagnostics;
     rebuilt.getSemanticDiagnostics = (sourceFile, cancellationToken) => [
-        ...getSemanticDiagnostics(sourceFile, cancellationToken).filter(keep),
+        ...apply(getSemanticDiagnostics(sourceFile, cancellationToken)),
         ...added.filter(diagnostic => !sourceFile || diagnostic.file?.fileName === sourceFile.fileName),
     ];
     const getSuggestionDiagnostics = rebuilt.getSuggestionDiagnostics;
-    rebuilt.getSuggestionDiagnostics = (sourceFile, cancellationToken) => getSuggestionDiagnostics(sourceFile, cancellationToken).filter(keep);
+    rebuilt.getSuggestionDiagnostics = (sourceFile, cancellationToken) => apply(getSuggestionDiagnostics(sourceFile, cancellationToken));
 
     const transformers = rebuilds.map(rebuild => rebuild.transformers).filter(transformer => !!transformer) as CustomTransformers[];
     if (transformers.length) {
