@@ -1,6 +1,6 @@
 # `@tspp/example-advanced-classes`
 
-This example package demonstrates the 7 modern OOP features provided by `@tspp/plugin-advanced-classes`, their mutual interplay in realistic architectures, and their unique compile-time restrictions.
+This example package demonstrates the 6 modern OOP features provided by `@tspp/plugin-advanced-classes`, their mutual interplay in realistic architectures, and their unique compile-time restrictions.
 
 ```tspp
 // 1. field property with implicit backing storage and custom validation
@@ -35,12 +35,6 @@ class Circle extends Shape { /* ... */ }
 final class SecureToken {
   constructor(public readonly secret: string) {}
 }
-
-// 7. async constructor
-class AsyncDatabase {
-  async constructor(public url: string) { /* ... */ }
-}
-const db = await new AsyncDatabase("postgres://localhost:5432/app");
 ```
 
 ---
@@ -51,7 +45,6 @@ The new OOP features are designed to compose seamlessly:
 
 * **`field` properties + `final` methods**: Encapsulate mutable state with validation alongside immutable public API invariants (e.g., `BankAccount`).
 * **`sealed class` + `final` subclasses**: Model exhaustive, closed algebraic variants (e.g. `sealed abstract class TransactionStatus` with `final class PendingStatus` and `final class CompletedStatus`).
-* **`async constructor` + `object` singletons**: Dependency-inject configuration singletons directly into asynchronous factory constructors (e.g., `ManagedConnectionPool(AppConfig)`).
 
 ---
 

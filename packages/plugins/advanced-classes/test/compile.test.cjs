@@ -262,22 +262,15 @@ test("with expression: copies and modifies object properties", () => {
   );
 });
 
-test("async new: allows async constructor in classes", () => {
+test("async constructors remain unsupported", () => {
   const result = compile(`
     class Database {
-      url: string;
-      async constructor(url: string) {
-        this.url = url;
-      }
+      async constructor() {}
     }
+  `);
 
-    async function init() {
-      const db = await new Database("db://prod");
-      return db.url;
-    }
-  `, { noLib: false });
-
-  assert.deepEqual(result.messages, []);
-  const js = result.javascript();
-  assert.match(js, /constructor\(url\)/);
+  assert(
+    result.messages.some(m => m.includes("'async' modifier cannot appear on a constructor declaration")),
+    result.messages.join("\n"),
+  );
 });
