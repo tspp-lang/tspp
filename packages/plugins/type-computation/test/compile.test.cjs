@@ -276,17 +276,25 @@ test("hover shows explicit kinds for higher-kinded and type lambda parameters", 
   assert.equal(hover("<T>"), "(type parameter) T in <T: Type0> =>>");
 });
 
-test("hover on a computed type alias shows its declaration without its implementation", () => {
+test("hover on a computed type alias shows its explicit result", () => {
   const source = `
     type Matched<Container, Mapper: Type => Type> = match Container {
+      [infer Left, infer Right]: let Mapped = Mapper<Left> in [Mapped, Mapper<Right>],
       infer Value: Mapper<Value>
     };
     type Bound<Value> = let Result = Value[] in Result;
+    type UnionArray<Value> = let Result = Value | string in Result[];
+    type ObjectMatch<Value, Mapper: Type => Type> = match { value: Value } {
+      { value: infer Element }: Mapper<Element>,
+      infer Other: Other
+    };
   `;
   const service = createLanguageService("/main.tspp", source);
   const hover = name => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", source.indexOf(name) + 1)?.displayParts);
-  assert.equal(hover("Matched"), "type Matched<Container, Mapper: Type => Type>");
-  assert.equal(hover("Bound"), "type Bound<Value>");
+  assert.equal(hover("Matched"), "type Matched<Container, Mapper: Type => Type> = [Container] extends [[infer Left, infer Right]] ? [Mapper<Left>, Mapper<Right>] : Mapper<Container>");
+  assert.equal(hover("Bound"), "type Bound<Value> = Value[]");
+  assert.equal(hover("UnionArray"), "type UnionArray<Value> = (Value | string)[]");
+  assert.equal(hover("ObjectMatch"), "type ObjectMatch<Value, Mapper: Type => Type> = [{ value: Value }] extends [{ value: infer Element }] ? Mapper<Element> : { value: Value }");
 });
 
 test("declarations of inferred types the emitter writes as references still emit", () => {
