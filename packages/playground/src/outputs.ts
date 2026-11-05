@@ -15,7 +15,9 @@ const element = <T extends HTMLElement>(id: string) => document.getElementById(i
 export interface OutputController {
   /** Adds the output tabs of the features the compiler offers, once it has loaded. */
   addFeatureOutputs(features: readonly FeatureDefinition[]): void;
-  setFile(fileName: string, force?: boolean): void;
+  setFile(fileName: string, force?: boolean, sourceFile?: boolean): void;
+  /** Explains why the current project cannot execute in the browser, or clears the restriction. */
+  setRunBlock(reason: string | undefined): void;
   markStale(): void;
   refresh(): void;
   dispose(): void;
@@ -37,6 +39,8 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   let outputModel: monaco.editor.ITextModel | undefined;
   let requestGeneration = 0;
   let fileName = "";
+  let sourceFile = true;
+  let runBlock: string | undefined;
   let runtime: Worker | undefined;
 
   const artifactEditor = monaco.editor.create(element("output-editor"), {
@@ -157,12 +161,25 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   function updateRunButton(): void {
     // JavaScript is generated lazily when Run is pressed. Its artifact tab does
     // not need to have been opened first.
-    runButton.disabled = false;
+    runButton.disabled = !sourceFile || !!runBlock;
+    if (runBlock) runStatus.textContent = runBlock;
   }
 
-  function setFile(nextFileName: string, force = false): void {
-    if (fileName === nextFileName && !force) return;
+  function setFile(nextFileName: string, force = false, nextSourceFile = true): void {
+    if (fileName === nextFileName && sourceFile === nextSourceFile && !force) return;
     fileName = nextFileName;
+    sourceFile = nextSourceFile;
+    if (!sourceFile) {
+      requestGeneration++;
+      loaded.clear();
+      renderItems();
+      outputStatus.textContent = "Project configuration";
+      outputEmpty.hidden = false;
+      outputEmpty.textContent = "Compiler outputs are available for source files.";
+      runStatus.textContent = "Run is available for source files.";
+      updateRunButton();
+      return;
+    }
     markStale();
     outputStatus.textContent = "Load on demand";
     runStatus.textContent = "JavaScript output runs only when requested.";
@@ -182,9 +199,11 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     loaded.clear();
     renderItems();
     outputStatus.textContent = "Out of date — select an output to refresh";
-    updateRunButton();
     if (runtime) stopRuntime("Source changed; run output is stale.");
+    else if (runBlock) runStatus.textContent = runBlock;
+    else if (!sourceFile) runStatus.textContent = "Run is available for source files.";
     else runStatus.textContent = "Source changed; run output is stale.";
+    updateRunButton();
   }
 
   function stopRuntime(message = "Stopped"): void {
@@ -211,6 +230,10 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   }
 
   async function runJavaScript(): Promise<void> {
+    if (runBlock) {
+      runStatus.textContent = runBlock;
+      return;
+    }
     if (runtime) {
       stopRuntime();
       return;
@@ -303,6 +326,10 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       }
     },
     setFile,
+    setRunBlock(reason) {
+      runBlock = reason;
+      updateRunButton();
+    },
     markStale,
     refresh,
     dispose() {

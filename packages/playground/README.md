@@ -11,6 +11,14 @@ obligation. The page therefore needs cross-origin isolation; the development and
 send the required headers, while the production build includes a service-worker fallback for static
 hosts such as GitHub Pages.
 
+Each browser project contains its real `tsconfig.json`. The Features panel is a shortcut editor for
+`compilerOptions.plugins`; editing either side updates the other, and compiler options, include
+patterns, and plugin selection are applied by the language worker. Configuration incompatibilities
+are reported as project diagnostics. Run supports ES modules plus a browser-hosted CommonJS/Node
+loader, and blocks unsupported module formats with an explanation instead of silently overriding
+them. `noEmit` still applies to the real CLI build, while the explicitly requested Outputs and Run
+views may emit in memory without writing files.
+
 ```sh
 pnpm playground:dev
 pnpm build:playground

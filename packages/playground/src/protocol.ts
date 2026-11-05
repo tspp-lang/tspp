@@ -2,6 +2,8 @@
 
 export interface FeatureDefinition {
   readonly id: string;
+  /** Package name written in tsconfig.json, such as `@tspp/plugin-modern-syntax`. */
+  readonly packageName: string;
   readonly name: string;
   readonly dependencies: readonly string[];
   readonly description?: string;
@@ -15,6 +17,8 @@ export interface Span {
 }
 
 export interface DiagnosticInfo {
+  /** Project file this diagnostic belongs to. Defaults to the requested source file. */
+  readonly fileName?: string;
   /** Undefined for diagnostics that belong to no position (compiler options). */
   readonly span?: Span;
   readonly message: string;
@@ -95,12 +99,13 @@ export interface OutputSnapshot {
 /** The JavaScript of one module, with where its imports name other modules of the program. */
 export interface RunnableModule {
   readonly code: string;
-  readonly imports: readonly { readonly start: number; readonly end: number; readonly target: string }[];
+  readonly imports: readonly { readonly start: number; readonly end: number; readonly specifier: string; readonly target: string }[];
 }
 
 /** What Run executes: a module and everything it imports, by source file name. */
 export interface RunnableProgram {
   readonly entry: string;
+  readonly format: "esm" | "commonjs";
   readonly modules: Readonly<Record<string, RunnableModule>>;
 }
 

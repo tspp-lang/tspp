@@ -13,6 +13,7 @@ import libs from "virtual:tspp-libs";
 import pluginModules from "virtual:tspp-plugins";
 import type { Cancel, CompletionEntry, DiagnosticInfo, Location, OutputCategory, OutputItem, OutputSnapshot, QuickInfo, Request, Response, SignatureHelp, Span, WorkerApi, WorkerEvent } from "../protocol";
 import { createBrowserZ3Solver } from "../z3Bridge";
+import { configureProject } from "./projectConfiguration";
 
 interface AnalysisDiagnostic {
   readonly fileName: string;
@@ -44,12 +45,13 @@ function pluginDefault(module: unknown): TSPPPlugin {
 const formalVerification = ("formalVerificationPlugin" in formalVerificationNamespace
   ? formalVerificationNamespace
   : (formalVerificationNamespace as unknown as { default: typeof formalVerificationNamespace }).default);
-const plugins: readonly TSPPPlugin[] = pluginModules.map(pluginDefault);
+const plugins: readonly TSPPPlugin[] = pluginModules.map(entry => pluginDefault(entry.module));
 const artifactViews = plugins.flatMap(plugin => plugin.facets.editor?.artifactViews ?? []);
 const overlayViews = plugins.flatMap(plugin => plugin.facets.editor?.overlayViews ?? []);
 const pluginById = new Map(plugins.map(plugin => [plugin.manifest.id, plugin]));
-const featureDefinitions = plugins.map(plugin => ({
+const featureDefinitions = plugins.map((plugin, index) => ({
   id: plugin.manifest.id,
+  packageName: pluginModules[index].packageName,
   name: plugin.manifest.displayName ?? plugin.manifest.id,
   dependencies: [...plugin.manifest.requires ?? [], ...plugin.manifest.optionalDependencies ?? []],
   description: plugin.manifest.capabilities?.join(" · "),
@@ -60,7 +62,9 @@ const featureDefinitions = plugins.map(plugin => ({
 }));
 
 const files = new Map<string, { text: string; version: number }>();
-const options: ts.CompilerOptions = createOptions();
+let options: ts.CompilerOptions = createOptions();
+let rootFileNames: readonly string[] = [];
+let configurationDiagnostics: readonly DiagnosticInfo[] = [];
 let service: ts.LanguageService | undefined;
 
 /** Declarations for `ts-plus-plus` and its subpaths, loaded once a file imports the package. */
@@ -131,7 +135,7 @@ const host: ts.LanguageServiceHost & {
   }): void;
 } = {
   getCompilationSettings: () => options,
-  getScriptFileNames: () => [...files.keys()].filter(isSourceFile),
+  getScriptFileNames: () => rootFileNames,
   getScriptVersion: path => String(files.get(path)?.version ?? 0),
   getScriptSnapshot: path => {
     const content = readFile(path);
@@ -227,6 +231,7 @@ const categories: Record<ts.DiagnosticCategory, DiagnosticInfo["category"]> = {
 
 function toDiagnostic(diagnostic: ts.Diagnostic): DiagnosticInfo {
   return {
+    fileName: diagnostic.file?.fileName,
     span: diagnostic.file && diagnostic.start !== undefined ? { start: diagnostic.start, length: diagnostic.length ?? 0 } : undefined,
     message: ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"),
     code: diagnostic.code,
@@ -345,6 +350,12 @@ const api: WorkerApi = {
     for (const fileName of files.keys()) {
       if (!(fileName in projectFiles)) files.delete(fileName);
     }
+    const configured = configureProject(files, featureDefinitions, createOptions, toDiagnostic);
+    options = configured.options;
+    rootFileNames = configured.rootFileNames;
+    configurationDiagnostics = configured.diagnostics;
+    service?.dispose();
+    service = undefined;
     projectVersion++;
   },
 
@@ -357,7 +368,7 @@ const api: WorkerApi = {
   },
 
   diagnostics(fileName) {
-    if (!isSourceFile(fileName)) return [];
+    if (!isSourceFile(fileName)) return [...configurationDiagnostics];
     const activeService = languageService();
     const diagnostics = [
       ...activeService.getCompilerOptionsDiagnostics(),
@@ -372,13 +383,13 @@ const api: WorkerApi = {
     }
     const program = activeService.getProgram();
     if (program) diagnostics.push(...settledAnalysisDiagnostics(program, fileName));
-    return diagnostics.map(toDiagnostic);
+    return [...diagnostics.map(toDiagnostic), ...configurationDiagnostics];
   },
 
   runnable(fileName, outputName) {
     const program = languageService().getProgram();
-    if (!program) return { entry: fileName, modules: {} };
-    return createRunnableProgram(program, sourceOfOutput(program, fileName, outputName), createOptions(), host);
+    if (!program) return { entry: fileName, format: "esm", modules: {} };
+    return createRunnableProgram(program, sourceOfOutput(program, fileName, outputName), options, host);
   },
   outputs(fileName, category) {
     return createOutputs(fileName, category);

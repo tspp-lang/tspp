@@ -34,8 +34,8 @@ declare module "virtual:tspp-package-types" {
 }
 
 declare module "virtual:tspp-plugins" {
-  /** The module of every feature capsule this package depends on. */
-  const modules: readonly unknown[];
+  /** The module and package name of every feature capsule this package depends on. */
+  const modules: readonly { readonly packageName: string; readonly module: unknown }[];
   export default modules;
 }
 

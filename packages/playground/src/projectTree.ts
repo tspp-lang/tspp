@@ -1,6 +1,17 @@
 export const normalizedPath = (path: string) => `/${path.replaceAll("\\", "/").split("/").filter(Boolean).join("/")}`;
 export const parentDirectory = (path: string) => path.slice(0, path.lastIndexOf("/")) || "/";
 export const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+export const replacePathPrefix = (path: string, oldPrefix: string, nextPrefix: string) =>
+  path === oldPrefix ? nextPrefix : nextPrefix + path.slice(oldPrefix.length);
+
+export function addParentDirectories(path: string, target: Set<string>): void {
+  for (let parent = parentDirectory(path); parent !== "/"; parent = parentDirectory(parent)) target.add(parent);
+}
+
+export function validItemName(value: string | null): string | undefined {
+  const name = value?.trim();
+  return name && name !== "." && name !== ".." && !/[\\/]/.test(name) ? name : undefined;
+}
 
 interface TreeEntry {
   readonly path: string;

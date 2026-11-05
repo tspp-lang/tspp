@@ -396,7 +396,7 @@ aside h2 {
 
 #problems { list-style: none; margin: 0; padding: 0; }
 .problem { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border); cursor: pointer; font-size: 13px; }
-.problem-location { flex: none; min-width: 44px; color: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+.problem-location { flex: none; max-width: 150px; overflow: hidden; color: var(--muted); font-family: ui-monospace, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .problem-message { white-space: pre-wrap; word-break: break-word; }
 .problem.error .problem-location { color: var(--error); }
 .problem.warning .problem-location { color: var(--warning); }

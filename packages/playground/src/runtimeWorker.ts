@@ -39,7 +39,26 @@ self.onmessage = async (message: MessageEvent<RunnableProgram>) => {
     return url;
   };
   try {
-    await import(/* @vite-ignore */ link(message.data.entry));
+    if (message.data.format === "commonjs") {
+      const cache = new Map<string, { exports: unknown }>();
+      const execute = (fileName: string): unknown => {
+        const known = cache.get(fileName);
+        if (known) return known.exports;
+        const runnable = message.data.modules[fileName];
+        const module = { exports: {} as unknown };
+        cache.set(fileName, module);
+        const targets = new Map(runnable.imports.map(item => [item.specifier, item.target]));
+        const require = (specifier: string) => {
+          const target = targets.get(specifier);
+          if (!target) throw new Error(`Cannot require '${specifier}' from '${fileName}' in the Playground runtime.`);
+          return execute(target);
+        };
+        new Function("require", "exports", "module", runnable.code)(require, module.exports, module);
+        return module.exports;
+      };
+      execute(message.data.entry);
+    }
+    else await import(/* @vite-ignore */ link(message.data.entry));
     send({ type: "complete" });
   }
   catch (error) {

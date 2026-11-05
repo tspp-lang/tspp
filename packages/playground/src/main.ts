@@ -1,9 +1,11 @@
 import examples from "virtual:tspp-examples";
 import { startLanguageWorker } from "./client";
+import { defaultConfiguration, parseProjectConfiguration, setFeatureInConfiguration } from "./configuration";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
+import { jsoncLanguageId, registerJsoncLanguage } from "./jsoncLanguage";
 import * as monaco from "./monaco";
 import { createOutputController } from "./outputs";
-import { baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree } from "./projectTree";
+import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, replacePathPrefix, validItemName } from "./projectTree";
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeState, encodeState, type SharedState } from "./share";
@@ -50,6 +52,7 @@ const client = startLanguageWorker(event => {
   }
 });
 registerTsppLanguage();
+registerJsoncLanguage();
 registerProviders(client);
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
@@ -93,26 +96,36 @@ const expandedDirectories = new Set<string>();
 const selected = new Set<string>();
 let active = "";
 let selectedProjectItem = "";
+let configurationTimer: ReturnType<typeof setTimeout> | undefined;
 
 const currentFeatures = () => effectiveFeatures(definitions, selected);
-const isEditorFile = (path: string) => /\.(tspp|ts)$/.test(path);
-const projectFiles = (): ProjectFiles => Object.fromEntries([
-  ...resources,
-  ...[...models].map(([path, model]) => [path, model.getValue()] as const),
-]);
+const isSourceFile = (path: string) => /\.(tspp|ts)$/.test(path);
+const isEditorFile = (path: string) => isSourceFile(path) || path.endsWith(".json");
+const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...[...models].map(([path, model]) => [path, model.getValue()] as const)]);
 
-function addParentDirectories(path: string, target = directories): void {
-  for (let parent = parentDirectory(path); parent !== "/"; parent = parentDirectory(parent)) target.add(parent);
-}
-
-function createSourceModel(path: string, text: string): monaco.editor.ITextModel {
-  const model = monaco.editor.createModel(text, languageId, monaco.Uri.file(path));
+function createProjectModel(path: string, text: string): monaco.editor.ITextModel {
+  const model = monaco.editor.createModel(text, path.endsWith(".json") ? jsoncLanguageId : isSourceFile(path) ? languageId : "plaintext", monaco.Uri.file(path));
   model.onDidChangeContent(() => {
-    void client.editFile(path, model.getValue());
+    if (path === "/tsconfig.json") applyConfiguration();
+    else void client.editFile(path, model.getValue());
     outputs.markStale();
     scheduleCheck();
   });
   return model;
+}
+
+function applyConfiguration(immediate = false): void {
+  const model = models.get("/tsconfig.json");
+  if (!model) return;
+  const configuration = parseProjectConfiguration(model.getValue(), definitions);
+  selected.clear();
+  configuration.features.forEach(id => selected.add(id));
+  refreshFeatures();
+  outputs.setRunBlock(configuration.runBlockReason);
+  clearTimeout(configurationTimer);
+  const update = () => void client.setProject(projectFiles(), currentFeatures());
+  if (immediate) update();
+  else configurationTimer = setTimeout(update, 200);
 }
 
 function loadProject(state: SharedState) {
@@ -122,21 +135,21 @@ function loadProject(state: SharedState) {
   viewStates.clear();
   directories.clear();
   expandedDirectories.clear();
-  for (const [path, text] of Object.entries(state.files)) {
-    addParentDirectories(path);
+  const stateFiles = state.files["/tsconfig.json"]
+    ? state.files
+    : { ...state.files, "/tsconfig.json": defaultConfiguration(state.features, definitions) };
+  for (const [path, text] of Object.entries(stateFiles)) {
+    addParentDirectories(path, directories);
     if (!isEditorFile(path)) {
       resources.set(path, text);
       continue;
     }
-    models.set(path, createSourceModel(path, text));
+    models.set(path, createProjectModel(path, text));
   }
   state.directories?.map(normalizedPath).filter(path => path !== "/").forEach(path => directories.add(path));
   directories.forEach(path => expandedDirectories.add(path));
-  selected.clear();
-  state.features.forEach(name => selected.add(name));
   selectedProjectItem = state.active;
-  refreshFeatures();
-  void client.setProject(projectFiles(), currentFeatures());
+  applyConfiguration(true);
   outputs.markStale();
   renderTabs();
   renderProjectTree();
@@ -148,7 +161,7 @@ function openFile(path: string, refreshOutput = false) {
   if (!model) return;
   if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
   active = path;
-  outputs.setFile(path, refreshOutput);
+  outputs.setFile(path, refreshOutput, isSourceFile(path));
   editor.setModel(model);
   const viewState = viewStates.get(path);
   if (viewState) editor.restoreViewState(viewState);
@@ -202,11 +215,6 @@ function selectedDirectory(): string {
   return directories.has("/src") ? "/src" : "/";
 }
 
-function validItemName(value: string | null): string | undefined {
-  const name = value?.trim();
-  return name && name !== "." && name !== ".." && !/[\\/]/.test(name) ? name : undefined;
-}
-
 function projectPathExists(path: string): boolean {
   return directories.has(path) || models.has(path) || resources.has(path);
 }
@@ -222,7 +230,7 @@ function syncProjectChange(nextActive = active): void {
 function createFile(): void {
   const name = validItemName(prompt("New source file name", "untitled.tspp"));
   if (!name) return;
-  if (!isEditorFile(name)) {
+  if (!isSourceFile(name)) {
     alert("Source files must end in .tspp or .ts.");
     return;
   }
@@ -231,8 +239,8 @@ function createFile(): void {
     alert(`${path} already exists.`);
     return;
   }
-  addParentDirectories(path);
-  models.set(path, createSourceModel(path, ""));
+  addParentDirectories(path, directories);
+  models.set(path, createProjectModel(path, ""));
   selectedProjectItem = path;
   active = path;
   syncProjectChange(path);
@@ -254,17 +262,17 @@ function createFolder(): void {
   scheduleCheck();
 }
 
-function replacePrefix(path: string, oldPrefix: string, nextPrefix: string): string {
-  return path === oldPrefix ? nextPrefix : nextPrefix + path.slice(oldPrefix.length);
-}
-
 function renameSelectedItem(): void {
   const oldPath = selectedProjectItem;
   if (!projectPathExists(oldPath)) return;
+  if (oldPath === "/tsconfig.json") {
+    alert("tsconfig.json is the Playground project's configuration source and cannot be renamed.");
+    return;
+  }
   const directory = directories.has(oldPath);
   const name = validItemName(prompt(`Rename ${baseName(oldPath)}`, baseName(oldPath)));
   if (!name || name === baseName(oldPath)) return;
-  if (!directory && models.has(oldPath) && !isEditorFile(name)) {
+  if (!directory && isSourceFile(oldPath) && !isSourceFile(name)) {
     alert("Source files must end in .tspp or .ts.");
     return;
   }
@@ -277,33 +285,33 @@ function renameSelectedItem(): void {
     const movedModels = [...models].filter(([path]) => path.startsWith(`${oldPath}/`));
     const movedResources = [...resources].filter(([path]) => path.startsWith(`${oldPath}/`));
     for (const [path, model] of movedModels) {
-      const movedPath = replacePrefix(path, oldPath, nextPath);
+      const movedPath = replacePathPrefix(path, oldPath, nextPath);
       const text = model.getValue();
       model.dispose();
       models.delete(path);
-      models.set(movedPath, createSourceModel(movedPath, text));
+      models.set(movedPath, createProjectModel(movedPath, text));
       const viewState = viewStates.get(path);
       if (viewState) viewStates.set(movedPath, viewState);
       viewStates.delete(path);
     }
     for (const [path, text] of movedResources) {
       resources.delete(path);
-      resources.set(replacePrefix(path, oldPath, nextPath), text);
+      resources.set(replacePathPrefix(path, oldPath, nextPath), text);
     }
     const movedDirectories = [...directories].filter(path => path === oldPath || path.startsWith(`${oldPath}/`));
     for (const path of movedDirectories) directories.delete(path);
-    movedDirectories.forEach(path => directories.add(replacePrefix(path, oldPath, nextPath)));
+    movedDirectories.forEach(path => directories.add(replacePathPrefix(path, oldPath, nextPath)));
     const movedExpanded = [...expandedDirectories].filter(path => path === oldPath || path.startsWith(`${oldPath}/`));
     for (const path of movedExpanded) expandedDirectories.delete(path);
-    movedExpanded.forEach(path => expandedDirectories.add(replacePrefix(path, oldPath, nextPath)));
-    if (active.startsWith(`${oldPath}/`)) active = replacePrefix(active, oldPath, nextPath);
+    movedExpanded.forEach(path => expandedDirectories.add(replacePathPrefix(path, oldPath, nextPath)));
+    if (active.startsWith(`${oldPath}/`)) active = replacePathPrefix(active, oldPath, nextPath);
   }
   else if (models.has(oldPath)) {
     const oldModel = models.get(oldPath)!;
     const text = oldModel.getValue();
     oldModel.dispose();
     models.delete(oldPath);
-    models.set(nextPath, createSourceModel(nextPath, text));
+    models.set(nextPath, createProjectModel(nextPath, text));
     const viewState = viewStates.get(oldPath);
     if (viewState) viewStates.set(nextPath, viewState);
     viewStates.delete(oldPath);
@@ -314,7 +322,7 @@ function renameSelectedItem(): void {
     resources.delete(oldPath);
     resources.set(nextPath, text);
   }
-  addParentDirectories(nextPath);
+  addParentDirectories(nextPath, directories);
   selectedProjectItem = nextPath;
   syncProjectChange(active);
 }
@@ -322,14 +330,20 @@ function renameSelectedItem(): void {
 function deleteSelectedProjectItem(): void {
   const path = selectedProjectItem;
   if (!projectPathExists(path)) return;
+  if (path === "/tsconfig.json") {
+    alert("tsconfig.json is required because it is the Playground project's configuration source.");
+    return;
+  }
   const directory = directories.has(path);
-  const affectedSources = [...models.keys()].filter(file => file === path || directory && file.startsWith(`${path}/`));
-  if (models.size - affectedSources.length < 1) {
+  const sourceFiles = [...models.keys()].filter(isSourceFile);
+  const affectedModels = [...models.keys()].filter(file => file === path || directory && file.startsWith(`${path}/`));
+  const affectedSources = affectedModels.filter(isSourceFile);
+  if (sourceFiles.length - affectedSources.length < 1) {
     alert("A playground project must keep at least one source file.");
     return;
   }
   if (!confirm(`Delete ${directory ? "folder" : "file"} ${baseName(path)}${directory ? " and its contents" : ""}?`)) return;
-  for (const file of affectedSources) {
+  for (const file of affectedModels) {
     models.get(file)?.dispose();
     models.delete(file);
     viewStates.delete(file);
@@ -424,12 +438,15 @@ function syncExampleSelect() {
 
 // ---- features ------------------------------------------------------------------------
 const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selected, (name, checked) => {
-  if (checked) selected.add(name);
-  else selected.delete(name);
-  refreshFeatures();
-  outputs.markStale();
-  void client.setProject(projectFiles(), currentFeatures());
-  scheduleCheck();
+  const definition = definitions.find(candidate => candidate.id === name);
+  const configModel = models.get("/tsconfig.json");
+  if (!definition || !configModel) return;
+  const text = setFeatureInConfiguration(configModel.getValue(), definition, checked);
+  if (text === undefined) {
+    alert("Fix the errors in tsconfig.json before changing Features from the shortcut panel.");
+    return;
+  }
+  configModel.setValue(text);
 });
 
 // ---- checking ------------------------------------------------------------------------
@@ -474,11 +491,14 @@ async function check() {
     diagnostics = [{ message: `Type checking failed: ${(error as Error).message}`, code: 0, category: "error", unnecessary: false, deprecated: false }];
   }
   if (generation !== checkGeneration || model.isDisposed()) return;
-  setDiagnosticMarkers(model, diagnostics);
-  renderProblems(model, diagnostics.filter(d => d.category !== "suggestion"));
+  for (const [path, projectModel] of models) {
+    const forModel = diagnostics.filter(diagnostic => (diagnostic.fileName ?? active) === path);
+    setDiagnosticMarkers(projectModel, forModel);
+  }
+  renderProblems(diagnostics.filter(d => d.category !== "suggestion"));
 }
 
-function renderProblems(model: monaco.editor.ITextModel, problems: readonly DiagnosticInfo[]) {
+function renderProblems(problems: readonly DiagnosticInfo[]) {
   problemCount.textContent = String(problems.length);
   problemList.replaceChildren(...problems.map(problem => {
     const item = document.createElement("li");
@@ -488,10 +508,13 @@ function renderProblems(model: monaco.editor.ITextModel, problems: readonly Diag
     const message = document.createElement("span");
     message.className = "problem-message";
     message.textContent = problem.code ? `${problem.message} (TS${problem.code})` : problem.message;
-    if (problem.span) {
+    const fileName = problem.fileName ?? active;
+    const model = models.get(fileName);
+    if (problem.span && model) {
       const position = model.getPositionAt(problem.span.start);
-      location.textContent = `${position.lineNumber}:${position.column}`;
+      location.textContent = `${fileName.replace(/^\//, "")}:${position.lineNumber}:${position.column}`;
       item.onclick = () => {
+        openFile(fileName);
         editor.setPosition(position);
         editor.revealPositionInCenter(position);
         editor.focus();

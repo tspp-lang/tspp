@@ -92,7 +92,8 @@ function compilerLibraries(): Plugin {
       const paths = (JSON.parse(pathsFile) as { paths: Record<string, string> }).paths;
       const libraries: Record<string, string> = {};
       // The playground's default library is for pages, and no compiler option here can ask for a worker's.
-      for (const file of readdirSync(directory).filter(name => name.endsWith(".d.ts") && !name.startsWith("webworker"))) {
+      for (const file of readdirSync(directory).filter(name => name.endsWith(".d.ts")
+        && (!name.startsWith("webworker") || name === "webworker.importscripts.d.ts"))) {
         const shortName = file.slice(0, -5);
         libraries[paths[shortName] ?? `lib.${shortName}.d.ts`] = readFileSync(join(directory, file), "utf8");
       }
@@ -183,7 +184,8 @@ function featurePlugins(): Plugin {
     load(source) {
       if (source !== `\0${id}`) return undefined;
       const imports = pluginPackages.map((name, index) => `import plugin${index} from ${JSON.stringify(name)};`);
-      return `${imports.join("\n")}\nexport default [${pluginPackages.map((_, index) => `plugin${index}`).join(", ")}];`;
+      const entries = pluginPackages.map((packageName, index) => `{ packageName: ${JSON.stringify(packageName)}, module: plugin${index} }`);
+      return `${imports.join("\n")}\nexport default [${entries.join(", ")}];`;
     },
   };
 }
@@ -216,7 +218,8 @@ function examplesPlugin(): Plugin {
         const directory = join(examplesRoot, project);
         const configPath = join(directory, "tsconfig.json");
         if (!existsSync(configPath)) return [];
-        const config = JSON.parse(readFileSync(configPath, "utf8")) as {
+        const configText = readFileSync(configPath, "utf8");
+        const config = JSON.parse(configText) as {
           compilerOptions?: { plugins?: { name?: string; tspp?: boolean }[] };
         };
         const features = (config.compilerOptions?.plugins ?? [])
@@ -229,6 +232,7 @@ function examplesPlugin(): Plugin {
         const resources = listFiles(sourceRoot).filter(file => file.endsWith(".json"));
         const files = Object.fromEntries([
           ["/package.json", readFileSync(join(directory, "package.json"), "utf8")],
+          ["/tsconfig.json", configText],
           ...sources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),
           ...resources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),
         ]);

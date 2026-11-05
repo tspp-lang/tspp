@@ -50,5 +50,5 @@ export function decodeState(hash: string): SharedState | undefined {
   }
   const sources = paths.filter(path => /\.(tspp|ts)$/.test(path));
   if (!sources.length) return undefined;
-  return { files: files as ProjectFiles, features, active: file && sources.includes(file) ? file : sources[0], directories };
+  return { files: files as ProjectFiles, features, active: file && paths.includes(file) ? file : sources[0], directories };
 }

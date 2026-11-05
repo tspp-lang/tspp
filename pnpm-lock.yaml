@@ -688,6 +688,9 @@ importers:
       '@tspp/plugin-typeclasses':
         specifier: workspace:*
         version: link:../plugins/typeclasses
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       lz-string:
         specifier: ^1.5.0
         version: 1.5.0
