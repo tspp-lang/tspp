@@ -2,6 +2,7 @@
   "name": "ts-plus-plus-monorepo",
   "private": true,
   "devDependencies": {
+    "@tspp/plugin-algebraic-effects": "workspace:*",
     "@tspp/plugin-advanced-classes": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",

@@ -53,6 +53,95 @@ test("modern-syntax and nominal-types: a match in a use continuation", () => {
   assert.equal(r, 5);
 });
 
+function runChecked(source) {
+  const { program, outputs, messages } = compile(source);
+  if (messages.length) return { messages, exports: {} };
+  program.emit();
+  const module = { exports: {} };
+  vm.runInNewContext(outputs.get("/main.js"), { module, exports: module.exports, console });
+  return { messages, exports: module.exports };
+}
+
+test("algebraic-effects and typeclasses: both pass what they find, dictionaries first where a body uses both", () => {
+  const { exports, messages } = runChecked(`
+    typeclass Show<A> { show(a: A): string; }
+    impl NumberShow = Show<number> { show(a) { return "n" + a; } }
+    effect Sink { put(text: string): void; }
+    const lines: string[] = [];
+    function shown<T>(value: T) where <Show<T>>: string { return Show.show(value); }
+    function emit(value: number) / Sink: void { perform Sink.put(shown(value)); }
+    class Both {
+      viaClass<T>(value: T) where <Show<T>>: string { return Show.show(value); }
+      viaEffect(value: number) / Sink: void { perform Sink.put(this.viaClass(value)); }
+    }
+    handle Sink { put: text => { lines.push(text); } } in { emit(1); new Both().viaEffect(2); };
+    export const logged = lines;
+  `);
+  assert.deepEqual(messages, []);
+  assert.deepEqual([...exports.logged], ["n1", "n2"]);
+});
+
+test("algebraic-effects and typeclasses: a class with both kinds of method writes its declarations", () => {
+  const { program, outputs } = createProgram(`
+    export typeclass Show<A> { show(a: A): string; }
+    export effect Sink { put(text: string): void; }
+    export class Both {
+      viaClass<T>(value: T) where <Show<T>>: string { return Show.show(value); }
+      viaEffect(value: number) / Sink: void { perform Sink.put("x" + value); }
+    }
+  `, { ...options, declaration: true });
+  assert.deepEqual(diagnosticMessages(program), []);
+  program.emit();
+  assert.match(outputs.get("/main.d.tspp"), /viaEffect\(value: number\) \/ Sink: void;/);
+  assert.match(outputs.get("/main.d.tspp"), /viaClass<T>\(value: T\) where <Show<T>>: string;/);
+  assert.match(outputs.get("/main.d.ts"), /viaEffect\(__effects: \{\s*Sink: Sink;\s*\}, value: number\): void;/);
+  assert.match(outputs.get("/main.d.ts"), /viaClass<T>\(__Show: Show<T>, value: T\): string;/);
+});
+
+test("algebraic-effects and formal-verification: a contract on either side of an effect clause, and reading it back", () => {
+  const { program, outputs } = createProgram(`
+    export effect Sink { put(value: bigint): void; }
+    export function first(v: bigint) / Sink with { ensures: result >= v; }: bigint { return v; }
+    export function second(v: bigint) with { ensures: result >= v; } / { Sink }: bigint { return v; }
+  `, { ...options, declaration: true });
+  assert.deepEqual(diagnosticMessages(program), []);
+  program.emit();
+  const written = outputs.get("/main.d.tspp");
+  assert.match(written, /first\(v: bigint\) \/ Sink with \{ ensures: result >= v; \}: bigint;/);
+  assert.match(written, /second\(v: bigint\) \/ \{ Sink \} with \{ ensures: result >= v; \}: bigint;/);
+  assert.match(outputs.get("/main.d.ts"), /first\(__effects: \{\s*Sink: Sink;\s*\}, v: bigint\): bigint;/);
+  const reader = createProgram({ "/lib.d.tspp": written, "/main.tspp": `
+    import { Sink, first } from "./lib";
+    export function use(v: bigint) / Sink: bigint { return first(v); }
+  ` }, options);
+  assert.deepEqual(diagnosticMessages(reader.program), []);
+});
+
+test("algebraic-effects and typeclasses: a class with a where clause keeps its effectful methods in declarations", () => {
+  const { program, outputs } = createProgram(`
+    export typeclass Show<A> { show(a: A): string; }
+    export effect Sink { put(text: string): void; }
+    export class Held<T> where <Show<T>> {
+      constructor(readonly value: T) {}
+      run() / Sink: void { perform Sink.put(Show.show(this.value)); }
+    }
+  `, { ...options, declaration: true });
+  assert.deepEqual(diagnosticMessages(program), []);
+  program.emit();
+  assert.match(outputs.get("/main.d.ts"), /constructor\(__Show: Show<T>, value: T\);/);
+  assert.match(outputs.get("/main.d.ts"), /run\(__effects: \{\s*Sink: Sink;\s*\}\): void;/);
+});
+
+test("algebraic-effects and modern-syntax: a handle in a let, and a do body with a clause", () => {
+  const { exports, messages } = runChecked(`
+    effect Give { give(): number; }
+    function given() / Give: number do { perform Give.give() + 1 }
+    export const value = let base = 1 in handle Give { give: () => base } in { given() };
+  `);
+  assert.deepEqual(messages, []);
+  assert.equal(exports.value, 2);
+});
+
 test("typeclasses and formal-verification: a where clause before a contract", () => {
   const { program, outputs } = createProgram({ "/lib/index.tspp": `
     export typeclass Eq<A> { same(a: A, b: A): boolean; }
@@ -496,6 +585,6 @@ test("the result does not depend on the order plugins are loaded in", () => {
   const sorted = [...names].sort();
   const baseline = script(sorted);
   assert.ok(JSON.parse(baseline).length > 0);
-  assert.equal(script(pluginOrder(sorted, 2)), baseline);
+  assert.equal(script(pluginOrder(sorted, 3)), baseline);
   assert.equal(script([...sorted].reverse()), baseline);
 });

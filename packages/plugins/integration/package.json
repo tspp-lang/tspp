@@ -9,6 +9,7 @@
     "test:run": "node --test --test-concurrency=1 test/*.test.cjs"
   },
   "devDependencies": {
+    "@tspp/plugin-algebraic-effects": "workspace:*",
     "@tspp/plugin-advanced-classes": "workspace:*",
     "@tspp/plugin-formal-verification": "workspace:*",
     "@tspp/plugin-macros": "workspace:*",

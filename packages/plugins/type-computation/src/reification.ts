@@ -250,14 +250,18 @@ export function createReification(ts: TSPPTypeScript): Reification {
         rebuild(program) {
             if (!typecaseCount) return undefined;
             let target = program;
+            const findTransformed = (root: TS.Node, parsed: TS.Node): TS.Expression | undefined =>
+                ts.forEachChild(root, child => ts.getOriginalNode(child) === parsed ? child as TS.Expression : findTransformed(child, parsed));
             const select: TS.TransformerFactory<TS.SourceFile> = context => sourceFile => {
                 const checker = target.getTypeChecker();
                 const visit = (node: TS.Node): TS.Node => {
-                    const lowered = typecases.get(node);
+                    const lowered = typecases.get(ts.getOriginalNode(node));
                     if (!lowered) return ts.visitEachChild(node, visit, context);
                     const declaration = checker.getResolvedSignature(lowered.dispatch)?.declaration;
                     const arm = lowered.arms.find(candidate => candidate === declaration) ?? lowered.arms[lowered.arms.length - 1];
-                    return ts.visitNode(arm.body as TS.Expression, visit, ts.isExpression) as TS.Expression;
+                    // Another plugin's transformer may have run first, so the arm is found in `node`, as that one left it.
+                    const body = findTransformed(node, arm.body as TS.Expression) ?? arm.body as TS.Expression;
+                    return ts.visitNode(body, visit, ts.isExpression) as TS.Expression;
                 };
                 return ts.visitEachChild(sourceFile, visit, context);
             };

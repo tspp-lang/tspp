@@ -55,6 +55,12 @@ const features = {
     bad: "export const badSection: string = (_ + 1);",
     message: /not assignable to type 'string'/,
   },
+  "algebraic-effects": {
+    code: "effect MxLog { note(v: number): number; }\nfunction mxRun(v: number) / MxLog: number { return perform MxLog.note(v); }\nexport const effected = handle MxLog { note: v => v + 1 } in { mxRun(1) };",
+    expected: { effected: 2 },
+    bad: "effect MxBad { no(): void; }\nperform MxBad.no();",
+    message: /The effect 'MxBad' is not available here/,
+  },
   typeclasses: {
     code: "typeclass TcEq<A> { same(a: A, b: A): boolean; }\nimpl TcNumberEq = TcEq<number> { same(a, b) { return a === b; } }\nfunction tcSame<T>(a: T, b: T) where <TcEq<T>>: boolean { return TcEq.same(a, b); }\nexport const classes = tcSame(1, 1);",
     expected: { classes: true },
