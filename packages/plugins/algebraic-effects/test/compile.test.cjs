@@ -553,7 +553,7 @@ test("editor services read the lowered code", () => {
   assert.match(display(at("handle State")), /TS\+\+ keyword\) handle/);
   assert.match(display(at("perform Logger")), /TS\+\+ keyword\) perform/);
   assert.match(display(at("effect Logger")), /TS\+\+ keyword\) effect/);
-  for (let position = 0; position < source.length; position += 2) service.getApplicableRefactors("/main.tspp", { pos: position, end: position + 2 }, {});
+  for (let position = 0; position < source.length; position += 2) service.getApplicableRefactors("/main.tspp", { pos: position, end: Math.min(position + 2, source.length) }, {});
   const definitions = service.getDefinitionAtPosition("/main.tspp", at("Logger.info(name)"));
   assert.ok(definitions?.some(definition => source.slice(definition.textSpan.start).startsWith("Logger {")));
   const references = service.findReferences("/main.tspp", at("Logger { info"))?.[0].references.map(reference => reference.textSpan.start);

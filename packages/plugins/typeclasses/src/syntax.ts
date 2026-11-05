@@ -164,11 +164,13 @@ export function createTypeclassSyntax(ts: TSPPTypeScript): TypeclassSyntax {
      * type parameters reach what hangs from a parameter or the return type, so there they hang from an unused parameter.
      */
     const attachWhere = (f: TS.NodeFactory, declaration: TS.Node, clause: WhereClause) => {
+        // Refactors walk up from a name to what contains it, so all but the generated name have the range of the items.
+        const items = { pos: clause.items[0]?.pos ?? -1, end: clause.items[clause.items.length - 1]?.end ?? -1 };
         const tuple = f.createTupleTypeNode(clause.items);
-        ts.setTextRange(tuple, { pos: -1, end: -1 });
-        ts.setTextRange(tuple.elements, { pos: -1, end: -1 });
+        ts.setTextRange(tuple, items);
+        ts.setTextRange(tuple.elements, items);
         const holder = ts.isFunctionLike(declaration)
-            ? ts.setTextRange(f.createParameterDeclaration(undefined, undefined, ts.setTextRange(f.createIdentifier("__tspp_where"), { pos: -1, end: -1 }), undefined, tuple), { pos: -1, end: -1 })
+            ? ts.setTextRange(f.createParameterDeclaration(undefined, undefined, ts.setTextRange(f.createIdentifier("__tspp_where"), { pos: -1, end: -1 }), undefined, tuple), items)
             : tuple;
         setParents(holder, declaration);
         wheres.set(declaration, { ...clause, holder });

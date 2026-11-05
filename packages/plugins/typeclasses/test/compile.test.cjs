@@ -353,3 +353,16 @@ test("editor services survive the syntax", () => {
   assert.ok(service.getFormattingEditsForDocument("/main.tspp", {}));
   assert.deepEqual(service.getSemanticDiagnostics("/main.tspp").map(diagnostic => diagnostic.code), []);
 });
+
+test("refactors on a clause item that names a typeclass alone do not crash", () => {
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  const source = `typeclass Show { show(): string; }
+impl ShowImpl = Show { show() { return "s"; } }
+function shown(a: string) where <Show>: number { return 1; }
+class Shown where <Show> {}
+interface Showing where <Show> {}
+`;
+  const service = createLanguageService("/main.tspp", source);
+  for (let position = 0; position < source.length; position++) service.getApplicableRefactors("/main.tspp", { pos: position, end: Math.min(position + 4, source.length) }, {});
+  assert.ok(service.findReferences("/main.tspp", source.indexOf("Show {"))?.[0].references.some(reference => reference.textSpan.start === source.indexOf("Show>: number")));
+});
