@@ -276,6 +276,19 @@ test("hover shows explicit kinds for higher-kinded and type lambda parameters", 
   assert.equal(hover("<T>"), "(type parameter) T in <T: Type0> =>>");
 });
 
+test("hover on a computed type alias shows its declaration without its implementation", () => {
+  const source = `
+    type Matched<Container, Mapper: Type => Type> = match Container {
+      infer Value: Mapper<Value>
+    };
+    type Bound<Value> = let Result = Value[] in Result;
+  `;
+  const service = createLanguageService("/main.tspp", source);
+  const hover = name => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", source.indexOf(name) + 1)?.displayParts);
+  assert.equal(hover("Matched"), "type Matched<Container, Mapper: Type => Type>");
+  assert.equal(hover("Bound"), "type Bound<Value>");
+});
+
 test("declarations of inferred types the emitter writes as references still emit", () => {
   const { program, outputs } = createProgram({
     "/main.tspp": "class User { name = \"\"; }\nexport const user = new User();",

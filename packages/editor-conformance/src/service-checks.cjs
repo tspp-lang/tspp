@@ -84,6 +84,10 @@ async function inspectFile(server, project, source) {
       // A declaration's Quick Info repeats what its author wrote. Words from nowhere come from the lowering.
       const statement = statementAt(statements, token.start);
       if (statement && /^(?:type|newtype|data)\s/.test(display) && display.split(/[\s<=]/)[1] === token.text && new RegExp(`\\b${display.split(/\s/)[0]}\\s+${token.text.replaceAll("$", "\\$")}\\b`).test(statement.text)) {
+        // Match and let bodies are implementations. Their aliases show the authored header, not a partial first line of
+        // the body that merely happens to contain no generated words.
+        const computedAlias = new RegExp(`\\btype\\s+${token.text.replaceAll("$", "\\$")}\\b[^\\n]*?=\\s*(?:match|let)\\b`).test(statement.text);
+        if (computedAlias && /\s=\s/.test(display)) findings.push(finding("hover/declaration-shape", relative, text, token.start, `${name} includes its computed implementation: ${JSON.stringify(display.slice(0, 80))}`));
         // Showing an alias expanded is what TypeScript does and is useful; only the words of a lowering give it away.
         const invented = expectsError ? [] : [...wordsOf(display)].filter(word => loweringWords.has(word) && !wordsOf(statement.text).has(word));
         if (invented.length) findings.push(finding("hover/source-level", relative, text, token.start, `${name} shows words its declaration does not have: ${invented.slice(0, 6).join(", ")}`));
