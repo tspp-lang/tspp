@@ -9,7 +9,7 @@ pnpm test:editor-conformance
 ```
 
 That command builds the plugin SDK, plugins, and compiler first, so it never checks stale generated output. After a full
-`pnpm build`, use `pnpm test:editor-conformance:run` to run only the checks.
+`pnpm build`, use `pnpm test:editor-conformance:run` to build its cross-package example fixture and run only the checks.
 
 ```bash
 node src/report.cjs [--grammar|--tree|--service|--editing] [project filter]
