@@ -43,6 +43,7 @@ function isInImplHeader(text: string, position: number): boolean {
 }
 
 function typeclassHeader(text: string, name: string): string | undefined {
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) return undefined;
     const match = new RegExp(`\\btypeclass\\s+${name.replace(/\$/g, "\\$")}\\b\\s*(<)?`).exec(text);
     if (!match) return undefined;
     const parameters = match[1] ? angleContents(text, match.index + match[0].length - 1)?.contents : undefined;
@@ -71,10 +72,15 @@ export const typeclassQuickInfo: TSPPQuickInfoProvider = (request: TSPPQuickInfo
         }
         return undefined;
     }
-    if (upstream?.includes("(Missing)")) return answer(typeclassHeader(text, token.text) ?? `typeclass ${token.text}`);
+    const header = typeclassHeader(text, token.text);
+    if (header || /\btypeclass\s+$/.test(text.slice(0, token.start))) {
+        if (upstream && /\binterface\s+/.test(upstream)) return answer(upstream.replace(/\binterface\b/, "typeclass"));
+        return answer(header ?? `typeclass ${token.text}`);
+    }
+    if (upstream?.includes("(Missing)")) return answer(header ?? `typeclass ${token.text}`);
     if (isInImplHeader(text, token.start) || isInWhereClause(text, token.start)) {
         if (typeParametersBefore(text, token.start).includes(token.text)) return answer(`(type parameter) ${token.text}`);
-        return upstream ? undefined : answer(typeclassHeader(text, token.text) ?? `(constraint) ${token.text}`);
+        return upstream ? undefined : answer(header ?? `(constraint) ${token.text}`);
     }
     return undefined;
 };
