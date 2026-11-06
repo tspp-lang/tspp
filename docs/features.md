@@ -14,7 +14,7 @@ Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins
 | [**Modern Syntax**](#2-modern-syntax) | `@tspp/plugin-modern-syntax` | Stable | `let ... in ...` expressions, `do { ... }` blocks, completion-valued bodies, `def` deep-readonly declarations, `use <-` trailing closures | [`01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax) |
 | [**Formal Verification**](#3-formal-verification) | `@tspp/plugin-formal-verification` | Stable | SMT/Z3 automated theorem proving, `requires`/`ensures` contracts, `assert:`/`assume:` proof points, `invariant:` loop invariants, refinement types | [`02-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/02-formal-verification) |
 | [**Nominal Types & ADTs**](#4-nominal-types--algebraic-data-types) | `@tspp/plugin-nominal-types` | Stable | Zero-cost `newtype` nominal abstractions, tagged union `data` declarations, exhaustive pattern `match` expressions with guards | [`03-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/03-nominal-types), [`04-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/04-newtype-consumer) |
-| [**Type Computation & HKT**](#5-type-computation-higher-kinded--dependent-types) | `@tspp/plugin-type-computation` | Stable | Higher-Kinded Types (`Type => Type`), Dependent Types (Martin-Löf Type Theory), type-level `let`, `<T> =>> Body` constructors, `reify`, `typecase` | [`05-dependent-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-dependent-types), [`06-type-computation`](file:///e:/Repos/ts-plus-plus/packages/examples/06-type-computation), [`07-higher-kinded-types`](file:///e:/Repos/ts-plus-plus/packages/examples/07-higher-kinded-types) |
+| [**Type Cube**](#5-type-cube) | `@tspp/plugin-type-computation` | Stable | Full Barendregt Lambda Cube: Higher-Kinded Types (`Type => Type`), Dependent Types (Martin-Löf Type Theory), type-level `let`/`match`, `<T> =>> Body` constructors, `reify`, `typecase` | [`05-dependent-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-dependent-types), [`06-type-computation`](file:///e:/Repos/ts-plus-plus/packages/examples/06-type-computation), [`07-higher-kinded-types`](file:///e:/Repos/ts-plus-plus/packages/examples/07-higher-kinded-types) |
 | [**Static Interface Members**](#6-static-interface-members) | `@tspp/plugin-static-interface-members` | Stable | Static-side contracts in interfaces (`static deserialize(): this`), typeclasses, static factories enforced on implementing classes | [`08-static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/examples/08-static-interface-members) |
 | [**Compile-Time Macros**](#7-compile-time-macros) | `@tspp/plugin-macros` | Stable | Asynchronous compile-time AST macros, hygienic quasiquoting (`$()`), macro expansion budgeting, IDE preview | [`10-macros`](file:///e:/Repos/ts-plus-plus/packages/examples/10-macros) |
 | [**Operator Sections**](#8-operator-sections) | `@tspp/plugin-operator-sections` | Stable | Placeholder-based partial application using `_` (e.g., `(_ + 1)`, `(10 - _)`, `values.map(_ * 2)`) | [`11-operator-sections`](file:///e:/Repos/ts-plus-plus/packages/examples/11-operator-sections) |
@@ -135,11 +135,11 @@ const message = match (opt) {
 
 ---
 
-### 5. Type Computation, Higher-Kinded & Dependent Types
+### 5. Type Cube
 
 * **Package**: [`@tspp/plugin-type-computation`](file:///e:/Repos/ts-plus-plus/packages/plugins/type-computation)
 * **Examples**: [`05-dependent-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-dependent-types), [`06-type-computation`](file:///e:/Repos/ts-plus-plus/packages/examples/06-type-computation), [`07-higher-kinded-types`](file:///e:/Repos/ts-plus-plus/packages/examples/07-higher-kinded-types)
-* **Description**: Advanced type-level computation kernel based on Martin-Löf type theory (MLTT).
+* **Description**: Full-spectrum type system embodying the Barendregt Lambda Cube — unifying polymorphism, Higher-Kinded Types (HKT), and Dependent Types (Martin-Löf Type Theory) into a single computational kernel.
 
 **Features**:
 

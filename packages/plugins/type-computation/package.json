@@ -1,7 +1,7 @@
 {
   "name": "@tspp/plugin-type-computation",
   "version": "0.0.1",
-  "description": "TSPP local type bindings, ordered type matching, and anonymous type constructors.",
+  "description": "TSPP Type Cube: Higher-Kinded Types, Dependent Types, and compile-time type computation.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

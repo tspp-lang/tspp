@@ -89,6 +89,9 @@
           "include": "source.ts#comment"
         },
         {
+          "include": "source.ts#type-annotation"
+        },
+        {
           "match": "=",
           "name": "keyword.operator.assignment.ts"
         },
