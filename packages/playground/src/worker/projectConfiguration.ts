@@ -57,9 +57,15 @@ export function configureProject(
     scriptKind: ts.ScriptKind.TS,
   }]);
   return {
-    // Outputs and Run are explicit in-memory requests, so `noEmit` only controls the real CLI build and never
-    // prevents those Playground views. No files are written to disk here.
-    options: { ...parsed.options, allowNonTsExtensions: true, noEmit: false, noEmitOnError: false },
+    // Outputs and Run are explicit in-memory requests, so the project's emit switches never prevent those
+    // Playground views. No files are written to disk here.
+    options: {
+      ...parsed.options,
+      allowNonTsExtensions: true,
+      declaration: true,
+      noEmit: false,
+      noEmitOnError: false,
+    },
     rootFileNames: parsed.fileNames.filter(isSourceFile),
     diagnostics: [
       ...compatibility.diagnostics,

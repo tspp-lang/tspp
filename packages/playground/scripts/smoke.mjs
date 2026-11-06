@@ -62,9 +62,13 @@ async function runExample(page, example, errors) {
   const output = await page.$$eval("#run-output .runtime-error", lines => lines.map(line => line.textContent));
   const problems = await page.$$eval("#problems .problem-message", items => items.map(item => item.textContent));
   const reasons = [];
-  // Macros expand in the background: the output on show must catch up with them.
-  await page.waitForFunction(() => document.getElementById("outputs-status").textContent === "Up to date", undefined, { timeout: 10_000 })
-    .catch(async () => reasons.push(`the output stayed at: ${await page.textContent("#outputs-status")}`));
+  // Macros expand in the background: every built-in output must catch up with them. Declaration views are an
+  // explicit Playground request even when the example's real tsconfig disables emit or does not enable declarations.
+  for (const category of ["javascript", "dts", "dtspp"]) {
+    await page.click(`#output-tabs [data-category="${category}"]`);
+    await page.waitForFunction(() => document.getElementById("outputs-status").textContent === "Up to date", undefined, { timeout: 10_000 })
+      .catch(async () => reasons.push(`${category} output stayed at: ${await page.textContent("#outputs-status")}`));
+  }
   if (status !== "Exited successfully") reasons.push(`run ended with: ${status}`);
   if (output.length) reasons.push(`it logged errors: ${output.join(" | ")}`);
   const crashes = problems.filter(problem => problem?.startsWith("Type checking failed"));
