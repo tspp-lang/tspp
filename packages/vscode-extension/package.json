@@ -58,6 +58,16 @@
           ".tspp"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "smt2",
+        "aliases": [
+          "SMT-LIB2",
+          "SMT2"
+        ],
+        "extensions": [
+          ".smt2"
+        ]
       }
     ],
     "grammars": [
@@ -70,6 +80,11 @@
         "scopeName": "source.tspp.plugins",
         "path": "./syntaxes/tspp-plugins.tmLanguage.json",
         "injectTo": ["source.tspp"]
+      },
+      {
+        "language": "smt2",
+        "scopeName": "source.smt2",
+        "path": "./syntaxes/smt2.tmLanguage.json"
       }
     ],
     "commands": [

@@ -50,6 +50,14 @@ process.exit(0);
 
 /** Selects an example and runs it; returns why it failed, if it did. */
 async function runExample(page, example, errors) {
+  await page.evaluate(() => {
+    const status = document.getElementById("analysis-status");
+    window.__tsppAnalysisObserver?.disconnect();
+    window.__tsppAnalysisStatuses = [];
+    const record = () => status.textContent && window.__tsppAnalysisStatuses.push(status.textContent);
+    window.__tsppAnalysisObserver = new MutationObserver(record);
+    window.__tsppAnalysisObserver.observe(status, { childList: true, characterData: true, subtree: true });
+  });
   await page.selectOption("#examples", example);
   await page.waitForFunction(() => !document.getElementById("run-javascript").disabled, undefined, { timeout: runTimeout });
   await page.click("#run-javascript");
@@ -68,6 +76,12 @@ async function runExample(page, example, errors) {
     await page.click(`#output-tabs [data-category="${category}"]`);
     await page.waitForFunction(() => document.getElementById("outputs-status").textContent === "Up to date", undefined, { timeout: 10_000 })
       .catch(async () => reasons.push(`${category} output stayed at: ${await page.textContent("#outputs-status")}`));
+  }
+  if (example === "02-formal-verification") {
+    const statuses = await page.evaluate(() => window.__tsppAnalysisStatuses);
+    if (!statuses.some(text => /^Downloading Z3 — first use may be slow… (?:\d+%|\d+\.\d MB)$/.test(text))) {
+      reasons.push(`Z3 download progress was not shown: ${statuses.join(" | ")}`);
+    }
   }
   if (status !== "Exited successfully") reasons.push(`run ended with: ${status}`);
   if (output.length) reasons.push(`it logged errors: ${output.join(" | ")}`);

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "SMT-LIB2",
+  "scopeName": "source.smt2",
+  "patterns": [
+    {
+      "begin": ";",
+      "beginCaptures": { "0": { "name": "punctuation.definition.comment.smt2" } },
+      "end": "$",
+      "name": "comment.line.semicolon.smt2"
+    },
+    {
+      "begin": "\"",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.smt2" } },
+      "end": "\"",
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.smt2" } },
+      "name": "string.quoted.double.smt2",
+      "patterns": [
+        { "match": "\"\"", "name": "constant.character.escape.smt2" }
+      ]
+    },
+    {
+      "begin": "\\|",
+      "beginCaptures": { "0": { "name": "punctuation.definition.identifier.begin.smt2" } },
+      "end": "\\|",
+      "endCaptures": { "0": { "name": "punctuation.definition.identifier.end.smt2" } },
+      "name": "variable.other.quoted.smt2"
+    },
+    {
+      "match": "(?<=\\()\\s*(assert|check-sat|declare-const|declare-fun|define-fun|define-fun-rec|exists|forall|get-model|get-value|let|set-logic|set-option)\\b",
+      "name": "keyword.control.smt2"
+    },
+    {
+      "match": "\\b(Array|BitVec|Bool|Int|Real|String)\\b",
+      "name": "support.type.smt2"
+    },
+    {
+      "match": "(?<![\\w.])[+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)\\b",
+      "name": "constant.numeric.smt2"
+    },
+    {
+      "match": "\\b(true|false)\\b",
+      "name": "constant.language.boolean.smt2"
+    },
+    {
+      "match": "(?<=\\()\\s*(and|distinct|div|iff|implies|ite|mod|not|or|rem|xor|[+*/<>=-])(?=\\s|\\))",
+      "name": "keyword.operator.smt2"
+    },
+    {
+      "match": ":[A-Za-z][\\w-]*",
+      "name": "entity.other.attribute-name.smt2"
+    },
+    {
+      "match": "[()]",
+      "name": "punctuation.section.parens.smt2"
+    }
+  ]
+}

@@ -14,8 +14,8 @@ function grammarFiles() {
   return files;
 }
 
-let enginePromise;
-async function createEngine() {
+const enginePromises = new Map();
+async function createEngine(scope) {
   const wasm = fs.readFileSync(require.resolve("vscode-oniguruma/release/onig.wasm")).buffer;
   await oniguruma.loadWASM(wasm);
   const files = grammarFiles();
@@ -31,13 +31,13 @@ async function createEngine() {
     },
     getInjections: scopeName => (scopeName === "source.tspp" ? injections : undefined),
   });
-  return registry.loadGrammar("source.tspp");
+  return registry.loadGrammar(scope);
 }
 
 /** Every token of `text` as `{ start, end, scopes }`, with offsets into `text`. */
-async function tokenize(text) {
-  enginePromise ??= createEngine();
-  const grammar = await enginePromise;
+async function tokenizeScope(text, scope) {
+  if (!enginePromises.has(scope)) enginePromises.set(scope, createEngine(scope));
+  const grammar = await enginePromises.get(scope);
   const tokens = [];
   let state = vsctm.INITIAL;
   const pattern = /\r\n|\n|\r|$/g;
@@ -56,4 +56,6 @@ async function tokenize(text) {
   }
 }
 
-module.exports = { tokenize };
+const tokenize = text => tokenizeScope(text, "source.tspp");
+
+module.exports = { tokenize, tokenizeScope };

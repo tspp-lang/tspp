@@ -8,10 +8,38 @@ if (!isPthread) {
   const { init } = require("./browser.js");
   let api;
 
+  async function readWasm(response) {
+    const total = Number(response.headers.get("content-length")) || undefined;
+    if (!response.body) {
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      self.postMessage({ kind: "progress", phase: "loading-wasm", loaded: bytes.byteLength, total });
+      return bytes;
+    }
+    const reader = response.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    self.postMessage({ kind: "progress", phase: "loading-wasm", loaded, total });
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      self.postMessage({ kind: "progress", phase: "loading-wasm", loaded, total });
+    }
+    const bytes = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  }
+
   const initApi = (wasmUrl, script) => api ??= (async () => {
     const response = await fetch(wasmUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status} fetching ${wasmUrl}`);
-    const wasmBytes = new Uint8Array(await response.arrayBuffer());
+    const wasmBytes = await readWasm(response);
+    self.postMessage({ kind: "progress", phase: "initializing" });
     return init({
       mainScriptUrlOrBlob: script,
       instantiateWasm(info, receiveInstance) {

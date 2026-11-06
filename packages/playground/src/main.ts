@@ -10,6 +10,8 @@ import { addParentDirectories, baseName, normalizedPath, parentDirectory, render
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeState, encodeState, onSharedStateChange, type SharedState } from "./share";
+import { registerSmtLanguage } from "./smtLanguage";
+import { renderSolverStatus } from "./solverStatus";
 import { languageId, registerTsppLanguage } from "./tsppLanguage";
 import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
 
@@ -48,13 +50,11 @@ const client = startLanguageWorker(event => {
     requestCheck(50);
     outputs.refresh();
   }
-  else {
-    analysisStatus.hidden = !event.busy;
-    analysisStatus.closest("section")?.setAttribute("aria-busy", String(event.busy));
-  }
+  else renderSolverStatus(analysisStatus, event);
 });
 registerTsppLanguage();
 registerJsoncLanguage();
+registerSmtLanguage();
 registerProviders(client);
 
 const dark = matchMedia("(prefers-color-scheme: dark)");

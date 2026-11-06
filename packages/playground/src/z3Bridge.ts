@@ -19,7 +19,13 @@ interface PendingRequest {
   readonly reject: (error: Error) => void;
 }
 
-export function createBrowserZ3Solver(location: Z3Location, onBusy?: (busy: boolean) => void): Z3Solver {
+export interface Z3Progress {
+  readonly phase: "loading-worker" | "loading-wasm" | "initializing" | "solving" | "idle";
+  readonly loaded?: number;
+  readonly total?: number;
+}
+
+export function createBrowserZ3Solver(location: Z3Location, onProgress?: (progress: Z3Progress) => void): Z3Solver {
   let worker: Promise<Worker> | undefined;
   let queue: Promise<unknown> = Promise.resolve();
   let nextId = 1;
@@ -28,7 +34,30 @@ export function createBrowserZ3Solver(location: Z3Location, onBusy?: (busy: bool
   async function loadScript(): Promise<Blob> {
     const response = await fetch(location.workerUrl);
     if (!response.ok) throw new Error(`HTTP ${response.status} fetching ${location.workerUrl}`);
-    return new Blob([await response.text()], { type: "text/javascript" });
+    const total = Number(response.headers.get("content-length")) || undefined;
+    if (!response.body) {
+      const text = await response.text();
+      onProgress?.({ phase: "loading-worker", loaded: text.length, total });
+      return new Blob([text], { type: "text/javascript" });
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let loaded = 0;
+    onProgress?.({ phase: "loading-worker", loaded, total });
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.byteLength;
+      onProgress?.({ phase: "loading-worker", loaded, total });
+    }
+    const bytes = new Uint8Array(loaded);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new Blob([bytes.buffer], { type: "text/javascript" });
   }
 
   function start(): Promise<Worker> {
@@ -37,6 +66,7 @@ export function createBrowserZ3Solver(location: Z3Location, onBusy?: (busy: bool
       z3.onmessage = ({ data }) => {
         if (data?.kind === "ready") resolve(z3);
         else if (data?.kind === "init-error") reject(new Error(`Z3 failed to start: ${data.error}`));
+        else if (data?.kind === "progress") onProgress?.(data);
         else if (typeof data?.id === "number") settle(data);
       };
       z3.onerror = event => reject(new Error(`Z3 worker error: ${event.message}`));
@@ -62,9 +92,9 @@ export function createBrowserZ3Solver(location: Z3Location, onBusy?: (busy: bool
   }
 
   async function run(queries: readonly Z3Query[]): Promise<readonly Z3Answer[]> {
-    onBusy?.(true);
     try {
       const z3 = await start();
+      onProgress?.({ phase: "solving" });
       const id = nextId++;
       return await new Promise((resolve, reject) => {
         const timer = setTimeout(() => reject(new Error(`Z3 did not answer within ${queryTimeoutMs / 1000}s.`)), queryTimeoutMs);
@@ -80,7 +110,7 @@ export function createBrowserZ3Solver(location: Z3Location, onBusy?: (busy: bool
       throw error;
     }
     finally {
-      onBusy?.(false);
+      onProgress?.({ phase: "idle" });
     }
   }
 

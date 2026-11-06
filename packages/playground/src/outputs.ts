@@ -110,10 +110,11 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
         : `Select ${label} to generate or refresh it.`;
       return;
     }
-    const language = items.every(item => item.language === items[0].language) && items[0].language !== "plaintext" ? languageId : "plaintext";
+    const itemLanguage = items.every(item => item.language === items[0].language) ? items[0].language : "plaintext";
+    const language = ["javascript", "typescript", "tspp"].includes(itemLanguage) ? languageId : itemLanguage;
     const content = items.length === 1
       ? items[0].content
-      : items.map(item => `// ── ${item.label} ──\n${item.content}`).join("\n\n");
+      : items.map(item => item.content.trimEnd()).join("\n\n");
     outputModel = monaco.editor.createModel(content, language);
     artifactEditor.setModel(outputModel);
   }

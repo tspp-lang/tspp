@@ -274,13 +274,14 @@ test("uses branch facts for record fields and discriminated unions", async () =>
 });
 
 test("publishes replayable SMT-LIB as generic analysis artifacts", async () => {
-  const source = `assert: 1n + 1n === 2n;`;
+  const source = `\n\nassert: 1n + 1n === 2n;`;
   const diagnostics = await formalVerificationAnalyzer.analyze({
     currentDirectory: process.cwd(), rootFileNames: ["artifact.tspp"],
     sourceFiles: [{ fileName: "artifact.tspp", text: source }],
   });
   assert.equal(diagnostics.artifacts.length, 1);
   assert.equal(diagnostics.artifacts[0].status, "proved");
+  assert.match(diagnostics.artifacts[0].content, /; TS\+\+ source: line 3/);
   assert.match(diagnostics.artifacts[0].content, /\(check-sat\)/);
   assert.match(diagnostics.artifacts[0].content, /tspp\.js\.trunc\.div/);
 });

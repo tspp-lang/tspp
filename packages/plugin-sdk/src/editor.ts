@@ -7,6 +7,8 @@ export interface TSPPArtifactView {
     /** A short name for hosts that list views, such as an output tab. */
     readonly label: string;
     readonly artifactKind: string;
+    /** Progress text shown while an editor asks the analyzer to produce this view. */
+    readonly progressTitle?: string;
     readonly emptyMessage: string;
 }
 

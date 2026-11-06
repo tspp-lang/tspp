@@ -29,6 +29,7 @@ interface AnalysisArtifact extends Span {
   readonly fileName: string;
   readonly name: string;
   readonly content: string;
+  readonly language: string;
   readonly status?: "proved" | "failed" | "unknown" | "error";
 }
 
@@ -314,7 +315,7 @@ async function createOutputs(fileName: string, requested: OutputCategory): Promi
         id: `${requested}:${artifact.fileName}:${artifact.start}:${artifact.name}`,
         category: requested,
         label: artifact.name,
-        language: "plaintext",
+        language: artifact.language,
         content: artifact.content,
         fileName: artifact.fileName,
         span: { start: artifact.start, length: artifact.length },
@@ -333,7 +334,7 @@ function sourceOfOutput(program: ts.Program, fileName: string, outputName: strin
 
 const api: WorkerApi = {
   init(z3) {
-    formalVerification.configureZ3Solver(createBrowserZ3Solver(z3, busy => post({ event: "solver", busy })));
+    formalVerification.configureZ3Solver(createBrowserZ3Solver(z3, progress => post({ event: "solver", ...progress })));
     return { version: ts.version, features: featureDefinitions };
   },
 
