@@ -1,5 +1,7 @@
 # TS++
 
+English | [简体中文](README.zh-CN.md)
+
 TS++ (`ts-plus-plus`, abbreviated TSPP) is an experimental language and compiler
 derived from TypeScript. This repository starts from the TypeScript 6.0.3 source
 tree and develops TS++ as a separate product while preserving TypeScript as its
