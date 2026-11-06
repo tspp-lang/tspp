@@ -4,8 +4,10 @@
   "private": true,
   "description": "Checks highlighting, Quick Info and editing of TS++ sources without anyone looking at the editor.",
   "scripts": {
+    "build:dependencies": "pnpm -w build:plugin-sdk && pnpm -w build:plugins && pnpm -w build:compiler",
     "report": "node src/report.cjs",
-    "test": "node --test --test-concurrency=1 test/*.test.cjs"
+    "test": "pnpm build:dependencies && pnpm test:run",
+    "test:run": "node --test --test-concurrency=1 test/*.test.cjs"
   },
   "devDependencies": {
     "tm-grammars": "1.32.22",

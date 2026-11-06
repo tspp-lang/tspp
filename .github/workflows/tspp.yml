@@ -46,6 +46,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup
       - run: pnpm build
+      # The build above supplies the real tsserver and every plugin that editor conformance exercises.
+      - run: pnpm test:editor-conformance:run
       - run: pnpm test:language-server
       - run: pnpm test:vscode
       # Opens the built playground in the runner's Chrome and runs every example's JavaScript.

@@ -5,8 +5,11 @@ engine with the real TypeScript grammar and several themes, and the built tsserv
 Nothing is compared with an expected colour: what a thing is must decide how it renders, and where it stands must not.
 
 ```bash
-pnpm --filter @tspp/editor-conformance test
+pnpm test:editor-conformance
 ```
+
+That command builds the plugin SDK, plugins, and compiler first, so it never checks stale generated output. After a full
+`pnpm build`, use `pnpm test:editor-conformance:run` to run only the checks.
 
 ```bash
 node src/report.cjs [--grammar|--tree|--service|--editing] [project filter]
