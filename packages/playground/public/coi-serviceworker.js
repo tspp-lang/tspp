@@ -57,7 +57,9 @@ if (typeof window === 'undefined') {
                         headers: newHeaders,
                     });
                 })
-                .catch((e) => console.error(e))
+                // `respondWith` must always settle to a Response. A navigation can be
+                // cancelled by a reload or an update, in which case `fetch` rejects.
+                .catch(() => Response.error())
         );
     });
 

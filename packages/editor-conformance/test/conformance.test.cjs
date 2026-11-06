@@ -8,6 +8,7 @@ const { exampleProjects } = require("../src/examples.cjs");
 const { checkFileGrammar, checkParityCase } = require("../src/grammar-checks.cjs");
 const { TsServer } = require("../src/tsserver.cjs");
 const { inspectFile, checkConsistency, checkEditing } = require("../src/service-checks.cjs");
+const { tokenizeScope } = require("../src/textmate.cjs");
 const { checkTree } = require("../src/tree-checks.cjs");
 const { compareWithGaps } = require("../src/known-gaps.cjs");
 
@@ -47,6 +48,15 @@ test("the comment check notices a keyword scoped inside a comment", async () => 
   // Nothing injects into this comment, so the check must stay quiet, and the same text must be a word outside of it.
   const quiet = await checkFileGrammar("self-test.tspp", "// match data\nconst a = 1;\n");
   assert.deepEqual(quiet.filter(item => item.rule === "grammar/comment-untouched"), []);
+});
+
+test("SMT artifacts highlight comments, commands, and sorts", async () => {
+  const source = "; proof\n(assert (forall ((value Int)) (= value 1)))";
+  const tokens = await tokenizeScope(source, "source.smt2");
+  const scopes = word => tokens.find(token => source.slice(token.start, token.end).trim() === word)?.scopes ?? [];
+  assert.ok(tokens.some(token => token.scopes.includes("comment.line.semicolon.smt2")));
+  assert.ok(scopes("assert").includes("keyword.control.smt2"));
+  assert.ok(scopes("Int").includes("support.type.smt2"));
 });
 
 test("every parse ends and every tree nests, including broken text", async () => {

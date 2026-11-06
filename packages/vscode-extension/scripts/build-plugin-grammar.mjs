@@ -45,7 +45,7 @@ const grammar = {
   patterns,
 };
 const contributions = {
-  artifactViews: artifactViews.map(({ commandId, artifactKind, emptyMessage }) => ({ commandId, artifactKind, emptyMessage })),
+  artifactViews: artifactViews.map(({ commandId, artifactKind, progressTitle, emptyMessage }) => ({ commandId, artifactKind, progressTitle, emptyMessage })),
   overlayViews: overlayViews.map(({ id, commandId, progressTitle, emptyMessage }) => ({ id, commandId, progressTitle, emptyMessage })),
 };
 

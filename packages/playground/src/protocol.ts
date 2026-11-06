@@ -84,7 +84,8 @@ export interface OutputItem {
   readonly id: string;
   readonly category: OutputCategory;
   readonly label: string;
-  readonly language: "javascript" | "typescript" | "tspp" | "plaintext";
+  /** Monaco language id. Plugin artifacts may contribute languages such as `smt2`. */
+  readonly language: string;
   readonly content: string;
   readonly fileName?: string;
   readonly span?: Span;
@@ -135,7 +136,12 @@ export type WorkerEvent =
   | { readonly event: "analysisSettled" }
   /** Macro expansion finished after the Program that started it was built: results from that Program are out of date. */
   | { readonly event: "programChanged" }
-  | { readonly event: "solver"; readonly busy: boolean };
+  | {
+    readonly event: "solver";
+    readonly phase: "loading-worker" | "loading-wasm" | "initializing" | "solving" | "idle";
+    readonly loaded?: number;
+    readonly total?: number;
+  };
 
 export type Request = { [K in keyof WorkerApi]: { id: number; method: K; args: Parameters<WorkerApi[K]> } }[keyof WorkerApi];
 export type Response = { id: number; result: unknown } | { id: number; error: string };

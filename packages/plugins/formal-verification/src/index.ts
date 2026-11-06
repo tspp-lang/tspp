@@ -55,14 +55,17 @@ async function analyze(input: TSPPProgramAnalysisInput, options: FormalVerificat
     }
     const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
     const artifacts: TSPPAnalysisArtifact[] = [];
+    const sourceTexts = new Map(input.sourceFiles.map(sourceFile => [sourceFile.fileName, sourceFile.text]));
     answers.forEach((answer, index) => {
         const proof = queries[index].proof;
         const status = answer.status === "unsat" ? "proved" : answer.status === "sat" ? "failed" : answer.status;
+        const sourceText = sourceTexts.get(proof.fileName) ?? "";
+        const sourceLine = 1 + (sourceText.slice(0, proof.start).match(/\n/g)?.length ?? 0);
         artifacts.push({
             kind: "formal-verification/smt",
             fileName: proof.fileName, start: proof.start, length: proof.length,
             name: proof.name, language: "smt2", status,
-            content: `; ${proof.name}: ${status}\n${renderZ3Query(proof.query)}\n`,
+            content: `; ${proof.name}: ${status}\n; TS++ source: line ${sourceLine}\n${renderZ3Query(proof.query)}\n`,
         });
         if (answer.status === "unsat") return;
         diagnostics.push({
@@ -152,6 +155,7 @@ export const formalVerificationPlugin = definePlugin({
                 title: "TS++: Show SMT Source",
                 label: "SMT-LIB2",
                 artifactKind: "formal-verification/smt",
+                progressTitle: "TS++: Starting Z3 (the first run may take a while)…",
                 emptyMessage: "This file has no SMT source.",
             }],
             grammars: ["./editor/verification.tmLanguage.json"],

@@ -111,6 +111,7 @@ async function activate(context) {
       json: "json",
       markdown: "md",
       plaintext: "txt",
+      smt2: "smt2",
       typescript: "ts",
       tspp: "tspp",
     };
@@ -212,11 +213,11 @@ async function activate(context) {
     return result;
   }
 
-  async function showAnalysisArtifacts(filter, emptyMessage) {
+  async function showAnalysisArtifacts(filter, emptyMessage, progressTitle = "TS++: Generating analysis artifacts…") {
     const document = vscode.window.activeTextEditor?.document;
     if (!document || document.languageId !== "tspp" || document.uri.scheme !== "file") return;
     try {
-      const analysis = await withProgress("TS++: Generating analysis artifacts…", () => createAnalysisProgram(document));
+      const analysis = await withProgress(progressTitle, () => createAnalysisProgram(document));
       const artifacts = (analysis?.ts.getTSPPAnalysisArtifacts?.(analysis.program, document.fileName) ?? [])
         .filter(filter)
         .sort((left, right) => left.start - right.start);
@@ -240,8 +241,8 @@ async function activate(context) {
         selected = choice.artifacts;
       }
       const content = selected
-        .map((artifact, index) => `; [${index + 1}] ${artifact.name} — ${artifact.status ?? "generated"}\n${artifact.content}`)
-        .join("\n");
+        .map(artifact => artifact.content.trimEnd())
+        .join("\n\n");
       await showReadonlyPreview(document, "analysis", selected[0].language, content);
     }
     catch (error) {
@@ -285,7 +286,7 @@ async function activate(context) {
       await showAnalysisArtifacts(() => true, "This file has no plugin analysis artifacts.");
     }),
     ...contributions.artifactViews.map(view => vscode.commands.registerCommand(view.commandId, async () => {
-      await showAnalysisArtifacts(artifact => artifact.kind === view.artifactKind, view.emptyMessage);
+      await showAnalysisArtifacts(artifact => artifact.kind === view.artifactKind, view.emptyMessage, view.progressTitle);
     })),
     vscode.commands.registerCommand("tspp.showProjectedSource", async () => {
       const document = vscode.window.activeTextEditor?.document;

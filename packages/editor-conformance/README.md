@@ -5,8 +5,11 @@ engine with the real TypeScript grammar and several themes, and the built tsserv
 Nothing is compared with an expected colour: what a thing is must decide how it renders, and where it stands must not.
 
 ```bash
-pnpm --filter @tspp/editor-conformance test
+pnpm test:editor-conformance
 ```
+
+That command builds the plugin SDK, plugins, and compiler first, so it never checks stale generated output. After a full
+`pnpm build`, use `pnpm test:editor-conformance:run` to build its cross-package example fixture and run only the checks.
 
 ```bash
 node src/report.cjs [--grammar|--tree|--service|--editing] [project filter]
@@ -17,7 +20,7 @@ node src/report.cjs [--grammar|--tree|--service|--editing] [project filter]
 | `grammar/*` | Plugin grammars stay out of comments and strings, no state leaks into later statements, `export` changes nothing else, and syntax in `test/editor-parity.json` of a plugin renders like the TypeScript beside it. |
 | `tree/*` | Parsing a file, with a character removed or cut off at any token, ends, and gives a tree whose children lie inside their parents. |
 | `service/*` | Semantic tokens are whole words, sorted and without overlaps. |
-| `hover/*` | Quick Info exists, covers the word, shows no `any`, `(Missing)` or generated names, and gives computed aliases a complete result. |
+| `hover/*` | Quick Info exists, covers the word, shows no `any`, `(Missing)`, lowering or generated names, and keeps computed aliases in complete authored syntax. |
 | `consistency/*` | One symbol, plugin role or keyword renders one way in every theme. |
 | `editing/*` | Everything an editor asks after a keystroke answers, within a time limit, and an edited file answers like a fresh one. |
 

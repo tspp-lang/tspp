@@ -3,6 +3,7 @@
     {
       "commandId": "tspp.showSmtSource",
       "artifactKind": "formal-verification/smt",
+      "progressTitle": "TS++: Starting Z3 (the first run may take a while)…",
       "emptyMessage": "This file has no SMT source."
     },
     {
