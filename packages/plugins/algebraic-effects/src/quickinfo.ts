@@ -17,16 +17,53 @@ function wordAt(text: string, position: number): { readonly start: number; reado
     return word && position <= start + word[0].length ? { start, text: word[0] } : undefined;
 }
 
+/** The text of a balanced `<...>` opening at `open`, without the brackets. */
+function angleContents(text: string, open: number): { readonly contents: string; readonly end: number; } | undefined {
+    let depth = 0;
+    for (let index = open; index < text.length; index++) {
+        if (text[index] === "<") depth++;
+        else if (text[index] === ">" && text[index - 1] !== "=" && --depth === 0) return { contents: text.slice(open + 1, index), end: index };
+    }
+    return undefined;
+}
+
+function effectHeader(text: string, name: string): string | undefined {
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) return undefined;
+    const match = new RegExp(`\\beffect\\s+${name.replace(/\$/g, "\\$")}\\b\\s*(<)?`).exec(text);
+    if (!match) return undefined;
+    const parameters = match[1] ? angleContents(text, match.index + match[0].length - 1)?.contents : undefined;
+    return `effect ${name}${parameters === undefined ? "" : `<${parameters}>`}`;
+}
+
 /** Keywords never reach the tree editor services read, and a position on one may touch what it lowered to. */
 export const effectQuickInfo: TSPPQuickInfoProvider = request => {
     const word = wordAt(request.sourceText, request.position);
-    if (!word || !request.owned || !keywords[word.text]) return undefined;
-    // Inside this plugin's syntax, the same word followed by a name is the keyword; anything else is a name of that spelling.
-    if (!/^[ \t]+[A-Za-z_$]/.test(request.sourceText.slice(word.start + word.text.length))) return undefined;
-    return { start: word.start, length: word.text.length, display: `(TS++ keyword) ${word.text}`, documentation: keywords[word.text] };
+    if (word && request.owned && keywords[word.text]) {
+        // Inside this plugin's syntax, the same word followed by a name is the keyword; anything else is a name of that spelling.
+        if (/^[ \t]+[A-Za-z_$]/.test(request.sourceText.slice(word.start + word.text.length))) {
+            return { start: word.start, length: word.text.length, display: `(TS++ keyword) ${word.text}`, documentation: keywords[word.text] };
+        }
+    }
+    const token = request.token ?? (word && { start: word.start, length: word.text.length, text: word.text });
+    if (!token) return undefined;
+    const text = request.sourceText;
+    const upstream = request.upstream?.display;
+    const answer = (display: string, documentation?: string) => ({ start: token.start, length: token.length, display, documentation });
+
+    const header = effectHeader(text, token.text);
+    if (header && upstream && /\binterface\s+/.test(upstream)) {
+        return answer(upstream.replace(/\binterface\b/, "effect"));
+    }
+    if (request.owned && /\beffect\s+$/.test(text.slice(0, token.start))) {
+        if (upstream && /\binterface\s+/.test(upstream)) return answer(upstream.replace(/\binterface\b/, "effect"));
+        return answer(header ?? `effect ${token.text}`);
+    }
+    if (upstream?.includes("(Missing)")) return answer(header ?? `effect ${token.text}`);
+    return undefined;
 };
 
 function declaresEffect(text: string, name: string): boolean {
+    if (!/^[A-Za-z_$][\w$]*$/.test(name)) return false;
     return new RegExp(`\\beffect\\s+${name.replace(/\$/g, "\\$")}\\b`).test(text);
 }
 

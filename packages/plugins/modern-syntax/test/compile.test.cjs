@@ -190,6 +190,13 @@ test("offers quick info and completions for use bindings", () => {
   assert.equal(nestedInfo?.displayParts?.map(part => part.text).join(""), "(const) r: (code: number) => string");
   const completions = service.getCompletionsAtPosition("/main.tspp", source.indexOf("r;"), {});
   assert.ok(completions?.entries.some(entry => entry.name === "r"));
+
+  const defSource = `def appConfig = { network: { port: 8080 } }; console.log(appConfig.network.port);`;
+  const defService = createLanguageService("/main.tspp", defSource);
+  const defInfo = defService.getQuickInfoAtPosition("/main.tspp", defSource.indexOf("appConfig"));
+  assert.match(defInfo?.displayParts?.map(part => part.text).join("") ?? "", /^def appConfig:\s*\{/);
+  const defUsageInfo = defService.getQuickInfoAtPosition("/main.tspp", defSource.lastIndexOf("appConfig"));
+  assert.match(defUsageInfo?.displayParts?.map(part => part.text).join("") ?? "", /^def appConfig:\s*\{/);
 });
 
 test("checks trailing closure results and the block completion type through use bindings", () => {

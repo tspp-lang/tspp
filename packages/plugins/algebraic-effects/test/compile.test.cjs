@@ -544,10 +544,12 @@ test("editor services read the lowered code", () => {
   assert.deepEqual(service.getSyntacticDiagnostics("/main.tspp").map(diagnostic => diagnostic.code), []);
   const at = text => source.indexOf(text);
   const display = position => service.getQuickInfoAtPosition("/main.tspp", position)?.displayParts?.map(part => part.text).join("");
-  assert.match(display(at("Logger.info(name)")), /interface Logger/);
+  assert.match(display(at("Logger { info")), /effect Logger/);
+  assert.match(display(at("State<S> { get")), /effect State<S>/);
+  assert.match(display(at("Logger.info(name)")), /effect Logger/);
   assert.match(display(at("info(name)")), /info\(message: string\): void/);
   assert.match(display(at("State.get()") + 6), /State<number>\.get\(\): number/);
-  assert.match(display(at("Logger, State<number> }")), /interface Logger/);
+  assert.match(display(at("Logger, State<number> }")), /effect Logger/);
   assert.match(display(at("m => {}")), /m: string/);
   assert.match(display(at("handle State")), /TS\+\+ keyword\) handle/);
   assert.match(display(at("perform Logger")), /TS\+\+ keyword\) perform/);

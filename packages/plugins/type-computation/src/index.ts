@@ -19,7 +19,7 @@ export const typeComputationPlugin = definePlugin({
         id: pluginId,
         version: "0.1.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
-        displayName: "Type computation, higher-kinded types, and dependent types",
+        displayName: "Type Cube",
         capabilities: ["analysis-artifacts", "dependent-types", "runtime-type-reification"],
         syntax: {
             keywords: [

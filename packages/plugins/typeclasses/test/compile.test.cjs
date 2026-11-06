@@ -349,6 +349,7 @@ test("editor services survive the syntax", () => {
   const service = createLanguageService("/main.tspp", `${prelude} export const value = equal(@{ NumberEq }, 1, 2);`);
   const source = service.getProgram().getSourceFile("/main.tspp");
   for (let position = 0; position < source.text.length; position += 5) service.getQuickInfoAtPosition("/main.tspp", position);
+  assert.equal(service.getQuickInfoAtPosition("/main.tspp", source.text.indexOf("Eq<A"))?.displayParts?.map(p => p.text).join(""), "typeclass Eq<A, B = A>");
   assert.ok(service.getQuickInfoAtPosition("/main.tspp", source.text.indexOf("equal<A")));
   assert.ok(service.getFormattingEditsForDocument("/main.tspp", {}));
   assert.deepEqual(service.getSemanticDiagnostics("/main.tspp").map(diagnostic => diagnostic.code), []);

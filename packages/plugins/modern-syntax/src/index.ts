@@ -41,6 +41,24 @@ export const modernSyntaxPlugin = definePlugin({
                             documentation: modernKeywordDocumentation[token.text],
                         };
                     }
+                    const defNames = defBindingNames(request.sourceText);
+                    if (defNames.has(token.text)) {
+                        const upstream = request.upstream?.display;
+                        if (upstream && /(?:^|\b)const\s+/.test(upstream)) {
+                            return {
+                                start: token.start,
+                                length: token.length,
+                                display: upstream.replace(/^(?:\(alias\)\s+)?(?:\(const\)|const)\b/, match => match.replace("const", "def")),
+                            };
+                        }
+                        if (request.owned && /\bdef\s+$/.test(request.sourceText.slice(0, token.start))) {
+                            return {
+                                start: token.start,
+                                length: token.length,
+                                display: `def ${token.text}`,
+                            };
+                        }
+                    }
                     const statement = trailingClosureStatementAt(request.sourceText, token.start);
                     if (!statement) return undefined;
                     const match = /\buse\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^<;]+?))?\s*<-\s*([A-Za-z_$][\w$]*)/.exec(statement);
@@ -83,6 +101,57 @@ const modernKeywordDocumentation: Readonly<Record<string, string>> = {
     use: "Binds the value supplied to a trailing continuation.",
     def: "Declares a deeply readonly binding with const-context inference.",
 };
+
+function defBindingNames(sourceText: string): Set<string> {
+    const names = new Set<string>();
+    const stripped = sourceText.replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`/g, " ");
+    const defRegex = /\bdef\s+/g;
+    let defMatch: RegExpExecArray | null;
+    while ((defMatch = defRegex.exec(stripped)) !== null) {
+        let index = defMatch.index + defMatch[0].length;
+        while (index < stripped.length) {
+            while (index < stripped.length && /\s/.test(stripped[index])) index++;
+            const identMatch = /^[A-Za-z_$][\w$]*/.exec(stripped.slice(index));
+            if (identMatch) {
+                names.add(identMatch[0]);
+                index += identMatch[0].length;
+            } else if (stripped[index] === "{" || stripped[index] === "[") {
+                let bDepth = 0;
+                while (index < stripped.length) {
+                    if (stripped[index] === "{" || stripped[index] === "[") bDepth++;
+                    else if (stripped[index] === "}" || stripped[index] === "]") {
+                        bDepth--;
+                        if (bDepth === 0) { index++; break; }
+                    } else if (/[A-Za-z_$]/.test(stripped[index])) {
+                        const m = /^[A-Za-z_$][\w$]*/.exec(stripped.slice(index));
+                        if (m) {
+                            names.add(m[0]);
+                            index += m[0].length;
+                            continue;
+                        }
+                    }
+                    index++;
+                }
+            } else {
+                break;
+            }
+            let depth = 0;
+            let endOfDef = false;
+            while (index < stripped.length) {
+                const ch = stripped[index];
+                if (ch === "{" || ch === "(" || ch === "[") depth++;
+                else if (ch === "}" || ch === ")" || ch === "]") { if (depth > 0) depth--; }
+                else if (depth === 0) {
+                    if (ch === ";") { endOfDef = true; break; }
+                    if (ch === ",") { index++; break; }
+                }
+                index++;
+            }
+            if (endOfDef) break;
+        }
+    }
+    return names;
+}
 
 function trailingClosureStatementAt(sourceText: string, position: number): string | undefined {
     const start = Math.max(sourceText.lastIndexOf(";", position - 1), sourceText.lastIndexOf("{", position - 1)) + 1;
