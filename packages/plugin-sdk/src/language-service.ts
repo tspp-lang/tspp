@@ -79,9 +79,10 @@ export interface TSPPCodeToken {
 
 /** The names and brackets of source text, outside its comments and strings, for providers of syntax the tree lowered away. */
 export function* scanTSPPCode(sourceText: string): Generator<TSPPCodeToken> {
-    for (const match of sourceText.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`|\d[\w.]*|[A-Za-z_$][\w$]*|[({[\])}]/g)) {
+    // Names are ECMAScript identifiers, which may be written in any script.
+    for (const match of sourceText.matchAll(/\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\[\s\S])*`|\d[\w.]*|[\p{ID_Start}_$][\p{ID_Continue}$\u200C\u200D]*|[({[\])}]/gu)) {
         const text = match[0];
-        if (/^[A-Za-z_$]/.test(text)) yield { kind: "name", start: match.index, text };
+        if (/^[\p{ID_Start}_$]/u.test(text)) yield { kind: "name", start: match.index, text };
         else if (/^[({[]$/.test(text)) yield { kind: "open", start: match.index, text };
         else if (/^[)}\]]$/.test(text)) yield { kind: "close", start: match.index, text };
     }
