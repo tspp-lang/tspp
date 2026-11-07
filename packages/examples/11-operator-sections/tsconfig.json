@@ -5,7 +5,7 @@
     "strict": true,
     "rootDir": "src",
     "outDir": "dist",
-    "plugins": [{ "name": "@tspp/plugin-operator-sections", "tspp": true }]
+    "plugins": [{ "name": "ts-plus-plus/plugins/operator-sections", "tspp": true }]
   },
   "include": ["src/**/*.tspp"]
 }

@@ -13,7 +13,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
-const { allPlugins } = require("./plugins.cjs");
+const { allPlugins, installCompiler, pluginName } = require("./plugins.cjs");
 
 const tsc = path.join(path.dirname(require.resolve("ts-plus-plus/package.json")), "built", "local", "tsc.js");
 
@@ -226,10 +226,8 @@ function compilePair(key, cases) {
   try {
     const source = path.join(directory, "src");
     fs.mkdirSync(source);
-    const scope = path.join(directory, "node_modules", "@tspp");
-    fs.mkdirSync(scope, { recursive: true });
+    installCompiler(directory);
     const set = key.split(" + ");
-    for (const name of set) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
     cases.forEach((item, index) => {
       fs.writeFileSync(path.join(source, `good${index}.tspp`), item.good);
       if (item.bad) fs.writeFileSync(path.join(source, `bad${index}.tspp`), item.bad);
@@ -245,7 +243,7 @@ function compilePair(key, cases) {
         noImplicitAny: false,
         skipLibCheck: true,
         declaration: true,
-        plugins: set.map(name => ({ name: `@tspp/plugin-${name}`, tspp: true })),
+        plugins: set.map(name => ({ name: pluginName(name), tspp: true })),
       },
       include: ["src"],
     }));

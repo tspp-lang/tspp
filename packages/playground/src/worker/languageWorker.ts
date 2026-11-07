@@ -70,7 +70,7 @@ let service: ts.LanguageService | undefined;
 
 /** Declarations for `ts-plus-plus` and its subpaths, loaded once a file imports the package. */
 let packageTypes: Readonly<Record<string, string>> = {};
-const packageImport = /["'](?:@tspp\/[^"']+|ts-plus-plus(?:\/[\w-]+)?)["']/;
+const packageImport = /["'](?:@tspp\/[^"']+|ts-plus-plus(?:\/[\w-]+)*)["']/;
 
 function createOptions(): ts.CompilerOptions {
   return {
@@ -115,7 +115,7 @@ function evaluateMacroModule(javascript: string, fileName: string, requireLocal:
   const require = (specifier: string) => {
     const local = requireLocal(specifier);
     if (local !== undefined) return local;
-    throw new Error(`Cannot find module '${specifier}': the playground provides project files, 'ts-plus-plus/macros' and 'ts-plus-plus/smt'.`);
+    throw new Error(`Cannot find module '${specifier}': the playground provides project files and the 'ts-plus-plus/plugins/*' entries.`);
   };
   const directory = fileName.slice(0, fileName.lastIndexOf("/")) || "/";
   new Function("require", "exports", "module", "__filename", "__dirname", javascript)(require, module.exports, module, fileName, directory);

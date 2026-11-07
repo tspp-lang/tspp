@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-integration-tests",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "private": true,
   "description": "Tests that run every TS++ feature plugin together through the compiler and language service.",
   "license": "Apache-2.0",

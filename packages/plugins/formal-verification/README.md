@@ -1,4 +1,4 @@
-# `@tspp/plugin-formal-verification`
+# `ts-plus-plus/plugins/formal-verification`
 
 An isolated formal-verification capsule. The package owns proof-point discovery,
 SMT lowering, the resource-limited Z3 worker, and feature diagnostics. Core TSPP
@@ -57,7 +57,7 @@ lowered into the same symbolic state. Branch conditions over `_tag` fields feed
 the path solver, so field arithmetic and postconditions can use the narrowed
 branch facts without a second TypeScript type checker inside the plugin.
 
-The `@tspp/plugin-formal-verification/smt` entry point defines reusable logic
+The `ts-plus-plus/plugins/formal-verification/smt` entry point defines reusable logic
 without adding feature-specific hooks to compiler core. It supports declared and
 defined functions, predicates, `forall`/`exists`, trusted axioms, recursive
 `define-fun-rec` definitions, conditionals, arithmetic, and JavaScript-compatible

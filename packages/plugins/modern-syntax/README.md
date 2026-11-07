@@ -1,4 +1,4 @@
-# `@tspp/plugin-modern-syntax`
+# `ts-plus-plus/plugins/modern-syntax`
 
 Owns the modern value-level syntax capsule for TSPP. The first slice supports
 `let x = value in body`, completion-valued `do { ... }` expressions,

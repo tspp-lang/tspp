@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-sdk",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Public contracts and host primitives for isolated TSPP compiler plugins.",
   "license": "Apache-2.0",
   "repository": {

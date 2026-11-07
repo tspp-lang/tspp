@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-typeclasses",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "TSPP where constraints and typeclass evidence.",
   "license": "Apache-2.0",
   "repository": {

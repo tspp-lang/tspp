@@ -8,7 +8,7 @@ import { createEffectSyntax } from "./syntax";
 export const algebraicEffectsPlugin = definePlugin({
     manifest: {
         id: "algebraic-effects",
-        version: "0.0.1",
+        version: "0.0.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Algebraic Effects",
         syntax: {

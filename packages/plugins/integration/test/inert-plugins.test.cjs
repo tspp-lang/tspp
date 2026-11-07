@@ -7,9 +7,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { test } = require("node:test");
-const { allPlugins, pluginsRoot } = require("./plugins.cjs");
+const { allPlugins, pluginsRoot, compilerPackage, installCompiler, pluginName } = require("./plugins.cjs");
 
-const tsc = path.join(path.dirname(require.resolve("ts-plus-plus/package.json")), "built", "local", "tsc.js");
+const tsc = path.join(compilerPackage, "built", "local", "tsc.js");
 const examplesRoot = path.resolve(pluginsRoot, "..", "examples");
 const packageDirectories = new Map(allPlugins().map(({ packageDirectory }) => [path.basename(packageDirectory), packageDirectory]));
 const plugins = [...packageDirectories.keys()].sort();
@@ -26,13 +26,11 @@ function compile(populate, set) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-inert-"));
   try {
     populate(path.join(directory, "src"));
-    const scope = path.join(directory, "node_modules", "@tspp");
-    fs.mkdirSync(scope, { recursive: true });
-    for (const name of set) fs.symlinkSync(packageDirectories.get(name), path.join(scope, `plugin-${name}`), "junction");
+    installCompiler(directory);
     fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
       compilerOptions: {
         target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, noImplicitAny: false, skipLibCheck: true,
-        plugins: set.map(name => ({ name: `@tspp/plugin-${name}`, tspp: true })),
+        plugins: set.map(name => ({ name: pluginName(name), tspp: true })),
       },
       include: ["src"],
     }));
@@ -50,7 +48,7 @@ function compile(populate, set) {
 
 for (const example of examples) {
   const tsconfig = fs.readFileSync(path.join(examplesRoot, example, "tsconfig.json"), "utf8");
-  const declared = plugins.filter(name => tsconfig.includes(`@tspp/plugin-${name}"`));
+  const declared = plugins.filter(name => tsconfig.includes(`"${pluginName(name)}"`));
   const populate = source => fs.cpSync(path.join(examplesRoot, example, "src"), source, { recursive: true });
   test(`${example} does not notice plugins it does not use`, () => {
     const base = compile(populate, declared);

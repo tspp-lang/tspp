@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-algebraic-effects",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "TSPP algebraic effects with capability passing.",
   "license": "Apache-2.0",
   "repository": {

@@ -31,6 +31,17 @@
     "ignoreDependencies": [
         // Knip does not attribute workspace subpath imports (`@tspp/plugin-sdk/host`) to the package dependency.
         "@tspp/plugin-sdk",
+        // Nor the plugins required only by the generated entries in plugins/, which projects name instead of these packages.
+        "@tspp/plugin-advanced-classes",
+        "@tspp/plugin-algebraic-effects",
+        "@tspp/plugin-formal-verification",
+        "@tspp/plugin-macros",
+        "@tspp/plugin-modern-syntax",
+        "@tspp/plugin-nominal-types",
+        "@tspp/plugin-operator-sections",
+        "@tspp/plugin-static-interface-members",
+        "@tspp/plugin-type-computation",
+        "@tspp/plugin-typeclasses",
         "c8",
         "dprint",
         "mocha-fivemat-progress-reporter",

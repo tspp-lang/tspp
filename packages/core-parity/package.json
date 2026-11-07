@@ -1,6 +1,6 @@
 {
   "name": "@tspp/core-parity-tests",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "private": true,
   "description": "Checks that the TS++ compiler with no plugins loaded behaves exactly like upstream TypeScript.",
   "license": "Apache-2.0",

@@ -2,6 +2,7 @@
 // keywords, and a host must not spell any plugin's (docs/plugin-framework.md, "Rules"): each would turn adding or
 // renaming a plugin into editing the code that knows about it.
 const assert = require("node:assert/strict");
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
@@ -127,8 +128,15 @@ test("every plugin is listed where a package manifest has to list it", () => {
     return new Set(Object.keys({ ...manifest.dependencies, ...manifest.devDependencies }));
   };
   const packageNames = plugins.map(({ packageDirectory }) => JSON.parse(fs.readFileSync(path.join(packageDirectory, "package.json"), "utf8")).name);
-  for (const relative of ["package.json", "packages/playground/package.json", "packages/vscode-extension/package.json", "packages/plugins/integration/package.json"]) {
+  for (const relative of ["package.json", "packages/compiler/package.json", "packages/playground/package.json", "packages/vscode-extension/package.json", "packages/plugins/integration/package.json"]) {
     const dependencies = dependenciesOf(relative);
     assert.deepEqual(packageNames.filter(name => !dependencies.has(name)), [], `${relative} is missing plugins`);
   }
+});
+
+// A project names a plugin through the compiler package that ships it, `ts-plus-plus/plugins/<name>`; those entries are
+// generated from each plugin's `exports`.
+test("the compiler package has an entry for every export of every plugin it ships", () => {
+  const checked = spawnSync(process.execPath, [path.join(packagesRoot, "..", "scripts", "plugin-entries.mjs"), "--check"], { encoding: "utf8" });
+  assert.equal(checked.status, 0, checked.stderr);
 });

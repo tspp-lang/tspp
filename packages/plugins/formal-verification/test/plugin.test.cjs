@@ -310,7 +310,7 @@ test("encodes recursive data constructors and switch paths", async () => {
 });
 
 test("loads reusable predicates, quantifiers, axioms, and recursive definitions", async () => {
-  const source = `import * as smt from "@tspp/plugin-formal-verification/smt";
+  const source = `import * as smt from "ts-plus-plus/plugins/formal-verification/smt";
   const shiftedNonnegative = smt.definePredicate(
     [["offset", smt.Int]],
     offset => smt.forall([["value", smt.Int]], value =>

@@ -146,7 +146,7 @@ function parseAdvancedClassesFromSource(sourceText: string): { classes: Map<stri
 export const advancedClassesPlugin = definePlugin({
     manifest: {
         id: pluginId,
-        version: "0.1.0",
+        version: "0.0.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Advanced classes",
         syntax: {

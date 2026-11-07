@@ -9,7 +9,6 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@tspp/plugin-modern-syntax": "workspace:*",
     "ts-plus-plus": "workspace:*"
   },
   "devDependencies": {

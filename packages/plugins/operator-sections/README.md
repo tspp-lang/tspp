@@ -1,4 +1,4 @@
-# `@tspp/plugin-operator-sections`
+# `ts-plus-plus/plugins/operator-sections`
 
 Adds placeholder-based operator sections such as `(_ + 1)`, `(_ + _)`, and
 `values.map(_ * 2)`. The plugin desugars them while parsing, through the

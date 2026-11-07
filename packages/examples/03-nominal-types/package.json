@@ -19,7 +19,6 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@tspp/plugin-nominal-types": "workspace:*",
     "ts-plus-plus": "workspace:*"
   },
   "devDependencies": {

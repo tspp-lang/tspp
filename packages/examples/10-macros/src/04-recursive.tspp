@@ -1,4 +1,4 @@
-import type { MacroContext, MacroReturn, MacroTarget } from "@tspp/plugin-macros/sdk";
+import type { MacroContext, MacroReturn, MacroTarget } from "ts-plus-plus/plugins/macros/sdk";
 
 interface RecursiveUser { id: number }
 

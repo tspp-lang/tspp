@@ -10,7 +10,7 @@ const pluginId = "nominal-types";
 export const nominalTypesPlugin = definePlugin({
     manifest: {
         id: pluginId,
-        version: "0.0.1",
+        version: "0.0.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Nominal types",
         provides: [nominalTypesADTAPIName],

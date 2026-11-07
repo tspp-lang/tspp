@@ -1,7 +1,7 @@
 # 02 — Formal verification
 
 This package exercises the verification path owned by
-`@tspp/plugin-formal-verification`:
+`ts-plus-plus/plugins/formal-verification`:
 
 - closed and local `assert:` proof points plus trusted `assume:` facts;
 - function `requires`/`ensures`, call-site checks, call summaries, branches,
@@ -13,7 +13,7 @@ This package exercises the verification path owned by
 - strings, record fields, and branch-sensitive discriminated unions.
 - recursive algebraic data constructors and tag-based switch paths;
 - reusable SMT predicates/functions, quantifiers, trusted axioms, and recursive
-  definitions through `@tspp/plugin-formal-verification/smt`.
+  definitions through `ts-plus-plus/plugins/formal-verification/smt`.
 - class invariants established by constructors and preserved by methods, with
   method preconditions checked at each call.
 

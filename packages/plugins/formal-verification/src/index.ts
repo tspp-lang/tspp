@@ -91,7 +91,7 @@ async function analyze(input: TSPPProgramAnalysisInput, options: FormalVerificat
 export const formalVerificationPlugin = definePlugin({
     manifest: {
         id: "formal-verification/z3",
-        version: "0.1.0",
+        version: "0.0.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Z3 formal verification",
         optionalDependencies: ["nominal-types"],

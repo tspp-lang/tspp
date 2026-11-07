@@ -1,4 +1,4 @@
-# `@tspp/plugin-typeclasses`
+# `ts-plus-plus/plugins/typeclasses`
 
 Adds `where` constraints and typeclasses with implicit dictionary passing, as
 proposed in issue 30. This is the first slice:

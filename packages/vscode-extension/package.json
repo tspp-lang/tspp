@@ -2,7 +2,7 @@
   "name": "tspp-vscode",
   "displayName": "TS++",
   "description": "TS++ language support powered by the TSPP language server.",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "publisher": "tspp-lang",
   "private": true,
   "license": "Apache-2.0",

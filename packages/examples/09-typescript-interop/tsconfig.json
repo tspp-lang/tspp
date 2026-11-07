@@ -9,7 +9,7 @@
     "moduleResolution": "NodeNext",
     "plugins": [
       {
-        "name": "@tspp/plugin-nominal-types",
+        "name": "ts-plus-plus/plugins/nominal-types",
         "tspp": true
       }
     ]

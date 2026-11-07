@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-type-computation",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "TSPP Type Cube: Higher-Kinded Types, Dependent Types, and compile-time type computation.",
   "license": "Apache-2.0",
   "repository": {

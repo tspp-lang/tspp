@@ -1,6 +1,6 @@
 {
   "name": "tspp-language-server",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Language Server Protocol implementation for TS++ using tsppserver",
   "author": "TS++ contributors, TypeFox and others",
   "license": "Apache-2.0",

@@ -5,7 +5,7 @@
     "strict": true,
     "rootDir": "src",
     "outDir": "dist",
-    "plugins": [{ "name": "@tspp/plugin-algebraic-effects", "tspp": true }]
+    "plugins": [{ "name": "ts-plus-plus/plugins/algebraic-effects", "tspp": true }]
   },
   "include": ["src/**/*.tspp"]
 }

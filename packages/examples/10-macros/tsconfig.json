@@ -5,7 +5,7 @@
     "strict": true,
     "rootDir": "src",
     "outDir": "dist",
-    "plugins": [{ "name": "@tspp/plugin-macros", "tspp": true }]
+    "plugins": [{ "name": "ts-plus-plus/plugins/macros", "tspp": true }]
   },
   "include": ["src/**/*.tspp"]
 }

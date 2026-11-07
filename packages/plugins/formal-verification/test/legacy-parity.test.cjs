@@ -180,7 +180,7 @@ function caller(x: bigint) with { ensures: result === x; }: bigint { return opaq
   },
   {
     name: "logic function in executable code",
-    source: `import * as smt from "@tspp/plugin-formal-verification/smt";
+    source: `import * as smt from "ts-plus-plus/plugins/formal-verification/smt";
 const isEven = smt.definePredicate([["value", smt.Int]], value => smt.eq(smt.js.rem(value, 2n), 0n));
 function f(x: bigint) with { requires: x > 0n; }: bigint { if (isEven(x)) return x; return 0n; }`,
     rejects: /Logic function 'isEven' can only be used in a formal verification specification\./,
@@ -204,14 +204,14 @@ const value: Local = 2n;`,
   },
   {
     name: "logic function at top-level runtime code",
-    source: `import * as smt from "@tspp/plugin-formal-verification/smt";
+    source: `import * as smt from "ts-plus-plus/plugins/formal-verification/smt";
 const isEven = smt.definePredicate([["value", smt.Int]], value => smt.eq(smt.js.rem(value, 2n), 0n));
 console.log(isEven(2n));`,
     rejects: /Logic function 'isEven' can only be used in a formal verification specification\./,
   },
   {
     name: "logic function in assert and recursive definition",
-    source: `import * as smt from "@tspp/plugin-formal-verification/smt";
+    source: `import * as smt from "ts-plus-plus/plugins/formal-verification/smt";
 const triangular = smt.defineRecursiveFunction([["value", smt.Int]], smt.Int, value => smt.ite(smt.le(value, 0n), 0n, smt.add(value, triangular(smt.sub(value, 1n)))));
 assert: triangular(4n) === 10n;`,
   },

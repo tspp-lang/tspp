@@ -29,6 +29,10 @@
             "types": "./lib/typescript.d.ts",
             "default": "./lib/typescript.js"
         },
+        "./plugins/*": {
+            "types": "./plugins/*.d.ts",
+            "default": "./plugins/*.js"
+        },
         "./package.json": "./package.json"
     },
     "bin": {
@@ -36,7 +40,17 @@
         "tsppserver": "./bin/tsppserver"
     },
     "dependencies": {
-        "@tspp/plugin-sdk": "workspace:*"
+        "@tspp/plugin-advanced-classes": "workspace:*",
+        "@tspp/plugin-algebraic-effects": "workspace:*",
+        "@tspp/plugin-formal-verification": "workspace:*",
+        "@tspp/plugin-macros": "workspace:*",
+        "@tspp/plugin-modern-syntax": "workspace:*",
+        "@tspp/plugin-nominal-types": "workspace:*",
+        "@tspp/plugin-operator-sections": "workspace:*",
+        "@tspp/plugin-sdk": "workspace:*",
+        "@tspp/plugin-static-interface-members": "workspace:*",
+        "@tspp/plugin-type-computation": "workspace:*",
+        "@tspp/plugin-typeclasses": "workspace:*"
     },
     "engines": {
         "node": ">=14.17"
@@ -45,6 +59,7 @@
         "bin",
         "lib",
         "!lib/enu",
+        "plugins",
         "LICENSE.txt",
         "README.md",
         "SECURITY.md",

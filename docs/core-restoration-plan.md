@@ -328,7 +328,7 @@ dependent-types 并入 type-computation（"互相依赖就合并"，HKT 是先�
 
 - **跨插件集读声明是设计好的行为。** 项目缺少写出 `.d.tspp` 的项目的任何一个插件时，一律读旁边的兼容 `.d.ts`，TS 表达不了的类型在其中是 `unknown`。`.d.tspp` 首行记录写出方的插件（`// @tspp-plugins a,b`），宿主在 `findSourceFileWorker` 一处比较，`tsppTypes`、`tspp-types` 条件和项目引用都遵守。规则见 `docs/plugin-framework.md` 的 "Reading declarations across plugin sets"。预算回到 24 个文件 +300 −46。
 
-- **类型类插件（issue 30）。** 预算升到 25 个文件 +344 −53，都由 `@tspp/plugin-typeclasses` 立即使用。`function-clause`（签名参数之后）和 `header-clause`（类、接口的类型参数之后）是语法位置：那里没有解析位置，预处理器又必须保持长度不变，加不了能被检查的类型节点。`signature-constraint` 接在 `chooseOverload`、`compareSignaturesRelated` 和属性访问检查上：用谓词选择重载、受约束函数之间的赋值、固有方法的成员查找都必须在检查器内判断；把谓词降级成条件 rest 参数虽然能选对重载，却让泛型函数之间的赋值两个方向都报错。游标新增 `parseClassMembers`（实现体里的方法之间没有逗号）和 `parseClause`（自己解析类的插件也能接受别的插件的子句）。`where` 里的类型不在树上却要绑定、也要能被编辑器按位置找到，所以 `syntax-extension` 多了 `getBoundChild`，调用点在 `binder.ts`（`bindChildren`）和 `services/utilities.ts`（`getTokenAtPositionWorker`）；固有方法要进补全，所以 `services/completions.ts` 多一个调用点。其余都走已有插槽：声明和 `@` 是语法扩展，传字典是程序重建的转换器（和 typecase 同样的模式）。
+- **类型类插件（issue 30）。** 预算升到 25 个文件 +344 −53，都由 `ts-plus-plus/plugins/typeclasses` 立即使用。`function-clause`（签名参数之后）和 `header-clause`（类、接口的类型参数之后）是语法位置：那里没有解析位置，预处理器又必须保持长度不变，加不了能被检查的类型节点。`signature-constraint` 接在 `chooseOverload`、`compareSignaturesRelated` 和属性访问检查上：用谓词选择重载、受约束函数之间的赋值、固有方法的成员查找都必须在检查器内判断；把谓词降级成条件 rest 参数虽然能选对重载，却让泛型函数之间的赋值两个方向都报错。游标新增 `parseClassMembers`（实现体里的方法之间没有逗号）和 `parseClause`（自己解析类的插件也能接受别的插件的子句）。`where` 里的类型不在树上却要绑定、也要能被编辑器按位置找到，所以 `syntax-extension` 多了 `getBoundChild`，调用点在 `binder.ts`（`bindChildren`）和 `services/utilities.ts`（`getTokenAtPositionWorker`）；固有方法要进补全，所以 `services/completions.ts` 多一个调用点。其余都走已有插槽：声明和 `@` 是语法扩展，传字典是程序重建的转换器（和 typecase 同样的模式）。
 
 ## 风险与待定
 

@@ -1,4 +1,4 @@
-# `@tspp/plugin-nominal-types`
+# `ts-plus-plus/plugins/nominal-types`
 
 An isolated syntax capsule for nominal `newtype` aliases and algebraic `data`
 declarations. A newtype is assignable to its underlying type, while the

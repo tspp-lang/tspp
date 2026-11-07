@@ -8,7 +8,8 @@ import { createServer, PACKAGE_ROOT, type TestLspServer } from './test-utils.js'
 
 const repoRoot = path.resolve(PACKAGE_ROOT, '..', '..');
 const tsserverPath = path.join(repoRoot, 'packages', 'compiler', 'built', 'local', 'tsserver.js');
-const pluginName = '@tspp/plugin-operator-sections';
+// Projects name the plugin through the compiler package that ships it.
+const pluginName = 'ts-plus-plus/plugins/operator-sections';
 // With the plugin this is a function of the placeholder; without it `_` is a name nothing declares.
 const source = 'export const sum = (_ + 1);\n';
 const missingName = 'Cannot find name \'_\'.';
@@ -99,7 +100,7 @@ describe('TS++ plugins in a multi-project workspace', () => {
         diagnostics.clear();
         versions.clear();
         workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tspp-isolation-')));
-        fs.ensureSymlinkSync(path.join(repoRoot, 'packages', 'plugins', 'operator-sections'), path.join(workspace, 'node_modules', pluginName), 'dir');
+        fs.ensureSymlinkSync(path.join(repoRoot, 'packages', 'compiler'), path.join(workspace, 'node_modules', 'ts-plus-plus'), 'dir');
     });
 
     afterEach(() => {

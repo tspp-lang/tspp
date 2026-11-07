@@ -1,4 +1,4 @@
-# `@tspp/plugin-algebraic-effects`
+# `ts-plus-plus/plugins/algebraic-effects`
 
 Adds algebraic effects that compile to capability passing (issue 14). Operations
 resume where they were performed by default, which covers state, configuration,

@@ -1,4 +1,4 @@
-# `@tspp/plugin-type-computation`
+# `ts-plus-plus/plugins/type-computation`
 
 An isolated type-level computation capsule with these composable forms:
 

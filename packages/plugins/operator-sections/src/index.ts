@@ -5,7 +5,7 @@ import { createOperatorSectionSyntax } from "./sections";
 export const operatorSectionsPlugin = definePlugin({
     manifest: {
         id: "operator-sections",
-        version: "0.1.0",
+        version: "0.0.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Operator sections",
         syntax: {

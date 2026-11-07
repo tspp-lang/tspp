@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-modern-syntax",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "TSPP modern value-level syntax plugin.",
   "license": "Apache-2.0",
   "repository": {

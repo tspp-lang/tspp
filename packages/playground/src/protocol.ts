@@ -2,7 +2,7 @@
 
 export interface FeatureDefinition {
   readonly id: string;
-  /** Package name written in tsconfig.json, such as `@tspp/plugin-modern-syntax`. */
+  /** Plugin name written in tsconfig.json, such as `ts-plus-plus/plugins/modern-syntax`. */
   readonly packageName: string;
   readonly name: string;
   readonly dependencies: readonly string[];

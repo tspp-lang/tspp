@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-advanced-classes",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "TS++ advanced classes plugin: object, final, sealed, field, data class, and with expressions.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",

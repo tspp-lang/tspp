@@ -3,7 +3,7 @@
     "noEmit": true,
     "plugins": [
       {
-        "name": "@tspp/plugin-static-interface-members",
+        "name": "ts-plus-plus/plugins/static-interface-members",
         "tspp": true
       }
     ],

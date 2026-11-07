@@ -9,7 +9,6 @@
     "lint": "eslint src"
   },
   "devDependencies": {
-    "@tspp/plugin-operator-sections": "workspace:*",
     "eslint": "^10.10.0",
     "ts-plus-plus": "workspace:*"
   }

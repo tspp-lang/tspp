@@ -5,7 +5,7 @@ import { createMacroPreprocessor, createMacroRebuilder, getMacroExpansions } fro
 export const macrosPlugin = definePlugin({
   manifest: {
     id: "macros",
-    version: "0.0.1",
+    version: "0.0.0",
     apiVersion: TSPP_PLUGIN_API_VERSION,
     displayName: "Compile-time macros",
     syntax: {

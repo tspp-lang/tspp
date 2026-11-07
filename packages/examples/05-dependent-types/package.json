@@ -7,7 +7,6 @@
     "lint": "eslint src"
   },
   "devDependencies": {
-    "@tspp/plugin-type-computation": "workspace:*",
     "eslint": "^10.10.0",
     "ts-plus-plus": "workspace:*"
   }

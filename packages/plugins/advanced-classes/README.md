@@ -1,4 +1,4 @@
-# `@tspp/plugin-advanced-classes`
+# `ts-plus-plus/plugins/advanced-classes`
 
 TS++ Advanced Classes plugin providing modern OOP features:
 - `object` declarations (first-class singletons)

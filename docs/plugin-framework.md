@@ -84,7 +84,7 @@ the single executable capability declaration:
   "compilerOptions": {
     "plugins": [
       {
-        "name": "@tspp/plugin-modern-syntax",
+        "name": "ts-plus-plus/plugins/modern-syntax",
         "tspp": true
       }
     ]
@@ -93,8 +93,12 @@ the single executable capability declaration:
 ```
 
 The `tspp` marker distinguishes a feature capsule from an ordinary TypeScript
-language-service plugin. Both the TSPP compiler CLI and TSPP tsserver resolve that package from the
-project. The compiler activates its compiler facet before parsing project source
+language-service plugin. Both the TSPP compiler CLI and TSPP tsserver resolve that name from the
+project's `node_modules`, so any package can be a plugin. The plugins of this repository are internal
+packages that are never published on their own: the compiler package `ts-plus-plus` ships them, and a
+project names one as `ts-plus-plus/plugins/<name>`, the way it imports a plugin's other entry points,
+such as `ts-plus-plus/plugins/formal-verification/smt`. `scripts/plugin-entries.mjs` writes those
+forwarding entries from each plugin's `exports`. The compiler activates its compiler facet before parsing project source
 files. Tsserver activates the compiler and language-service facets before
 constructing the configured project. Ordinary TypeScript language-service
 features operate on the resulting AST, symbols, and types, while feature-owned
@@ -105,7 +109,7 @@ VS Code extension remains a generic client. Neither contains a modern-syntax bra
 
 ## First feature capsule
 
-`@tspp/plugin-modern-syntax` proves the compiler boundary. It owns the
+`ts-plus-plus/plugins/modern-syntax` proves the compiler boundary. It owns the
 lookahead, parse shape, type result, and lowering of `let x = value in body`
 and completion-valued `do` blocks. It also owns `use pattern <- target` while
 the SDK supplies the reusable trailing-closure binding mechanism: a standard
@@ -195,7 +199,7 @@ the host computes them only when some analyzer asks. Likewise `needsClassAncestr
 adds each class's `extends` chain: the class declarations it extends, nearest
 first, and whether the chain could be followed to its end.
 
-`@tspp/plugin-formal-verification` is the first consumer. It owns proof-point
+`ts-plus-plus/plugins/formal-verification` is the first consumer. It owns proof-point
 discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
 compiler owns only scheduling and diagnostic transport. Analyzers run in one-shot,
 incremental, and watch compilations and in solution builds, which load each project's

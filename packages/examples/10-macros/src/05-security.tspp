@@ -1,4 +1,4 @@
-import type { MacroContext, MacroResult } from "@tspp/plugin-macros/sdk";
+import type { MacroContext, MacroResult } from "ts-plus-plus/plugins/macros/sdk";
 
 declare function require(name: string): { name: string };
 

@@ -3,7 +3,7 @@
     "noEmit": true,
     "plugins": [
       {
-        "name": "@tspp/plugin-type-computation",
+        "name": "ts-plus-plus/plugins/type-computation",
         "tspp": true
       }
     ],

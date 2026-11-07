@@ -38,4 +38,16 @@ function pluginOrder(items, step) {
   return items.map((_, index) => items[index * step % items.length]);
 }
 
-module.exports = { allPlugins, useAllPlugins, pluginOrder, pluginsRoot };
+/** The compiler package, which ships every feature plugin. */
+const compilerPackage = path.dirname(require.resolve("ts-plus-plus/package.json"));
+
+/** Installs the compiler package in a project directory, as a project that uses TS++ does. */
+function installCompiler(directory) {
+  fs.mkdirSync(path.join(directory, "node_modules"), { recursive: true });
+  fs.symlinkSync(compilerPackage, path.join(directory, "node_modules", "ts-plus-plus"), "junction");
+}
+
+/** The name a tsconfig.json gives a plugin of the compiler package, `ts-plus-plus/plugins/<name>`. */
+const pluginName = name => `ts-plus-plus/plugins/${name}`;
+
+module.exports = { allPlugins, useAllPlugins, pluginOrder, pluginsRoot, compilerPackage, installCompiler, pluginName };

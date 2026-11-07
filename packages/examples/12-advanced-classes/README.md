@@ -1,6 +1,6 @@
 # `@tspp/example-advanced-classes`
 
-This example package demonstrates the 6 modern OOP features provided by `@tspp/plugin-advanced-classes`, their mutual interplay in realistic architectures, and their unique compile-time restrictions.
+This example package demonstrates the 6 modern OOP features provided by `ts-plus-plus/plugins/advanced-classes`, their mutual interplay in realistic architectures, and their unique compile-time restrictions.
 
 ```tspp
 // 1. field property with implicit backing storage and custom validation

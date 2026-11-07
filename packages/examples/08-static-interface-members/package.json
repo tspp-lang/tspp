@@ -7,7 +7,6 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@tspp/plugin-static-interface-members": "workspace:*",
     "ts-plus-plus": "workspace:*"
   },
   "devDependencies": {

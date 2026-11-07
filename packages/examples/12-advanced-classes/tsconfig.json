@@ -5,7 +5,7 @@
     "strict": true,
     "rootDir": "src",
     "outDir": "dist",
-    "plugins": [{ "name": "@tspp/plugin-advanced-classes", "tspp": true }]
+    "plugins": [{ "name": "ts-plus-plus/plugins/advanced-classes", "tspp": true }]
   },
   "include": ["src/**/*.tspp"]
 }

@@ -8,17 +8,17 @@ Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins
 
 ## Overview Matrix
 
-| Feature Capsule | Package Name | Status | Key Capabilities | Example Project |
+| Feature Capsule | Plugin Name | Status | Key Capabilities | Example Project |
 | :--- | :--- | :--- | :--- | :--- |
-| [**Advanced Classes**](#1-advanced-classes) | `@tspp/plugin-advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods | [`12-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/12-advanced-classes) |
-| [**Modern Syntax**](#2-modern-syntax) | `@tspp/plugin-modern-syntax` | Stable | `let ... in ...` expressions, `do { ... }` blocks, completion-valued bodies, `def` deep-readonly declarations, `use <-` trailing closures | [`01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax) |
-| [**Formal Verification**](#3-formal-verification) | `@tspp/plugin-formal-verification` | Stable | SMT/Z3 automated theorem proving, `requires`/`ensures` contracts, `assert:`/`assume:` proof points, `invariant:` loop and class invariants, refinement types | [`02-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/02-formal-verification) |
-| [**Nominal Types & ADTs**](#4-nominal-types--algebraic-data-types) | `@tspp/plugin-nominal-types` | Stable | Zero-cost `newtype` nominal abstractions, tagged union `data` declarations, exhaustive pattern `match` expressions with guards | [`03-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/03-nominal-types), [`04-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/04-newtype-consumer) |
-| [**Type Cube**](#5-type-cube) | `@tspp/plugin-type-computation` | Stable | Full Barendregt Lambda Cube: Higher-Kinded Types (`Type => Type`), Dependent Types (Martin-Löf Type Theory), type-level `let`/`match`, `<T> =>> Body` constructors, `reify`, `typecase` | [`05-dependent-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-dependent-types), [`06-type-computation`](file:///e:/Repos/ts-plus-plus/packages/examples/06-type-computation), [`07-higher-kinded-types`](file:///e:/Repos/ts-plus-plus/packages/examples/07-higher-kinded-types) |
-| [**Static Interface Members**](#6-static-interface-members) | `@tspp/plugin-static-interface-members` | Stable | Static-side contracts in interfaces (`static deserialize(): this`), typeclasses, static factories enforced on implementing classes | [`08-static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/examples/08-static-interface-members) |
-| [**Compile-Time Macros**](#7-compile-time-macros) | `@tspp/plugin-macros` | Stable | Asynchronous compile-time AST macros, hygienic quasiquoting (`$()`), macro expansion budgeting, IDE preview | [`10-macros`](file:///e:/Repos/ts-plus-plus/packages/examples/10-macros) |
-| [**Operator Sections**](#8-operator-sections) | `@tspp/plugin-operator-sections` | Stable | Placeholder-based partial application using `_` (e.g., `(_ + 1)`, `(10 - _)`, `values.map(_ * 2)`) | [`11-operator-sections`](file:///e:/Repos/ts-plus-plus/packages/examples/11-operator-sections) |
-| [**Algebraic Effects**](#9-algebraic-effects) | `@tspp/plugin-algebraic-effects` | Preview | `effect` declarations, `perform`, `handle ... in`, effect clauses (`/ { A, B }`), zero-overhead capability passing, `suspend` operations with one-shot continuations | [`14-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/examples/14-algebraic-effects) |
+| [**Advanced Classes**](#1-advanced-classes) | `ts-plus-plus/plugins/advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods | [`12-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/12-advanced-classes) |
+| [**Modern Syntax**](#2-modern-syntax) | `ts-plus-plus/plugins/modern-syntax` | Stable | `let ... in ...` expressions, `do { ... }` blocks, completion-valued bodies, `def` deep-readonly declarations, `use <-` trailing closures | [`01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax) |
+| [**Formal Verification**](#3-formal-verification) | `ts-plus-plus/plugins/formal-verification` | Stable | SMT/Z3 automated theorem proving, `requires`/`ensures` contracts, `assert:`/`assume:` proof points, `invariant:` loop and class invariants, refinement types | [`02-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/02-formal-verification) |
+| [**Nominal Types & ADTs**](#4-nominal-types--algebraic-data-types) | `ts-plus-plus/plugins/nominal-types` | Stable | Zero-cost `newtype` nominal abstractions, tagged union `data` declarations, exhaustive pattern `match` expressions with guards | [`03-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/03-nominal-types), [`04-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/04-newtype-consumer) |
+| [**Type Cube**](#5-type-cube) | `ts-plus-plus/plugins/type-computation` | Stable | Full Barendregt Lambda Cube: Higher-Kinded Types (`Type => Type`), Dependent Types (Martin-Löf Type Theory), type-level `let`/`match`, `<T> =>> Body` constructors, `reify`, `typecase` | [`05-dependent-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-dependent-types), [`06-type-computation`](file:///e:/Repos/ts-plus-plus/packages/examples/06-type-computation), [`07-higher-kinded-types`](file:///e:/Repos/ts-plus-plus/packages/examples/07-higher-kinded-types) |
+| [**Static Interface Members**](#6-static-interface-members) | `ts-plus-plus/plugins/static-interface-members` | Stable | Static-side contracts in interfaces (`static deserialize(): this`), typeclasses, static factories enforced on implementing classes | [`08-static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/examples/08-static-interface-members) |
+| [**Compile-Time Macros**](#7-compile-time-macros) | `ts-plus-plus/plugins/macros` | Stable | Asynchronous compile-time AST macros, hygienic quasiquoting (`$()`), macro expansion budgeting, IDE preview | [`10-macros`](file:///e:/Repos/ts-plus-plus/packages/examples/10-macros) |
+| [**Operator Sections**](#8-operator-sections) | `ts-plus-plus/plugins/operator-sections` | Stable | Placeholder-based partial application using `_` (e.g., `(_ + 1)`, `(10 - _)`, `values.map(_ * 2)`) | [`11-operator-sections`](file:///e:/Repos/ts-plus-plus/packages/examples/11-operator-sections) |
+| [**Algebraic Effects**](#9-algebraic-effects) | `ts-plus-plus/plugins/algebraic-effects` | Preview | `effect` declarations, `perform`, `handle ... in`, effect clauses (`/ { A, B }`), zero-overhead capability passing, `suspend` operations with one-shot continuations | [`14-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/examples/14-algebraic-effects) |
 
 ---
 
@@ -26,7 +26,7 @@ Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins
 
 ### 1. Advanced Classes
 
-* **Package**: [`@tspp/plugin-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/plugins/advanced-classes)
+* **Plugin**: [`ts-plus-plus/plugins/advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/plugins/advanced-classes)
 * **Example**: [`packages/examples/12-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/12-advanced-classes)
 * **Description**: Modern object-oriented programming extensions designed to eliminate boilerplate and enforce class hierarchy encapsulation.
 
@@ -58,7 +58,7 @@ data class Success(payload: string) extends NetworkResult {
 
 ### 2. Modern Syntax
 
-* **Package**: [`@tspp/plugin-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/plugins/modern-syntax)
+* **Plugin**: [`ts-plus-plus/plugins/modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/plugins/modern-syntax)
 * **Example**: [`packages/examples/01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax)
 * **Description**: Value-level functional syntax ergonomics.
 
@@ -85,7 +85,7 @@ function add(a: number, b: number): number do {
 
 ### 3. Formal Verification
 
-* **Package**: [`@tspp/plugin-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/plugins/formal-verification)
+* **Plugin**: [`ts-plus-plus/plugins/formal-verification`](file:///e:/Repos/ts-plus-plus/packages/plugins/formal-verification)
 * **Example**: [`packages/examples/02-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/02-formal-verification)
 * **Description**: Automated formal verification integrated directly into the type-checking pipeline, powered by an isolated Z3 SMT solver worker.
 
@@ -112,7 +112,7 @@ function divide(a: bigint, b: bigint): bigint
 
 ### 4. Nominal Types & Algebraic Data Types
 
-* **Package**: [`@tspp/plugin-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/plugins/nominal-types)
+* **Plugin**: [`ts-plus-plus/plugins/nominal-types`](file:///e:/Repos/ts-plus-plus/packages/plugins/nominal-types)
 * **Examples**: [`packages/examples/03-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/03-nominal-types), [`packages/examples/04-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/04-newtype-consumer)
 * **Description**: Strong typing abstractions that prevent primitive obsession without runtime performance cost.
 
@@ -138,7 +138,7 @@ const message = match (opt) {
 
 ### 5. Type Cube
 
-* **Package**: [`@tspp/plugin-type-computation`](file:///e:/Repos/ts-plus-plus/packages/plugins/type-computation)
+* **Plugin**: [`ts-plus-plus/plugins/type-computation`](file:///e:/Repos/ts-plus-plus/packages/plugins/type-computation)
 * **Examples**: [`05-dependent-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-dependent-types), [`06-type-computation`](file:///e:/Repos/ts-plus-plus/packages/examples/06-type-computation), [`07-higher-kinded-types`](file:///e:/Repos/ts-plus-plus/packages/examples/07-higher-kinded-types)
 * **Description**: Full-spectrum type system embodying the Barendregt Lambda Cube — unifying polymorphism, Higher-Kinded Types (HKT), and Dependent Types (Martin-Löf Type Theory) into a single computational kernel.
 
@@ -162,7 +162,7 @@ type Vec<N: Nat, T> = <N: Nat> =>> ...;
 
 ### 6. Static Interface Members
 
-* **Package**: [`@tspp/plugin-static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/plugins/static-interface-members)
+* **Plugin**: [`ts-plus-plus/plugins/static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/plugins/static-interface-members)
 * **Example**: [`packages/examples/08-static-interface-members`](file:///e:/Repos/ts-plus-plus/packages/examples/08-static-interface-members)
 * **Description**: Enforces static-side constructor and factory contracts on classes implementing interfaces.
 
@@ -188,7 +188,7 @@ class User implements Serializable {
 
 ### 7. Compile-Time Macros
 
-* **Package**: [`@tspp/plugin-macros`](file:///e:/Repos/ts-plus-plus/packages/plugins/macros)
+* **Plugin**: [`ts-plus-plus/plugins/macros`](file:///e:/Repos/ts-plus-plus/packages/plugins/macros)
 * **Example**: [`packages/examples/10-macros`](file:///e:/Repos/ts-plus-plus/packages/examples/10-macros)
 * **Description**: Programmatic compile-time metaprogramming for AST inspection and code generation.
 
@@ -203,7 +203,7 @@ class User implements Serializable {
 
 ### 8. Operator Sections
 
-* **Package**: [`@tspp/plugin-operator-sections`](file:///e:/Repos/ts-plus-plus/packages/plugins/operator-sections)
+* **Plugin**: [`ts-plus-plus/plugins/operator-sections`](file:///e:/Repos/ts-plus-plus/packages/plugins/operator-sections)
 * **Example**: [`packages/examples/11-operator-sections`](file:///e:/Repos/ts-plus-plus/packages/examples/11-operator-sections)
 * **Description**: Functional placeholder-based partial application inspired by Haskell and Scala.
 
@@ -222,7 +222,7 @@ const filtered = numbers.filter(_ > 1);
 
 ### 9. Algebraic Effects
 
-* **Package**: [`@tspp/plugin-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/plugins/algebraic-effects)
+* **Plugin**: [`ts-plus-plus/plugins/algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/plugins/algebraic-effects)
 * **Example**: [`packages/examples/14-algebraic-effects`](file:///e:/Repos/ts-plus-plus/packages/examples/14-algebraic-effects)
 * **Description**: Direct-style effects that compile to a hidden capability parameter and plain method calls. Operations marked `suspend` hand their handler a one-shot continuation, for asynchronous code without `async`.
 
@@ -263,9 +263,9 @@ To enable any feature in a TS++ project, declare it under `compilerOptions.plugi
     "module": "CommonJS",
     "strict": true,
     "plugins": [
-      { "name": "@tspp/plugin-advanced-classes", "tspp": true },
-      { "name": "@tspp/plugin-modern-syntax", "tspp": true },
-      { "name": "@tspp/plugin-operator-sections", "tspp": true }
+      { "name": "ts-plus-plus/plugins/advanced-classes", "tspp": true },
+      { "name": "ts-plus-plus/plugins/modern-syntax", "tspp": true },
+      { "name": "ts-plus-plus/plugins/operator-sections", "tspp": true }
     ]
   },
   "include": ["src/**/*.tspp"]

@@ -1,6 +1,6 @@
 # Dependent types
 
-This example enables only `@tspp/plugin-type-computation`. The numbered files in
+This example enables only `ts-plus-plus/plugins/type-computation`. The numbered files in
 `src/` exercise the complete plugin-owned MLTT kernel and its TypeScript
 projection boundary:
 

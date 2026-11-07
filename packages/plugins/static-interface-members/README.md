@@ -1,4 +1,4 @@
-# `@tspp/plugin-static-interface-members`
+# `ts-plus-plus/plugins/static-interface-members`
 
 Adds static-side contracts to TS++ interfaces. A class that `implements` such
 an interface must satisfy both its normal instance contract and its static

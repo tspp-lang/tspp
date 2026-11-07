@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-formal-verification",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "description": "Isolated SMT/Z3-backed verification feature for TSPP.",
   "license": "Apache-2.0",
   "repository": {

@@ -7,7 +7,7 @@ const pluginId = "static-interface-members";
 export const staticInterfaceMembersPlugin = definePlugin({
     manifest: {
         id: pluginId,
-        version: "0.0.1",
+        version: "0.0.0",
         apiVersion: TSPP_PLUGIN_API_VERSION,
         displayName: "Static interface members",
         syntax: {

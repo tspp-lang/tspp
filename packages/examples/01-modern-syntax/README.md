@@ -1,7 +1,7 @@
 # Modern syntax
 
 This isolated example package demonstrates the
-`@tspp/plugin-modern-syntax` capsule:
+`ts-plus-plus/plugins/modern-syntax` capsule:
 
 ```tspp
 const total = let left = 20, right = 22 in left + right;

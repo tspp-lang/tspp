@@ -1,4 +1,4 @@
-import * as smt from "@tspp/plugin-formal-verification/smt";
+import * as smt from "ts-plus-plus/plugins/formal-verification/smt";
 
 const shiftedNonnegative = smt.definePredicate(
     [["offset", smt.Int]],

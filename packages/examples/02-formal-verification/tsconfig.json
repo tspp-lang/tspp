@@ -3,15 +3,15 @@
     "noEmit": true,
     "plugins": [
       {
-        "name": "@tspp/plugin-formal-verification",
+        "name": "ts-plus-plus/plugins/formal-verification",
         "tspp": true
       },
       {
-        "name": "@tspp/plugin-modern-syntax",
+        "name": "ts-plus-plus/plugins/modern-syntax",
         "tspp": true
       },
       {
-        "name": "@tspp/plugin-nominal-types",
+        "name": "ts-plus-plus/plugins/nominal-types",
         "tspp": true
       }
     ],

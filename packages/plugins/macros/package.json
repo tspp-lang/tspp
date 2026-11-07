@@ -1,6 +1,6 @@
 {
   "name": "@tspp/plugin-macros",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Isolated compile-time AST macros for TS++.",
   "license": "Apache-2.0",
   "repository": {
