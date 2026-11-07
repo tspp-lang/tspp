@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const examplesRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
+const examplesRoot = join(repoRoot, "packages", "examples");
 const exampleNames = readdirSync(examplesRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && /^\d{2}-/.test(entry.name))
     .map(entry => entry.name)
@@ -61,7 +62,7 @@ function run(command, args, cwd) {
 
 for (const example of packages) {
     console.log(`\n[examples] compiling ${example.directory} (${example.name})`);
-    run("pnpm", ["--filter", example.name, "check"], join(examplesRoot, "../.."));
+    run("pnpm", ["--filter", example.name, "check"], repoRoot);
 
     const runtimeDirectory = mkdtempSync(join(example.root, ".runtime-"));
     try {
@@ -87,7 +88,7 @@ for (const example of packages) {
             "false",
             "--pretty",
             "false",
-        ], join(examplesRoot, "../.."));
+        ], repoRoot);
 
         const emittedEntry = join(runtimeDirectory, relative(example.sourceRoot, example.entry)).replace(/\.(?:tspp|ts)$/, ".js");
         if (!existsSync(emittedEntry)) throw new Error(`${example.directory} did not emit its entry point: ${emittedEntry}`);
@@ -233,3 +234,4 @@ function verifyMacroDeclarations(outputDirectory) {
 }
 
 console.log(`\n[examples] ${packages.length} example packages compiled and ran successfully.`);
+

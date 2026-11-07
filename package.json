@@ -41,7 +41,7 @@
     "test:editor-conformance:run": "pnpm --filter @tspp/editor-conformance test:run",
     "test:plugin-sdk": "pnpm --filter @tspp/plugin-sdk test",
     "test:plugins": "pnpm --workspace-concurrency=1 --filter \"./packages/plugins/**\" test",
-    "test:examples": "node packages/examples/scripts/check-all.mjs",
+    "test:examples": "node scripts/test-examples.mjs",
     "test:vscode": "pnpm --filter tspp-vscode test",
     "test:playground": "pnpm --filter tspp-playground test:smoke",
     "lint": "pnpm lint:compiler && pnpm lint:packages",
