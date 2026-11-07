@@ -34,7 +34,7 @@ const diagnostic = (message: string, node?: Node, category: DiagnosticInfo["cate
   deprecated: false,
 });
 
-function propertyNode(root: Node, path: readonly string[]): Node | undefined {
+function propertyNode(root: Node, path: string[]): Node | undefined {
   return findNodeAtLocation(root, path)?.parent;
 }
 

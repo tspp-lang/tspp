@@ -3,9 +3,8 @@
     "lib": ["ES2022", "DOM", "WebWorker"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "baseUrl": ".",
     "paths": {
-      "ts-plus-plus/source": ["../compiler/built/local/typescript.d.ts"],
+      "ts-plus-plus/source": ["../compiler/built/local/typescript.internal.d.ts"],
       "monaco-editor/editor/editor.api.js": ["../../node_modules/monaco-editor/esm/vs/editor/editor.api.d.ts"]
     },
     "noEmit": true,

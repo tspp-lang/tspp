@@ -20,7 +20,7 @@ function fileSystemEntries(files: ReadonlyMap<string, unknown>, directory: strin
 
 export interface ParsedProjectConfiguration {
   readonly options: ts.CompilerOptions;
-  readonly rootFileNames: readonly string[];
+  readonly rootFileNames: string[];
   readonly diagnostics: readonly DiagnosticInfo[];
 }
 

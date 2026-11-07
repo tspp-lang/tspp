@@ -124,7 +124,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     category = nextCategory;
     const cached = loaded.get(nextCategory);
     if (cached) {
-      renderItems(current?.id);
+      renderItems();
       return;
     }
     const definition = categories.find(item => item.id === nextCategory)!;

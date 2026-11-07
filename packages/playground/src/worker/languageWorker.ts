@@ -64,7 +64,7 @@ const featureDefinitions = plugins.map((plugin, index) => ({
 
 const files = new Map<string, { text: string; version: number }>();
 let options: ts.CompilerOptions = createOptions();
-let rootFileNames: readonly string[] = [];
+let rootFileNames: string[] = [];
 let configurationDiagnostics: readonly DiagnosticInfo[] = [];
 let service: ts.LanguageService | undefined;
 
@@ -128,13 +128,7 @@ function resolveMacroModule(specifier: string, containingFile: string): unknown 
   return text === undefined ? undefined : JSON.parse(text);
 }
 
-const host: ts.LanguageServiceHost & {
-  onTSPPProgramInvalidated(): void;
-  setCompilerHost(compilerHost: ts.CompilerHost & {
-    evaluateMacroModule?: typeof evaluateMacroModule;
-    resolveMacroModule?: typeof resolveMacroModule;
-  }): void;
-} = {
+const host: ts.LanguageServiceHost = {
   getCompilationSettings: () => options,
   getScriptFileNames: () => rootFileNames,
   getScriptVersion: path => String(files.get(path)?.version ?? 0),
@@ -153,8 +147,7 @@ const host: ts.LanguageServiceHost & {
   },
   useCaseSensitiveFileNames: () => true,
   setCompilerHost(compilerHost) {
-    compilerHost.evaluateMacroModule = evaluateMacroModule;
-    compilerHost.resolveMacroModule = resolveMacroModule;
+    Object.assign(compilerHost, { evaluateMacroModule, resolveMacroModule });
   },
   // Macro expansion finishes after the request that started it.
   onTSPPProgramInvalidated: () => post({ event: "programChanged" }),
