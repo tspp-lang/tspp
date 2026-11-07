@@ -1,8 +1,10 @@
 import type * as TS from "typescript-upstream";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
-import type { TSPPAnalysisDiagnostic, TSPPAnalysisLocation, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
-import { collectClassModels, memberName, type ClassModel, type MemberModel } from "./classes";
-import { nameText, nodeStart, ts } from "./host-api";
+import type {
+    TSPPAnalysisClassAncestry, TSPPAnalysisDiagnostic, TSPPAnalysisLocation, TSPPAnalysisSourceFile,
+} from "@tspp/plugin-sdk/compiler";
+import { collectClassModels, lookupMethod, memberName, type ClassModel, type MemberModel } from "./classes";
+import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import { modelSignature, type FunctionModel } from "./models";
 import { prepareVerificationSource, type PreparedVerificationSource } from "./source-cache";
 
@@ -18,6 +20,8 @@ export interface ModeledFile {
     readonly classes: ReadonlyMap<string, ClassModel>;
     /** The checker's resolution of the file's calls, by the call's range; absent when the host gave none. */
     readonly callTargets: ReadonlyMap<string, readonly TSPPAnalysisLocation[]> | undefined;
+    /** The checker's `extends` chain of each class of the file, by the class's range; absent when the host gave none. */
+    readonly classAncestry: ReadonlyMap<string, TSPPAnalysisClassAncestry> | undefined;
 }
 
 /** The models of every TS++ file of a program, so that a call can be checked against a contract in another file. */
@@ -83,9 +87,64 @@ export function indexProgram(
             source, prepared, functions: modelFunctions(prepared),
             classes: collectClassModels(sourceFile, source.text, refinements, records, diagnostics),
             callTargets: source.callTargets && new Map(source.callTargets.map(target => [rangeKey(target.start, target.end), target.declarations])),
+            classAncestry: source.classAncestry && new Map(source.classAncestry.map(entry => [rangeKey(entry.start, entry.end), entry])),
         };
         files.set(source.fileName, file);
         indexDeclarations(file, declarations);
     }
-    return { files, declarations };
+    const index = { files, declarations };
+    reportOverrides(index, diagnostics);
+    return index;
+}
+
+const hasContract = (member: MemberModel | undefined) => !!member && (member.model.requires.length > 0 || member.model.ensures.length > 0);
+
+/**
+ * Calls through a base class's type rely on its contracts, which an override is not checked against, so overriding a
+ * method that has one is refused. With the checker's ancestry this covers every class of every file, nested classes and
+ * class expressions included; without it, top-level classes whose base is declared in the same file.
+ */
+function reportOverrides(index: ProgramIndex, diagnostics: TSPPAnalysisDiagnostic[]): void {
+    const contractNames = new Set([...index.files.values()].flatMap(file => [...file.classes.values()])
+        .flatMap(owner => [...owner.methods].filter(([, member]) => hasContract(member)).map(([name]) => name)));
+    for (const file of index.files.values()) {
+        const { sourceFile } = file.prepared;
+        const report = (node: TS.Node, message: string) => diagnostics.push({
+            fileName: sourceFile.fileName, start: nodeStart(node, sourceFile), length: nodeWidth(node, sourceFile),
+            code: 19006, category: "error", source: "TS++ verification", message,
+        });
+        const refuse = (node: TS.Node, overridden: MemberModel) =>
+            report(node, `Overriding '${overridden.model.name}', which has a contract, is not supported yet: callers rely on that contract, and the override is not checked against it.`);
+        if (!file.classAncestry) {
+            for (const model of file.classes.values()) {
+                const base = model.base ? file.classes.get(model.base) : undefined;
+                for (const [name, member] of base ? model.methods : []) {
+                    const overridden = lookupMethod(base!, name, file.classes)?.member;
+                    if (hasContract(overridden) && member.declaration) refuse(member.declaration.name ?? member.declaration, overridden!);
+                }
+            }
+            continue;
+        }
+        const visit = (node: TS.Node): void => {
+            const entry = ts.isClassLike(node) && node.pos >= 0 ? file.classAncestry!.get(rangeKey(nodeStart(node, sourceFile), node.end)) : undefined;
+            if (entry && ts.isClassLike(node)) {
+                const ancestors = entry.ancestors.flatMap(location => {
+                    const target = index.declarations.get(declarationKey(location.fileName, location.start));
+                    return target?.kind === "member" ? [target.owner] : [];
+                });
+                for (const member of node.members) {
+                    const name = memberName(member.name);
+                    if (name === undefined || ts.isConstructorDeclaration(member) || (ts.canHaveModifiers(member) && ts.getModifiers(member)?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword))) continue;
+                    const overridden = ancestors.map(ancestor => ancestor.methods.get(name)).find(hasContract);
+                    if (overridden) refuse(member.name!, overridden);
+                    // Above a base the checker could not follow, any class may declare this method with a contract.
+                    else if (!entry.complete && contractNames.has(name)) {
+                        report(member.name!, `'${name}' may override a method with a contract in a class 'extends' reaches through an expression the verifier cannot follow, so it is refused.`);
+                    }
+                }
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(sourceFile);
+    }
 }

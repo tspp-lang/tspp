@@ -10,6 +10,23 @@ export interface TSPPAnalysisSourceFile {
      * left out.
      */
     readonly callTargets?: readonly TSPPAnalysisCallTarget[];
+    /**
+     * The classes each class of the file extends, when an analyzer asked for it with `needsClassAncestry`: class
+     * declarations and expressions alike, nested ones included.
+     */
+    readonly classAncestry?: readonly TSPPAnalysisClassAncestry[];
+}
+
+/**
+ * A class, by its range in the file, with the declarations of the classes it extends: its base first, then that
+ * class's base, in whichever files they are declared. `complete` is false when a base could not be followed to a class
+ * declaration, as with `extends mixin(Base)`, so classes further up may be missing.
+ */
+export interface TSPPAnalysisClassAncestry {
+    readonly start: number;
+    readonly end: number;
+    readonly ancestors: readonly TSPPAnalysisLocation[];
+    readonly complete: boolean;
 }
 
 /** A range of a source file's authored text: from a node's first token to its end. */
@@ -70,6 +87,8 @@ export interface TSPPProgramAnalyzer {
      * receive no compiler objects; the host only adds ranges.
      */
     readonly needsCallTargets?: boolean;
+    /** Asks the host to follow each class's `extends` chain with the type checker, as `classAncestry`. */
+    readonly needsClassAncestry?: boolean;
     analyze(input: TSPPProgramAnalysisInput): Promise<TSPPProgramAnalysisOutput>;
 }
 

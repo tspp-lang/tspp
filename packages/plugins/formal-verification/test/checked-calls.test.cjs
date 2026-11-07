@@ -23,15 +23,15 @@ export function 偶数一半(值: bigint) with { requires: 值 % 2n === 0n; ensu
 `;
 
 /** Compiles the files with the plugins active and returns the compiler's and the analyzer's messages. */
-async function analyze(main) {
-  const { program } = createProgram({ "/player.tspp": player, "/main.tspp": main });
+async function analyze(main, extra = {}) {
+  const { program } = createProgram({ "/player.tspp": player, ...extra, "/main.tspp": main });
   const compiler = diagnosticMessages(program);
   const analysis = (await ts.runTSPPProgramAnalyzers(program)).map(diagnostic => `${diagnostic.fileName}: ${diagnostic.message}`);
   return { compiler, analysis };
 }
 
-async function expectAnalysis(main, rejects) {
-  const { compiler, analysis } = await analyze(main);
+async function expectAnalysis(main, rejects, extra) {
+  const { compiler, analysis } = await analyze(main, extra);
   assert.deepEqual(compiler, [], "the test program must type-check");
   if (!rejects) return assert.deepEqual(analysis, []);
   assert.ok(analysis.some(message => rejects.test(message)), `expected ${rejects}, received:\n${analysis.join("\n") || "(no diagnostics)"}`);
@@ -91,4 +91,34 @@ declare const 目标: 玩家 | 草药;
   },
 ];
 
-for (const item of cases) test(item.name, () => expectAnalysis(item.main, item.rejects));
+const override = /Overriding '玩家\.治疗', which has a contract, is not supported yet/;
+cases.push(
+  {
+    name: "an override in another file than its base",
+    main: `${imports}export class 法师 extends 玩家 { 治疗(恢复值: number): void {} }`,
+    rejects: override,
+  },
+  {
+    name: "an override through a class in a third file",
+    extra: { "/warrior.tspp": `import { 玩家 } from "./player";\nexport class 战士 extends 玩家 {}` },
+    main: `import { 战士 } from "./warrior";\nexport class 狂战士 extends 战士 { 治疗(恢复值: number): void {} }`,
+    rejects: override,
+  },
+  {
+    name: "an override in a class expression nested in a function",
+    main: `${imports}export function 召唤() { return class extends 玩家 { 治疗(恢复值: number): void {} }; }`,
+    rejects: override,
+  },
+  {
+    name: "a derived class that overrides nothing with a contract",
+    main: `${imports}export class 法师 extends 玩家 { 施法(): void {} }`,
+  },
+  {
+    name: "a base the checker cannot follow",
+    main: `${imports}declare function 混入<T>(base: T): T;
+export class 法师 extends 混入(玩家) { 治疗(恢复值: number): void {} }`,
+    rejects: /'治疗' may override a method with a contract/,
+  },
+);
+
+for (const item of cases) test(item.name, () => expectAnalysis(item.main, item.rejects, item.extra));

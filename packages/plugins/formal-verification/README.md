@@ -44,7 +44,11 @@ escape, write its invariant fields from closures or through other instances, or
 declare async and generator members; before any call out of a member the
 invariant must hold, since the callee may call back in. Invariants on derived
 classes, refinement types on fields, and overriding a method that has a contract
-are refused for now; an override in another file than its base is not detected.
+are refused for now. The host also follows each class's `extends` chain with the
+checker, so an override is found in any file, through intermediate classes, and in
+nested classes and class expressions; when a base is an expression the checker
+cannot follow, such as a mixin call, a member named like a method with a contract
+is refused as well.
 The number models leave out `NaN`, so values from unverified code still need
 checks where they enter.
 

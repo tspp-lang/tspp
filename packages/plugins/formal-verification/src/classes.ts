@@ -225,18 +225,6 @@ export function collectClassModels(
             fields, invariantFields, constructorMember, methods, staticMethods, members,
         });
     }
-    // Calls through a base class's type rely on its contracts, which an override is not checked against.
-    for (const model of classes.values()) {
-        const base = model.base ? classes.get(model.base) : undefined;
-        if (!base) continue;
-        for (const [name, member] of model.methods) {
-            const overridden = lookupMethod(base, name, classes)?.member;
-            if (overridden && (overridden.model.requires.length || overridden.model.ensures.length) && member.declaration) {
-                const node = member.declaration.name ?? member.declaration;
-                report(nodeStart(node, sourceFile), nodeWidth(node, sourceFile), `Overriding '${overridden.model.name}', which has a contract, is not supported yet: callers rely on that contract, and the override is not checked against it.`);
-            }
-        }
-    }
     // A clause the masking blanked but no model reads would leave its contract silently unchecked.
     for (let pattern = /\bwith\s*\{/g, match; (match = pattern.exec(code));) {
         const owner = clauseOwner(code, match.index);
@@ -326,7 +314,7 @@ export interface MethodTarget {
     readonly receiver: "this" | "super" | "instance" | "static";
 }
 
-function lookupMethod(owner: ClassModel, name: string, classes: ReadonlyMap<string, ClassModel>): { owner: ClassModel; member: MemberModel; } | undefined {
+export function lookupMethod(owner: ClassModel, name: string, classes: ReadonlyMap<string, ClassModel>): { owner: ClassModel; member: MemberModel; } | undefined {
     for (let current: ClassModel | undefined = owner, depth = 0; current && depth < 32; current = current.base ? classes.get(current.base) : undefined, depth++) {
         const member = current.methods.get(name);
         if (member) return { owner: current, member };

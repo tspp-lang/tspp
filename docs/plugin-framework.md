@@ -191,7 +191,9 @@ An analyzer that sets `needsCallTargets` also receives, for each file, what the
 checker resolved its calls to: every call and `new` expression by its range,
 with the declarations of the symbol its callee names (a `super(...)` call names
 the base class). These are ranges of the authored text, not compiler objects, and
-the host computes them only when some analyzer asks.
+the host computes them only when some analyzer asks. Likewise `needsClassAncestry`
+adds each class's `extends` chain: the class declarations it extends, nearest
+first, and whether the chain could be followed to its end.
 
 `@tspp/plugin-formal-verification` is the first consumer. It owns proof-point
 discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the

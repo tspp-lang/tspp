@@ -31,6 +31,7 @@ export function createFormalVerificationAnalyzer(options: FormalVerificationAnal
     return {
         id: "proof-points",
         needsCallTargets: true,
+        needsClassAncestry: true,
         analyze: input => analyze(input, options),
     };
 }
