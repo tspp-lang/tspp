@@ -50,8 +50,8 @@ jobs:
       - run: pnpm test:editor-conformance:run
       - run: pnpm test:language-server
       - run: pnpm test:vscode
-      # Opens the built playground in the runner's Chrome and runs every example's JavaScript.
-      - run: pnpm test:playground
+      - name: Run every Playground source file in a browser
+        run: pnpm test:playground
       # The unit tests of what TS++ added to the compiler. The full upstream suite does not run here.
       - run: pnpm test:compiler:tspp
 

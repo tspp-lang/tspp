@@ -1,4 +1,4 @@
-// Opens the built playground in a real browser and runs every example's JavaScript, which is what its users do. A build
+// Opens the built playground in a real browser and clicks Run on every example source file. A build
 // proves little here: plugins activate in a worker, from a bundle ordered differently from the compiler's own.
 // Usage: node scripts/smoke.mjs [example ids...] (after `vite build`). CHROME_PATH names the browser to use.
 import { existsSync } from "node:fs";
@@ -28,14 +28,16 @@ try {
   const examples = requested.length ? requested : available;
   if (!examples.length) throw new Error("The playground lists no examples.");
 
+  let fileCount = 0;
   for (const example of examples) {
     errors.length = 0;
     const started = Date.now();
-    const failure = await runExample(page, example, errors).catch(error => String(error));
-    const lines = await page.$$eval("#run-output > *", output => output.length);
-    console.log(`${failure ? "FAIL" : "ok  "} ${example} (${((Date.now() - started) / 1000).toFixed(1)}s, ${lines} line(s) of output)`);
-    if (failure) failures.push(`${example}: ${failure}`);
+    const result = await runExample(page, example, errors).catch(error => ({ fileCount: 0, reasons: [String(error)] }));
+    fileCount += result.fileCount;
+    console.log(`${result.reasons.length ? "FAIL" : "ok  "} ${example} (${((Date.now() - started) / 1000).toFixed(1)}s, ${result.fileCount} source file(s))`);
+    if (result.reasons.length) failures.push(`${example}:\n  ${result.reasons.join("\n  ")}`);
   }
+  console.log(`Checked ${fileCount} source files across ${examples.length} Playground projects.`);
 }
 finally {
   await browser.close();
@@ -48,7 +50,7 @@ if (failures.length) {
 }
 process.exit(0);
 
-/** Selects an example and runs it; returns why it failed, if it did. */
+/** Selects an example project and runs all its source files. */
 async function runExample(page, example, errors) {
   await page.evaluate(() => {
     const status = document.getElementById("analysis-status");
@@ -59,8 +61,7 @@ async function runExample(page, example, errors) {
     window.__tsppAnalysisObserver.observe(status, { childList: true, characterData: true, subtree: true });
   });
   await page.selectOption("#examples", example);
-  const reasons = await runActiveFile(page);
-  const problems = await page.$$eval("#problems .problem-message", items => items.map(item => item.textContent));
+  const reasons = [];
   // Macros expand in the background: every built-in output must catch up with them. Declaration views are an
   // explicit Playground request even when the example's real tsconfig disables emit or does not enable declarations.
   for (const category of ["javascript", "dts", "dtspp"]) {
@@ -68,18 +69,27 @@ async function runExample(page, example, errors) {
     await page.waitForFunction(() => document.getElementById("outputs-status").textContent === "Up to date", undefined, { timeout: 10_000 })
       .catch(async () => reasons.push(`${category} output stayed at: ${await page.textContent("#outputs-status")}`));
   }
+  // Loading a project expands every directory. The example tree includes resources such as tsconfig.json.
+  const sourceFiles = await page.locator("#project-tree .tree-row:not([aria-expanded])").filter({
+    has: page.locator(".file-name", { hasText: /\.(?:tspp|ts)$/ }),
+  }).all();
+  if (!sourceFiles.length) reasons.push("the project tree lists no source files");
+  for (const file of sourceFiles) {
+    const path = await file.getAttribute("data-path");
+    await file.click();
+    const runFailures = await runActiveFile(page).catch(error => [String(error)]);
+    reasons.push(...runFailures.map(reason => `${path}: ${reason}`));
+    const problems = await page.locator("#problems .problem-message").allTextContents();
+    reasons.push(...problems.filter(problem => problem.startsWith("Type checking failed")).map(problem => `${path}: ${problem}`));
+  }
   if (example === "02-formal-verification") {
     const statuses = await page.evaluate(() => window.__tsppAnalysisStatuses);
     if (!statuses.some(text => /^Downloading Z3 — first use may be slow… (?:\d+%|\d+\.\d MB)$/.test(text))) {
       reasons.push(`Z3 download progress was not shown: ${statuses.join(" | ")}`);
     }
-    await page.click('.tree-row[data-path="/src/10-logic-library.tspp"]');
-    reasons.push(...(await runActiveFile(page)).map(reason => `10-logic-library.tspp: ${reason}`));
   }
-  const crashes = problems.filter(problem => problem?.startsWith("Type checking failed"));
-  if (crashes.length) reasons.push(crashes.join(" | "));
   if (errors.length) reasons.push(`the page threw: ${errors.join(" | ")}`);
-  return reasons.join("; ") || undefined;
+  return { fileCount: sourceFiles.length, reasons };
 }
 
 async function runActiveFile(page) {
