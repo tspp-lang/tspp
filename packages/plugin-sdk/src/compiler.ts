@@ -4,6 +4,30 @@ import type { TSPPPluginDependencies, TSPPPluginDisposer, TSPPPluginLogger, TSPP
 export interface TSPPAnalysisSourceFile {
     readonly fileName: string;
     readonly text: string;
+    /**
+     * What the type checker resolved each call and `new` expression of the file to, when an analyzer asked for it
+     * with `needsCallTargets`. Calls that syntax plugins generated, and calls whose callee resolves to nothing, are
+     * left out.
+     */
+    readonly callTargets?: readonly TSPPAnalysisCallTarget[];
+}
+
+/** A range of a source file's authored text: from a node's first token to its end. */
+export interface TSPPAnalysisLocation {
+    readonly fileName: string;
+    readonly start: number;
+    readonly end: number;
+}
+
+/**
+ * A call or `new` expression, by its range in the file, with the declarations of the symbol its callee names: a
+ * function's or method's overloads and implementation, every member of a union that declares the method, or the
+ * class a `new` creates. An analyzer must not assume which one runs when there are several.
+ */
+export interface TSPPAnalysisCallTarget {
+    readonly start: number;
+    readonly end: number;
+    readonly declarations: readonly TSPPAnalysisLocation[];
 }
 
 export interface TSPPProgramAnalysisInput {
@@ -41,6 +65,11 @@ export type TSPPProgramAnalysisOutput = readonly TSPPAnalysisDiagnostic[] & {
 
 export interface TSPPProgramAnalyzer {
     readonly id: string;
+    /**
+     * Asks the host to resolve the calls of every source file with the type checker, as `callTargets`. Analyzers still
+     * receive no compiler objects; the host only adds ranges.
+     */
+    readonly needsCallTargets?: boolean;
     analyze(input: TSPPProgramAnalysisInput): Promise<TSPPProgramAnalysisOutput>;
 }
 

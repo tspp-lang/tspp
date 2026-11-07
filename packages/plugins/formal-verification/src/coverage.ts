@@ -1,7 +1,8 @@
 import type * as TS from "typescript-upstream";
 import { nameText, ts } from "./host-api";
 import { guardsCalls } from "./models";
-import { guardedMethodNames, memberName, resolveCallTarget } from "./classes";
+import { guardedMethodNames, memberName } from "./classes";
+import { resolveCallTarget, resolveFunction } from "./call-targets";
 import { assignmentKey, assignmentOperators, diagnostic, isIncrementOrDecrement, type Context, type State } from "./execution-state";
 
 export function countWrites(node: TS.Node, name: string): number {
@@ -53,7 +54,7 @@ export function reportUnvisited(sourceFile: TS.SourceFile, context: Context, rej
     const reject = (node: TS.Node, what: string) => {
         if (!context.visited.has(node)) diagnostic(context, node, `${what} is outside the code the verifier can analyze, so it is not verified.`);
     };
-    const guardedNames = guardedMethodNames(context.classes);
+    const guardedNames = guardedMethodNames(context.allClasses);
     // The members whose returns owe a proof: a contract on their result, or an invariant of their class.
     const owingReturns = new Set<TS.Node>();
     for (const owner of context.classes.values()) {
@@ -67,11 +68,11 @@ export function reportUnvisited(sourceFile: TS.SourceFile, context: Context, rej
         if (rejected.has(node)) return;
         if (ts.isLabeledStatement(node) && (nameText(node.label) === "assert" || nameText(node.label) === "assume")) reject(node, `This ${nameText(node.label)}`);
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-            const model = context.functions.get(nameText(node.expression));
+            const model = resolveFunction(node, context);
             if (model && guardsCalls(model)) reject(node, `The call to '${model.name}'`);
         }
         else if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !context.visited.has(node)) {
-            const target = resolveCallTarget(node, context.classes);
+            const target = resolveCallTarget(node, context);
             const name = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) ? memberName(node.expression.name) : undefined;
             if (target && guardsCalls(target.member.model)) reject(node, `The call to '${target.member.model.name}'`);
             else if (!target && name !== undefined && guardedNames.has(name)) {
@@ -131,11 +132,11 @@ export function mayCarryObligations(node: TS.Node, state: State, context: Contex
                 && (tracked(current.left) || tracked(current.right))) return true;
         }
         if (ts.isCallExpression(current) && ts.isIdentifier(current.expression)) {
-            const model = context.functions.get(nameText(current.expression));
+            const model = resolveFunction(current, context);
             if (model && guardsCalls(model)) return true;
         }
         else if (ts.isCallExpression(current) || ts.isNewExpression(current)) {
-            const target = resolveCallTarget(current, context.classes);
+            const target = resolveCallTarget(current, context);
             if (target && guardsCalls(target.member.model)) return true;
         }
         return !!ts.forEachChild(current, child => visit(child) || undefined);

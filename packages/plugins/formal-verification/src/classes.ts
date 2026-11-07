@@ -334,8 +334,11 @@ function lookupMethod(owner: ClassModel, name: string, classes: ReadonlyMap<stri
     return undefined;
 }
 
-/** The modeled method or constructor a call runs, or undefined when its receiver's class is unknown or unmodeled. */
-export function resolveCallTarget(call: TS.CallExpression | TS.NewExpression, classes: ReadonlyMap<string, ClassModel>): MethodTarget | undefined {
+/**
+ * The modeled method or constructor a call runs, from the syntax of its receiver alone, or undefined when the class
+ * is unknown or unmodeled. Used when the host gave no checker resolution, and for calls that syntax plugins generated.
+ */
+export function resolveCallTargetBySyntax(call: TS.CallExpression | TS.NewExpression, classes: ReadonlyMap<string, ClassModel>): MethodTarget | undefined {
     if (ts.isNewExpression(call)) {
         const owner = ts.isIdentifier(call.expression) ? classes.get(ts.idText(call.expression)) : undefined;
         return owner && { owner, member: owner.constructorMember, receiver: "static" };
@@ -369,9 +372,9 @@ export function resolveCallTarget(call: TS.CallExpression | TS.NewExpression, cl
 }
 
 /** Names of instance methods whose calls owe proofs, to recognize calls whose receiver could not be resolved. */
-export function guardedMethodNames(classes: ReadonlyMap<string, ClassModel>): ReadonlySet<string> {
+export function guardedMethodNames(classes: Iterable<ClassModel>): ReadonlySet<string> {
     const names = new Set<string>();
-    for (const model of classes.values()) {
+    for (const model of classes) {
         for (const [name, member] of model.methods) {
             if (member.model.requires.length || Object.keys(member.model.parameterRefinements ?? {}).length) names.add(name);
         }

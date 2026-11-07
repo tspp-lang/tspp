@@ -1,13 +1,14 @@
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
-import type { TSPPAnalysisDiagnostic } from "@tspp/plugin-sdk/compiler";
+import type { TSPPAnalysisDiagnostic, TSPPAnalysisLocation } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import type { PendingProof } from "./contracts";
 import type { RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import type { Clause, DataConstructor, FunctionModel } from "./models";
 import type { ClassModel, MemberModel } from "./classes";
+import type { DeclaredTarget } from "./program-index";
 
 export interface State {
     readonly variables: Record<string, Sort>;
@@ -38,6 +39,12 @@ export interface Context {
     readonly diagnostics: TSPPAnalysisDiagnostic[];
     readonly currentFunction?: FunctionModel;
     readonly classes: ReadonlyMap<string, ClassModel>;
+    /** The checker's resolution of this file's calls, by range; absent when the host gave none. */
+    readonly callTargets: ReadonlyMap<string, readonly TSPPAnalysisLocation[]> | undefined;
+    /** Every modeled declaration of the program, for calls the checker resolved into other files. */
+    readonly declarations: ReadonlyMap<string, DeclaredTarget>;
+    /** The classes of every file, whose guarded methods an unresolved call may be reaching. */
+    readonly allClasses: readonly ClassModel[];
     /** Set while verifying a class member, whose exits owe the class invariant. */
     readonly currentMember?: { readonly owner: ClassModel; readonly member: MemberModel; };
     /** Set while inlining an immediately invoked function: its `return`s are collected here instead of proved. */

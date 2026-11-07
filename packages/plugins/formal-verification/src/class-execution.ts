@@ -6,7 +6,8 @@ import type { LogicLibrary } from "./logic";
 import { participatesInVerification, type Clause, type FunctionModel } from "./models";
 import { addProof, diagnostic, havoc, initialState, isBound, type Context, type State } from "./execution-state";
 import { mayCarryObligations } from "./coverage";
-import { resolveCallTarget, type ClassModel, type MemberModel, type MethodTarget } from "./classes";
+import type { ClassModel, MemberModel, MethodTarget } from "./classes";
+import { resolveCallTarget } from "./call-targets";
 
 // Class members run on the same symbolic executor as functions. What is particular to them: the fields of `this`, the
 // class invariant at every entry and exit, and calls that may come back into the object.
@@ -164,7 +165,7 @@ export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, targ
 export function lowerObjectCreation(node: TS.Expression, state: State, context: Context): boolean {
     while (ts.isParenthesizedExpression(node)) node = node.expression;
     if (!ts.isNewExpression(node)) return false;
-    const target = resolveCallTarget(node, context.classes);
+    const target = resolveCallTarget(node, context);
     if (!target) return false;
     lowerMemberCall(node, target, state, context);
     return true;

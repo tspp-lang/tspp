@@ -1,15 +1,25 @@
 import type {
     TSPPAnalysisArtifact,
+    TSPPAnalysisCallTarget,
     TSPPAnalysisDiagnostic,
+    TSPPAnalysisLocation,
     TSPPProgramAnalysisInput,
 } from "@tspp/plugin-sdk/compiler";
 
+import * as ts from "../_namespaces/ts.js";
 import { normalizePath } from "../path.js";
 import type {
     Diagnostic,
+    Expression,
+    Node,
     Program,
+    SourceFile,
 } from "../types.js";
-import { DiagnosticCategory } from "../types.js";
+import {
+    DiagnosticCategory,
+    SymbolFlags,
+    SyntaxKind,
+} from "../types.js";
 import {
     getOriginalTSPPSource,
     getRegisteredTSPPProgramAnalyzers,
@@ -18,7 +28,7 @@ import {
 const analysisArtifacts = new WeakMap<Program, readonly TSPPAnalysisArtifact[]>();
 const analysisResults = new WeakMap<Program, Promise<readonly TSPPAnalysisDiagnostic[]>>();
 
-function snapshotProgram(program: Program): TSPPProgramAnalysisInput {
+function snapshotProgram(program: Program, withCallTargets: boolean): TSPPProgramAnalysisInput {
     const rootNames = new Set(program.getRootFileNames());
     return {
         currentDirectory: program.getCurrentDirectory(),
@@ -28,8 +38,50 @@ function snapshotProgram(program: Program): TSPPProgramAnalysisInput {
             .map(sourceFile => ({
                 fileName: sourceFile.fileName,
                 text: getOriginalTSPPSource(sourceFile.fileName, sourceFile.text),
+                ...(withCallTargets ? { callTargets: collectCallTargets(program, sourceFile) } : {}),
             })),
     };
+}
+
+/** A node's range from its first token; plugins keep projected text the same length as the authored text. */
+function locate(node: Node): TSPPAnalysisLocation {
+    const sourceFile = ts.getSourceFileOfNode(node);
+    return { fileName: sourceFile.fileName, start: ts.skipTrivia(sourceFile.text, node.pos), end: node.end };
+}
+
+/** The node that names what a callee calls: an identifier, or the name of a property access. */
+function calleeName(callee: Expression): Node | undefined {
+    const expression = ts.skipParentheses(callee);
+    if (ts.isIdentifier(expression)) return expression;
+    if (ts.isPropertyAccessExpression(expression)) return expression.name;
+    return undefined;
+}
+
+/**
+ * The declarations of the symbol each call's callee names, resolved by the checker. A `super(...)` call resolves to
+ * the base class, like a `new` of it.
+ */
+function collectCallTargets(program: Program, sourceFile: SourceFile): TSPPAnalysisCallTarget[] {
+    const checker = program.getTypeChecker();
+    const targets: TSPPAnalysisCallTarget[] = [];
+    const visit = (node: Node): void => {
+        if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !ts.nodeIsSynthesized(node)) {
+            let name: Node | undefined;
+            if (node.expression.kind === SyntaxKind.SuperKeyword) {
+                const owner = ts.getContainingClass(node);
+                const base = owner && ts.getClassExtendsHeritageElement(owner)?.expression;
+                name = base && calleeName(base);
+            }
+            else name = calleeName(node.expression);
+            let symbol = name && checker.getSymbolAtLocation(name);
+            if (symbol && symbol.flags & SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
+            const declarations = symbol?.declarations?.filter(declaration => !ts.nodeIsSynthesized(declaration)).map(locate);
+            if (declarations?.length) targets.push({ start: ts.skipTrivia(sourceFile.text, node.pos), end: node.end, declarations });
+        }
+        ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return targets;
 }
 
 /** Runs isolated feature analyzers without exposing compiler-owned objects. @internal */
@@ -39,7 +91,7 @@ export async function runTSPPProgramAnalyzers(program: Program): Promise<readonl
     const analyzers = getRegisteredTSPPProgramAnalyzers();
     if (!analyzers.length) return [];
     const pending = (async () => {
-        const input = snapshotProgram(program);
+        const input = snapshotProgram(program, analyzers.some(analyzer => analyzer.needsCallTargets));
         const diagnostics = await Promise.all(analyzers.map(analyzer => analyzer.analyze(input)));
         analysisArtifacts.set(program, diagnostics.flatMap(result => result.artifacts ?? []));
         return diagnostics.flat();

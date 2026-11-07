@@ -1,22 +1,23 @@
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
-import type { TSPPAnalysisDiagnostic, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
+import type { TSPPAnalysisDiagnostic } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
 import { matchingBrace, reportWithClauseIssues, parseProperties, type PendingProof } from "./contracts";
 import { immediatelyInvoked, lowerCallArguments, lowerConditional, lowerImmediateCall, lowerPositionalField, lowerStructuredResult, type Lowering } from "./lowered-code";
 import { reportMisplacedRefinements } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import { collectTopLevelProofVariables } from "./proof-scope";
-import { guardsCalls, modelSignature, participatesInVerification, refinementFromType, sortFromType, type Clause } from "./models";
-import { prepareVerificationSource } from "./source-cache";
+import { guardsCalls, participatesInVerification, refinementFromType, sortFromType, type Clause } from "./models";
 import {
     addProof, assignedKeys, assignmentKey, assignmentOperators, arithmeticOperators, cloneState, comparisonOperators,
     diagnostic, havoc, innermostLoop, isBound, isIncrementOrDecrement, lexicalNames, safeIntegerRange, unsupported,
     initialState, type Context, type JumpTarget, type State,
 } from "./execution-state";
 import { countTopLevelWrites, countWrites, mayCarryObligations, mayWriteValues, reportUnvisited } from "./coverage";
-import { collectClassModels, reportEncapsulation, resolveCallTarget } from "./classes";
+import { reportEncapsulation } from "./classes";
+import { resolveCallTarget, resolveFunction } from "./call-targets";
+import type { ModeledFile, ProgramIndex } from "./program-index";
 import {
     connectExecutor, instantiate, leaveObject, lowerMathCall, lowerMemberCall, lowerObjectCreation, lowerObjectExpression,
     returnFromMember, throwFromMember, verifyMember, writesField,
@@ -28,16 +29,17 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
     const math = lowerMathCall(node, state, context);
     if (math) return math;
     if (!ts.isIdentifier(node.expression)) {
-        const target = resolveCallTarget(node, context.classes);
+        const target = resolveCallTarget(node, context);
         // A call the verifier cannot follow is reported here; coverage must not report it a second time.
         context.visited.add(node);
-        if (!target) throw new Error("Only direct calls, and calls to methods of classes declared in this file through a receiver of known class, can participate in formal verification.");
+        if (!target) throw new Error("Only direct calls, and calls that resolve to one method of a class in a TS++ file, can participate in formal verification.");
         return lowerMemberCall(node, target, state, context)!;
     }
     context.visited.add(node);
     const functionName = nameText(node.expression);
+    const model = resolveFunction(node, context);
     // A function declared in this file shadows a project-wide logic function of the same name.
-    const logic = context.functions.has(functionName) ? undefined : context.logic.functions[functionName];
+    const logic = model ? undefined : context.logic.functions[functionName];
     if (logic) {
         const arguments_ = node.arguments.map(argument => lowerExpression(argument, state, context));
         if (arguments_.length !== logic.parameters.length) throw new Error(`'${functionName}' expects ${logic.parameters.length} arguments.`);
@@ -46,8 +48,7 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
         });
         return { smt: `(|${functionName}|${arguments_.length ? ` ${arguments_.map(argument => argument.smt).join(" ")}` : ""})`, sort: logic.result };
     }
-    const model = context.functions.get(nameText(node.expression));
-    if (!model) throw new Error(`Call to unsupported function '${nameText(node.expression)}'.`);
+    if (!model) throw new Error(`Call to unsupported function '${functionName}'.`);
     const argumentContext = context.currentFunction ? context : { ...context, currentFunction: model };
     const arguments_ = lowerCallArguments(node, model, state, argumentContext, lowering);
     for (const requirement of model.requires) {
@@ -251,7 +252,7 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
                 && nameText(expression.expression.name) === "axiom") return [state];
             if (lowerObjectCreation(expression, state, context)) return [state];
             if (ts.isCallExpression(expression) && !ts.isIdentifier(expression.expression) && !immediatelyInvoked(expression)) {
-                const target = resolveCallTarget(expression, context.classes);
+                const target = resolveCallTarget(expression, context);
                 if (target) {
                     lowerMemberCall(expression, target, state, context);
                     return [state];
@@ -262,7 +263,7 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
             }
             if (isIncrementOrDecrement(expression)) return updateIncrement(expression, state, context) ? [state] : unsupported(state, node, context);
             if (ts.isCallExpression(expression) && ts.isIdentifier(expression.expression)
-                && (context.functions.has(nameText(expression.expression)) || context.logic.functions[nameText(expression.expression)])) {
+                && (resolveFunction(expression, context) || context.logic.functions[nameText(expression.expression)])) {
                 lowerCall(expression, state, context);
                 return [state];
             }
@@ -437,11 +438,11 @@ connectExecutor({ lowerExpression, executeStatements, owesProof });
 function owesProof(statement: TS.FunctionLikeDeclaration, context: Context): boolean {
     const visit = (node: TS.Node): boolean => {
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
-            const model = context.functions.get(nameText(node.expression));
+            const model = resolveFunction(node, context);
             if (model && guardsCalls(model)) return true;
         }
         if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
-            const target = resolveCallTarget(node, context.classes);
+            const target = resolveCallTarget(node, context);
             if (target && guardsCalls(target.member.model)) return true;
         }
         if (ts.isVariableDeclaration(node) && refinementFromType(node.type, context.refinements)) return true;
@@ -452,24 +453,17 @@ function owesProof(statement: TS.FunctionLikeDeclaration, context: Context): boo
 }
 
 export function collectProgramProofs(
-    source: TSPPAnalysisSourceFile, diagnostics: TSPPAnalysisDiagnostic[], logic: LogicLibrary,
+    file: ModeledFile, index: ProgramIndex, diagnostics: TSPPAnalysisDiagnostic[], logic: LogicLibrary,
     nominalTypes: NominalTypesADTAPI | undefined,
 ): PendingProof[] {
+    const { source, functions, classes, callTargets } = file;
     reportWithClauseIssues(source.fileName, source.text, diagnostics);
-    const prepared = prepareVerificationSource(source, nominalTypes);
-    const { sourceFile, refinements, records, constructors } = prepared;
+    const { sourceFile, refinements, records, constructors } = file.prepared;
     reportMisplacedRefinements(sourceFile, diagnostics);
-    const functions = new Map(prepared.functions);
-    for (const statement of sourceFile.statements) {
-        if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
-        const name = nameText(statement.name);
-        functions.set(name, modelSignature(name, statement, functions.get(name), refinements, records,
-            statement.body ? nodeStart(statement.body, sourceFile) : statement.end));
-    }
-    const classes = collectClassModels(sourceFile, source.text, refinements, records, diagnostics);
     const proofs: PendingProof[] = [];
     const base: Omit<Context, "currentFunction"> = {
         fileName: source.fileName, sourceFile, sourceText: source.text, functions, classes, refinements, records, constructors, nominalTypes,
+        callTargets, declarations: index.declarations, allClasses: [...index.files.values()].flatMap(other => [...other.classes.values()]),
         logic, proofs, diagnostics, visited: new Set(), jumpTargets: [], nextTemporary: 0,
     };
     const rejected = new Set<TS.Node>();
@@ -520,15 +514,18 @@ export function collectProgramProofs(
     }
     const participants = new Set(sourceFile.statements.filter(ts.isFunctionDeclaration).flatMap(statement => {
         const model = statement.name && functions.get(nameText(statement.name));
-        return model && participatesInVerification(statement, model) ? [model.name] : [];
+        return model && participatesInVerification(statement, model) ? [model] : [];
     }));
+    const calledFunction = (node: TS.Node) => ts.isCallExpression(node) ? resolveFunction(node, base as Context) : undefined;
     const visitCalls = (node: TS.Node): void => {
         if (ts.isFunctionLike(node)) return;
-        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && participants.has(nameText(node.expression))) {
+        const called = calledFunction(node);
+        // Another file's function is checked here only for what its calls owe.
+        if (called && ts.isCallExpression(node) && (participants.has(called) || guardsCalls(called))) {
             try { lowerCall(node, topLevelState, base as Context); } catch (error) { diagnostic(base as Context, node, error); }
         }
         else if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !base.visited.has(node)) {
-            const target = resolveCallTarget(node, classes);
+            const target = resolveCallTarget(node, base as Context);
             if (target && guardsCalls(target.member.model)) {
                 try { lowerMemberCall(node, target, topLevelState, base as Context); } catch (error) { diagnostic(base as Context, node, error); }
             }

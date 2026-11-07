@@ -11,6 +11,7 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import { createProofDirectives, maskContractClauses, restoreContractFunctionClause, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
+import { indexProgram } from "./program-index";
 import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
 import { identifierSource } from "./expression";
@@ -29,6 +30,7 @@ export interface FormalVerificationAnalyzerOptions {
 export function createFormalVerificationAnalyzer(options: FormalVerificationAnalyzerOptions = {}): TSPPProgramAnalyzer {
     return {
         id: "proof-points",
+        needsCallTargets: true,
         analyze: input => analyze(input, options),
     };
 }
@@ -49,10 +51,10 @@ async function analyze(input: TSPPProgramAnalysisInput, options: FormalVerificat
         });
         return diagnostics;
     }
-    for (const sourceFile of input.sourceFiles) {
-        // Other files can hold logic definitions, but contracts and directives are TS++ syntax.
-        if (!sourceFile.fileName.endsWith(".tspp")) continue;
-        for (const proof of collectProgramProofs(sourceFile, diagnostics, logic, nominalTypes)) queries.push({ proof });
+    // Other files can hold logic definitions, but contracts and directives are TS++ syntax.
+    const index = indexProgram(input.sourceFiles, nominalTypes, diagnostics);
+    for (const file of index.files.values()) {
+        for (const proof of collectProgramProofs(file, index, diagnostics, logic, nominalTypes)) queries.push({ proof });
     }
     const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
     const artifacts: TSPPAnalysisArtifact[] = [];

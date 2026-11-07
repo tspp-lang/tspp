@@ -26,11 +26,17 @@ states a condition over private or readonly fields that every constructor must
 establish and every instance method must preserve, on each `return`, on falling
 off the end, and when it throws; `numberModel` there applies to the fields and
 every member. Constructors and methods take `requires`/`ensures` like functions,
-and `ensures` may read `this.field`. Calls are checked where the receiver's class
-is evident from the syntax: `this`, `super`, `new C(...)`, a static `C.m(...)`,
-or a parameter, variable, or field declared with the type `C` or initialized by
-`new C(...)`. A call to a method with a precondition through a receiver of
-unknown class is reported rather than accepted.
+and `ensures` may read `this.field`. The analyzer asks the host for the
+checker's resolution of every call, so a call is checked against the contract of
+the method or function it resolves to, whatever form its receiver takes and in
+whichever TS++ file of the program that declaration lives. When the callee could
+be several declarations, as through a union of classes that each declare the
+method, or is not one the verifier models, as through an interface, a call to a
+method name that has a precondition somewhere is reported rather than accepted.
+Without that resolution (an analyzer called directly, or code a syntax plugin
+generated), the receiver's class is read from syntax: `this`, `super`,
+`new C(...)`, a static `C.m(...)`, or a declaration with the type `C` or
+initialized by `new C(...)`.
 
 The invariant is a property of the object only while its fields cannot change
 behind the verifier's back, so a class with an invariant may not let `this`
@@ -38,8 +44,8 @@ escape, write its invariant fields from closures or through other instances, or
 declare async and generator members; before any call out of a member the
 invariant must hold, since the callee may call back in. Invariants on derived
 classes, refinement types on fields, and overriding a method that has a contract
-are refused for now. As elsewhere, only classes of the same file are modeled,
-and the number models leave out `NaN`, so values from unverified code still need
+are refused for now; an override in another file than its base is not detected.
+The number models leave out `NaN`, so values from unverified code still need
 checks where they enter.
 
 String equality and scalar fields of ordinary records/discriminated unions are
