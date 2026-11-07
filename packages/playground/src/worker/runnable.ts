@@ -13,9 +13,8 @@ export function createRunnableProgram(
   host: ts.ModuleResolutionHost,
 ): RunnableProgram {
   const modules: Record<string, RunnableModule> = {};
-  const commonJsRun = options.module === ts.ModuleKind.CommonJS
-    || options.module === ts.ModuleKind.Node16
-    || options.module === ts.ModuleKind.NodeNext;
+  const mixedModules = options.module === ts.ModuleKind.Node16 || options.module === ts.ModuleKind.NodeNext;
+  const commonJsRun = options.module === ts.ModuleKind.CommonJS || mixedModules;
   const emit = (sourceFile: ts.SourceFile): string | undefined => {
     let javascript: string | undefined;
     if (program.isSourceFileFromExternalLibrary(sourceFile)) {
@@ -31,7 +30,8 @@ export function createRunnableProgram(
     }
     // NodeNext can emit a mixed ESM/CommonJS graph based on package boundaries. The browser runner has no Node
     // package loader, so normalize that already-transformed JavaScript to one CommonJS graph for execution only.
-    return javascript && commonJsRun
+    // CommonJS already has that format, so avoid building another program just to transpile it again.
+    return javascript && mixedModules
       ? ts.transpileModule(javascript, {
           compilerOptions: { allowJs: true, module: ts.ModuleKind.CommonJS, target: options.target },
           fileName: sourceFile.fileName.replace(/\.(?:tspp|ts)$/, ".js"),
