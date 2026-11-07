@@ -23,3 +23,7 @@ views may emit in memory without writing files.
 pnpm playground:dev
 pnpm build:playground
 ```
+
+The deployed site serves the latest release at its root, master at `next/` and every release at
+`v/<version>/`, with a selector between them; `docs/releasing.md` describes how it is assembled.
+A build on its own, such as a release's zip served from any directory, has no selector.

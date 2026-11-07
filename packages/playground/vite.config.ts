@@ -362,7 +362,12 @@ function z3Runtime(): Plugin {
 
 export default defineConfig({
   base: "./",
-  define: { __TSPP_BUILD_COMMIT__: JSON.stringify(buildCommit()), __TSPP_VERSION__: JSON.stringify(releaseVersion()) },
+  define: {
+    __TSPP_BUILD_COMMIT__: JSON.stringify(buildCommit()),
+    __TSPP_VERSION__: JSON.stringify(releaseVersion()),
+    // A release's playground is built with TSPP_PLAYGROUND_CHANNEL=release; any other build is of master.
+    __TSPP_PLAYGROUND_CHANNEL__: JSON.stringify(process.env.TSPP_PLAYGROUND_CHANNEL === "release" ? "release" : "next"),
+  },
   resolve: { alias: [
     { find: "ts-plus-plus/source", replacement: compilerEntry },
     { find: /^monaco-editor\/(.*\.css)$/, replacement: `${monacoRoot}/esm/vs/$1` },

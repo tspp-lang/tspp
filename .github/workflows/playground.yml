@@ -1,8 +1,15 @@
 name: Deploy playground to GitHub Pages
 
+# The site serves the latest release at its root, master at next/ and every release at v/<version>/, each release from
+# the playground zip its GitHub release carries (packages/playground/scripts/assemble-site.mjs). It is assembled anew
+# on every push to master and after every release, so a new release appears as soon as it is published.
+
 on:
   push:
     branches: [master]
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +23,7 @@ concurrency:
 
 jobs:
   build:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,10 +48,21 @@ jobs:
       # A failure here keeps the last working playground deployed.
       - name: Run every Playground source file in a browser
         run: pnpm test:playground
+      - name: Download the playground of every release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p releases
+          for tag in $(gh release list --limit 1000 --json tagName --jq '.[].tagName'); do
+            # Releases from before the playground was released carry none.
+            gh release download "$tag" --pattern 'tspp-playground-*.zip' --dir releases || echo "$tag has no playground."
+          done
+      - name: Assemble the site
+        run: node packages/playground/scripts/assemble-site.mjs --next packages/playground/dist --releases releases --out site
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: packages/playground/dist
+          path: site
 
   deploy:
     needs: build

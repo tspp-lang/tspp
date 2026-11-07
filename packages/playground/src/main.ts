@@ -1,7 +1,7 @@
 import examples from "virtual:tspp-examples";
 import { startLanguageWorker } from "./client";
 import { defaultConfiguration, parseProjectConfiguration, setFeatureInConfiguration } from "./configuration";
-import { z3Location } from "./deployment";
+import { currentVersion, z3Location } from "./deployment";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import { jsoncLanguageId, registerJsoncLanguage } from "./jsoncLanguage";
 import * as monaco from "./monaco";
@@ -14,6 +14,7 @@ import { decodeState, encodeState, onSharedStateChange, type SharedState } from 
 import { registerSmtLanguage } from "./smtLanguage";
 import { renderSolverStatus } from "./solverStatus";
 import { languageId, registerTsppLanguage } from "./tsppLanguage";
+import { pinnedShareLink, setupVersionSelector } from "./versionSelector";
 import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
 
 self.MonacoEnvironment = {
@@ -84,7 +85,7 @@ catch (error) {
 }
 const { features: definitions } = initialization;
 outputs.addFeatureOutputs(definitions);
-status.textContent = `TS++ ${__TSPP_VERSION__}`;
+status.textContent = `TS++ ${currentVersion}`;
 bootOverlay.hidden = true;
 
 // ---- project ---------------------------------------------------------------------------
@@ -546,4 +547,5 @@ onSharedStateChange(state => {
   loadProject(state);
 });
 
-setupShareButton(shareButton, shareLink);
+setupShareButton(shareButton, shareLink, pinnedShareLink);
+void setupVersionSelector(element<HTMLSelectElement>("versions"), () => dirtyFiles().size > 0);

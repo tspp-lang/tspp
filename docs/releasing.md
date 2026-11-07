@@ -17,9 +17,8 @@ Each release attaches three files, all at the root version:
 - `tspp-playground-X.Y.Z.zip`, the playground as a static site, with
   `index.html` at the root of the zip. It loads Z3 from `z3/<hash>/`, a
   directory named by the content of the Z3 files, under the `sharedRoot` that
-  its `deployment.json` gives. A site serving several playground builds can
-  keep one copy of each Z3 at a shared root and point each build's
-  `deployment.json` there; builds whose Z3 differs never share one.
+  its `deployment.json` gives. It is built as a release
+  (`TSPP_PLAYGROUND_CHANNEL=release`), so it names itself by its version.
 
 Nothing is published to npm or the VS Code Marketplace.
 
@@ -89,5 +88,21 @@ A version with a prerelease part is published as a GitHub prerelease.
 versions by SemVer precedence. It ignores `v0.0.0`, which marks the upstream
 TypeScript commit this fork started from, not a TS++ release.
 
-A push to master also redeploys the Playground. That deployment has nothing to
-do with the release.
+## The playground site
+
+`.github/workflows/playground.yml` assembles the site on every push to master
+and after every release, with `packages/playground/scripts/assemble-site.mjs`:
+
+| Path | Serves |
+|---|---|
+| `/` | The latest release without a prerelease part; master before the first release |
+| `/next/` | The build of master |
+| `/v/X.Y.Z/` | Every release whose GitHub release carries a playground zip |
+| `/z3/<hash>/` | One copy of each Z3 the builds above load |
+| `/versions.json` | The releases, for the version selector |
+
+Each release is served from its own zip, so it runs the code it was released
+with. The version selector opens the chosen version with the current project,
+and Share links to `/v/X.Y.Z/` or `/next/`, never to `/`, which moves to each
+new release. A build whose Z3 changes gets a new `/z3/<hash>/`, and the old one
+stays for as long as a served release uses it.

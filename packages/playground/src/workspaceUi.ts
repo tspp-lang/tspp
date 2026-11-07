@@ -77,13 +77,14 @@ export function setupSaveShortcut(save: () => void): void {
   });
 }
 
-export function setupShareButton(button: HTMLButtonElement, manualLink: HTMLInputElement): void {
+export function setupShareButton(button: HTMLButtonElement, manualLink: HTMLInputElement, link: () => Promise<string>): void {
   button.onclick = async () => {
+    const href = await link();
     try {
-      await navigator.clipboard.writeText(location.href);
+      await navigator.clipboard.writeText(href);
     }
     catch {
-      manualLink.value = location.href;
+      manualLink.value = href;
       manualLink.hidden = false;
       manualLink.select();
       return;

@@ -178,10 +178,9 @@ function packPlayground() {
 }
 
 const gitHead = git("rev-parse", "HEAD");
-if (!process.argv.includes("--skip-build")) {
-    run("pnpm", ["build:vscode:dev"], root);
-    run("pnpm", ["build:playground"], root);
-}
+if (!process.argv.includes("--skip-build")) run("pnpm", ["build:vscode:dev"], root);
+// Always rebuilt, even with --skip-build: a build for the playground site is of master, and a release's must say it is one.
+run("pnpm", ["build:playground"], root, { env: { ...process.env, TSPP_PLAYGROUND_CHANNEL: "release" } });
 fs.rmSync(release, { recursive: true, force: true });
 fs.mkdirSync(release);
 withStage("tspp-release-internal-", internal => {

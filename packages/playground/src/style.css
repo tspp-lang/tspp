@@ -44,6 +44,7 @@ header h1 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 
 header h1 img { width: 24px; height: 24px; border-radius: 4px; object-fit: contain; }
 #status { color: var(--muted); font-size: 12px; }
 #build-commit { color: var(--muted); font-size: 12px; font-family: monospace; }
+#versions { font-size: 12px; padding: 2px 6px; }
 .spacer { flex: 1; }
 
 select, button {
