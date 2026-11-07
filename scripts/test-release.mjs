@@ -166,6 +166,22 @@ function checkLanguageServer(server, sdk, project) {
     });
 }
 
+// The playground loads Z3 from a directory named by its content, which its own code must name.
+function checkPlayground() {
+    const archive = path.join(release, `tspp-playground-${version}.zip`);
+    assert.ok(fs.existsSync(archive), "the playground was not assembled at the release version");
+    const { unzipSync, strFromU8 } = createRequire(path.join(root, "packages", "playground", "package.json"))("fflate");
+    const files = unzipSync(fs.readFileSync(archive));
+    assert.ok(files["index.html"], "the playground's index.html must sit at the root of the zip");
+    assert.deepEqual(JSON.parse(strFromU8(files["deployment.json"])), { sharedRoot: "./" });
+    const z3 = [...new Set(Object.keys(files).map(file => /^(z3\/[0-9a-f]{16})\//.exec(file)?.[1]).filter(Boolean))];
+    assert.equal(z3.length, 1, `the playground must ship one Z3, not ${z3.join(", ")}`);
+    for (const file of ["z3.worker.js", "z3-built.wasm"]) assert.ok(files[`${z3[0]}/${file}`], `${z3[0]}/${file} is missing`);
+    const scripts = Object.entries(files).filter(([file]) => file.startsWith("assets/") && file.endsWith(".js"));
+    assert.ok(scripts.some(([, bytes]) => strFromU8(bytes).includes(z3[0])), `no script names ${z3[0]}`);
+    console.log("ok  the playground ships the Z3 it loads");
+}
+
 async function checkExtension(consumer, project) {
     const [vsix] = fs.readdirSync(release).filter(file => file.endsWith(".vsix"));
     assert.equal(vsix, `tspp-vscode-${version}.vsix`, "the extension was not assembled at the release version");
@@ -199,6 +215,7 @@ try {
     compileExamples(consumer);
     const project = writeProject(consumer);
     checkErrorsAreReported(consumer, project);
+    checkPlayground();
     await checkExtension(consumer, project);
 }
 finally {

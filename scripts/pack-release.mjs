@@ -1,5 +1,5 @@
-// Assembles what a release would publish into release/: the ts-plus-plus package and the VS Code extension, both at the
-// version of the repository's root package.json. Nothing is published. Every other package of the workspace is internal
+// Assembles what a release would publish into release/: the ts-plus-plus package, the VS Code extension and the
+// playground as a static site in a zip, all at the version of the repository's root package.json. Nothing is published. Every other package of the workspace is internal
 // and versioned 0.0.0: the plugins and the SDK travel inside ts-plus-plus as bundled dependencies, and the extension
 // carries the language server and the SDK it runs. packages/compiler/lib is the bootstrap compiler the repository tracks
 // and knows nothing of TS++, so ts-plus-plus is staged with a lib produced from the fresh build instead. Its own version
@@ -7,6 +7,7 @@
 // Usage: node scripts/pack-release.mjs [--skip-build]
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -17,6 +18,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const release = path.join(root, "release");
 const compiler = path.join(root, "packages", "compiler");
 const extension = path.join(root, "packages", "vscode-extension");
+const playground = path.join(root, "packages", "playground");
 
 function run(command, args, cwd, options = {}) {
     const windows = process.platform === "win32" && command !== process.execPath;
@@ -158,8 +160,28 @@ function packExtension(compilerTarball, internalTarballs) {
     });
 }
 
+function filesBelow(directory, prefix = "") {
+    return fs.readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
+        entry.isDirectory()
+            ? filesBelow(path.join(directory, entry.name), `${prefix}${entry.name}/`)
+            : [`${prefix}${entry.name}`]
+    );
+}
+
+// The playground's build, its index.html at the root of the zip, so the zip can be served from any directory.
+function packPlayground() {
+    const { zipSync } = createRequire(path.join(playground, "package.json"))("fflate");
+    const dist = path.join(playground, "dist");
+    if (!fs.existsSync(path.join(dist, "index.html"))) throw new Error("The playground is not built.");
+    const entries = Object.fromEntries(filesBelow(dist).sort().map(file => [file, fs.readFileSync(path.join(dist, file))]));
+    fs.writeFileSync(path.join(release, `tspp-playground-${version}.zip`), zipSync(entries, { level: 9 }));
+}
+
 const gitHead = git("rev-parse", "HEAD");
-if (!process.argv.includes("--skip-build")) run("pnpm", ["build:vscode:dev"], root);
+if (!process.argv.includes("--skip-build")) {
+    run("pnpm", ["build:vscode:dev"], root);
+    run("pnpm", ["build:playground"], root);
+}
 fs.rmSync(release, { recursive: true, force: true });
 fs.mkdirSync(release);
 withStage("tspp-release-internal-", internal => {
@@ -167,6 +189,7 @@ withStage("tspp-release-internal-", internal => {
     const extensionInternal = workspaceDependencies(readManifest(extension)).filter(name => name !== "ts-plus-plus" && !shippedPluginPackages().includes(name));
     packExtension(compilerTarball, packInternal(internalClosure(extensionInternal), internal));
 });
+packPlayground();
 console.log(`\nAssembled ${version} from ${gitHead} in ${path.relative(root, release)}:`);
 for (const file of fs.readdirSync(release).sort()) console.log(`  ${file}`);
 const tag = `v${version}`;

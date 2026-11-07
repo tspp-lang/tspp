@@ -1,6 +1,7 @@
 import examples from "virtual:tspp-examples";
 import { startLanguageWorker } from "./client";
 import { defaultConfiguration, parseProjectConfiguration, setFeatureInConfiguration } from "./configuration";
+import { z3Location } from "./deployment";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import { jsoncLanguageId, registerJsoncLanguage } from "./jsoncLanguage";
 import * as monaco from "./monaco";
@@ -72,10 +73,7 @@ dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-
 
 let initialization: Awaited<ReturnType<typeof client.init>>;
 try {
-  initialization = await client.init({
-    workerUrl: new URL("z3/z3.worker.js", document.baseURI).href,
-    wasmUrl: new URL("z3/z3-built.wasm", document.baseURI).href,
-  });
+  initialization = await client.init(await z3Location());
 }
 catch (error) {
   const message = error instanceof Error ? error.message : String(error);

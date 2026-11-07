@@ -3,6 +3,9 @@
 /** The full hash of the commit this bundle was built from, or an empty string outside a git checkout. */
 declare const __TSPP_BUILD_COMMIT__: string;
 
+/** Where this build's Z3 lives below the shared root, e.g. `z3/0123456789abcdef`; the hash names its content. */
+declare const __TSPP_Z3_DIRECTORY__: string;
+
 interface Window {
   MonacoEnvironment: { getWorker(): Worker };
 }

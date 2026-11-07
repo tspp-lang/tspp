@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { build, transform } from "esbuild";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -284,6 +285,11 @@ function preloadLanguageWorker(): Plugin {
   };
 }
 
+/**
+ * Z3 is served from `z3/<hash>/`, named by the content of the worker and the wasm together, so builds that ship the same
+ * Z3 can share one copy: a deployment holding several playground builds keeps one directory per hash under the
+ * `sharedRoot` that `deployment.json` gives each build, and a build never runs against a Z3 it was not built with.
+ */
 function z3Runtime(): Plugin {
   const workerEntry = join(import.meta.dirname, "src", "z3", "z3Worker.cjs");
   const wasmPath = join(z3Build, "z3-built.wasm");
@@ -309,20 +315,29 @@ function z3Runtime(): Plugin {
       },
     }],
   }).then(result => result.outputFiles[0].text);
+  const directory = async () => {
+    const hash = createHash("sha256").update(await bundleWorker()).update(readFileSync(wasmPath)).digest("hex");
+    return `z3/${hash.slice(0, 16)}`;
+  };
   return {
     name: "tspp:z3-runtime",
+    async config() {
+      return { define: { __TSPP_Z3_DIRECTORY__: JSON.stringify(await directory()) } };
+    },
     configureServer(server) {
       server.watcher.add(workerEntry);
       server.watcher.on("change", file => { if (file === workerEntry) workerScript = undefined; });
+      // The development server serves the current Z3 under any hash.
       server.middlewares.use("/z3/", (request, response, next) => {
         for (const [name, value] of Object.entries(isolationHeaders)) response.setHeader(name, value);
-        if (request.url === "/z3.worker.js") {
+        const file = /^\/[0-9a-f]+(\/[^/?]+)/.exec(request.url ?? "")?.[1];
+        if (file === "/z3.worker.js") {
           void bundleWorker().then(script => {
             response.setHeader("Content-Type", "text/javascript");
             response.end(script);
           }, next);
         }
-        else if (request.url === "/z3-built.wasm") {
+        else if (file === "/z3-built.wasm") {
           response.setHeader("Content-Type", "application/wasm");
           response.setHeader("Content-Length", statSync(wasmPath).size);
           response.end(readFileSync(wasmPath));
@@ -331,8 +346,11 @@ function z3Runtime(): Plugin {
       });
     },
     async generateBundle() {
-      this.emitFile({ type: "asset", fileName: "z3/z3.worker.js", source: await bundleWorker() });
-      this.emitFile({ type: "asset", fileName: "z3/z3-built.wasm", source: readFileSync(wasmPath) });
+      const z3 = await directory();
+      this.emitFile({ type: "asset", fileName: `${z3}/z3.worker.js`, source: await bundleWorker() });
+      this.emitFile({ type: "asset", fileName: `${z3}/z3-built.wasm`, source: readFileSync(wasmPath) });
+      // A deployment that moves the shared files elsewhere rewrites this file.
+      this.emitFile({ type: "asset", fileName: "deployment.json", source: `${JSON.stringify({ sharedRoot: "./" }, undefined, 2)}\n` });
     },
   };
 }

@@ -54,8 +54,9 @@ protocol to LSP. The VSCode extension starts the LSP with the workspace
 
 ## Releases
 
-A release publishes two things, both at the version of the root `package.json`:
-the `ts-plus-plus` package and the VS Code extension. Every other package in the
+A release publishes three things, all at the version of the root `package.json`:
+the `ts-plus-plus` package, the VS Code extension and the playground as a static
+site in a zip. Every other package in the
 workspace is internal, stays at `0.0.0` and is never published on its own:
 
 - the feature plugins and the SDK travel inside `ts-plus-plus` as bundled dependencies.

@@ -7,13 +7,19 @@ Releases.
 
 ## What a release contains
 
-Each release attaches two files, both at the root version:
+Each release attaches three files, all at the root version:
 
 - `ts-plus-plus-X.Y.Z.tgz`, the compiler package. The feature plugins and the
   plugin SDK travel inside it as bundled dependencies, and projects name the
   plugins `ts-plus-plus/plugins/<name>`.
 - `tspp-vscode-X.Y.Z.vsix`, the VS Code extension. It carries the language
   server and the compiler it runs.
+- `tspp-playground-X.Y.Z.zip`, the playground as a static site, with
+  `index.html` at the root of the zip. It loads Z3 from `z3/<hash>/`, a
+  directory named by the content of the Z3 files, under the `sharedRoot` that
+  its `deployment.json` gives. A site serving several playground builds can
+  keep one copy of each Z3 at a shared root and point each build's
+  `deployment.json` there; builds whose Z3 differs never share one.
 
 Nothing is published to npm or the VS Code Marketplace.
 
