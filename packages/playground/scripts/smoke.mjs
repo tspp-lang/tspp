@@ -59,17 +59,8 @@ async function runExample(page, example, errors) {
     window.__tsppAnalysisObserver.observe(status, { childList: true, characterData: true, subtree: true });
   });
   await page.selectOption("#examples", example);
-  await page.waitForFunction(() => !document.getElementById("run-javascript").disabled, undefined, { timeout: runTimeout });
-  await page.click("#run-javascript");
-  // Run reports its end in the status: success, an exception, or that it could not generate JavaScript.
-  await page.waitForFunction(() => {
-    const status = document.getElementById("run-status");
-    return !status.classList.contains("loading") && !/^(Running|Generating|Source changed)/.test(status.textContent ?? "");
-  }, undefined, { timeout: runTimeout });
-  const status = (await page.textContent("#run-status")) ?? "";
-  const output = await page.$$eval("#run-output .runtime-error", lines => lines.map(line => line.textContent));
+  const reasons = await runActiveFile(page);
   const problems = await page.$$eval("#problems .problem-message", items => items.map(item => item.textContent));
-  const reasons = [];
   // Macros expand in the background: every built-in output must catch up with them. Declaration views are an
   // explicit Playground request even when the example's real tsconfig disables emit or does not enable declarations.
   for (const category of ["javascript", "dts", "dtspp"]) {
@@ -82,11 +73,27 @@ async function runExample(page, example, errors) {
     if (!statuses.some(text => /^Downloading Z3 — first use may be slow… (?:\d+%|\d+\.\d MB)$/.test(text))) {
       reasons.push(`Z3 download progress was not shown: ${statuses.join(" | ")}`);
     }
+    await page.click('.tree-row[data-path="/src/10-logic-library.tspp"]');
+    reasons.push(...(await runActiveFile(page)).map(reason => `10-logic-library.tspp: ${reason}`));
   }
-  if (status !== "Exited successfully") reasons.push(`run ended with: ${status}`);
-  if (output.length) reasons.push(`it logged errors: ${output.join(" | ")}`);
   const crashes = problems.filter(problem => problem?.startsWith("Type checking failed"));
   if (crashes.length) reasons.push(crashes.join(" | "));
   if (errors.length) reasons.push(`the page threw: ${errors.join(" | ")}`);
   return reasons.join("; ") || undefined;
+}
+
+async function runActiveFile(page) {
+  await page.waitForFunction(() => !document.getElementById("run-javascript").disabled, undefined, { timeout: runTimeout });
+  await page.click("#run-javascript");
+  // Run reports its end in the status: success, an exception, or that it could not generate JavaScript.
+  await page.waitForFunction(() => {
+    const status = document.getElementById("run-status");
+    return !status.classList.contains("loading") && !/^(Running|Generating|Source changed)/.test(status.textContent ?? "");
+  }, undefined, { timeout: runTimeout });
+  const status = (await page.textContent("#run-status")) ?? "";
+  const output = await page.$$eval("#run-output .runtime-error", lines => lines.map(line => line.textContent));
+  const reasons = [];
+  if (status !== "Exited successfully") reasons.push(`run ended with: ${status}`);
+  if (output.length) reasons.push(`it logged errors: ${output.join(" | ")}`);
+  return reasons;
 }

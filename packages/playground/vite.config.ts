@@ -112,10 +112,18 @@ function packageTypes(): Plugin {
       const files: Record<string, string> = {};
       for (const packageName of declarationPackages) {
         const root = dirname(dirname(require.resolve(packageName)));
-        const packagePath = join(root, "package.json");
-        files[`/node_modules/${packageName}/package.json`] = readFileSync(packagePath, "utf8");
+        const packagePath = `/node_modules/${packageName}`;
+        let manifestText = readFileSync(join(root, "package.json"), "utf8");
+        if (packageName === "@tspp/plugin-formal-verification") {
+          // Run can emit the standalone SMT library as either ESM or CommonJS from the same source.
+          const manifest = JSON.parse(manifestText) as { exports: Record<string, unknown> };
+          manifest.exports["./smt"] = "./src/smt.ts";
+          manifestText = JSON.stringify(manifest);
+          files[`${packagePath}/src/smt.ts`] = readFileSync(join(root, "src", "smt.ts"), "utf8");
+        }
+        files[`${packagePath}/package.json`] = manifestText;
         for (const file of listFiles(join(root, "dist")).filter(file => file.endsWith(".d.ts"))) {
-          files[`/node_modules/${packageName}/dist/${file}`] = readFileSync(join(root, "dist", file), "utf8");
+          files[`${packagePath}/dist/${file}`] = readFileSync(join(root, "dist", file), "utf8");
         }
       }
       const examplePackages = readdirSync(examplesRoot).filter(name => /^\d\d-/.test(name)).flatMap(directory => {
