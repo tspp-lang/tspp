@@ -11,8 +11,10 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import { createProofDirectives, maskContractClauses, restoreContractFunctionClause, type PendingProof } from "./contracts";
 import { collectProgramProofs } from "./program";
+import { indexProgram } from "./program-index";
 import { clearZ3AnswerCache, renderZ3Query, solveWithZ3Cached } from "./solver";
 import { collectLogicLibrary } from "./logic";
+import { identifierSource } from "./expression";
 import { clearPreparedVerificationSources } from "./source-cache";
 import { createRefinementClauses } from "./refinements";
 import { useTypeScript } from "./host-api";
@@ -28,6 +30,8 @@ export interface FormalVerificationAnalyzerOptions {
 export function createFormalVerificationAnalyzer(options: FormalVerificationAnalyzerOptions = {}): TSPPProgramAnalyzer {
     return {
         id: "proof-points",
+        needsCallTargets: true,
+        needsClassAncestry: true,
         analyze: input => analyze(input, options),
     };
 }
@@ -48,10 +52,10 @@ async function analyze(input: TSPPProgramAnalysisInput, options: FormalVerificat
         });
         return diagnostics;
     }
-    for (const sourceFile of input.sourceFiles) {
-        // Other files can hold logic definitions, but contracts and directives are TS++ syntax.
-        if (!sourceFile.fileName.endsWith(".tspp")) continue;
-        for (const proof of collectProgramProofs(sourceFile, diagnostics, logic, nominalTypes)) queries.push({ proof });
+    // Other files can hold logic definitions, but contracts and directives are TS++ syntax.
+    const index = indexProgram(input.sourceFiles, nominalTypes, diagnostics);
+    for (const file of index.files.values()) {
+        for (const proof of collectProgramProofs(file, index, diagnostics, logic, nominalTypes)) queries.push({ proof });
     }
     const answers = await solveWithZ3Cached(queries.map(query => query.proof.query));
     const artifacts: TSPPAnalysisArtifact[] = [];
@@ -95,6 +99,7 @@ export const formalVerificationPlugin = definePlugin({
         syntax: {
             keywords: [
                 { keyword: "with", position: "function-clause" },
+                { keyword: "with", position: "header-clause" },
                 { keyword: "with", position: "loop-clause" },
                 { keyword: "with", position: "postfix-type" },
                 { keyword: "assert", position: "statement" },
@@ -110,6 +115,7 @@ export const formalVerificationPlugin = definePlugin({
                     id: "contract-projection",
                     claims: [
                         { keyword: "with", position: "function-clause" },
+                        { keyword: "with", position: "header-clause" },
                         { keyword: "with", position: "loop-clause" },
                     ],
                     preprocess: maskContractClauses,
@@ -169,7 +175,7 @@ const contractDocumentation: Readonly<Record<string, string>> = {
     assert: "Creates a proof obligation at this program point.",
     assume: "Adds a fact the proofs after this point may use, without proving it.",
     predicate: "Declares the condition every value of a refinement type satisfies.",
-    invariant: "Declares a loop invariant checked before and after every iteration.",
+    invariant: "On a loop, declares a condition checked before and after every iteration. On a class, declares a condition every constructor establishes and every method preserves, including when it throws.",
 };
 
 /** Terms of proofs are names only the solver reads, which nothing classifies: they render alike, as variables do. */
@@ -184,7 +190,7 @@ function verificationTermTokens(request: TSPPSemanticTokensRequest): TSPPSemanti
 }
 
 function wordAt(sourceText: string, position: number): { readonly start: number; readonly text: string; } | undefined {
-    const expression = /[A-Za-z_$][\w$]*/g;
+    const expression = new RegExp(identifierSource, "gu");
     for (let match = expression.exec(sourceText); match; match = expression.exec(sourceText)) {
         if (match.index <= position && position <= match.index + match[0].length) {
             return { start: match.index, text: match[0] };

@@ -1,7 +1,7 @@
 import type * as TS from "typescript-upstream";
 import { nameText, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
-import type { Sort } from "./expression";
+import { identifierSource, type Sort } from "./expression";
 import { collectFunctionClauses, parseProperties } from "./contracts";
 import { refinedTypeEnd, type RefinementModel } from "./refinements";
 
@@ -20,6 +20,60 @@ export interface FunctionModel {
     readonly returnRefinement?: RefinementModel;
     readonly numberModel?: "mathematical-real" | "safe-integer";
     readonly returnSort?: Sort;
+}
+
+/** The contract written in a `with` clause, before the signature it belongs to is known. */
+export interface ContractClause {
+    readonly requires: readonly Clause[];
+    readonly ensures: readonly Clause[];
+    readonly numberModel?: FunctionModel["numberModel"];
+}
+
+/** Whether a call to the function owes a proof: it has a precondition or a refined parameter. */
+export function guardsCalls(model: FunctionModel): boolean {
+    return model.requires.length > 0 || Object.keys(model.parameterRefinements ?? {}).length > 0;
+}
+
+/**
+ * Models a function-like declaration's signature: the parameters proofs can read, the fields of record parameters, and
+ * refinements. Parameters of other types are left out, though calls still pass every argument.
+ */
+export function modelSignature(
+    name: string,
+    declaration: TS.SignatureDeclaration,
+    contract: ContractClause | undefined,
+    refinements: ReadonlyMap<string, RefinementModel>,
+    records: ReadonlyMap<string, ReadonlyMap<string, Sort>>,
+    bodyStart: number,
+): FunctionModel {
+    const numberModel = contract?.numberModel;
+    const variables: Record<string, Sort> = {};
+    const parameters: string[] = [];
+    const parameterPositions: number[] = [];
+    const parameterRefinements: Record<string, RefinementModel> = {};
+    for (const [position, parameter] of declaration.parameters.entries()) {
+        if (!ts.isIdentifier(parameter.name)) continue;
+        const refinement = refinementFromType(parameter.type, refinements);
+        const sort = refinement?.sort ?? sortFromType(parameter.type, refinements, numberModel);
+        if (sort) {
+            parameters.push(nameText(parameter.name));
+            parameterPositions.push(position);
+            variables[nameText(parameter.name)] = sort;
+            if (refinement) parameterRefinements[nameText(parameter.name)] = refinement;
+        }
+        else {
+            for (const [field, fieldSort] of fieldsFromType(parameter.type, records, numberModel) ?? []) {
+                variables[`${nameText(parameter.name)}.${field}`] = fieldSort;
+            }
+        }
+    }
+    const returnRefinement = refinementFromType(declaration.type, refinements);
+    return {
+        name, parameters, parameterPositions, arity: declaration.parameters.length, variables,
+        requires: contract?.requires ?? [], ensures: contract?.ensures ?? [],
+        bodyStart, parameterRefinements, returnRefinement, numberModel,
+        returnSort: returnRefinement?.sort ?? sortFromType(declaration.type, refinements, numberModel),
+    };
 }
 
 export function refinementFromType(
@@ -141,7 +195,7 @@ export function parseFunctionModels(sourceText: string): Map<string, FunctionMod
     for (const clause of collectFunctionClauses(sourceText)) {
         const variables: Record<string, Sort> = {};
         const parameters: string[] = [];
-        const parameterPattern = /\b([A-Za-z_$][\w$]*)\s*:\s*(boolean|bigint|number)\b/g;
+        const parameterPattern = new RegExp(String.raw`(${identifierSource})\s*:\s*(boolean|bigint|number)\b`, "gu");
         const parameterText = sourceText.slice(clause.parametersStart + 1, clause.parametersEnd);
         for (let parameter; (parameter = parameterPattern.exec(parameterText));) {
             parameters.push(parameter[1]);
@@ -164,7 +218,7 @@ export function parseFunctionModels(sourceText: string): Map<string, FunctionMod
  * Whether a function takes part in verification: it states a contract, a number model, or a refinement, or its body
  * contains a proof directive. Other functions stay callable from verified code but are not checked themselves.
  */
-export function participatesInVerification(statement: TS.FunctionDeclaration, model: FunctionModel): boolean {
+export function participatesInVerification(statement: TS.FunctionLikeDeclaration, model: FunctionModel): boolean {
     if (model.requires.length || model.ensures.length || model.numberModel || model.returnRefinement) return true;
     if (Object.keys(model.parameterRefinements ?? {}).length) return true;
     const hasDirective = (node: TS.Node): boolean =>

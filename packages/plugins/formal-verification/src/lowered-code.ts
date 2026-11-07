@@ -18,16 +18,19 @@ export interface Lowering {
  * The arguments of a call to `model` for the parameters proofs can read, in their order. No proof reads a parameter of a
  * type outside the model, so its argument only has to hide no obligation.
  */
-export function lowerCallArguments(node: TS.CallExpression, model: FunctionModel, state: State, context: Context, { lowerExpression }: Lowering): Term[] {
+export function lowerCallArguments(
+    node: { readonly arguments?: readonly TS.Expression[]; }, model: FunctionModel, state: State, context: Context, { lowerExpression }: Lowering,
+): Term[] {
     const positions = model.parameterPositions ?? model.parameters.map((_, index) => index);
     const arity = model.arity ?? model.parameters.length;
-    if (node.arguments.length !== arity) throw new Error(`'${model.name}' expects ${arity} arguments.`);
-    node.arguments.forEach((argument, index) => {
+    const callArguments = node.arguments ?? [];
+    if (callArguments.length !== arity) throw new Error(`'${model.name}' expects ${arity} arguments.`);
+    callArguments.forEach((argument, index) => {
         if (positions.includes(index)) return;
         try { lowerExpression(argument, state, context); }
         catch (error) { if (mayCarryObligations(argument, state, context)) throw error; }
     });
-    return positions.map(position => lowerExpression(node.arguments[position], state, context));
+    return positions.map(position => lowerExpression(callArguments[position], state, context));
 }
 
 /** The function an immediately invoked call runs, as in `(() => { ... })()` and `((x) => x + 1n)(y)`. */
