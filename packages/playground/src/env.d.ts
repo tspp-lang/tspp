@@ -54,6 +54,12 @@ declare module "virtual:tspp-editor-keywords" {
   export default keywords;
 }
 
+declare module "monaco-editor/languages/definitions/markdown/markdown.js" {
+  import type { languages } from "monaco-editor";
+  export const conf: languages.LanguageConfiguration;
+  export const language: languages.IMonarchLanguage;
+}
+
 declare module "monaco-editor/languages/definitions/typescript/typescript.js" {
   import type { languages } from "monaco-editor";
   export const conf: languages.LanguageConfiguration;

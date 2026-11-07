@@ -257,7 +257,9 @@ function examplesPlugin(): Plugin {
         const sources = listFiles(sourceRoot).filter(file => /\.(tspp|ts)$/.test(file) && !/\.d\.(tspp|ts)$/.test(file));
         if (!sources.length) return [];
         const resources = listFiles(sourceRoot).filter(file => file.endsWith(".json"));
+        const readme = join(directory, "README.md");
         const files = Object.fromEntries([
+          ...existsSync(readme) ? [["/README.md", readFileSync(readme, "utf8")]] : [],
           ["/package.json", readFileSync(join(directory, "package.json"), "utf8")],
           ["/tsconfig.json", configText],
           ...sources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),

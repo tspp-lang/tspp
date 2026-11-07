@@ -1,9 +1,9 @@
 import examples from "virtual:tspp-examples";
 import { startLanguageWorker } from "./client";
+import { editorLanguage, isEditorFile, isSourceFile, registerEditorLanguages } from "./editorLanguages";
 import { defaultConfiguration, parseProjectConfiguration, setFeatureInConfiguration } from "./configuration";
 import { currentVersion, z3Location } from "./deployment";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
-import { jsoncLanguageId, registerJsoncLanguage } from "./jsoncLanguage";
 import * as monaco from "./monaco";
 import { createOutputController } from "./outputs";
 import { renderProblemList } from "./problems";
@@ -11,9 +11,7 @@ import { addParentDirectories, baseName, normalizedPath, parentDirectory, render
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeState, encodeState, onSharedStateChange, type SharedState } from "./share";
-import { registerSmtLanguage } from "./smtLanguage";
 import { renderSolverStatus } from "./solverStatus";
-import { languageId, registerTsppLanguage } from "./tsppLanguage";
 import { pinnedShareLink, setupVersionSelector } from "./versionSelector";
 import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
 
@@ -54,9 +52,7 @@ const client = startLanguageWorker(event => {
   }
   else renderSolverStatus(analysisStatus, event);
 });
-registerTsppLanguage();
-registerJsoncLanguage();
-registerSmtLanguage();
+registerEditorLanguages();
 registerProviders(client);
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
@@ -101,14 +97,12 @@ let active = "";
 let selectedProjectItem = "";
 
 const currentFeatures = () => effectiveFeatures(definitions, selected);
-const isSourceFile = (path: string) => /\.(tspp|ts)$/.test(path);
-const isEditorFile = (path: string) => isSourceFile(path) || path.endsWith(".json");
 const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...savedContents]);
 const isDirty = (path: string) => models.get(path)?.getValue() !== savedContents.get(path);
 const dirtyFiles = () => new Set([...models.keys()].filter(isDirty));
 
 function createProjectModel(path: string, text: string): monaco.editor.ITextModel {
-  const model = monaco.editor.createModel(text, path.endsWith(".json") ? jsoncLanguageId : isSourceFile(path) ? languageId : "plaintext", monaco.Uri.file(path));
+  const model = monaco.editor.createModel(text, editorLanguage(path), monaco.Uri.file(path));
   model.onDidChangeContent(() => {
     checkGeneration++;
     checkCancellation?.cancel();
