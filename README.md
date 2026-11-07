@@ -72,9 +72,10 @@ pnpm pack:release   # builds, then assembles release/
 pnpm test:release   # installs release/ into an empty project and exercises it
 ```
 
-Releasing is setting the version: when master reaches a commit whose root
-version has no `vX.Y.Z` tag, `.github/workflows/release.yml` runs both commands
-above and publishes the result on GitHub Releases, which tags that commit. A
+Releasing is setting the version: when the TS++ checks pass on a commit pushed
+to master whose root version has no `vX.Y.Z` tag, `.github/workflows/release.yml`
+runs both commands above on that commit and publishes the result on GitHub
+Releases, which tags it. A
 version with a prerelease part, such as `0.2.0-beta.1`, is published as a
 prerelease. Nothing is published to npm or the Marketplace.
 

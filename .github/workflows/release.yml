@@ -1,15 +1,16 @@
 name: Release
 
-# The root package.json holds the one version TS++ releases. Whenever master reaches a commit whose version has no
-# vX.Y.Z tag yet, this assembles the release, tests it as an outside project would, and publishes it on GitHub Releases
-# with the ts-plus-plus package and the VS Code extension attached. Creating the release tags that commit. Nothing goes
-# to npm or the Marketplace.
+# The root package.json holds the one version TS++ releases. Whenever the TS++ checks pass on a commit pushed to master
+# whose version has no vX.Y.Z tag yet, this assembles the release from that commit, tests it as an outside project would,
+# and publishes it on GitHub Releases with the ts-plus-plus package and the VS Code extension attached. Creating the
+# release tags that commit. A failed or cancelled check run releases nothing; the next passing one on master still
+# finds the version untagged. Nothing goes to npm or the Marketplace.
 
 on:
-  push:
+  workflow_run:
+    workflows: [TS++]
+    types: [completed]
     branches: [master]
-    paths: [package.json]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -21,16 +22,21 @@ concurrency:
 
 env:
   CI: true
+  # The commit the checks passed on, which may be behind master by now.
+  SHA: ${{ github.event.workflow_run.head_sha }}
 
 jobs:
   version:
     name: Find an unreleased version
+    if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push'
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
       unreleased: ${{ steps.version.outputs.unreleased }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.SHA }}
       - id: version
         run: |
           version=$(node -p 'require("./package.json").version')
@@ -51,6 +57,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.SHA }}
       - uses: ./.github/actions/setup
       - run: pnpm pack:release
       - run: pnpm test:release
@@ -61,4 +69,4 @@ jobs:
         run: |
           # A version with a prerelease part, such as 0.2.0-beta.1, is published as a prerelease.
           prerelease=$([[ "$VERSION" == *-* ]] && echo --prerelease || true)
-          gh release create "v$VERSION" release/* --target "$GITHUB_SHA" --title "TS++ $VERSION" --generate-notes $prerelease
+          gh release create "v$VERSION" release/* --target "$SHA" --title "TS++ $VERSION" --generate-notes $prerelease
