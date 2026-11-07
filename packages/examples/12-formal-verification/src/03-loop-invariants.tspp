@@ -1,0 +1,64 @@
+// ============================================================================
+// 12-formal-verification / 03-loop-invariants.tspp
+//
+// 循环不变式（`invariant:`）与数学归纳证明
+//
+// 为什么循环需要额外写“循环不变式（Loop Invariant）”？
+// 当函数里包含 `while (current < limit)` 循环时，`limit` 可能是 10，也可能是 100 亿，甚至是任意未知的非负整数。
+// 编译器不可能在编译期把循环真正展开执行无数次。
+//
+// 为了在有限时间内证明任意次数的循环都正确，编译器采用了**数学归纳法（Mathematical Induction）**，通过 `invariant:` 分三步完成证明：
+//   1. **进入前成立（Initialization）**：在第一次进入循环之前，证明 `invariant:` 中的条件成立；
+//   2. **单步保持（Preservation）**：假设某一轮循环开始时 `invariant:` 成立且循环条件 `current < limit` 为真，证明执行完一轮循环体后 `invariant:` 依然成立；
+//   3. **退出后推导（Exit Conclusion）**：当循环结束退出时，编译器结合“`invariant:` 成立”与“循环条件 `current < limit` 不再成立（即 `current >= limit`）”，推导出最终结论。
+// ============================================================================
+// Loop Invariants (`invariant:`) & Inductive Proofs
+//
+// Why do loops require an explicit "loop invariant"?
+// In a loop like `while (current < limit)`, `limit` might be 10, 10 billion, or any unknown non-negative integer.
+// The compiler cannot unroll and execute the loop infinitely many times at compile time.
+//
+// To prove a loop correct for any number of iterations, the compiler uses **mathematical induction** via `invariant:`:
+//   1. **Initialization**: Prove the invariant holds right before the first iteration begins;
+//   2. **Preservation**: Assuming the invariant and loop condition (`current < limit`) hold at the start of an iteration, prove the invariant still holds at the end of the loop body;
+//   3. **Exit Conclusion**: When the loop terminates, combine the invariant with the negated loop condition (`!(current < limit)`, i.e., `current >= limit`) to prove the postcondition.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 用循环不变式证明循环后的精确结果
+//
+// 写法：`while (<循环条件>) with { invariant: [<条件1>, <条件2>, ...]; } { ... }`
+// 效果：在下面的 `count` 函数中：
+//   - 进入循环前：`current = 0n` 且 `limit >= 0n`，满足 `current >= 0n` 与 `current <= limit`；
+//   - 每一轮循环中：因为 `current < limit`，所以 `current + 1n` 依然 `<= limit`，不变式得以保持
+//     （若将步长改为 `current += 2n`，当 `current = 0n, limit = 1n` 时下一轮 `current = 2n` 就会破坏 `current <= limit`，编译报错）；
+//   - 退出循环时：既有不变式 `current <= limit`，又有循环结束条件 `!(current < limit)`（即 `current >= limit`），
+//     两者合并即可严格证明退出时必然有 `current === limit`。
+// ----------------------------------------------------------------------------
+// 1. Proving Exact Post-Loop Results with Loop Invariants
+//
+// Syntax: `while (<condition>) with { invariant: [<cond1>, <cond2>, ...]; } { ... }`
+// Effect: In `count` below:
+//   - Entry: `current = 0n` and `limit >= 0n`, satisfying `current >= 0n` and `current <= limit`;
+//   - Iteration: since `current < limit` holds, `current + 1n <= limit` still holds at the end of the body
+//     (if the step were `current += 2n`, `current = 0n, limit = 1n` would step to `2n`, failing invariant preservation at compile time);
+//   - Exit: combining the invariant `current <= limit` with loop exit `!(current < limit)` (`current >= limit`)
+//     strictly proves `current === limit`.
+// ----------------------------------------------------------------------------
+
+// 从 0n 累加到 limit：依靠循环不变式证明循环结束后 current 必然精确等于 limit
+// Count from `0n` up to `limit`: the loop invariant proves that `current` equals `limit` upon termination
+function count(limit: bigint) with {
+    requires: limit >= 0n;
+    ensures: result === limit;
+}: bigint {
+    let current: bigint = 0n;
+    while (current < limit) with {
+        invariant: [current >= 0n, current <= limit];
+    } {
+        current += 1n;
+    }
+    return current;
+}
+
+console.log(count(4n));

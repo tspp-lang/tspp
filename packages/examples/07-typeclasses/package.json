@@ -1,0 +1,15 @@
+{
+  "name": "@tspp/example-typeclasses",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "check": "tspp --project tsconfig.json --pretty false",
+    "build": "tspp --project tsconfig.json --pretty false --noEmit false",
+    "start": "node dist/01-typeclasses.js && node dist/02-generic-and-inherent.js",
+    "lint": "eslint src"
+  },
+  "devDependencies": {
+    "eslint": "^10.10.0",
+    "ts-plus-plus": "workspace:*"
+  }
+}

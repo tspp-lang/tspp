@@ -1,0 +1,71 @@
+// ============================================================================
+// 10-dependent-types / 09-imported-aliases.tspp
+//
+// 跨模块类型计算与按值索引的类型构造器
+//
+// 在实际项目中，类型定义与公理往往分布在多个模块文件中。
+// TS++ 的依赖类型计算支持跨文件无缝传递：从其他模块 `import type` 导入的类型别名（如自然数 `Two`）
+// 依然保留完整的结构信息，可以直接在当前文件中参与算术运算、相等性证明（`Refl`）以及按值索引的类型构造。
+// ============================================================================
+// Cross-Module Type Computation & Value-Indexed Type Constructors
+//
+// In real projects, type definitions and lemmas are organized across multiple files.
+// Dependent type computation in TS++ works seamlessly across module boundaries: type aliases imported
+// via `import type` (such as `Two` from `./04-naturals`) retain their full computational definition,
+// participating in arithmetic reduction, `Refl` equality proofs, and value-indexed type constructors.
+// ============================================================================
+
+// 从 `04-naturals.tspp` 导入皮亚诺自然数 `Two`（即 `Succ<Succ<Zero>>`）
+// Import the Peano natural number `Two` (`Succ<Succ<Zero>>`) from `./04-naturals`
+import type { Two } from "./04-naturals";
+
+// ----------------------------------------------------------------------------
+// 1. 跨模块自然数计算与 `Refl` 相等性证明
+//
+// 导入的 `Two` 可以直接传给 `NatAdd<Two, Two>` 计算出 `Four`。
+// 同时，自然数类型与对应的数字字面量是互通的（`Four` 对应数字字面量 `4`），
+// 而且我们可以直接用自反性构造器 `Refl<Nat, Four>` 证明“`Four`（2 + 2）等于 `Succ<Succ<Two>>`（1 + 1 + 2）”！
+// ----------------------------------------------------------------------------
+// 1. Cross-Module Natural Arithmetic & `Refl` Equality Proof
+//
+// The imported `Two` can be passed directly into `NatAdd<Two, Two>` to compute `Four`.
+// Peano naturals bridge cleanly to numeric literals (`Four` accepts literal `4`),
+// and `Refl<Nat, Four>` proves that `Four` (`2 + 2`) equals `Succ<Succ<Two>>` (`1 + 1 + 2`) by computation!
+// ----------------------------------------------------------------------------
+
+// 用导入的 `Two` 计算 `2 + 2 = 4`，并绑定对应的字面量值 `4`
+// Compute `2 + 2 = 4` from the imported `Two`, and bind the matching numeric literal `4`
+export type Four: Nat = NatAdd<Two, Two>;
+export const four: Four = 4;
+
+// 因为 `Four` 与 `Succ<Succ<Two>>` 在编译期都会化简为同一个皮亚诺自然数 4，
+// 所以直接用自反性证明 `Refl<Nat, Four>` 就能完成定理 `FourIsTwoPlusTwo` 的证明！
+// Because both `Four` and `Succ<Succ<Two>>` reduce to the exact same Peano numeral 4 at compile time,
+// reflexivity `Refl<Nat, Four>` directly proves the theorem `FourIsTwoPlusTwo`!
+export type FourIsTwoPlusTwo: Eq<Nat, Four, Succ<Succ<Two>>> = Refl<Nat, Four>;
+
+// ----------------------------------------------------------------------------
+// 2. 值级类型函数（`Nat => Nat`）与按值索引的类型构造器（`Nat => Type`）
+//
+// 使用 `<参数: 类型> =>> <结果>` 语法，我们可以编写：
+//   1. 从值到值的类型级函数（`Nat => Nat`）：如接收自然数 `n: Nat` 并返回 `Succ<n>` 的自增函数 `Inc`；
+//   2. 从值到类型的依赖类型构造器（`Nat => Type`）：如接收自然数 `N: Nat` 并返回 `{ size: N }` 的 `Sized`——
+//      它展示了如何用编译期数值 `N` 精确约束对象属性的类型！
+// ----------------------------------------------------------------------------
+// 2. Value-Level Type Functions (`Nat => Nat`) & Value-Indexed Type Constructors (`Nat => Type`)
+//
+// Using the `<param: Kind> =>> <Body>` lambda syntax, we can define:
+//   1. Value-to-value type functions (`Nat => Nat`): such as `Inc`, which takes `n: Nat` and returns `Succ<n>`;
+//   2. Value-to-type dependent constructors (`Nat => Type`): such as `Sized`, which takes `N: Nat` and returns `{ size: N }` —
+//      indexing an object type directly by a compile-time natural number!
+// ----------------------------------------------------------------------------
+
+// 自然数自增函数 `Inc`：类型为 `Nat => Nat`，把输入的 `2`（`Succ<Succ<Zero>>`）变成 `3`
+// Natural increment function `Inc`: has signature `Nat => Nat`, turning `2` (`Succ<Succ<Zero>>`) into `3`
+export type Inc: Nat => Nat = <n: Nat> =>> Succ<n>;
+export const three: Inc<Succ<Succ<Zero>>> = 3;
+
+// 按自然数索引的类型构造器 `Sized`：类型为 `Nat => Type`，传入 `Four` 后生成 `{ size: 4 }`
+// Value-indexed type constructor `Sized`: has signature `Nat => Type`, producing `{ size: 4 }` when applied to `Four`
+export type Sized: Nat => Type = <N: Nat> =>> { size: N };
+export const sized: Sized<Four> = { size: 4 };

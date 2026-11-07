@@ -79,7 +79,7 @@ async function runExample(page, example, errors) {
     await file.click();
     const runFailures = await runActiveFile(page).catch(error => [String(error)]);
     reasons.push(...runFailures.map(reason => `${path}: ${reason}`));
-    if (example === "14-algebraic-effects" && path === "/src/02-suspension.tspp" && !runFailures.length) {
+    if (example === "11-algebraic-effects" && path === "/src/02-suspension.tspp" && !runFailures.length) {
       const output = (await page.locator("#run-output .runtime-log").allTextContents()).map(line => line.trimEnd());
       const expected = [
         "retried after: timeout",
@@ -92,7 +92,7 @@ async function runExample(page, example, errors) {
     const problems = await page.locator("#problems .problem-message").allTextContents();
     reasons.push(...problems.filter(problem => problem.startsWith("Type checking failed")).map(problem => `${path}: ${problem}`));
   }
-  if (example === "02-formal-verification") {
+  if (example === "12-formal-verification") {
     const statuses = await page.evaluate(() => window.__tsppAnalysisStatuses);
     if (!statuses.some(text => /^Downloading Z3 — first use may be slow… (?:\d+%|\d+\.\d MB)$/.test(text))) {
       reasons.push(`Z3 download progress was not shown: ${statuses.join(" | ")}`);

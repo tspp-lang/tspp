@@ -1,0 +1,77 @@
+// ============================================================================
+// 12-formal-verification / 04-refinement-types.tspp
+//
+// 精化类型（Refinement Types，`with { predicate: ... }`）
+//
+// 在普通 TypeScript 中，如果我们想表示“正整数”或“非负整数”，只能写笼统的 `bigint`；
+// 这意味着每个接收正整数的函数都得重复写一遍 `requires: value > 0n`。
+//
+// 精化类型（Refinement Type）允许我们在一个基础类型（如 `bigint`）之上附加一条逻辑谓词（Predicate，`predicate: ...`），
+// 将满足该谓词的值精准筛出来，定义为一个独立的类型：
+//   - 当把一个值赋给精化类型变量、或传给接收精化类型的函数时，编译器会在编译期自动证明该值满足 `predicate`
+//     （例如将 `0n` 赋给 `Positive` 会在编译期直接报错）；
+//   - 当一个精化类型（如 `Positive`，满足 `value > 0n`）隐式蕴含了另一个精化类型（如 `NonNegative`，满足 `value >= 0n`）的条件时，
+//     编译器会自动证明它们之间的子类型蕴含关系，无需任何手动转换。
+// ============================================================================
+// Refinement Types (`with { predicate: ... }`)
+//
+// In standard TypeScript, concepts like "positive integer" or "non-negative integer" can only be typed as `bigint`,
+// forcing every function that expects a positive integer to repeat `requires: value > 0n`.
+//
+// Refinement types let you attach a logical predicate (`predicate: ...`) directly to a base type (such as `bigint`),
+// carving out the subset of values that satisfy that formula as a reusable type:
+//   - Whenever a value is assigned or passed to a refinement type, the compiler statically proves it satisfies `predicate`
+//     (e.g., assigning `0n` to `Positive` fails at compile time);
+//   - Whenever one refinement predicate (e.g., `Positive` with `value > 0n`) logically implies another
+//     (e.g., `NonNegative` with `value >= 0n`), the compiler automatically proves subtyping without manual casts.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 定义精化类型与编译期谓词检查
+//
+// 写法：`type <类型名> = <基础类型> with { predicate: <关于 value 的逻辑条件>; };`
+// 效果：其中关键字 `value` 指代被约束的值本身。任何赋给该类型的值都必须在编译期通过 `predicate` 的证明。
+// ----------------------------------------------------------------------------
+// 1. Defining Refinement Types & Compile-Time Predicate Checking
+//
+// Syntax: `type <Name> = <BaseType> with { predicate: <condition on value>; };`
+// Effect: `value` refers to the inhabitant being constrained. Any value assigned to this type must be proven to satisfy `predicate`.
+// ----------------------------------------------------------------------------
+
+// 正整数类型：所有严格大于 0n 的整数
+// Positive integer type: all integers strictly greater than `0n`
+type Positive = bigint with {
+    predicate: value > 0n;
+};
+
+// 非负整数类型：所有大于或等于 0n 的整数
+// Non-negative integer type: all integers greater than or equal to `0n`
+type NonNegative = bigint with {
+    predicate: value >= 0n;
+};
+
+// 常量赋值验证：18n > 0n 恒成立，编译通过
+// Constant assignment check: `18n > 0n` holds, so compilation succeeds
+const positive: Positive = 18n;
+
+// ----------------------------------------------------------------------------
+// 2. 逻辑蕴含与子类型传递
+//
+// 数学上“大于 0”（`value > 0n`）必然蕴含“大于等于 0”（`value >= 0n`）。
+// 因此 `Positive` 的值可以直接作为 `NonNegative` 返回，编译器会自动完成这一逻辑蕴含证明。
+// 反之，若把 `NonNegative` 直接当作 `Positive` 返回，编译器会指出反例 `value = 0n` 并拒绝通过。
+// ----------------------------------------------------------------------------
+// 2. Logical Implication & Subtype Propagation
+//
+// Mathematically, `value > 0n` implies `value >= 0n`.
+// Thus a `Positive` value can be returned directly as `NonNegative`, and the compiler proves the implication automatically.
+// Conversely, returning a `NonNegative` as `Positive` is rejected at compile time with counterexample `value = 0n`.
+// ----------------------------------------------------------------------------
+
+// 从更严格的精化类型（Positive）安全放宽到更宽泛的精化类型（NonNegative）
+// Safely widen from a stricter refinement (`Positive`) to a broader refinement (`NonNegative`)
+function widen(value: Positive): NonNegative {
+    return value;
+}
+
+console.log(widen(positive));

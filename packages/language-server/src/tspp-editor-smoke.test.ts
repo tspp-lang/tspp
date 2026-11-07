@@ -122,7 +122,7 @@ describe('TS++ examples editor smoke test', () => {
     }, 60_000);
 
     it('keeps operator-section placeholder hover contextual instead of any', async () => {
-        const example = exampleSources.find(source => source.name.endsWith(path.join('11-operator-sections', 'src', '01-basics.tspp')))!;
+        const example = exampleSources.find(source => source.name.endsWith(path.join('02-operator-sections', 'src', '01-basics.tspp')))!;
         const server = await createServer({
             rootUri: URI.file(example.root).toString(),
             publishDiagnostics: () => undefined,
@@ -163,7 +163,7 @@ describe('TS++ examples editor smoke test', () => {
                 ],
             },
             {
-                packageName: '06-type-computation',
+                packageName: '08-type-computation',
                 fileName: 'src/01-let-bindings.tspp',
                 targets: [
                     { search: 'let Raw', offset: 4, includes: ['Raw', 'raw: T'] },
@@ -171,7 +171,7 @@ describe('TS++ examples editor smoke test', () => {
                 ],
             },
             {
-                packageName: '06-type-computation',
+                packageName: '08-type-computation',
                 fileName: 'src/02-type-match.tspp',
                 targets: [
                     { search: 'match T', includes: ['keyword', 'match'] },
@@ -181,17 +181,17 @@ describe('TS++ examples editor smoke test', () => {
                 ],
             },
             {
-                packageName: '06-type-computation',
+                packageName: '08-type-computation',
                 fileName: 'src/03-type-lambdas.tspp',
                 targets: [{ search: 'Identity =', includes: ['Identity', '<T', '=>>'] }],
             },
             {
-                packageName: '03-nominal-types',
+                packageName: '05-nominal-types',
                 fileName: 'src/01-basics.tspp',
                 targets: [{ search: 'newtype Box<T>', offset: 12, includes: ['type parameter', 'T'] }],
             },
             {
-                packageName: '03-nominal-types',
+                packageName: '05-nominal-types',
                 fileName: 'src/02-composed-patterns.tspp',
                 targets: [
                     { search: 'Either<', includes: ['data Either', 'Left', 'Right'] },
@@ -202,7 +202,7 @@ describe('TS++ examples editor smoke test', () => {
                 ],
             },
             {
-                packageName: '07-higher-kinded-types',
+                packageName: '09-higher-kinded-types',
                 fileName: 'src/01-basics.tspp',
                 targets: [
                     { search: ': Type0', offset: 2, includes: ['Type0', 'Type1'] },
@@ -273,11 +273,11 @@ describe('TS++ examples editor smoke test', () => {
             }
         };
 
-        const dependentRoot = path.join(examplesRoot, '05-dependent-types');
+        const dependentRoot = path.join(examplesRoot, '10-dependent-types');
         for (const filePath of collectTsppFiles(path.join(dependentRoot, 'src'))) {
             addMatches(filePath, /\btype\s+([A-Za-z_$][\w$]*)\s*:/gu);
         }
-        for (const packageName of ['03-nominal-types', '04-newtype-consumer']) {
+        for (const packageName of ['05-nominal-types', '06-newtype-consumer']) {
             const sourceRoot = path.join(examplesRoot, packageName, 'src');
             for (const filePath of collectTsppFiles(sourceRoot)) {
                 addMatches(
@@ -288,10 +288,10 @@ describe('TS++ examples editor smoke test', () => {
                 );
             }
         }
-        const consumerFile = path.join(examplesRoot, '04-newtype-consumer', 'src', '01-consumer.tspp');
+        const consumerFile = path.join(examplesRoot, '06-newtype-consumer', 'src', '01-consumer.tspp');
         const consumerText = fs.readFileSync(consumerFile, 'utf8');
         targets.get(consumerFile)!.push(consumerText.indexOf('None'));
-        const formalFile = path.join(examplesRoot, '02-formal-verification', 'src', '10-logic-library.tspp');
+        const formalFile = path.join(examplesRoot, '12-formal-verification', 'src', '10-logic-library.tspp');
         addMatches(formalFile, /\b([A-Za-z_$][\w$]*)\s*=>/gu);
 
         const servers = new Map<string, TestLspServer>();

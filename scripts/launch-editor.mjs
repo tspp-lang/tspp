@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import process from "node:process";
@@ -54,50 +55,109 @@ if (buildResult.status !== 0) {
   process.exit(buildResult.status ?? 1);
 }
 
-function detectEditorCommand() {
+function detectEditor() {
   if (process.env.TSPP_EDITOR) {
-    return process.env.TSPP_EDITOR;
+    return {
+      command: process.env.TSPP_EDITOR,
+      source: "TSPP_EDITOR",
+    };
   }
 
-  // Check if running inside Google Antigravity IDE
+  // Check if running inside Google Antigravity agent environment
   if (
     process.env.ANTIGRAVITY_AGENT ||
     process.env.ANTIGRAVITY_AUTH_SUCCESS_APP ||
-    process.env.ANTIGRAVITY_APP_DATA_DIR
+    process.env.ANTIGRAVITY_APP_DATA_DIR ||
+    process.env.ANTIGRAVITY_VSCODE_HOST
   ) {
-    return "antigravity";
+    return {
+      command: "antigravity",
+      source: "ANTIGRAVITY_* env",
+    };
   }
 
-  // Check generic VS Code-compatible forks via VSCODE_NLS_CONFIG or VSCODE_CODE_CACHE_PATH
-  const nlsConfig = process.env.VSCODE_NLS_CONFIG;
-  if (nlsConfig && /Antigravity/i.test(nlsConfig)) {
-    return "antigravity";
+  let requireCacheKeys;
+  try {
+    const req = createRequire(import.meta.url);
+    requireCacheKeys = Object.keys(req.cache ?? {}).join(";");
+  } catch {
+    requireCacheKeys = undefined;
   }
-  if (
-    process.env.VSCODE_CODE_CACHE_PATH &&
-    /Antigravity/i.test(process.env.VSCODE_CODE_CACHE_PATH)
-  ) {
-    return "antigravity";
+
+  // Gather candidate paths/configs from F5 debugger (launch.json / js-debug),
+  // Integrated Terminal (Git askpass / browser helpers), and Extension Host.
+  const hintEntries = [
+    ["VSCODE_EXEC_PATH", process.env.VSCODE_EXEC_PATH],
+    ["VSCODE_GIT_ASKPASS_NODE", process.env.VSCODE_GIT_ASKPASS_NODE],
+    ["VSCODE_GIT_ASKPASS_MAIN", process.env.VSCODE_GIT_ASKPASS_MAIN],
+    ["BROWSER", process.env.BROWSER],
+    ["NODE_OPTIONS", process.env.NODE_OPTIONS],
+    ["VSCODE_INSPECTOR_OPTIONS", process.env.VSCODE_INSPECTOR_OPTIONS],
+    ["VSCODE_NLS_CONFIG", process.env.VSCODE_NLS_CONFIG],
+    ["VSCODE_CODE_CACHE_PATH", process.env.VSCODE_CODE_CACHE_PATH],
+    [
+      "process._preload_modules",
+      Array.isArray(process._preload_modules)
+        ? process._preload_modules.join(";")
+        : undefined,
+    ],
+    ["require.cache", requireCacheKeys],
+  ].filter(([, value]) => Boolean(value));
+
+  for (const [key, value] of hintEntries) {
+    if (/Antigravity/i.test(value)) {
+      return {
+        command: "antigravity",
+        source: `${key} (${value})`,
+      };
+    }
   }
 
   // Cursor
-  if (process.env.CURSOR_AGENT || (nlsConfig && /Cursor/i.test(nlsConfig))) {
-    return "cursor";
+  if (process.env.CURSOR_AGENT) {
+    return {
+      command: "cursor",
+      source: "CURSOR_AGENT",
+    };
+  }
+  for (const [key, value] of hintEntries) {
+    if (/Cursor/i.test(value)) {
+      return {
+        command: "cursor",
+        source: `${key} (${value})`,
+      };
+    }
   }
 
   // VSCodium
-  if (nlsConfig && /VSCodium/i.test(nlsConfig)) {
-    return "codium";
+  for (const [key, value] of hintEntries) {
+    if (/VSCodium/i.test(value)) {
+      return {
+        command: "codium",
+        source: `${key} (${value})`,
+      };
+    }
   }
 
-  return "code";
+  return {
+    command: "code",
+    source:
+      hintEntries.length > 0
+        ? `fallback (checked: ${hintEntries.map(([k]) => k).join(", ")})`
+        : "fallback (no IDE env hints found)",
+  };
 }
 
-const editorCommand = detectEditorCommand();
+const detectedEditor = detectEditor();
+const editorCommand = detectedEditor.command;
 
 console.log(
   "\x1b[32m%s\x1b[0m",
   `[2/2] Build complete. Launching the Extension Development Host with '${editorCommand}'...`,
+);
+console.log(
+  "\x1b[90m%s\x1b[0m",
+  `Detected editor via: ${detectedEditor.source}`,
 );
 console.log("\x1b[90m%s\x1b[0m", `Extension: ${extensionDir}`);
 console.log("\x1b[90m%s\x1b[0m", `Workspace: ${workspaceDir}`);

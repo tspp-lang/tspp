@@ -1,8 +1,0 @@
-function scaledSum(left: number, right: number) with {
-    numberModel: "mathematical-real";
-    ensures: result === (left + right) * 0.5;
-}: number {
-    return (left + right) * 0.5;
-}
-
-console.log(scaledSum(2, 6));

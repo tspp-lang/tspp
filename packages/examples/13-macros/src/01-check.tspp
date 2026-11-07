@@ -1,0 +1,82 @@
+// ============================================================================
+// 13-macros / 01-check.tspp
+//
+// 编译期宏与语法树静态检查（`macro function` 与 `macro <调用>`）
+//
+// 什么是编译期宏（Compile-Time Macro）？
+// 普通函数在程序运行期（Runtime）接收值并返回结果；而编译期宏是在代码编译阶段（Compile Time）运行的函数。
+// 它的输入不是运行时的值，而是目标声明的抽象语法树（AST）节点与编译器上下文（`MacroContext`）。
+//
+// 为什么需要编译期宏？
+//   1. 自定义静态约束：在编译期检查某个声明是否符合特定结构规范，不符合时直接通过 `context.fail(...)` 报告编译错误；
+//   2. 零运行时开销的代码生成：根据已有类型或声明自动派生配套的常量、类型或函数（见 `02-transform.tspp`），
+//      而且宏定义本身在最终生成的 JavaScript 中会被完全擦除，不产生任何运行时体积或开销。
+// ============================================================================
+// Compile-Time Macros & Static AST Inspection (`macro function` & `macro <call>`)
+//
+// What is a Compile-Time Macro?
+// Ordinary functions run at runtime on values; compile-time macros are functions that execute during compilation.
+// Instead of runtime values, a macro receives the target declarations' Abstract Syntax Tree (AST) nodes and
+// the compiler context (`MacroContext`).
+//
+// Why do we need Compile-Time Macros?
+//   1. Custom static checks: Inspect whether a declaration satisfies structural rules at compile time and report
+//      diagnostics directly via `context.fail(...)` when violated;
+//   2. Zero-runtime-cost code generation: Automatically derive companion constants, types, or functions from
+//      existing declarations (see `02-transform.tspp`), while the macro definition itself is completely erased
+//      from emitted JavaScript.
+// ============================================================================
+
+import type { MacroContext, MacroReturn, MacroTarget } from "ts-plus-plus/plugins/macros/sdk";
+
+// ----------------------------------------------------------------------------
+// 1. 定义编译期检查宏
+//
+// 写法：`export macro function <宏名>(targets: readonly MacroTarget[], context: MacroContext): MacroReturn`
+// 参数说明：
+//   - 第一个参数 `targets` 是宏调用时传入的目标标识符列表，每个 `MacroTarget` 包含目标的名称（`name`）与语法树节点（`node`）；
+//   - 第二个参数 `context` 提供语法树工厂与错误报告能力（如 `context.fail(...)`）。
+// 效果：返回 `undefined` 表示仅做检查、不生成新语句；调用 `context.fail(...)` 则会在编译期直接报错中止。
+// ----------------------------------------------------------------------------
+// 1. Defining a Compile-Time Check Macro
+//
+// Syntax: `export macro function <name>(targets: readonly MacroTarget[], context: MacroContext): MacroReturn`
+// Parameters:
+//   - `targets`: The list of target declarations passed to the macro call; each `MacroTarget` exposes `name` and AST `node`;
+//   - `context`: Provides AST utilities and diagnostic reporting (such as `context.fail(...)`).
+// Effect: Returning `undefined` performs validation without emitting new statements; calling `context.fail(...)`
+// reports a compile-time diagnostic error.
+// ----------------------------------------------------------------------------
+
+// 检查传入的目标声明是否是一个函数声明（`FunctionDeclaration`），否则在编译期报错
+// Verify that the target declaration is a `FunctionDeclaration`; otherwise report a compile-time error
+export macro function requireFunction(
+  [target]: readonly MacroTarget[],
+  context: MacroContext,
+): MacroReturn {
+  return target.node.kind === context.typescript.SyntaxKind.FunctionDeclaration
+    ? undefined
+    : context.fail(`${target.name} must be a function declaration`);
+}
+
+// ----------------------------------------------------------------------------
+// 2. 调用编译期宏
+//
+// 写法：`macro <宏名>(<目标声明1>, <目标声明2>, ...);`
+// 效果：编译器在编译到该语句时立即执行 `requireFunction`，验证 `answer` 确实是函数声明。
+// ----------------------------------------------------------------------------
+// 2. Invoking a Compile-Time Macro
+//
+// Syntax: `macro <macroName>(<target1>, <target2>, ...);`
+// Effect: The compiler executes `requireFunction` during compilation and verifies that `answer` is a function declaration.
+// ----------------------------------------------------------------------------
+
+// 定义一个普通函数声明作为被检查的目标
+// Define an ordinary function declaration as the inspection target
+export function answer(): number {
+  return 42;
+}
+
+// 在编译期验证 `answer` 必须是函数声明（通过检查，不产生额外运行时代码）
+// Verify at compile time that `answer` is a function declaration (passes check, emits no extra runtime code)
+macro requireFunction(answer);

@@ -1,98 +1,164 @@
+// ============================================================================
+// 01-modern-syntax / 01-basics.tspp
+//
+// 面向表达式的编程（`let ... in` 局部绑定与 `do` 求值块）
+//
+// 在传统的语句式编程中，变量声明与条件分支（`if / else`）都是“语句（Statement）”，不产生值；
+// 如果想算出一个结果赋给常量，往往需要先在外部声明一个可变变量 `let result;`，再进各个分支里修改它。
+//
+// 为了让代码能够直接围绕“求值”来组织，TS++ 引入了面向表达式的语法：
+//   - `let ... in ...`：在表达式内部声明仅对当前计算可见的局部变量，算完即止，不污染外部作用域；
+//   - `do { ... }`：将多步计算或条件分支组合成一个整体表达式，块内最后一步的求值结果即为整个块的值；
+//   - `function ... do { ... }`：让函数与方法体直接作为求值块运行，自动返回末尾表达式的结果。
+// ============================================================================
+// Expression-Oriented Programming (`let ... in` Bindings & `do` Blocks)
+//
+// In traditional statement-oriented code, variable declarations and `if / else` branches are statements
+// that do not produce values. Computing a value across branches often forces you to declare an uninitialized
+// mutable variable (`let result;`) outside and reassign it inside each branch.
+//
+// To let you structure code directly around producing values, TS++ introduces expression-oriented syntax:
+//   - `let ... in ...`: Binds local variables inside an expression for a single calculation without polluting outer scopes;
+//   - `do { ... }`: Groups multi-step statements or branches into a single expression whose value is its final expression;
+//   - `function ... do { ... }`: Treats function and method bodies as completion blocks that implicitly return their final expression.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. `let ... in ...` 局部表达式绑定
+//
+// 写法：`let <绑定列表> in <结果表达式>`
+// 效果：在 `in` 之前定义一个或多个局部变量，并在 `in` 之后的表达式中使用它们计算最终结果。
+// 这些变量的作用域严格局限于 `in` 右侧的表达式内，外部无法访问。
+// ----------------------------------------------------------------------------
+// 1. `let ... in ...` Local Expression Bindings
+//
+// Syntax: `let <bindings> in <result-expression>`
+// Effect: Defines one or more local variables before `in` and evaluates the expression after `in`
+// using those bindings. The variables exist only within the `in` expression and are invisible outside.
+// ----------------------------------------------------------------------------
+
+// 单个绑定：定义局部变量 x = 40，直接算出 x + 2 的结果 42
+// Single binding: define local `x = 40` and directly evaluate `x + 2` to 42
+const singleBinding: number = let x = 40 in x + 2;
+
+// 多个绑定：用逗号分隔多个局部变量，一步算出它们的和
+// Multiple bindings: separate local declarations with commas and compute their sum
 const total: number = let left = 20, right = 22 in left + right;
-const greeting: string = let name = "TS++" in `Hello from ${name}`;
-const formatted: string = do {
-  const feature = "modern syntax";
-  `Hello from ${feature}`;
+
+// 解构与类型标注：绑定位置同样支持对象/数组解构以及显式类型注解
+// Destructuring and type annotations: bindings support object/array patterns and explicit types
+const destructuredPair: number =
+  let { a, b }: { a: number; b: number } = { a: 6, b: 7 }
+  in a * b;
+
+// 链式嵌套：`in` 后面的表达式本身也可以是另一个 `let ... in`，用于分步推导中间值
+// Chained nesting: the expression after `in` can be another `let ... in` for step-by-step intermediate values
+const chainedLet: number =
+  let a = 10 in
+  let b = a * 2 in
+  let c = b + 2 in
+  a + b + c;
+
+// 作用域隔离与同名遮蔽：括号内的 `x = 20` 仅在括号内生效，出了括号后外层的 `x` 依然是 2
+// Scope isolation and shadowing: inner `x = 20` only applies inside the parentheses; outside, `x` remains 2
+const shadowed: number =
+  let x = 2 in
+  (let x = 20 in x + 1) + x;
+
+// ----------------------------------------------------------------------------
+// 2. `do { ... }` 表达式求值块
+//
+// 写法：`do { <语句1>; <语句2>; ...; <末尾表达式>; }`
+// 效果：当一个值的计算需要多行语句或 `if / else` 分支时，用 `do { ... }` 将它们包裹为一个表达式。
+// 块内最后一条执行的表达式的值，会自动成为整个 `do` 块的结果。
+// ----------------------------------------------------------------------------
+// 2. `do { ... }` Completion-Valued Blocks
+//
+// Syntax: `do { <stmt1>; <stmt2>; ...; <final-expression>; }`
+// Effect: Wraps multi-statement logic or `if / else` branches into a single expression.
+// The value of the last expression evaluated inside the block becomes the value of the entire `do` block.
+// ----------------------------------------------------------------------------
+
+// 顺序求值：按顺序执行块内语句，最后一行的 `a + b` 即为 `sequentialBlock` 的值
+// Sequential evaluation: runs statements in order; the final `a + b` becomes the value of `sequentialBlock`
+const sequentialBlock: number = do {
+  const a = 20;
+  const b = 22;
+  a + b;
 };
+
+// 分支求值：不需要在外部声明可变变量，`if` 和 `else` 分支各自的末尾表达式直接作为整个 `do` 块的值
+// Branch evaluation: no outer mutable variable needed; each branch yields its final expression as the `do` block's value
 const branchResult: string = do {
   if (total === 42) {
-    "correct";
+    "equal";
   } else {
-    "unexpected";
+    "not-equal";
   }
 };
 
+// 与传统 `do ... while` 循环共存：尾部带有 `while` 的依然是常规循环语句
+// Coexistence with `do ... while` loops: a block followed by `while` remains a standard loop statement
+let loopCount = 0;
+do {
+  loopCount++;
+} while (loopCount < 1);
+
+// ----------------------------------------------------------------------------
+// 3. `do` 函数体与方法体
+//
+// 写法：在函数、函数表达式、箭头函数或类方法的参数列表后直接写 `do { ... }`
+// 效果：函数体直接遵循求值块规则，无需手写 `return`，自动以末尾表达式作为函数返回值。
+// ----------------------------------------------------------------------------
+// 3. `do` Function & Method Bodies
+//
+// Syntax: Place `do { ... }` directly after the parameter list of a function, arrow function, or method
+// Effect: The body acts as a completion block, automatically returning its final expression without `return`.
+// ----------------------------------------------------------------------------
+
+// 函数声明：计算完中间变量后，最后一行的 `result` 自动作为函数返回值
+// Function declaration: after computing intermediate values, the final `result` is returned automatically
 function add(left: number, right: number): number do {
   const result = left + right;
   result;
 }
+
+// 返回类型自动推导：不写返回类型注解时，类型系统会自动根据末尾表达式 `42` 推导出返回 `number`
+// Return type inference: when the return type annotation is omitted, it is inferred from the final expression `42`
 function inferredAnswer() do {
   42;
 }
 const inferred: number = inferredAnswer();
+
+// 函数表达式与箭头函数同样可以使用 `do` 求值块作为函数体
+// Function expressions and arrow functions can also use `do` completion blocks as their bodies
 const multiply = function (left: number, right: number): number do {
   left * right;
 };
 const arrowAnswer = (): number => do { 42; };
 
-function withValue<T>(value: number, continuation: (value: number) => T): T {
-  return continuation(value);
-}
-function withPair<T>(continuation: (value: { left: number; right: number }) => T): T {
-  return continuation({ left: 20, right: 22 });
-}
-
-const continued: number = do {
-  use value: number <- withValue(40);
-  value + 2;
-};
-const destructured: number = do {
-  use { left, right } <- withPair();
-  left + right;
-};
-const nestedContinuation: number = do {
-  use left <- withValue(20);
-  use right <- withValue(22);
-  left + right;
-};
-function continuedFunction(): number do {
-  use value <- withValue(40);
-  value + 2;
-}
-
-def appConfig = {
-  network: { host: "127.0.0.1", port: 8080 },
-  tags: ["compiler", "plugin"],
-};
-def primary = { value: 20 }, secondary = { value: 22 };
-
+// 类方法同样支持 `do` 函数体
+// Class methods also support `do` bodies
 class Calculator {
   total(left: number, right: number): number do {
     left + right;
   }
 }
 
-function compileTimeErrorExamples(): void {
-  // @ts-expect-error A do function completion must match its annotated return type.
-  function invalidCompletion(): number do { "not a number"; }
-  // @ts-expect-error A trailing-closure binding belongs directly in a completion block.
-  use invalidPlacement <- withValue(42);
-  // @ts-expect-error def recursively freezes nested properties.
-  appConfig.network.port = 9090;
-  // @ts-expect-error def infers a readonly tuple without mutating methods.
-  appConfig.tags.push("mutable");
-  console.log(invalidCompletion);
-}
-let loopCount = 0;
-do {
-  loopCount++;
-} while (loopCount < 1);
-
-console.log(
-  greeting,
+console.log("[01-basics]", {
+  singleBinding,
   total,
-  formatted,
+  destructuredPair,
+  chainedLet,
+  shadowed,
+  sequentialBlock,
   branchResult,
-  inferred,
-  add(20, 22),
-  multiply(6, 7),
-  arrowAnswer(),
-  continued,
-  destructured,
-  nestedContinuation,
-  continuedFunction(),
-  appConfig.network.port,
-  primary.value + secondary.value,
-  new Calculator().total(19, 23),
   loopCount,
-);
+  addResult: add(20, 22),
+  inferred,
+  multiplyResult: multiply(6, 7),
+  arrowResult: arrowAnswer(),
+  methodResult: new Calculator().total(19, 23),
+});

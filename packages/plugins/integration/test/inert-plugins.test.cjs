@@ -14,7 +14,7 @@ const examplesRoot = path.resolve(pluginsRoot, "..", "examples");
 const packageDirectories = new Map(allPlugins().map(({ packageDirectory }) => [path.basename(packageDirectory), packageDirectory]));
 const plugins = [...packageDirectories.keys()].sort();
 // Imports another example's package, which a project of its own cannot resolve.
-const skipped = new Set(["04-newtype-consumer"]);
+const skipped = new Set(["06-newtype-consumer"]);
 const examples = fs.readdirSync(examplesRoot).filter(name => /^\d\d-/.test(name) && !skipped.has(name)).sort();
 
 function filesUnder(directory, root = directory) {

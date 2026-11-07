@@ -1,0 +1,99 @@
+// ============================================================================
+// 01-modern-syntax / 03-def-and-boundaries.tspp
+//
+// 深度只读声明（`def`）与编译期安全检查
+//
+// 在标准 TypeScript 中，`const` 只保证“变量名不能重新绑定到别的值”，却有两个常见局限：
+//   1. 浅层不可变：如果 `const` 绑定的是对象或数组，仍然可以随意修改它的内部属性或向数组里 `.push()` 元素；
+//   2. 类型宽化：`const obj = { value: 1 }` 中，`obj.value` 的类型会被宽化为笼统的 `number`，而不是精确的 `1`。
+//
+// 为了提供真正意义上的不可变值绑定，TS++ 引入了 `def` 声明关键字：
+// 使用 `def` 声明的对象和数组在所有嵌套层级上都是只读的（Deep Readonly），且所有字面量都会保留最精确的字面量类型。
+// ============================================================================
+// Deep-Readonly Declarations (`def`) & Compile-Time Safety Checks
+//
+// In standard TypeScript, `const` only prevents reassigning the variable identifier itself, leaving two gaps:
+//   1. Shallow immutability: object properties and array elements bound with `const` can still be mutated freely;
+//   2. Type widening: in `const obj = { value: 1 }`, `obj.value` widens to `number` instead of keeping literal `1`.
+//
+// To provide true immutable value bindings, TS++ introduces the `def` keyword:
+// Objects and arrays declared with `def` are deeply readonly across all nested levels, and literals retain
+// their exact literal types.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. `def` 深度只读与字面量精确推导
+//
+// 写法：`def <变量名> = <初始值>;`（也支持用逗号分隔同时声明多个变量）
+// 效果：对象内任意深度的属性都不可修改，数组固定为只读元组，且字面量值不会被宽化。
+// ----------------------------------------------------------------------------
+// 1. `def` Deep Immutability & Exact Literal Inference
+//
+// Syntax: `def <name> = <initializer>;` (also supports multiple comma-separated bindings)
+// Effect: Nested properties at any depth cannot be mutated, arrays become readonly tuples,
+// and literal values do not widen.
+// ----------------------------------------------------------------------------
+
+// 声明一个包含深层嵌套对象与数组的不可变值
+// Declare an immutable value containing a nested object and an array
+def nested = {
+  inner: { value: 1 },
+  items: [10, 20],
+};
+
+// 效果验证：`nested.inner.value` 的类型精确为 `1`（而非 `number`），`nested.items[0]` 精确为 `10`
+// Effect check: `nested.inner.value` has exact type `1` (not `number`), and `nested.items[0]` has exact type `10`
+const exactValue: 1 = nested.inner.value;
+const firstItem: 10 = nested.items[0];
+
+// 同时声明多个 `def` 不可变绑定，并用它们进行后续计算
+// Declare multiple `def` bindings in one statement and use them in a calculation
+def primary = { value: 20 }, secondary = { value: 22 };
+def computedSum = primary.value + secondary.value;
+
+// ----------------------------------------------------------------------------
+// 2. 编译期错误拦截（`@ts-expect-error`）
+//
+// 下面集中展示了当代码违反 `do`、`use <-` 或 `def` 的规则时，类型检查器如何在编译期直接报错拦截。
+// ----------------------------------------------------------------------------
+// 2. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The examples below show how the type checker rejects invalid uses of `do`, `use <-`, and `def`
+// at compile time.
+// ----------------------------------------------------------------------------
+
+function withValue<T>(value: number, continuation: (value: number) => T): T {
+  return continuation(value);
+}
+
+export function compileTimeErrorExamples(): void {
+  // 1. `do` 函数的末尾求值结果类型（string）与函数声明的返回类型（number）不匹配，编译报错
+  // 1. The `do` function's final expression (`string`) does not match its declared return type (`number`)
+  // @ts-expect-error A do function completion must match its annotated return type.
+  function invalidCompletion(): number do { "not a number"; }
+
+  // 2. `use <-` 只能直接写在 `do` 求值块内部，不能写在普通代码块中
+  // 2. `use <-` can only be used directly inside a `do` completion block, not in a regular block
+  // @ts-expect-error A trailing-closure binding belongs directly in a completion block.
+  use invalidPlacement <- withValue(42);
+
+  // 3. `def` 绑定的对象是深度只读的，尝试修改深层嵌套属性会被拒绝
+  // 3. Objects bound with `def` are deeply readonly; mutating a nested property is rejected
+  // @ts-expect-error def recursively freezes nested properties.
+  nested.inner.value = 2;
+
+  // 4. `def` 绑定的数组是只读元组，不允许调用 `.push()` 等修改原数组的方法
+  // 4. Arrays bound with `def` are readonly tuples; mutating methods like `.push()` are rejected
+  // @ts-expect-error def infers a readonly tuple without mutating methods.
+  nested.items.push(30);
+
+  console.log(invalidCompletion, invalidPlacement);
+}
+
+console.log("[03-def-and-boundaries]", {
+  exactValue,
+  firstItem,
+  computedSum,
+});

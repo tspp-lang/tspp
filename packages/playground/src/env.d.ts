@@ -24,7 +24,7 @@ declare module "virtual:tspp-libs" {
 
 declare module "virtual:tspp-examples" {
   interface ExampleProject {
-    /** The packages/examples directory name, e.g. `02-dependent-types`. */
+    /** The packages/examples directory name, e.g. `10-dependent-types`. */
     readonly id: string;
     readonly features: readonly string[];
     /** The file opened first. */

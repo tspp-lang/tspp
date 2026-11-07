@@ -406,7 +406,25 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/02-formal-verification:
+  packages/examples/02-operator-sections:
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/03-advanced-classes:
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/04-static-interface-members:
     dependencies:
       ts-plus-plus:
         specifier: workspace:*
@@ -416,7 +434,7 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/03-nominal-types:
+  packages/examples/05-nominal-types:
     dependencies:
       ts-plus-plus:
         specifier: workspace:*
@@ -426,11 +444,11 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/04-newtype-consumer:
+  packages/examples/06-newtype-consumer:
     dependencies:
       '@tspp/example-nominal-types':
         specifier: workspace:*
-        version: link:../03-nominal-types
+        version: link:../05-nominal-types
       ts-plus-plus:
         specifier: workspace:*
         version: link:../../compiler
@@ -439,7 +457,7 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/05-dependent-types:
+  packages/examples/07-typeclasses:
     devDependencies:
       eslint:
         specifier: ^10.10.0
@@ -448,7 +466,7 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
-  packages/examples/06-type-computation:
+  packages/examples/08-type-computation:
     dependencies:
       ts-plus-plus:
         specifier: workspace:*
@@ -458,7 +476,7 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/07-higher-kinded-types:
+  packages/examples/09-higher-kinded-types:
     dependencies:
       ts-plus-plus:
         specifier: workspace:*
@@ -468,7 +486,25 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/08-static-interface-members:
+  packages/examples/10-dependent-types:
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/11-algebraic-effects:
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/12-formal-verification:
     dependencies:
       ts-plus-plus:
         specifier: workspace:*
@@ -478,7 +514,16 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/09-typescript-interop:
+  packages/examples/13-macros:
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/14-typescript-interop:
     dependencies:
       ts-plus-plus:
         specifier: workspace:*
@@ -493,51 +538,6 @@ importers:
       typescript-eslint:
         specifier: ^8.56.1
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
-
-  packages/examples/10-macros:
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/11-operator-sections:
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/12-advanced-classes:
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/13-typeclasses:
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/14-algebraic-effects:
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
 
   packages/language-server:
     devDependencies:

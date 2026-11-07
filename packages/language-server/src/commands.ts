@@ -12,6 +12,8 @@ import type { TypeScriptVersionSource } from './tsServer/versionProvider.js';
 export const Commands = {
     APPLY_REFACTORING: '_typescript.applyRefactoring',
     CONFIGURE_PLUGIN: '_typescript.configurePlugin',
+    APPLY_CODE_ACTION: '_typescript.applyCodeActionCommand',
+    APPLY_FIX_ALL_CODE_ACTION: '_typescript.applyFixAllCodeAction',
     ORGANIZE_IMPORTS: '_typescript.organizeImports',
     APPLY_RENAME_FILE: '_typescript.applyRenameFile',
     APPLY_COMPLETION_CODE_ACTION: '_typescript.applyCompletionCodeAction',

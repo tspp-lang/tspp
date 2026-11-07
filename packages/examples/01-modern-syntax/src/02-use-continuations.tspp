@@ -1,0 +1,177 @@
+// ============================================================================
+// 01-modern-syntax / 02-use-continuations.tspp
+//
+// 尾闭包绑定（`use <-`）
+//
+// 当一个高阶函数接收回调函数作为最后一个参数时，如果连续嵌套调用多个这样的函数，
+// 代码就会一层套一层地向右缩进，形成难以阅读的“回调金字塔”：
+//
+//   withValue(20, left => {
+//     return withValue(22, right => {
+//       return left + right;
+//     });
+//   });
+//
+// 为了消除这种层层缩进，TS++ 在 `do` 求值块中引入了 `use <绑定变量> <- <函数调用>;` 语法。
+// 它的作用是：把当前 `do` 块中位于 `use` 下方的所有剩余代码自动收集起来，作为回调函数传给右侧的函数，
+// 并将回调函数的参数绑定到 `<-` 左侧的变量上。这样上面的嵌套代码就可以直接平铺着写：
+//
+//   do {
+//     use left <- withValue(20);
+//     use right <- withValue(22);
+//     left + right;
+//   }
+// ============================================================================
+// Trailing-Closure Bindings (`use <-`)
+//
+// When higher-order functions take a callback as their final parameter, chaining several of them
+// forces your code to indent deeper and deeper to the right (the "callback pyramid"):
+//
+//   withValue(20, left => {
+//     return withValue(22, right => {
+//       return left + right;
+//     });
+//   });
+//
+// To eliminate this nesting, TS++ introduces `use <binding> <- <call>;` inside `do` blocks.
+// It automatically packages the remaining lines of the `do` block as the trailing callback passed
+// to the function on the right, binding the callback's parameter to the pattern on the left:
+//
+//   do {
+//     use left <- withValue(20);
+//     use right <- withValue(22);
+//     left + right;
+//   }
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 基本写法与参数解构
+//
+// 写法：`use <变量或解构模式> <- <目标函数调用>;`
+// 效果：调用右侧函数，把拿到的数据绑定到左侧变量上，然后继续往下执行块内的后续语句。
+// ----------------------------------------------------------------------------
+// 1. Basic Syntax & Destructuring
+//
+// Syntax: `use <identifier-or-pattern> <- <target>;`
+// Effect: Invokes the target on the right, binds the callback's argument to the left-hand pattern,
+// and continues executing the remaining statements in the block.
+// ----------------------------------------------------------------------------
+
+// 一个接收初始值 `value` 并将其传给回调函数 `continuation` 的辅助函数
+// A helper function that passes `value` to its trailing `continuation` callback
+function withValue<T>(value: number, continuation: (value: number) => T): T {
+  return continuation(value);
+}
+
+// 一个直接将 `{ left: 20, right: 22 }` 传给回调函数的无参辅助函数
+// A zero-argument helper that passes `{ left: 20, right: 22 }` to its callback
+function withPair<T>(continuation: (value: { left: number; right: number }) => T): T {
+  return continuation({ left: 20, right: 22 });
+}
+
+// 基础绑定（可带显式类型注解）：`value` 接收到 `withValue(40)` 传入的 40，随后算出 42
+// Basic binding (with optional type annotation): `value` receives 40 from `withValue(40)`, yielding 42
+const continued: number = do {
+  use value: number <- withValue(40);
+  value + 2;
+};
+
+// 对象解构绑定：直接把回调参数解构为 `left` 和 `right`
+// Object destructuring binding: directly destructures the callback parameter into `left` and `right`
+const destructured: number = do {
+  use { left, right } <- withPair();
+  left + right;
+};
+
+// 省略空括号：当右侧函数除了回调之外不需要其他参数时，可以直接写函数名 `withPair`
+// Omitting empty parentheses: when the target takes only the callback, you can write bare `withPair`
+const destructuredBare: number = do {
+  use { left, right } <- withPair;
+  left + right;
+};
+
+// ----------------------------------------------------------------------------
+// 2. 连续平铺调用与 `do` 函数体
+//
+// 在同一个 `do` 块（或 `do` 函数体）里可以连续写多行 `use <-`，
+// 每一行都能直接使用上一行绑定的变量，代码始终保持同一层级缩进。
+// ----------------------------------------------------------------------------
+// 2. Chained Flat Bindings & `do` Function Bodies
+//
+// You can chain multiple `use <-` lines inside the same `do` block (or `do` function body).
+// Each line can use bindings from earlier lines while staying at the same indentation level.
+// ----------------------------------------------------------------------------
+
+// 连续获取 `left` 和 `right` 并相加，无需写两层嵌套回调
+// Acquire `left` and `right` sequentially and add them without two levels of callback nesting
+const nestedContinuation: number = do {
+  use left <- withValue(20);
+  use right <- withValue(22);
+  left + right;
+};
+
+// 在 `do` 函数体中也完全一样可用
+// Works identically inside a `do` function body
+function continuedFunction(): number do {
+  use value <- withValue(40);
+  value + 2;
+}
+
+// ----------------------------------------------------------------------------
+// 3. 控制后续代码的执行：包裹与提前中止
+//
+// 因为 `use <-` 下方的代码是作为回调交给右侧函数去运行的，所以右侧函数可以决定：
+//   - 在运行下方代码之前和之后，先做一些前置/后置动作；
+//   - 或者当条件不满足时，干脆不运行下方代码，直接提前返回结果。
+// ----------------------------------------------------------------------------
+// 3. Controlling Execution of the Remainder: Wrapping & Early Return
+//
+// Because the code below `use <-` is handed to the right-hand function as a callback, that function can:
+//   - Run setup and teardown steps before and after executing the remaining lines;
+//   - Or skip executing the remaining lines altogether and return early when a condition is not met.
+// ----------------------------------------------------------------------------
+
+// 在执行后续代码 `k` 的前后，分别往 `trace` 数组里记录进入和退出标记
+// Push enter and exit markers into `trace` before and after running the remaining code `k`
+function bracket<T>(label: string, trace: string[], k: (label: string) => T): T {
+  trace.push(`enter:${label}`);
+  const result = k(label);
+  trace.push(`exit:${label}`);
+  return result;
+}
+
+// 执行顺序会自动呈现外层包裹内层的效果：enter:A -> enter:B -> exit:B -> exit:A
+// Execution naturally wraps outer around inner: enter:A -> enter:B -> exit:B -> exit:A
+const trace: string[] = [];
+const wrappedResult: string = do {
+  use a <- bracket("A", trace);
+  use b <- bracket("B", trace);
+  `${a}+${b}`;
+};
+
+// 只有当传入的数字大于 0 时才继续往下执行，否则直接返回 0
+// Continue executing the remaining lines only when `input > 0`; otherwise return 0 immediately
+function onlyPositive(input: number, k: (n: number) => number): number {
+  return input > 0 ? k(input) : 0;
+}
+
+// 第二步传入了 -5，`onlyPositive` 直接返回 0，不会再执行最后的 `a + b`
+// Step 2 passes -5, so `onlyPositive` returns 0 immediately without running `a + b`
+const shortCircuited: number = do {
+  use a <- onlyPositive(10);
+  use b <- onlyPositive(-5);
+  a + b;
+};
+
+console.log("[02-use-continuations]", {
+  continued,
+  destructured,
+  destructuredBare,
+  nestedContinuation,
+  continuedFunction: continuedFunction(),
+  wrappedResult,
+  trace,
+  shortCircuited,
+});

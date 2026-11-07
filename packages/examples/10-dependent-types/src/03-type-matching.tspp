@@ -1,0 +1,78 @@
+// ============================================================================
+// 10-dependent-types / 03-type-matching.tspp
+//
+// 类型级模式匹配与类型族（`match` 与 Type Families）
+//
+// 除了对布尔值做条件分支，我们还经常需要根据一个“类型”的结构来计算另一个类型。
+// 在依赖类型理论中，这种“接收一个参数并返回一个类型”的依赖函数被称为“类型族（Type Family）”。
+//
+// TS++ 支持在类型表达式和 Pi 类型返回位置直接使用 `match <目标类型> { <模式>: <结果类型>, ... }`：
+//   - 按从上到下的顺序依次尝试匹配模式，命中第一个匹配的分支后立即返回对应结果类型；
+//   - 支持在模式中使用 `infer <变量名>` 提取内部子类型（例如从 `Array<infer Element>` 中提取元素类型 `Element`）；
+//   - 支持使用 `_` 作为兜底通配分支。
+// ============================================================================
+// Type-Level Pattern Matching & Type Families (`match` & Type Families)
+//
+// Beyond branching on boolean values, we often need to compute a new type by inspecting the structure of an input type.
+// In dependent type theory, a function that takes a parameter and returns a type is called a "Type Family".
+//
+// TS++ lets you write `match <Target> { <Pattern>: <Result>, ... }` directly in type positions and Pi return types:
+//   - Branches are tested in top-to-bottom order, evaluating to the first matching branch;
+//   - Patterns can use `infer <Name>` to extract inner types (e.g. extracting `Element` from `Array<infer Element>`);
+//   - `_` serves as the wildcard fallback branch.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 基础类型模式匹配（`match`）
+//
+// 写法：`match <待匹配类型> { <模式1>: <结果1>, _: <默认结果> }`
+// 效果：在编译期对目标类型做有序结构匹配，直接化简为命中分支右侧的类型。
+// ----------------------------------------------------------------------------
+// 1. Basic Type Pattern Matching (`match`)
+//
+// Syntax: `match <TargetType> { <Pattern1>: <Result1>, _: <FallbackResult> }`
+// Effect: Matches the target type top-to-bottom at compile time and reduces to the selected branch's type.
+// ----------------------------------------------------------------------------
+
+// 待匹配类型是 `number`，命中第一条分支 `number: string`，因此 `NumberResult` 计算结果为 `string`
+// Target `number` matches the first arm `number: string`, so `NumberResult` reduces to `string`
+export type NumberResult: Type0 =
+  match number { number: string, _: boolean };
+
+// 待匹配类型是 `string`，不匹配 `number`，落入通配分支 `_`，因此 `FallbackResult` 计算结果为 `boolean`
+// Target `string` skips `number` and hits wildcard `_`, so `FallbackResult` reduces to `boolean`
+export type FallbackResult: Type0 =
+  match string { number: string, _: boolean };
+
+// 效果验证：`NumberResult` 可直接赋值为 `string`，`FallbackResult` 可直接赋值为 `boolean`
+// Effect check: `NumberResult` accepts a `string`, and `FallbackResult` accepts a `boolean`
+const matchedNumber: NumberResult = "matched number";
+const matchedFallback: FallbackResult = true;
+void matchedNumber;
+void matchedFallback;
+
+// ----------------------------------------------------------------------------
+// 2. 用 Pi 类型与 `match` 构造类型族（Type Family）
+//
+// 当我们把参数 `(A: Type0) -> ...` 与 `match A { ... }` 组合起来时，就得到了一个完整的类型族：
+// 它接收任意基础类型 `A: Type0`：
+//   - 如果 `A` 是数组类型 `Array<infer Element>`，就用 `infer Element` 捕获数组元素类型并返回 `Element`；
+//   - 如果 `A` 是其他任何类型，就走 `_` 分支原样返回 `A` 本身。
+// 因为它是一个从 `Type0` 到 `Type0` 的函数，所以这个类型族本身属于 `Type1`。
+// ----------------------------------------------------------------------------
+// 2. Constructing a Type Family with Pi Types & `match`
+//
+// Combining a Pi binder `(A: Type0) -> ...` with `match A { ... }` creates a Type Family:
+// Given any base type `A: Type0`:
+//   - If `A` matches `Array<infer Element>`, it captures the element type `Element` and returns `Element`;
+//   - Otherwise, it falls back to `_` and returns `A` unchanged.
+// Because it maps `Type0` to `Type0`, the type family itself has type `Type1`.
+// ----------------------------------------------------------------------------
+
+// 若输入数组类型则提取其元素类型，否则返回该类型自身
+// Extracts the element type if `A` is an `Array`, or returns `A` itself otherwise
+export type ElementOrSelf: Type1 =
+  (A: Type0) -> match A {
+    Array<infer Element>: Element,
+    _: A
+  };

@@ -1,0 +1,63 @@
+// ============================================================================
+// 12-formal-verification / 07-safe-integer-model.tspp
+//
+// 安全整数模型与溢出检查（`numberModel: "safe-integer"`）
+//
+// 在 JavaScript 中，当我们使用 `number` 来表示整数时，它并不是无限大的：
+// 它的精确安全整数范围是 $[-2^{53} + 1, 2^{53} - 1]$（即 `[Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]`）。
+// 一旦算术结果超出这个范围，就会发生精度丢失（例如 `Number.MAX_SAFE_INTEGER + 1 === Number.MAX_SAFE_INTEGER + 2`），
+// 导致数学上原本成立的性质在运行时失效。
+//
+// 当指定 `numberModel: "safe-integer"` 时，编译器不仅把 `number` 当作整数来证明逻辑契约，
+// 还会**对函数内的每一次加、减、乘运算自动生成无溢出证明义务（No-Overflow Obligation）**：
+// 必须静态证明所有中间结果和最终结果都严格落在安全整数范围内，否则编译直接报错。
+// ============================================================================
+// Safe-Integer Number Model & Overflow Checking (`numberModel: "safe-integer"`)
+//
+// In JavaScript, `number` values used as integers do not have arbitrary precision:
+// their exact safe integer range is $[-2^{53} + 1, 2^{53} - 1]$ (`[Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER]`).
+// Exceeding this range silently loses precision (e.g., `Number.MAX_SAFE_INTEGER + 1 === Number.MAX_SAFE_INTEGER + 2`),
+// breaking mathematical reasoning at runtime.
+//
+// When you specify `numberModel: "safe-integer"`, the compiler treats `number` as an integer and **automatically generates
+// a no-overflow proof obligation for every arithmetic operation**:
+// if any intermediate or final sum/product could exceed the safe integer bounds, compilation fails.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 结合输入上界与循环不变式证明“绝不溢出”
+//
+// 写法：`with { numberModel: "safe-integer"; requires: <上下界约束>; ... }`
+// 效果：在下面的累加函数 `triangle` 中：
+//   - 如果不限制 `limit` 的大小，`total += index` 在循环中就可能超出 `MAX_SAFE_INTEGER`，被编译器报错拦截；
+//   - 通过 `requires: limit >= 0 && limit <= 1000` 加上循环不变式 `total <= index * 1000` 和 `index <= limit`，
+//     编译器推导出循环内 `total` 最大不超过 $1000 \times 1000 = 10^6$，远小于 $2^{53} - 1$，从而成功证明 `total += index` 绝不溢出。
+// ----------------------------------------------------------------------------
+// 1. Proving No-Overflow with Input Bounds & Loop Invariants
+//
+// Syntax: `with { numberModel: "safe-integer"; requires: <bounds>; ... }`
+// Effect: In `triangle` below:
+//   - Without bounding `limit`, `total += index` inside the loop could overflow `MAX_SAFE_INTEGER` and would be rejected;
+//   - By requiring `limit >= 0 && limit <= 1000` and maintaining invariants `total <= index * 1000` and `index <= limit`,
+//     the compiler deduces `total` never exceeds $1000 \times 1000 = 10^6$ (well within $2^{53} - 1$), proving `total += index` cannot overflow.
+// ----------------------------------------------------------------------------
+
+// 累加 0 到 limit - 1：在安全整数模型下同时证明结果非负且每一步加法都不会溢出
+// Sum integers from `0` to `limit - 1`: proves under `"safe-integer"` that the result is non-negative and no addition overflows
+function triangle(limit: number) with {
+    numberModel: "safe-integer";
+    requires: limit >= 0 && limit <= 1000;
+    ensures: result >= 0;
+}: number {
+    let index = 0;
+    let total = 0;
+    while (index < limit) with {
+        invariant: [index >= 0, index <= limit, total >= 0, total <= index * 1000];
+    } {
+        total += index;
+        index += 1;
+    }
+    return total;
+}
+
+console.log(triangle(10));

@@ -64,6 +64,15 @@ function isProjectInitializationError(error: unknown): boolean {
         && message.includes('getSourceFile');
 }
 
+// VS Code registers LSP commands globally, alongside its built-in TypeScript commands.
+const vscodeCommandAliases = new Map([
+    [Commands.CONFIGURE_PLUGIN, 'tspp.configurePlugin'],
+    [Commands.APPLY_CODE_ACTION, 'tspp.applyCodeActionCommand'],
+    [Commands.APPLY_FIX_ALL_CODE_ACTION, 'tspp.applyFixAllCodeAction'],
+    [TSServerRequestCommand.ID, 'tspp.tsserverRequest'],
+]);
+const vscodeServerCommands = new Map(Array.from(vscodeCommandAliases, ([command, alias]) => [alias, command]));
+
 export class LspServer {
     private tsClient: TsClient;
     private fileConfigurationManager: FileConfigurationManager;
@@ -73,6 +82,7 @@ export class LspServer {
     private logger: Logger;
     private codeActionsManager: CodeActionManager;
     private commandManager: CommandManager;
+    private useVscodeCommandAliases = false;
     private workspaceRoot: string | undefined;
     private features: SupportedFeatures = {};
     // Caching for navTree response shared by multiple requests.
@@ -131,6 +141,7 @@ export class LspServer {
 
         const userInitializationOptions = (this.initializeParams.initializationOptions || {}) as TypeScriptInitializationOptions;
         const { disableAutomaticTypingAcquisition, hostInfo, maxTsServerMemory, npmLocation, locale, plugins, tsserver } = userInitializationOptions;
+        this.useVscodeCommandAliases = hostInfo === 'vscode-tspp';
 
         const { version: typescriptVersion, unusableWorkspaceVersions } = this.findTypescriptVersion(tsserver?.path, tsserver?.fallbackPath);
         if (typescriptVersion) {
@@ -304,7 +315,7 @@ export class LspServer {
                         Commands.APPLY_RENAME_FILE,
                         Commands.SOURCE_DEFINITION,
                         ...this.commandManager.registeredIds,
-                    ],
+                    ].map(command => this.clientCommandId(command)),
                 },
                 hoverProvider: true,
                 inlayHintProvider: true,
@@ -905,7 +916,11 @@ export class LspServer {
 
     async codeAction(params: lsp.CodeActionParams, token?: lsp.CancellationToken): Promise<(lsp.CodeAction | lsp.Command)[]> {
         try {
-            return await this.codeActionWorker(params, token);
+            const actions = await this.codeActionWorker(params, token);
+            for (const action of actions) {
+                this.aliasCodeActionCommand(lsp.Command.is(action) ? action : action.command);
+            }
+            return actions;
         } catch (error) {
             if (isProjectInitializationError(error)) {
                 return [];
@@ -983,14 +998,27 @@ export class LspServer {
     }
 
     async codeActionResolve(params: lsp.CodeAction, _token?: lsp.CancellationToken): Promise<lsp.CodeAction> {
-        return this.codeActionsManager.resolveCodeAction(params);
+        const action = await this.codeActionsManager.resolveCodeAction(params);
+        this.aliasCodeActionCommand(action.command);
+        return action;
+    }
+
+    private clientCommandId(command: string): string {
+        return this.useVscodeCommandAliases ? vscodeCommandAliases.get(command) ?? command : command;
+    }
+
+    private aliasCodeActionCommand(command: lsp.Command | undefined): void {
+        if (command) {
+            command.command = this.clientCommandId(command.command);
+        }
     }
 
     async executeCommand(params: lsp.ExecuteCommandParams, token?: lsp.CancellationToken, workDoneProgress?: lsp.WorkDoneProgressReporter): Promise<unknown> {
-        if (this.commandManager.handlesCommand(params.command)) {
+        const command = this.useVscodeCommandAliases ? vscodeServerCommands.get(params.command) ?? params.command : params.command;
+        if (this.commandManager.handlesCommand(command)) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-            return await this.commandManager.handle(params.command, ...params.arguments || []);
-        } else if (params.command === Commands.APPLY_REFACTORING && params.arguments) {
+            return await this.commandManager.handle(command, ...params.arguments || []);
+        } else if (command === Commands.APPLY_REFACTORING && params.arguments) {
             const args = params.arguments[0] as ts.server.protocol.GetEditsForRefactorRequestArgs;
             const response = await this.tsClient.execute(CommandTypes.GetEditsForRefactor, args, token);
             if (response.type !== 'response' || !response.body) {
@@ -1018,10 +1046,10 @@ export class LspServer {
                     position: Position.fromLocation(renameLocation),
                 });
             }
-        } else if (params.command === Commands.CONFIGURE_PLUGIN && params.arguments) {
+        } else if (command === Commands.CONFIGURE_PLUGIN && params.arguments) {
             const [pluginName, configuration] = params.arguments as [string, unknown];
             this.tsClient.configurePlugin(pluginName, configuration);
-        } else if (params.command === Commands.ORGANIZE_IMPORTS && params.arguments) {
+        } else if (command === Commands.ORGANIZE_IMPORTS && params.arguments) {
             const file = params.arguments[0] as string;
             const uri = this.tsClient.toResourceUri(file);
             const document = this.tsClient.toOpenDocument(uri);
@@ -1057,14 +1085,14 @@ export class LspServer {
             }
 
             await this.applyFileCodeEdits(body);
-        } else if (params.command === Commands.APPLY_RENAME_FILE && params.arguments) {
+        } else if (command === Commands.APPLY_RENAME_FILE && params.arguments) {
             const { sourceUri, targetUri } = params.arguments[0] as {
                 sourceUri: string;
                 targetUri: string;
             };
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
             this.applyRenameFile(sourceUri, targetUri, token);
-        } else if (params.command === Commands.APPLY_COMPLETION_CODE_ACTION && params.arguments) {
+        } else if (command === Commands.APPLY_COMPLETION_CODE_ACTION && params.arguments) {
             const [_, codeActions] = params.arguments as [string, ts.server.protocol.CodeAction[]];
             for (const codeAction of codeActions) {
                 await this.applyFileCodeEdits(codeAction.changes);
@@ -1076,7 +1104,7 @@ export class LspServer {
                 // Execute only the first code action.
                 break;
             }
-        } else if (params.command === Commands.SOURCE_DEFINITION) {
+        } else if (command === Commands.SOURCE_DEFINITION) {
             const [uri, position] = (params.arguments || []) as [lsp.DocumentUri?, lsp.Position?];
             const reporter = await this.options.lspClient.createProgressReporter(token, workDoneProgress);
             return SourceDefinitionCommand.execute(uri, position, this.tsClient, this.options.lspClient, reporter, token);

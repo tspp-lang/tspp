@@ -1,0 +1,80 @@
+// ============================================================================
+// 13-macros / 04-recursive.tspp
+//
+// 递归与分阶段宏展开（宏生成宏调用）
+//
+// 宏返回的语句不仅可以是普通的变量、函数或类型声明，还可以是另一条 `macro <调用>` 语句。
+// 当宏返回了一条新的宏调用语句时，编译器会自动继续展开新生成的宏调用，直到所有宏都展开为普通代码为止。
+// 这使得复杂的代码生成逻辑可以拆分为多个小巧、可组合的宏步骤。
+// ============================================================================
+// Recursive & Multi-Stage Macro Expansion (Macros Emitting Macro Calls)
+//
+// Statements returned by a macro are not limited to ordinary variable, function, or type declarations—a macro can
+// also return another `macro <call>` statement.
+// When a macro emits a new macro invocation, the compiler automatically continues expanding the newly emitted call
+// until all macros resolve to ordinary code. This lets you decompose complex code generation into small, composable stages.
+// ============================================================================
+
+import type { MacroContext, MacroReturn, MacroTarget } from "ts-plus-plus/plugins/macros/sdk";
+
+// ----------------------------------------------------------------------------
+// 1. 第一阶段宏 `begin`：展开为对第二阶段宏 `finish` 的调用
+//
+// 通过 `context.factory.createMacroInvocationStatement(...)`，宏可以构造出一条新的 `macro finish(...)` 语句。
+// ----------------------------------------------------------------------------
+// 1. Stage-One Macro `begin`: Expands into a Call to Stage-Two Macro `finish`
+//
+// Using `context.factory.createMacroInvocationStatement(...)`, a macro can synthesize a new `macro finish(...)` statement.
+// ----------------------------------------------------------------------------
+
+// 作为多阶段宏展开目标的接口 `Node`
+// Interface `Node` serving as the target for multi-stage macro expansion
+interface Node {
+  readonly id: number;
+}
+
+// 第一阶段宏：接收目标 `target`，返回一条调用 `macro finish(target)` 的宏语句
+// Stage-one macro: takes `target` and returns a `macro finish(target)` invocation statement
+export macro function begin([target]: readonly MacroTarget[], context: MacroContext): MacroReturn {
+  return context.factory.createMacroInvocationStatement(
+    context.factory.createIdentifier("finish"),
+    [context.factory.createIdentifier(target.name)],
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 2. 第二阶段宏 `finish`：展开为最终的 `const` 常量声明
+//
+// 当 `begin` 展开为 `macro finish(Node)` 后，编译器紧接着执行 `finish`，生成最终的 `NodeExpanded` 常量。
+// ----------------------------------------------------------------------------
+// 2. Stage-Two Macro `finish`: Expands into the Final `const` Declaration
+//
+// Once `begin` expands into `macro finish(Node)`, the compiler immediately executes `finish` to emit `NodeExpanded`.
+// ----------------------------------------------------------------------------
+
+// 第二阶段宏：生成最终的 `const <目标名>Expanded: "<目标名>" = "<目标名>"`
+// Stage-two macro: generates the final `const <TargetName>Expanded: "<TargetName>" = "<TargetName>"`
+export macro function finish([target]: readonly MacroTarget[], context: MacroContext): MacroReturn {
+  const { factory, NodeFlags } = context.typescript;
+  const literal = factory.createStringLiteral(target.name);
+  return factory.createVariableStatement(
+    undefined,
+    factory.createVariableDeclarationList([
+      factory.createVariableDeclaration(
+        `${target.name}Expanded`,
+        undefined,
+        factory.createLiteralTypeNode(literal),
+        literal,
+      ),
+    ], NodeFlags.Const),
+  );
+}
+
+// 调用第一阶段宏：`macro begin(Node)` -> `macro finish(Node)` -> `const NodeExpanded: "Node" = "Node"`
+// Invoke stage-one macro: `macro begin(Node)` -> `macro finish(Node)` -> `const NodeExpanded: "Node" = "Node"`
+macro begin(Node);
+
+// 验证经过两阶段递归展开后生成的常量
+// Verify the constant produced after two-stage recursive expansion
+const checkedRecursiveName: "Node" = NodeExpanded;
+console.log("[04-recursive]", { checkedRecursiveName });

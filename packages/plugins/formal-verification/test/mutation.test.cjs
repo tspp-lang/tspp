@@ -8,7 +8,7 @@ const path = require("node:path");
 const { test } = require("node:test");
 const { analyzeSource } = require("./analyze.cjs");
 
-const examples = path.resolve(__dirname, "../../../examples/02-formal-verification/src");
+const examples = path.resolve(__dirname, "../../../examples/12-formal-verification/src");
 const read = name => fs.readFileSync(path.join(examples, name), "utf8").replace(/\r\n/g, "\n");
 
 const mutations = [

@@ -1,0 +1,122 @@
+// ============================================================================
+// 08-type-computation / 02-type-match.tspp
+//
+// 结构化类型模式匹配（`match T { ... }`）
+//
+// 在标准 TypeScript 中，要根据一个类型的结构做分支转换，只能使用条件类型 `T extends Pattern ? Then : Else`。
+// 一旦分支超过两三个，就必须写成层层嵌套的三元表达式金字塔，极其难以阅读和维护：
+//
+//   type Classify<T> =
+//     T extends 0 ? "zero" :
+//     T extends [infer H, ...infer R] ? { head: H; tail: R } :
+//     T extends Array<infer E> ? [E, "array"] : ...
+//
+// 为了让类型级分支逻辑像值级模式匹配一样直观，TS++ 引入了 `match <目标类型> { <模式>: <结果>, ... }`：
+// 把所有类型分支平铺在同一个块内，从上到下按顺序匹配，并支持在任意结构位置用 `infer` 提取内部子类型。
+// ============================================================================
+// Structured Type Pattern Matching (`match T { ... }`)
+//
+// In standard TypeScript, branching on the shape of a type requires conditional types (`T extends Pattern ? Then : Else`).
+// With more than two or three branches, this quickly turns into an unreadable pyramid of nested ternary operators:
+//
+//   type Classify<T> =
+//     T extends 0 ? "zero" :
+//     T extends [infer H, ...infer R] ? { head: H; tail: R } :
+//     T extends Array<infer E> ? [E, "array"] : ...
+//
+// To make type-level branching as clean and readable as value-level pattern matching, TS++ introduces
+// `match <Target> { <Pattern>: <Result>, ... }`: all branches sit flat in a single block, are evaluated in
+// top-to-bottom order, and support `infer` captures inside tuples, arrays, and objects.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 多形态有序模式匹配与 `infer` 解构
+//
+// 写法：`match <待匹配类型> { <模式1>: <结果1>, <模式2>: <结果2>, ..., _: <兜底结果> }`
+// 支持的模式包括：
+//   - 精确字面量类型：数字（`0`, `1`）、布尔（`true`）、字符串（`"ping"`）；
+//   - 元组与剩余元素解构：`[infer Head, ...infer Tail]`（同时提取首元素类型 `Head` 和剩余元组类型 `Tail`）；
+//   - 泛型容器解构：`Array<infer Element>`（提取数组元素类型 `Element`）；
+//   - 对象结构与属性字面量联合匹配：`{ data: infer Data; status: 200 }`（当 `status` 为 `200` 时提取 `data` 的类型）；
+//   - 基础类型与通配符：`string`、`number` 以及兜底分支 `_`。
+//
+// 注意匹配是严格按从上到下顺序进行的：例如 `0` 虽然也是 `number` 的子类型，但因为 `0: "zero"` 写在 `number: "number"` 前面，
+// 所以传入 `0` 会优先命中 `"zero"`，而传入普通数字 `42` 才会落入后面的 `"number"`！
+// ----------------------------------------------------------------------------
+// 1. Ordered Multi-Shape Pattern Matching & `infer` Extraction
+//
+// Syntax: `match <TargetType> { <Pattern1>: <Result1>, <Pattern2>: <Result2>, ..., _: <Fallback> }`
+// Supported patterns include:
+//   - Exact literal types: numbers (`0`, `1`), booleans (`true`), and strings (`"ping"`);
+//   - Tuple head/rest patterns: `[infer Head, ...infer Tail]` (captures both the first element `Head` and rest tuple `Tail`);
+//   - Generic container patterns: `Array<infer Element>` (captures the element type `Element`);
+//   - Object property patterns: `{ data: infer Data; status: 200 }` (captures `Data` when `status` matches `200`);
+//   - Primitive types and wildcard fallback: `string`, `number`, and `_`.
+//
+// Branches are tested strictly top-to-bottom: for instance, `0` is a subtype of `number`, but because `0: "zero"`
+// appears above `number: "number"`, `Classify<0>` evaluates to `"zero"` while `Classify<42>` falls through to `"number"`.
+// ----------------------------------------------------------------------------
+
+export type Classify<T> = match T {
+    0: "zero",
+    1: "one",
+    true: "boolean-true",
+    "ping": "pong",
+    [infer Head, ...infer Tail]: { head: Head; tail: Tail },
+    Array<infer Element>: [Element, "array"],
+    { data: infer Data; status: 200 }: Data,
+    string: "text",
+    number: "number",
+    _: "other"
+};
+
+// ----------------------------------------------------------------------------
+// 2. 验证各模式分支的计算结果
+//
+// 下面依次传入不同形态的类型参数，验证 `Classify<T>` 在编译期计算出的精确结果类型。
+// ----------------------------------------------------------------------------
+// 2. Verifying Computed Types Across All Branches
+//
+// Below we apply `Classify<T>` to each input shape and verify the exact type computed at compile time.
+// ----------------------------------------------------------------------------
+
+// 精确字面量匹配：优先命中顶部的字面量分支
+// Exact literal matches: hit the specific literal branches at the top
+const zero: Classify<0> = "zero";
+const one: Classify<1> = "one";
+const literal: Classify<true> = "boolean-true";
+const ping: Classify<"ping"> = "pong";
+
+// 元组首尾解构：`[string, number]` 拆出 `Head = string`、`Tail = [number]`
+// Tuple head/tail extraction: `[string, number]` binds `Head = string` and `Tail = [number]`
+const tuple: Classify<[string, number]> = { head: "first", tail: [1] };
+
+// 数组元素解构：`number[]` 不满足非空定长元组，命中 `Array<infer Element>`，得出 `[number, "array"]`
+// Array element extraction: `number[]` hits `Array<infer Element>`, producing `[number, "array"]`
+const array: Classify<number[]> = [42, "array"];
+
+// 对象模式解构：匹配 `status: 200` 并直接提取出 `data` 字段的类型 `boolean`
+// Object pattern extraction: matches `status: 200` and extracts the `data` field type `boolean`
+const object: Classify<{ data: boolean; status: 200 }> = true;
+
+// 宽泛基础类型匹配：未命中顶部精确字面量的字符串 `"hello"` 和数字 `42` 落入 `string` 与 `number` 分支
+// Broader primitive matches: `"hello"` and `42` skip the specific literals above and hit `string` and `number`
+const text: Classify<"hello"> = "text";
+const number: Classify<42> = "number";
+
+// 兜底通配符匹配：`symbol` 不匹配上方任何分支，最终落入 `_` 得到 `"other"`
+// Wildcard fallback match: `symbol` misses all earlier patterns and hits `_`, yielding `"other"`
+const other: Classify<symbol> = "other";
+
+void zero;
+void one;
+void literal;
+void ping;
+void tuple;
+void array;
+void object;
+void text;
+void number;
+void other;

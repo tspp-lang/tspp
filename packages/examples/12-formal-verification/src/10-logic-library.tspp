@@ -1,0 +1,123 @@
+// ============================================================================
+// 12-formal-verification / 10-logic-library.tspp
+//
+// 可复用的逻辑谓词、递归逻辑函数与公理（Logic Library）
+//
+// 当我们需要在多个函数或证明点之间复用复杂的数学性质（例如全称量词“对任意整数 $x$ 都满足……”、
+// 或者递归定义的数学数列 $T(n) = n + T(n - 1)$）时，单靠普通的布尔表达式就不够用了。
+//
+// 为此，TS++ 提供了专用于形式化规约的逻辑标准库（`smt` 模块），支持三类高阶逻辑构造：
+//   1. **逻辑谓词与全称/存在量词（`definePredicate` / `forall`）**：定义可复用的参数化命题，支持对无穷多个值进行全称量化（$\forall$）；
+//   2. **递归逻辑函数（`defineRecursiveFunction`）**：在逻辑层定义数学归纳函数（如三角数求和），无需编写运行时循环即可在证明中直接展开求值；
+//   3. **未解释函数与公理（`declareFunction` / `axiom`）**：声明一个抽象数学符号，并通过 `axiom` 为它规定已知恒成立的数学定律。
+// ============================================================================
+// Reusable Logical Predicates, Recursive Logic Functions & Axioms (Logic Library)
+//
+// When specifications need to reuse mathematical concepts across multiple contracts or proof points—such as universal
+// quantification ("for all integers $x$, ...") or recursively defined mathematical sequences ($T(n) = n + T(n - 1)$)—
+// plain boolean expressions are not enough.
+//
+// TS++ provides a dedicated specification library (`smt` module) supporting three higher-level logical constructs:
+//   1. **Logical predicates & quantifiers (`definePredicate` / `forall`)**: reusable parameterized propositions with universal ($\forall$) quantification;
+//   2. **Recursive logic functions (`defineRecursiveFunction`)**: inductive mathematical definitions evaluated directly during proofs;
+//   3. **Uninterpreted functions & axioms (`declareFunction` / `axiom`)**: abstract mathematical function symbols governed by explicit algebraic laws.
+// ============================================================================
+
+import * as smt from "ts-plus-plus/plugins/formal-verification/smt";
+
+// ----------------------------------------------------------------------------
+// 1. 全称量词（`forall`）与可复用逻辑谓词（`definePredicate`）
+//
+// 下面的 `shiftedNonnegative(offset)` 定义了一个带全称量词的数学命题：
+// “对于任意整数 `value`（$\forall \text{value} \in \mathbb{Z}$），如果 $\text{value} \ge 0$，那么 $\text{value} + \text{offset} \ge \text{offset}$。”
+// 这条性质对任意 `offset` 都恒成立。
+// ----------------------------------------------------------------------------
+// 1. Universal Quantification (`forall`) & Reusable Predicates (`definePredicate`)
+//
+// `shiftedNonnegative(offset)` defines a universally quantified proposition:
+// "For every integer `value` ($\forall \text{value} \in \mathbb{Z}$), if $\text{value} \ge 0$, then $\text{value} + \text{offset} \ge \text{offset}$."
+// This law holds for any `offset`.
+// ----------------------------------------------------------------------------
+
+// 定义全称量化谓词：对一切非负整数 value，加上 offset 后的结果必然 >= offset
+// Define a universally quantified predicate: for all `value >= 0n`, `value + offset >= offset`
+const shiftedNonnegative = smt.definePredicate(
+    [["offset", smt.Int]],
+    offset => smt.forall(
+        [["value", smt.Int]],
+        value => smt.implies(smt.ge(value, 0n), smt.ge(smt.add(value, offset), offset)),
+    ),
+);
+
+// ----------------------------------------------------------------------------
+// 2. 递归逻辑函数（`defineRecursiveFunction`）
+//
+// 定义数学上的三角数函数 $\text{triangular}(n)$：
+//   - 当 $n \le 0$ 时，结果为 $0$；
+//   - 当 $n > 0$ 时，结果为 $n + \text{triangular}(n - 1)$。
+// 编译器可以在 `assert:` 中直接展开并证明 $\text{triangular}(4) = 4 + 3 + 2 + 1 + 0 = 10$。
+// ----------------------------------------------------------------------------
+// 2. Recursive Logic Functions (`defineRecursiveFunction`)
+//
+// Defines the mathematical triangular number function $\text{triangular}(n)$:
+//   - When $n \le 0$, yields $0$;
+//   - When $n > 0$, yields $n + \text{triangular}(n - 1)$.
+// The compiler unfolds this definition at compile time to prove $\text{triangular}(4) = 4 + 3 + 2 + 1 + 0 = 10$.
+// ----------------------------------------------------------------------------
+
+// 递归定义三角数求和函数：triangular(n) = 1 + 2 + ... + n
+// Recursively define the triangular number function: `triangular(n) = 1 + 2 + ... + n`
+const triangular: smt.LogicFunction<[bigint], bigint> = smt.defineRecursiveFunction(
+    [["value", smt.Int]],
+    smt.Int,
+    value => smt.ite(
+        smt.le(value, 0n),
+        0n,
+        smt.add(value, triangular(smt.sub(value, 1n))),
+    ),
+);
+
+// ----------------------------------------------------------------------------
+// 3. 抽象逻辑函数（`declareFunction`）与公理（`axiom`）
+//
+// 有时我们不需要给出一个函数的具体计算过程，只需要声明它的输入输出类型（`declareFunction`），
+// 再用 `axiom` 规定它满足的公理定律（例如：对任意整数 `value`，都有 `successor(value) === value + 1n`）。
+// ----------------------------------------------------------------------------
+// 3. Uninterpreted Logic Functions (`declareFunction`) & Axioms (`axiom`)
+//
+// Instead of providing a concrete body, you can declare an abstract function signature (`declareFunction`)
+// and specify its governing laws with `axiom` (here: for all `value`, `successor(value) === value + 1n`).
+// ----------------------------------------------------------------------------
+
+// 声明一个从整数到整数的抽象逻辑函数符号 successor
+// Declare an abstract integer-to-integer logic function symbol `successor`
+const successor = smt.declareFunction([smt.Int], smt.Int);
+
+// 为 successor 添加全称公理：对任意整数 value，successor(value) 恒等于 value + 1n
+// Attach a universal axiom: for every integer `value`, `successor(value)` equals `value + 1n`
+smt.axiom(
+    [["value", smt.Int]],
+    value => smt.eq(successor(value), smt.add(value, 1n)),
+);
+
+// ----------------------------------------------------------------------------
+// 4. 在证明点中直接调用逻辑谓词与逻辑函数
+//
+// 上述定义的谓词、递归函数与公理函数均可直接在 `assert:`、`requires:` 和 `ensures:` 中使用。
+// ----------------------------------------------------------------------------
+// 4. Using Logic Predicates & Functions in Proof Points
+//
+// Predicates, recursive logic functions, and axiomatized functions can be used directly inside `assert:`, `requires:`, and `ensures:`.
+// ----------------------------------------------------------------------------
+
+// 验证全称谓词在 offset = 5n 时成立
+// Prove the universal predicate holds for `offset = 5n`
+assert: shiftedNonnegative(5n);
+
+// 验证递归逻辑函数 triangular(4n) 的计算结果精确等于 10n
+// Prove that recursive logic function `triangular(4n)` evaluates to `10n`
+assert: triangular(4n) === 10n;
+
+// 利用公理验证 successor(2n) 精确等于 3n
+// Prove via the axiom that `successor(2n)` equals `3n`
+assert: successor(2n) === 3n;

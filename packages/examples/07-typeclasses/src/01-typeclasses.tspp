@@ -1,0 +1,136 @@
+// ============================================================================
+// 07-typeclasses / 07-typeclasses.tspp
+//
+// 类型类（`typeclass`）、实现声明（`impl`）与上下文约束（`where` / `@{ ... }`）
+//
+// 什么是类型类（Typeclass）？它与传统的面向对象接口（`interface`）有什么区别？
+// 在传统面向对象编程中，如果想让某个类型支持“相等比较（`equals`）”，该类型必须在定义时自己实现一个接口方法 `a.equals(b)`。
+// 这种做法有三个明显的局限：
+//   1. 无法为已有类型或基础类型扩展能力：你无法在不修改 `number`、第三方库类型的前提下，直接给它们挂上一个新的接口实现；
+//   2. 强绑定单一接收者 `this`：接口方法总是附着在单个对象 `a` 上，很难自然地表达跨两个不同类型 `A` 和 `B` 的关系（如 `Eq<A, B>`）；
+//   3. 同一类型只能有一套实现：对于同一个类型（比如 `number`），你很难在“精确相等”与“误差范围内近似相等”两套规则之间按需切换。
+//
+// 类型类（Typeclass）通过将“类型本身的定义”与“类型所具备的能力实现”彻底解耦，解决了上述痛点：
+//   - `typeclass`：声明一组独立于具体类型的操作契约（如 `Eq<A, B>`）；
+//   - `impl`：在类型外部，随时为任意类型（包括 `number` 等基础类型）提供该能力的实现；
+//   - `where <...>`：在函数签名上声明需要的类型类能力或类型谓词约束，调用时由编译器自动在作用域内检索并传入对应的实现；
+//   - `@{ ... }`：当同一类型存在多套实现时，支持在调用处显式指定本次调用要使用的具体实现。
+// ============================================================================
+// Typeclasses (`typeclass`), Implementations (`impl`) & Context Constraints (`where` / `@{ ... }`)
+//
+// What is a Typeclass, and how does it differ from a traditional object-oriented `interface`?
+// In traditional OOP, making a type support equality (`equals`) requires the type itself to implement a method
+// `a.equals(b)` when the type is defined. That approach has three major limitations:
+//   1. No retroactive extension: You cannot implement a new interface for primitive types like `number` or third-party
+//      types without modifying their definitions or wrapping them;
+//   2. Tied to a single `this` receiver: Interface methods belong to one object `a`, making it awkward to express
+//      capabilities that relate multiple types `A` and `B` (such as `Eq<A, B>`);
+//   3. Only one implementation per type: A type like `number` cannot easily switch between exact equality and
+//      approximate tolerance-based equality at different call sites.
+//
+// Typeclasses solve these problems by decoupling data definitions from capability implementations:
+//   - `typeclass`: Declares a contract of operations parameterized by one or more types (e.g., `Eq<A, B>`);
+//   - `impl`: Provides an implementation of that contract for any type (including primitives like `number`) from the outside;
+//   - `where <...>`: Declares required typeclass capabilities or type predicates on a function, resolved automatically at call sites;
+//   - `@{ ... }`: Explicitly overrides which implementation is used at a specific call site when multiple strategies exist.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 定义类型类（`typeclass`）与提供实现（`impl`）
+//
+// 写法：
+//   - `typeclass <名称><类型参数...> { <方法签名...> }`
+//   - `impl <实现名> = <类型类名><具体类型...> { <方法实现...> }`
+// 效果：声明能力契约，并为具体类型注册可被编译器自动检索的默认实现。
+// ----------------------------------------------------------------------------
+// 1. Defining a Typeclass (`typeclass`) & Providing an Implementation (`impl`)
+//
+// Syntax:
+//   - `typeclass <Name><TypeParams...> { <method signatures...> }`
+//   - `impl <ImplName> = <TypeclassName><ConcreteTypes...> { <method implementations...> }`
+// Effect: Declares a capability contract and registers an implementation that the compiler can resolve automatically.
+// ----------------------------------------------------------------------------
+
+// 定义相等比较类型类 `Eq<A, B>`（第二个参数默认等于 `A`）
+// Define the equality typeclass `Eq<A, B>` (where `B` defaults to `A`)
+export typeclass Eq<A, B = A> {
+  equals(a: A, b: B): boolean;
+}
+
+// 为基础类型 `number` 注册默认的精确相等实现 `NumberEq`
+// Register the default exact-equality implementation `NumberEq` for primitive `number`
+export impl NumberEq = Eq<number> {
+  equals(a, b) {
+    return a === b;
+  }
+}
+
+// 额外定义一个普通对象值 `CloseEq`：只要两个数字相差小于 0.5 就视为近似相等
+// Define an alternative implementation value `CloseEq`: treats two numbers within 0.5 as approximately equal
+export const CloseEq: Eq<number> = {
+  equals(a, b) {
+    return Math.abs(a - b) < 0.5;
+  },
+};
+
+// ----------------------------------------------------------------------------
+// 2. 带 `where` 约束的函数与 `@{ ... }` 显式实现覆盖
+//
+// 写法：
+//   - 函数声明：`function <函数名><类型参数>(<参数>) where <<约束列表>>: <返回类型>`
+//   - 自动调用：`equal(1, 1)` —— 自动找到作用域内的 `NumberEq`；
+//   - 显式指定：`equal(@{ CloseEq }, 1, 1.25)` —— 在参数列表最前面用 `@{ ... }` 临时替换为 `CloseEq`。
+// ----------------------------------------------------------------------------
+// 2. Functions with `where` Constraints & Explicit `@{ ... }` Context Overrides
+//
+// Syntax:
+//   - Function declaration: `function <name><TypeParams>(<params>) where <<constraints>>: <ReturnType>`
+//   - Automatic resolution: `equal(1, 1)` — automatically resolves `NumberEq` in scope;
+//   - Explicit override: `equal(@{ CloseEq }, 1, 1.25)` — passes `@{ CloseEq }` first to use `CloseEq` instead.
+// ----------------------------------------------------------------------------
+
+// 要求类型 `A` 与 `B` 之间具备 `Eq<A, B>` 相等比较能力
+// Require an `Eq<A, B>` implementation relating types `A` and `B`
+export function equal<A, B>(a: A, b: B) where <Eq<A, B>>: boolean {
+  return Eq.equals(a, b);
+}
+
+// 自动使用 `NumberEq`：1 === 1 为 true，1 === 1.25 为 false
+// Automatically uses `NumberEq`: `1 === 1` is `true`, `1 === 1.25` is `false`
+const exactTrue: boolean = equal(1, 1);
+const exactFalse: boolean = equal(1, 1.25);
+
+// 在调用处通过 `@{ CloseEq }` 显式切换为近似相等规则：|1 - 1.25| < 0.5，返回 true
+// Explicitly switch to approximate equality at the call site via `@{ CloseEq }`: `|1 - 1.25| < 0.5` yields `true`
+const closeTrue: boolean = equal(@{ CloseEq }, 1, 1.25);
+
+// ----------------------------------------------------------------------------
+// 3. 约束转发与编译期类型谓词（Type Predicates）
+//
+// `where <...>` 中除了可以写类型类约束（如 `Eq<T, T>`），还可以同时写返回布尔字面量的类型级谓词（如 `IsNumber<T>`）。
+// 并且外层函数接收到的 `Eq<T, T>` 能力会自动转发给内部调用的 `equal(...)`。
+// ----------------------------------------------------------------------------
+// 3. Constraint Forwarding & Compile-Time Type Predicates
+//
+// Inside `where <...>`, you can combine typeclass constraints (like `Eq<T, T>`) with boolean type predicates
+// (like `IsNumber<T>`). Capabilities received by an outer function are automatically forwarded to inner calls.
+// ----------------------------------------------------------------------------
+
+// 类型级谓词：当 `T` 是 `number` 子类型时求值为 `true`，否则为 `false`
+// Type-level predicate: evaluates to `true` when `T` extends `number`, and `false` otherwise
+type IsNumber<T> = T extends number ? true : false;
+
+// 同时要求 `T` 具备 `Eq<T, T>` 能力且满足类型谓词 `IsNumber<T>`
+// Require both the `Eq<T, T>` capability and the `IsNumber<T>` type predicate
+function allEqual<T>(first: T, second: T, third: T) where <Eq<T, T>, IsNumber<T>>: boolean {
+  return equal(first, second) && equal(second, third);
+}
+
+const tripleEqual: boolean = allEqual(2, 2, 2);
+
+console.log("[07-typeclasses]", {
+  exactTrue,
+  exactFalse,
+  closeTrue,
+  tripleEqual,
+});

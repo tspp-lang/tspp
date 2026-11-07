@@ -1,0 +1,64 @@
+// ============================================================================
+// 12-formal-verification / 08-structured-control-flow.tspp
+//
+// 可辨识联合类型（Discriminated Unions）与多分支路径敏感推导
+//
+// 在实际代码中，函数不仅处理单一数字，还经常接收带有标签字段（如 `_tag`）的可辨识联合类型（Discriminated Union），
+// 并根据不同的分支条件提前 `return`。
+//
+// TS++ 的形式化验证是**路径敏感（Path-Sensitive）**的：
+//   - 当代码进入 `if (input._tag === "Parsed")` 分支时，验证器不仅知道 `input` 拥有 `value: bigint` 字段，
+//     还会继续追踪内层 `if (input.value >= 0n)` 的条件以及走了 `else` 分支时隐含的 `input.value < 0n` 事实；
+//   - 验证器会收集函数内每一条可能的返回路径，分别证明每一条路径上的返回值都满足 `ensures:` 后置契约。
+//     只要有任意一条分支返回了不满足契约的值（例如在 `"Rejected"` 分支返回 `-1n`），编译就会直接报错。
+// ============================================================================
+// Discriminated Unions & Path-Sensitive Multi-Branch Verification
+//
+// Functions often accept discriminated unions (tagged with fields like `_tag`) and exit early across nested `if` branches.
+//
+// Formal verification in TS++ is **path-sensitive**:
+//   - Inside `if (input._tag === "Parsed")`, the verifier knows `input.value: bigint` exists and tracks further nested conditions
+//     like `if (input.value >= 0n)` as well as its negation `input.value < 0n` on the fallthrough path;
+//   - The verifier checks every possible `return` path independently and proves that each path satisfies the `ensures:` contract.
+//     If any single branch returns a value violating `ensures:` (e.g., returning `-1n` for `"Rejected"`), compilation fails.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 可辨识联合类型的分支收窄与多出口验证
+//
+// 下面的 `ParseResult` 包含两个分支：带整数值的 `"Parsed"` 与带错误码字符串的 `"Rejected"`。
+// `magnitude` 函数共有三条返回路径：
+//   1. `input._tag === "Parsed"` 且 `input.value >= 0n`：返回 `input.value`（满足 `>= 0n`）；
+//   2. `input._tag === "Parsed"` 且 `input.value < 0n`：返回 `-input.value`（正数，满足 `>= 0n`）；
+//   3. `input._tag === "Rejected"`：返回 `0n`（满足 `>= 0n`）。
+// 三条路径全部通过证明，因此整个函数的 `ensures: result >= 0n` 成立。
+// ----------------------------------------------------------------------------
+// 1. Branch Narrowing on Discriminated Unions & Multi-Exit Verification
+//
+// `ParseResult` below has two variants: `"Parsed"` (carrying `value: bigint`) and `"Rejected"` (carrying `code: string`).
+// `magnitude` has three return paths:
+//   1. `input._tag === "Parsed"` and `input.value >= 0n`: returns `input.value` (`>= 0n`);
+//   2. `input._tag === "Parsed"` and `input.value < 0n`: returns `-input.value` (`> 0n`, so `>= 0n`);
+//   3. `input._tag === "Rejected"`: returns `0n` (`>= 0n`).
+// Because all three paths satisfy `result >= 0n`, the function's postcondition is proven.
+// ----------------------------------------------------------------------------
+
+// 定义一个由 _tag 字段区分的可辨识联合类型
+// Define a discriminated union distinguished by `_tag`
+type ParseResult =
+    | { _tag: "Parsed"; value: bigint }
+    | { _tag: "Rejected"; code: string };
+
+// 跨越三层分支出口，静态证明任何情况下返回的大小都是非负整数
+// Across all three return exits, statically prove the returned magnitude is always non-negative
+function magnitude(input: ParseResult) with {
+    ensures: result >= 0n;
+}: bigint {
+    if (input._tag === "Parsed") {
+        if (input.value >= 0n) return input.value;
+        return -input.value;
+    }
+    return 0n;
+}
+
+console.log(magnitude({ _tag: "Parsed", value: -9n }), magnitude({ _tag: "Rejected", code: "ERR" }));

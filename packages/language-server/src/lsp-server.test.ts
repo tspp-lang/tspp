@@ -9,11 +9,13 @@ import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import fs from 'fs-extra';
 import * as lsp from 'vscode-languageserver';
 import { TextDocument } from 'vscode-languageserver-textdocument';
-import { uri, createServer, position, lastPosition, filePath, positionAfter, readContents, type TestLspServer, openDocumentAndWaitForDiagnostics, range, lastRange } from './test-utils.js';
+import { uri, createServer, position, lastPosition, filePath, positionAfter, readContents, TestLspClient, type TestLspServer, openDocumentAndWaitForDiagnostics, range, lastRange } from './test-utils.js';
+import { LspServer } from './lsp-server.js';
 import { Commands } from './commands.js';
 import { TSServerRequestCommand } from './commands/tsserverRequests.js';
 import { CommandTypes, SemicolonPreference } from './ts-protocol.js';
 import { CodeActionKind } from './utils/types.js';
+import { ConsoleLogger, LogLevel } from './utils/logger.js';
 import { ExecutionTarget } from './tsServer/server.js';
 
 const diagnostics: Map<string, lsp.PublishDiagnosticsParams> = new Map();
@@ -1372,6 +1374,45 @@ describe('code actions', () => {
     foo(param1, param2)
     `,
     };
+
+    it('registers and executes TS++ commands alongside the built-in VS Code commands', async () => {
+        const rootUri = uri();
+        const logger = new ConsoleLogger(LogLevel.Warning);
+        const lspClient = new TestLspClient({ rootUri, publishDiagnostics: () => {} }, logger);
+        const vscodeServer = new LspServer({ logger, lspClient });
+        try {
+            const { capabilities } = vscodeServer.initialize({
+                rootUri,
+                processId: null,
+                capabilities: { textDocument: { codeAction: { resolveSupport: { properties: ['command'] } } } },
+                initializationOptions: { hostInfo: 'vscode-tspp', tsserver: { useSyntaxServer: 'never' } },
+                workspaceFolders: null,
+            });
+            const commands = capabilities.executeCommandProvider!.commands;
+            expect(commands).toEqual(expect.arrayContaining([
+                'tspp.configurePlugin', 'tspp.applyCodeActionCommand', 'tspp.applyFixAllCodeAction', 'tspp.tsserverRequest',
+            ]));
+            for (const command of [Commands.CONFIGURE_PLUGIN, Commands.APPLY_CODE_ACTION, Commands.APPLY_FIX_ALL_CODE_ACTION, TSServerRequestCommand.ID]) {
+                expect(commands).not.toContain(command);
+            }
+
+            vscodeServer.didOpenTextDocument({ textDocument: doc });
+            await vscodeServer.waitForDiagnosticsForFile(doc.uri);
+            const diagnosticRange = lsp.Range.create(1, 25, 1, 49);
+            const actions = await vscodeServer.codeAction({
+                textDocument: doc,
+                range: diagnosticRange,
+                context: { diagnostics: [{ range: diagnosticRange, code: 6133, message: 'unused arg' }] },
+            });
+            const action = actions.find(lsp.CodeAction.is);
+            expect(action?.command?.command).toBe('tspp.applyCodeActionCommand');
+            const resolved = await vscodeServer.codeActionResolve(action!);
+            expect(resolved.command?.command).toBe('tspp.applyCodeActionCommand');
+            await expect(vscodeServer.executeCommand(resolved.command!)).resolves.toBe(true);
+        } finally {
+            vscodeServer.shutdown();
+        }
+    });
 
     it('can provide quickfix code actions', async () => {
         await openDocumentAndWaitForDiagnostics(server, doc);
