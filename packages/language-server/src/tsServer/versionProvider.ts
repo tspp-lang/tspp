@@ -83,20 +83,34 @@ export class TypeScriptVersion {
 
         this.logger.log(`Reading version from package.json at "${fileName}"`);
         const contents = fs.readFileSync(fileName).toString();
-        let desc: { version?: string; };
+        let desc: TypeScriptPackageManifest;
         try {
-            desc = JSON.parse(contents) as { version?: string; };
+            desc = JSON.parse(contents) as TypeScriptPackageManifest;
         } catch {
             this.logger.log('Failed parsing contents of package.json.');
             return null;
         }
-        if (!desc?.version) {
+        const version = typeScriptVersionOf(desc);
+        if (!version) {
             this.logger.log('Failed reading version number from package.json.');
             return null;
         }
-        this.logger.log(`Resolved TypeScript version to "${desc.version}"`);
-        return API.fromVersionString(desc.version);
+        this.logger.log(`Resolved TypeScript version to "${version}"`);
+        return API.fromVersionString(version);
     }
+}
+
+/**
+ * A released ts-plus-plus package is versioned as TS++, so it names the TypeScript version it implements separately;
+ * that is the version the features offered depend on.
+ */
+interface TypeScriptPackageManifest {
+    version?: string;
+    typescriptVersion?: string;
+}
+
+function typeScriptVersionOf(manifest: TypeScriptPackageManifest | null | undefined): string | null {
+    return manifest?.typescriptVersion ?? manifest?.version ?? null;
 }
 
 export const MODULE_FOLDERS = ['node_modules/typescript/lib', '.vscode/pnpify/typescript/lib', '.yarn/sdks/typescript/lib', '.pnpm/sdks/typescript/lib'];
@@ -104,8 +118,7 @@ export const MODULE_FOLDERS = ['node_modules/typescript/lib', '.vscode/pnpify/ty
 function readPackageVersion(packageFolder: string, logger: Logger): string | null {
     try {
         const contents = fs.readFileSync(path.join(packageFolder, 'package.json')).toString();
-        const desc = JSON.parse(contents) as { version?: string; };
-        return desc.version ?? null;
+        return typeScriptVersionOf(JSON.parse(contents) as TypeScriptPackageManifest);
     } catch {
         logger.log(`Failed reading version from package.json in "${packageFolder}".`);
         return null;

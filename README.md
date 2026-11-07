@@ -52,6 +52,28 @@ The separate LSP package exposes `tspp-language-server`, which adapts that
 protocol to LSP. The VSCode extension starts the LSP with the workspace
 `ts-plus-plus` SDK and associates `.tspp` files with the `tspp` language mode.
 
+## Releases
+
+A release publishes two things, both at the version of the root `package.json`:
+the `ts-plus-plus` package and the VS Code extension. Every other package in the
+workspace is internal, stays at `0.0.0` and is never published on its own:
+
+- the feature plugins and the SDK travel inside `ts-plus-plus` as bundled dependencies.
+  Projects name the plugins `ts-plus-plus/plugins/<name>`;
+- the extension carries the language server.
+
+The compiler package keeps the TypeScript version it implements as its own
+version in the repository. The released manifest records that version as
+`typescriptVersion`, which the language server reads to decide which TypeScript
+features to offer.
+
+```sh
+pnpm pack:release   # builds, then assembles release/
+pnpm test:release   # installs release/ into an empty project and exercises it
+```
+
+Tag the commit a release is published from `vX.Y.Z`.
+
 Compiler extensions use `@tspp/plugin-sdk`. The SDK currently covers expression,
 statement, declaration and type syntax; source projection; asynchronous program
 analysis and artifacts; compile-time macros; semantic Quick Info; activation

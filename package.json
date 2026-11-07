@@ -1,5 +1,6 @@
 {
   "name": "ts-plus-plus-monorepo",
+  "version": "0.1.0",
   "private": true,
   "devDependencies": {
     "@tspp/plugin-algebraic-effects": "workspace:*",

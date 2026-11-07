@@ -1,5 +1,6 @@
 // Installs what `pnpm pack:release` assembled into an empty project and uses it the way someone outside this repository
-// would: no workspace links and no built/ directory to fall back on. One compilation at a time to keep memory bounded.
+// would: no workspace links and no built/ directory to fall back on, and none of the internal packages, which reach the
+// project only inside ts-plus-plus. One compilation at a time to keep memory bounded.
 // The examples sit below the shared node_modules, the layout of an npm workspace, and name their project with `-p .`.
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
@@ -14,6 +15,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const release = path.join(root, "release");
 const examples = path.join(root, "packages", "examples");
 const nodeOptions = { ...process.env, NODE_OPTIONS: "--max-old-space-size=1536" };
+const { version } = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
 
 function npm(args, cwd) {
     const windows = process.platform === "win32";
@@ -26,13 +28,15 @@ function npm(args, cwd) {
 
 function checkInstalledManifests(consumer) {
     const modules = path.join(consumer, "node_modules");
-    const scope = path.join(modules, "@tspp");
-    const installed = [
-        path.join(modules, "ts-plus-plus"),
-        path.join(modules, "tspp-language-server"),
-        ...fs.readdirSync(scope).map(name => path.join(scope, name)),
-    ];
-    for (const directory of installed) {
+    const compiler = path.join(modules, "ts-plus-plus");
+    const manifest = JSON.parse(fs.readFileSync(path.join(compiler, "package.json"), "utf8"));
+    assert.equal(manifest.version, version, "ts-plus-plus must carry the release version");
+    assert.match(manifest.typescriptVersion ?? "", /^\d+\.\d+\.\d+/, "ts-plus-plus must name the TypeScript version it implements");
+    assert.ok(!fs.existsSync(path.join(modules, "@tspp")), "internal packages must stay inside ts-plus-plus");
+    const scope = path.join(compiler, "node_modules", "@tspp");
+    const bundled = fs.readdirSync(scope).map(name => path.join(scope, name));
+    assert.ok(bundled.length > 1, "ts-plus-plus must bundle the SDK and the plugins");
+    for (const directory of [compiler, ...bundled]) {
         const manifest = fs.readFileSync(path.join(directory, "package.json"), "utf8");
         assert.doesNotMatch(manifest, /"workspace:/, `${directory} still names the workspace`);
     }
@@ -58,6 +62,7 @@ function compileExamples(consumer) {
         });
         // An example may consume another's output as a package.
         const linked = path.join(consumer, "node_modules", ...JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8")).name.split("/"));
+        fs.mkdirSync(path.dirname(linked), { recursive: true });
         fs.symlinkSync(directory, linked, "junction");
         return directory;
     });
@@ -86,7 +91,7 @@ function writeProject(consumer) {
             module: "nodenext",
             noEmit: true,
             strict: true,
-            plugins: [{ name: "@tspp/plugin-formal-verification", tspp: true }, { name: "@tspp/plugin-nominal-types", tspp: true }],
+            plugins: [{ name: "ts-plus-plus/plugins/formal-verification", tspp: true }, { name: "ts-plus-plus/plugins/nominal-types", tspp: true }],
         },
         include: ["src"],
     }));
@@ -103,7 +108,8 @@ function checkErrorsAreReported(consumer, project) {
     console.log("ok  reported checker and verification errors");
 }
 
-// Starts the server the way an editor does and waits for it to report a checker error in a TS++ file.
+// Starts the server the way an editor does and waits for it to report a checker error in a TS++ file. The server must
+// judge the compiler by the TypeScript version it implements, not by the release version: features follow from that.
 function checkLanguageServer(server, sdk, project) {
     return new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [server, "--stdio"], { env: nodeOptions, stdio: ["pipe", "pipe", "inherit"] });
@@ -120,6 +126,8 @@ function checkLanguageServer(server, sdk, project) {
         const timer = setTimeout(() => finish(new Error("The language server reported no error within 120 seconds.")), 120_000);
         child.on("error", finish);
         const file = path.join(project, "src", "a.tspp");
+        const expected = JSON.parse(fs.readFileSync(path.join(sdk, "..", "package.json"), "utf8")).typescriptVersion;
+        let typescriptVersion;
         let buffered = Buffer.alloc(0);
         child.stdout.on("data", chunk => {
             buffered = Buffer.concat([buffered, chunk]);
@@ -134,8 +142,11 @@ function checkLanguageServer(server, sdk, project) {
                     send({ method: "initialized", params: {} });
                     send({ method: "textDocument/didOpen", params: { textDocument: { uri: pathToFileURL(file).href, languageId: "tspp", version: 1, text: fs.readFileSync(file, "utf8") } } });
                 }
+                else if (message.method === "$/typescriptVersion") {
+                    typescriptVersion = message.params.version;
+                }
                 else if (message.method === "textDocument/publishDiagnostics" && message.params.diagnostics.some(diagnostic => diagnostic.code === 2322)) {
-                    finish();
+                    finish(typescriptVersion === expected ? undefined : new Error(`The language server took the compiler for TypeScript ${typescriptVersion}, not ${expected}.`));
                 }
                 else if (message.id !== undefined && message.method) {
                     send({ id: message.id, result: null });
@@ -157,7 +168,7 @@ function checkLanguageServer(server, sdk, project) {
 
 async function checkExtension(consumer, project) {
     const [vsix] = fs.readdirSync(release).filter(file => file.endsWith(".vsix"));
-    assert.ok(vsix, "the extension was not assembled");
+    assert.equal(vsix, `tspp-vscode-${version}.vsix`, "the extension was not assembled at the release version");
     const unpacked = path.join(consumer, "vsix");
     const unzip = spawnSync("unzip", ["-q", path.join(release, vsix), "-d", unpacked], { stdio: "inherit" });
     assert.equal(unzip.status, 0, "unzip failed");
@@ -175,20 +186,19 @@ async function checkExtension(consumer, project) {
     console.log("ok  the extension's own language server and compiler report errors");
 }
 
-const tarballs = fs.existsSync(release) ? fs.readdirSync(release).filter(file => file.endsWith(".tgz")).map(file => path.join(release, file)) : [];
+const tarballs = fs.existsSync(release) ? fs.readdirSync(release).filter(file => file.endsWith(".tgz")) : [];
 assert.ok(tarballs.length > 0, "Nothing to test: run pnpm pack:release first.");
+assert.deepEqual(tarballs, [`ts-plus-plus-${version}.tgz`], "a release publishes ts-plus-plus alone");
 
 const consumer = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "tspp-release-")));
 try {
     fs.writeFileSync(path.join(consumer, "package.json"), JSON.stringify({ name: "consumer", private: true, version: "1.0.0" }));
-    npm(["install", "--no-audit", "--no-fund", ...tarballs], consumer);
+    npm(["install", "--no-audit", "--no-fund", ...tarballs.map(file => path.join(release, file))], consumer);
     checkInstalledManifests(consumer);
     console.log("ok  installed every tarball");
     compileExamples(consumer);
     const project = writeProject(consumer);
     checkErrorsAreReported(consumer, project);
-    await checkLanguageServer(path.join(consumer, "node_modules", "tspp-language-server", "lib", "cli.mjs"), path.join(consumer, "node_modules", "ts-plus-plus", "lib"), project);
-    console.log("ok  the language server reports errors");
     await checkExtension(consumer, project);
 }
 finally {

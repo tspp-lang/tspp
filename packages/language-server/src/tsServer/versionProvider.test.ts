@@ -15,12 +15,12 @@ import { ConsoleLogger } from '../utils/logger.js';
 const logger = new ConsoleLogger();
 const createdFolders: string[] = [];
 
-function createWorkspace(typescriptVersion: string, files: string[]): string {
+function createWorkspace(typescriptVersion: string, files: string[], manifest: Record<string, string> = {}): string {
     const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'tsls-version-provider-'));
     createdFolders.push(workspace);
     const packageFolder = path.join(workspace, 'node_modules', 'typescript');
     fs.mkdirSync(path.join(packageFolder, 'lib'), { recursive: true });
-    fs.writeFileSync(path.join(packageFolder, 'package.json'), JSON.stringify({ name: 'typescript', version: typescriptVersion }));
+    fs.writeFileSync(path.join(packageFolder, 'package.json'), JSON.stringify({ name: 'typescript', version: typescriptVersion, ...manifest }));
     for (const file of files) {
         fs.writeFileSync(path.join(packageFolder, 'lib', file), '');
     }
@@ -39,6 +39,12 @@ describe('getWorkspaceVersion', () => {
         const result = new TypeScriptVersionProvider(undefined, logger).getWorkspaceVersion([workspace]);
         expect(result.version?.versionString).toBe('5.9.2');
         expect(result.unusable).toEqual([]);
+    });
+
+    it('reads the TypeScript version a released TS++ names apart from its own', () => {
+        const workspace = createWorkspace('0.1.0', ['tsserver.js'], { typescriptVersion: '6.0.3' });
+        const result = new TypeScriptVersionProvider(undefined, logger).getWorkspaceVersion([workspace]);
+        expect(result.version?.versionString).toBe('6.0.3');
     });
 
     it('reports a TypeScript that has no tsserver.js', () => {
