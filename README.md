@@ -80,6 +80,9 @@ version with a prerelease part, such as `0.2.0-beta.1`, is published as a
 prerelease. A version below one already released fails the TS++ checks
 (`scripts/release-version.mjs`), so it never reaches a release. Nothing is published to npm or the Marketplace.
 
+The steps, how to choose a version and what to do when a release fails are in
+[docs/releasing.md](docs/releasing.md).
+
 Compiler extensions use `@tspp/plugin-sdk`. The SDK currently covers expression,
 statement, declaration and type syntax; source projection; asynchronous program
 analysis and artifacts; compile-time macros; semantic Quick Info; activation
