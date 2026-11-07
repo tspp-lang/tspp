@@ -43,6 +43,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   let sourceFile = true;
   let dirty = false;
   let runBlock: string | undefined;
+  let preparingRun: object | undefined;
   let runtime: Worker | undefined;
 
   const artifactEditor = monaco.editor.create(element("output-editor"), {
@@ -168,7 +169,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   function updateRunButton(): void {
     // JavaScript is generated lazily when Run is pressed. Its artifact tab does
     // not need to have been opened first.
-    runButton.disabled = !sourceFile || !!runBlock;
+    runButton.disabled = !sourceFile || !!runBlock || !!preparingRun;
     if (runBlock) runStatus.textContent = runBlock;
   }
 
@@ -184,8 +185,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       outputStatus.textContent = "Project configuration";
       outputEmpty.hidden = false;
       outputEmpty.textContent = "Compiler outputs are available for source files.";
-      runStatus.textContent = "Run is available for source files.";
-      updateRunButton();
+      stopRuntime("Run is available for source files.");
       return;
     }
     markStale();
@@ -206,7 +206,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     loaded.clear();
     renderItems();
     outputStatus.textContent = "Out of date — select an output to refresh";
-    if (runtime) stopRuntime("Source changed; run output is stale.");
+    if (runtime || preparingRun) stopRuntime("Source changed; run output is stale.");
     else if (runBlock) runStatus.textContent = runBlock;
     else if (!sourceFile) runStatus.textContent = "Run is available for source files.";
     else runStatus.textContent = "Source changed; run output is stale.";
@@ -214,12 +214,14 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   }
 
   function stopRuntime(message = "Stopped"): void {
+    preparingRun = undefined;
     runtime?.terminate();
     runtime = undefined;
     runStatus.classList.remove("loading");
     element("run-pane").setAttribute("aria-busy", "false");
     runButton.textContent = "▶ Run";
     runStatus.textContent = message;
+    updateRunButton();
   }
 
   function appendRuntimeLine(text: string, level = "log"): void {
@@ -253,54 +255,41 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
       stopRuntime();
       return;
     }
-    runButton.disabled = true;
+    const preparation = preparingRun = {};
+    updateRunButton();
     runButton.textContent = "Preparing…";
     runStatus.textContent = "Generating JavaScript…";
     runStatus.classList.add("loading");
     element("run-pane").setAttribute("aria-busy", "true");
-    let snapshot = loaded.get("javascript");
-    try {
-      snapshot ??= await client.outputs(fileName, "javascript");
-      loaded.set("javascript", snapshot);
-      renderTabs();
-    }
-    catch (error) {
-      runButton.disabled = false;
-      runButton.textContent = "▶ Run";
-      runStatus.textContent = `JavaScript generation failed: ${(error as Error).message}`;
-      runStatus.classList.remove("loading");
-      element("run-pane").setAttribute("aria-busy", "false");
-      return;
-    }
-    const javascript = current?.category === "javascript"
-      ? current
-      : outputForActiveFile(snapshot.items, "javascript");
-    if (!javascript) {
-      runButton.disabled = false;
-      runButton.textContent = "▶ Run";
-      runStatus.textContent = "No JavaScript was emitted for this file.";
-      runStatus.classList.remove("loading");
-      element("run-pane").setAttribute("aria-busy", "false");
-      return;
-    }
     let runnable: RunnableProgram;
     try {
+      const snapshot = loaded.get("javascript") ?? await client.outputs(fileName, "javascript");
+      if (preparingRun !== preparation) return;
+      loaded.set("javascript", snapshot);
+      renderTabs();
+      const javascript = current?.category === "javascript"
+        ? current
+        : outputForActiveFile(snapshot.items, "javascript");
+      if (!javascript) {
+        stopRuntime("No JavaScript was emitted for this file.");
+        return;
+      }
       runnable = await client.runnable(fileName, javascript.label);
     }
     catch (error) {
-      runButton.disabled = false;
-      runButton.textContent = "▶ Run";
-      runStatus.textContent = `JavaScript generation failed: ${(error as Error).message}`;
-      runStatus.classList.remove("loading");
-      element("run-pane").setAttribute("aria-busy", "false");
+      if (preparingRun === preparation) stopRuntime(`JavaScript generation failed: ${(error as Error).message}`);
       return;
     }
+    if (preparingRun !== preparation) return;
+    preparingRun = undefined;
     runOutput.replaceChildren();
     runStatus.textContent = "Running…";
-    runButton.disabled = false;
+    updateRunButton();
     runButton.textContent = "■ Stop";
-    runtime = new Worker(new URL("./runtimeWorker.ts", import.meta.url), { type: "module" });
-    runtime.onmessage = (event: MessageEvent<{ type: string; text?: string; level?: string }>) => {
+    const worker = new Worker(new URL("./runtimeWorker.ts", import.meta.url), { type: "module" });
+    runtime = worker;
+    worker.onmessage = (event: MessageEvent<{ type: string; text?: string; level?: string }>) => {
+      if (runtime !== worker) return;
       if (event.data.type === "output") appendRuntimeLine(event.data.text ?? "", event.data.level);
       else if (event.data.type === "complete") stopRuntime("Exited successfully");
       else if (event.data.type === "error") {
@@ -308,11 +297,12 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
         stopRuntime("Execution failed");
       }
     };
-    runtime.onerror = event => {
+    worker.onerror = event => {
+      if (runtime !== worker) return;
       appendRuntimeLine(event.message, "error");
       stopRuntime("Execution failed");
     };
-    runtime.postMessage(runnable);
+    worker.postMessage(runnable);
   }
 
   runButton.onclick = () => void runJavaScript();

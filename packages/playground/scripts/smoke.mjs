@@ -79,6 +79,16 @@ async function runExample(page, example, errors) {
     await file.click();
     const runFailures = await runActiveFile(page).catch(error => [String(error)]);
     reasons.push(...runFailures.map(reason => `${path}: ${reason}`));
+    if (example === "14-algebraic-effects" && path === "/src/02-suspension.tspp" && !runFailures.length) {
+      const output = (await page.locator("#run-output .runtime-log").allTextContents()).map(line => line.trimEnd());
+      const expected = [
+        "retried after: timeout",
+        JSON.stringify(["user 1 at 1", "user 2 at 2", "user 3 at 3"], undefined, 2),
+      ];
+      if (output.length !== expected.length || expected.some((line, index) => output[index] !== line)) {
+        reasons.push(`${path}: expected ${JSON.stringify(expected)} before exit, got ${JSON.stringify(output)}`);
+      }
+    }
     const problems = await page.locator("#problems .problem-message").allTextContents();
     reasons.push(...problems.filter(problem => problem.startsWith("Type checking failed")).map(problem => `${path}: ${problem}`));
   }
