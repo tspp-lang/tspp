@@ -53,9 +53,30 @@ export function decodeState(hash: string): SharedState | undefined {
   };
 }
 
-export function onSharedStateChange(listener: (state: SharedState) => void): void {
+/**
+ * An example the project still matches exactly travels by name, `#example=<id>`, with `&file=<path>` when the file shown
+ * is not the example's entry. The page that opens it supplies the example, so the link stays short; it is pinned to a
+ * version like any other, and that version's example is the project it shares.
+ */
+export function encodeExample(id: string, active: string, entry: string): string {
+  const name = `example=${encodeURIComponent(id)}`;
+  // Slashes stay readable: `file=src/main.tspp`, without the project path's leading slash.
+  return active === entry ? name : `${name}&file=${active.replace(/^\//, "").split("/").map(encodeURIComponent).join("/")}`;
+}
+
+/** A project from a URL hash: shared in full, or an example by name, which `example` looks up. */
+export function decodeShared(hash: string, example: (id: string, active?: string) => SharedState | undefined): SharedState | undefined {
+  const state = decodeState(hash);
+  if (state) return state;
+  const parameters = new URLSearchParams(hash.replace(/^#/, ""));
+  const id = parameters.get("example");
+  const file = parameters.get("file");
+  return id ? example(id, file ? `/${file.replace(/^\//, "")}` : undefined) : undefined;
+}
+
+export function onSharedStateChange(read: (hash: string) => SharedState | undefined, listener: (state: SharedState) => void): void {
   window.addEventListener("hashchange", () => {
-    const state = decodeState(location.hash);
+    const state = read(location.hash);
     if (state) listener(state);
   });
 }

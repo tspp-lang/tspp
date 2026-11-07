@@ -10,7 +10,7 @@ import { renderProblemList } from "./problems";
 import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, replacePathPrefix, validItemName } from "./projectTree";
 import type { DiagnosticInfo, ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
-import { decodeState, encodeState, onSharedStateChange, type SharedState } from "./share";
+import { decodeShared, encodeExample, encodeState, onSharedStateChange, type SharedState } from "./share";
 import { renderSolverStatus } from "./solverStatus";
 import { pinnedShareLink, setupVersionSelector } from "./versionSelector";
 import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
@@ -439,18 +439,21 @@ monaco.editor.registerEditorOpener({
 
 // ---- examples ------------------------------------------------------------------------
 for (const example of examples) exampleSelect.append(new Option(example.id, example.id));
-const exampleState = (id: string): SharedState | undefined => {
+const exampleState = (id: string, active?: string): SharedState | undefined => {
   const example = examples.find(e => e.id === id);
-  return example && { files: example.files, features: example.features, active: example.entry };
+  return example && { files: example.files, features: example.features, active: active && Object.hasOwn(example.files, active) ? active : example.entry };
 };
+const stateFromHash = (hash: string) => decodeShared(hash, exampleState);
 
-/** Shows the example name while the project is still exactly that example. */
+/** Shows the example name while the project is still exactly that example, which it returns. */
 function syncExampleSelect() {
   const files = projectFiles();
   const matching = examples.find(example =>
     Object.keys(example.files).length === Object.keys(files).length && Object.entries(example.files).every(([path, text]) => files[path] === text)
   );
   exampleSelect.value = matching?.id ?? "";
+  // An empty directory the example lacks is a change too.
+  return [...directories].every(directory => Object.keys(files).some(path => path.startsWith(`${directory}/`))) ? matching : undefined;
 }
 setupProjectSelector(exampleSelect, () => exampleState(exampleSelect.value), loadProject, () => dirtyFiles().size > 0, syncExampleSelect);
 
@@ -484,15 +487,15 @@ function requestCheck(delay: number) {
 /** Type checks the saved open file after a pause, and keeps the saved project URL current. */
 function scheduleCheck() {
   if (!active || !isDirty(active)) requestCheck(300);
-  history.replaceState(null, "", "#" + encodeState({
+  const example = syncExampleSelect();
+  history.replaceState(null, "", "#" + (example ? encodeExample(example.id, active, example.entry) : encodeState({
     files: projectFiles(),
     features: [...selected],
     active,
     open: openFiles,
     directories: [...directories].sort(),
-  }));
+  })));
   shareLink.hidden = true;
-  syncExampleSelect();
 }
 
 async function check() {
@@ -530,10 +533,10 @@ function renderProblems(problems: readonly DiagnosticInfo[]) {
     });
 }
 
-loadProject(decodeState(location.hash) ?? exampleState(examples[0].id)!);
+loadProject(stateFromHash(location.hash) ?? exampleState(examples[0].id)!);
 
 // A pasted share link in the same tab only changes the hash.
-onSharedStateChange(state => {
+onSharedStateChange(stateFromHash, state => {
   if (dirtyFiles().size && !confirm("Discard all unsaved changes and open the shared project?")) {
     scheduleCheck();
     return;
