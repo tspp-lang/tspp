@@ -3,15 +3,12 @@ import { nameText, nodeStart, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { expressionToSmtTerm, type Sort, type Term } from "./expression";
-import { matchingBrace, reportWithClauseIssues, parseProperties } from "./contracts";
+import { matchingBrace, reportWithClauseIssues, parseProperties, type PendingProof } from "./contracts";
 import { immediatelyInvoked, lowerCallArguments, lowerConditional, lowerImmediateCall, lowerPositionalField, lowerStructuredResult, type Lowering } from "./lowered-code";
-import type { PendingProof } from "./contracts";
-import { reportMisplacedRefinements, type RefinementModel } from "./refinements";
+import { reportMisplacedRefinements } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import { collectTopLevelProofVariables } from "./proof-scope";
-import {
-    fieldsFromType, participatesInVerification, refinementFromType, sortFromType, type Clause, type FunctionModel,
-} from "./models";
+import { guardsCalls, modelSignature, participatesInVerification, refinementFromType, sortFromType, type Clause } from "./models";
 import { prepareVerificationSource } from "./source-cache";
 import {
     addProof, assignedKeys, assignmentKey, assignmentOperators, arithmeticOperators, cloneState, comparisonOperators,
@@ -19,24 +16,24 @@ import {
     initialState, type Context, type JumpTarget, type State,
 } from "./execution-state";
 import { countTopLevelWrites, countWrites, mayCarryObligations, mayWriteValues, reportUnvisited } from "./coverage";
-
-function instantiate(
-    clause: string, names: readonly string[], values: readonly Term[], logic: LogicLibrary,
-    result?: Term, numberModel?: FunctionModel["numberModel"],
-): Term {
-    const substitutions: Record<string, Term> = {};
-    names.forEach((name, index) => substitutions[name] = values[index]);
-    if (result) substitutions.result = result;
-    return expressionToSmtTerm(clause, {
-        substitutions, functions: logic.functions,
-        defaultNumberSort: numberModel === "mathematical-real" ? "Real" : "Int",
-    });
-}
+import { collectClassModels, reportEncapsulation, resolveCallTarget } from "./classes";
+import {
+    connectExecutor, instantiate, leaveObject, lowerMathCall, lowerMemberCall, lowerObjectCreation, lowerObjectExpression,
+    returnFromMember, throwFromMember, verifyMember, writesField,
+} from "./class-execution";
 
 function lowerCall(node: TS.CallExpression, state: State, context: Context): Term {
     const invoked = immediatelyInvoked(node);
     if (invoked) return lowerImmediateCall(node, invoked, state, context, lowering);
-    if (!ts.isIdentifier(node.expression)) throw new Error("Only direct calls can participate in formal verification.");
+    const math = lowerMathCall(node, state, context);
+    if (math) return math;
+    if (!ts.isIdentifier(node.expression)) {
+        const target = resolveCallTarget(node, context.classes);
+        // A call the verifier cannot follow is reported here; coverage must not report it a second time.
+        context.visited.add(node);
+        if (!target) throw new Error("Only direct calls, and calls to methods of classes declared in this file through a receiver of known class, can participate in formal verification.");
+        return lowerMemberCall(node, target, state, context)!;
+    }
     context.visited.add(node);
     const functionName = nameText(node.expression);
     // A function declared in this file shadows a project-wide logic function of the same name.
@@ -64,6 +61,7 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
         const goal = expressionToSmtTerm(refinement.predicate, { substitutions: { value: arguments_[index] }, functions: context.logic.functions });
         addProof(context, state, goal.smt, node.arguments[model.parameterPositions?.[index] ?? index], `${refinement.name} argument refinement`);
     }
+    leaveObject(state, node, model.name, context);
     const sort: Sort = model.returnSort ?? "Int";
     const name = `tspp.call.${model.name}.${context.nextTemporary++}`;
     const result = { smt: `|${name}|`, sort } as const;
@@ -91,6 +89,8 @@ function lowerExpression(node: TS.Expression, state: State, context: Context): T
         if (!sort) throw new Error(`Unknown proof variable '${nameText(node)}'.`);
         return { smt: `|${nameText(node)}|`, sort };
     }
+    const object = lowerObjectExpression(node, state, context);
+    if (object) return object;
     if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
         const name = `${nameText(node.expression)}.${nameText(node.name)}`;
         const value = state.values[name];
@@ -170,7 +170,7 @@ function lowerArithmetic(
 
 function updateAssignment(node: TS.BinaryExpression, state: State, context: Context): boolean {
     const key = assignmentKey(node.left);
-    if (!key || !assignmentOperators().has(node.operatorToken.kind)) return false;
+    if (!key || !assignmentOperators().has(node.operatorToken.kind) || !writesField(key, context)) return false;
     const operator = assignmentOperators().get(node.operatorToken.kind);
     const right = lowerExpression(node.right, state, context);
     state.values[key] = operator === undefined ? right
@@ -208,6 +208,12 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
                         .includes(nameText(declaration.initializer.expression.name))) continue;
                 // A shadowing binding would overwrite the outer value that later code still reads.
                 if (lexical && isBound(state, nameText(declaration.name))) unsupported(state, declaration, context);
+                // An object holds no value proofs read; its constructor still owes its preconditions.
+                if (declaration.initializer && lowerObjectCreation(declaration.initializer, state, context)) {
+                    delete state.values[nameText(declaration.name)];
+                    delete state.variables[nameText(declaration.name)];
+                    continue;
+                }
                 const refinement = refinementFromType(declaration.type, context.refinements);
                 let value: Term | undefined;
                 // A value outside the model is fine until something reads the name, which then reports it as unknown,
@@ -243,6 +249,14 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
             while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
             if (ts.isCallExpression(expression) && ts.isPropertyAccessExpression(expression.expression)
                 && nameText(expression.expression.name) === "axiom") return [state];
+            if (lowerObjectCreation(expression, state, context)) return [state];
+            if (ts.isCallExpression(expression) && !ts.isIdentifier(expression.expression) && !immediatelyInvoked(expression)) {
+                const target = resolveCallTarget(expression, context.classes);
+                if (target) {
+                    lowerMemberCall(expression, target, state, context);
+                    return [state];
+                }
+            }
             if (ts.isBinaryExpression(expression) && assignmentOperators().has(expression.operatorToken.kind)) {
                 return updateAssignment(expression, state, context) ? [state] : unsupported(state, node, context);
             }
@@ -261,6 +275,7 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
             context.inlineReturns.push({ state, value: node.expression && lowerExpression(node.expression, state, context) });
             return [];
         }
+        if (ts.isReturnStatement(node) && context.currentMember) return returnFromMember(node, state, context);
         if (ts.isReturnStatement(node)) {
             context.visited.add(node);
             if (!node.expression) {
@@ -296,8 +311,7 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
             }
             return [];
         }
-        // Postconditions describe normal returns, so a path that throws has nothing left to prove.
-        if (ts.isThrowStatement(node)) return [];
+        if (ts.isThrowStatement(node)) return throwFromMember(node, state, context);
         if (ts.isIfStatement(node)) {
             const condition = lowerExpression(node.expression, state, context);
             if (condition.sort !== "Bool") throw new Error("An if condition must be Boolean.");
@@ -414,16 +428,21 @@ function executeWhile(node: TS.WhileStatement, state: State, context: Context): 
 }
 
 const lowering: Lowering = { lowerExpression, executeStatements };
+connectExecutor({ lowerExpression, executeStatements, owesProof });
 
 /**
  * Whether a function without verification syntax of its own still owes a proof to that syntax: it calls a function with
  * a precondition or a refined parameter, binds a value of a refined type, or runs a loop with an invariant.
  */
-function owesProof(statement: TS.FunctionDeclaration, context: Context): boolean {
+function owesProof(statement: TS.FunctionLikeDeclaration, context: Context): boolean {
     const visit = (node: TS.Node): boolean => {
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
             const model = context.functions.get(nameText(node.expression));
-            if (model && (model.requires.length || Object.keys(model.parameterRefinements ?? {}).length)) return true;
+            if (model && guardsCalls(model)) return true;
+        }
+        if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+            const target = resolveCallTarget(node, context.classes);
+            if (target && guardsCalls(target.member.model)) return true;
         }
         if (ts.isVariableDeclaration(node) && refinementFromType(node.type, context.refinements)) return true;
         if (ts.isWhileStatement(node) && loopInvariants(node, context).length) return true;
@@ -443,41 +462,14 @@ export function collectProgramProofs(
     const functions = new Map(prepared.functions);
     for (const statement of sourceFile.statements) {
         if (!ts.isFunctionDeclaration(statement) || !statement.name) continue;
-        const existing = functions.get(nameText(statement.name));
-        const variables: Record<string, Sort> = {};
-        const parameters: string[] = [];
-        const parameterPositions: number[] = [];
-        const parameterRefinements: Record<string, RefinementModel> = {};
-        for (const [position, parameter] of statement.parameters.entries()) {
-            if (!ts.isIdentifier(parameter.name)) continue;
-            const refinement = refinementFromType(parameter.type, refinements);
-            const sort = refinement?.sort ?? sortFromType(parameter.type, refinements, existing?.numberModel);
-            if (sort) {
-                parameters.push(nameText(parameter.name));
-                parameterPositions.push(position);
-                variables[nameText(parameter.name)] = sort;
-                if (refinement) parameterRefinements[nameText(parameter.name)] = refinement;
-            }
-            else {
-                for (const [field, fieldSort] of fieldsFromType(parameter.type, records, existing?.numberModel) ?? []) {
-                    variables[`${nameText(parameter.name)}.${field}`] = fieldSort;
-                }
-            }
-        }
-        const returnRefinement = refinementFromType(statement.type, refinements);
-        functions.set(nameText(statement.name), {
-            name: nameText(statement.name), parameters, parameterPositions, arity: statement.parameters.length, variables,
-            requires: existing?.requires ?? [], ensures: existing?.ensures ?? [],
-            bodyStart: statement.body ? nodeStart(statement.body, sourceFile) : statement.end,
-            parameterRefinements,
-            returnRefinement,
-            numberModel: existing?.numberModel,
-            returnSort: returnRefinement?.sort ?? sortFromType(statement.type, refinements, existing?.numberModel),
-        });
+        const name = nameText(statement.name);
+        functions.set(name, modelSignature(name, statement, functions.get(name), refinements, records,
+            statement.body ? nodeStart(statement.body, sourceFile) : statement.end));
     }
+    const classes = collectClassModels(sourceFile, source.text, refinements, records, diagnostics);
     const proofs: PendingProof[] = [];
     const base: Omit<Context, "currentFunction"> = {
-        fileName: source.fileName, sourceFile, sourceText: source.text, functions, refinements, records, constructors, nominalTypes,
+        fileName: source.fileName, sourceFile, sourceText: source.text, functions, classes, refinements, records, constructors, nominalTypes,
         logic, proofs, diagnostics, visited: new Set(), jumpTargets: [], nextTemporary: 0,
     };
     const rejected = new Set<TS.Node>();
@@ -500,6 +492,13 @@ export function collectProgramProofs(
         if (!participatesInVerification(statement, model) && !owesProof(statement, context)) continue;
         executeStatements(statement.body.statements, [initialState(model, logic)], context);
         base.nextTemporary = context.nextTemporary;
+    }
+    for (const owner of classes.values()) {
+        reportEncapsulation(owner, sourceFile, diagnostics);
+        for (const member of owner.members) {
+            const verified = verifyMember(owner, member, base, rejected);
+            if (verified !== undefined) base.nextTemporary = verified;
+        }
     }
     const topLevelState: State = { variables: {}, values: {}, declarations: new Set(logic.declarations), facts: [] };
     const proofVariables = collectTopLevelProofVariables(sourceFile, refinements);
@@ -527,6 +526,12 @@ export function collectProgramProofs(
         if (ts.isFunctionLike(node)) return;
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && participants.has(nameText(node.expression))) {
             try { lowerCall(node, topLevelState, base as Context); } catch (error) { diagnostic(base as Context, node, error); }
+        }
+        else if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !base.visited.has(node)) {
+            const target = resolveCallTarget(node, classes);
+            if (target && guardsCalls(target.member.model)) {
+                try { lowerMemberCall(node, target, topLevelState, base as Context); } catch (error) { diagnostic(base as Context, node, error); }
+            }
         }
         ts.forEachChild(node, visitCalls);
     };

@@ -8,7 +8,11 @@ export interface ExpressionEnvironment {
     readonly functions?: Readonly<Record<string, { readonly parameters: readonly Sort[]; readonly result: Sort; }>>;
 }
 
-const tokenPattern = /\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*|\d+(?:\.\d+)?n?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|true|false|===|!==|<=|>=|&&|\|\||[(),+\-*\/%<>!])\s*/gy;
+/** An ECMAScript identifier, which may also be a private name such as `#count`. */
+export const identifierSource = String.raw`#?[\p{ID_Start}_$][\p{ID_Continue}$\u200C\u200D]*`;
+
+const tokenPattern = new RegExp(String.raw`\s*(${identifierSource}(?:\.${identifierSource})*|\d+(?:\.\d+)?n?|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|true|false|===|!==|<=|>=|&&|\|\||[(),+\-*\/%<>!])\s*`, "gyu");
+const qualifiedNamePattern = new RegExp(String.raw`^${identifierSource}(?:\.${identifierSource})*$`, "u");
 
 export function expressionToSmtTerm(text: string, environment: ExpressionEnvironment = {}): Term {
     const tokens: string[] = [];
@@ -49,7 +53,7 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
             const value = JSON.parse(token.startsWith("'") ? `"${token.slice(1, -1).replace(/"/g, '\\"')}"` : token);
             return { smt: `"${String(value).replace(/"/g, '""')}"`, sort: "String" };
         }
-        if (/^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/.test(token ?? "")) {
+        if (qualifiedNamePattern.test(token ?? "")) {
             const substitution = environment.substitutions?.[token];
             if (substitution) return substitution;
             const sort = environment.variables?.[token];

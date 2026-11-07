@@ -21,6 +21,27 @@ select `numberModel: "mathematical-real"` or `numberModel: "safe-integer"`.
 The latter constrains parameters to JavaScript's exact integer range and emits
 range obligations for executed addition, subtraction, and multiplication.
 
+Classes take the same clauses. A class header's `with { invariant: ...; }`
+states a condition over private or readonly fields that every constructor must
+establish and every instance method must preserve, on each `return`, on falling
+off the end, and when it throws; `numberModel` there applies to the fields and
+every member. Constructors and methods take `requires`/`ensures` like functions,
+and `ensures` may read `this.field`. Calls are checked where the receiver's class
+is evident from the syntax: `this`, `super`, `new C(...)`, a static `C.m(...)`,
+or a parameter, variable, or field declared with the type `C` or initialized by
+`new C(...)`. A call to a method with a precondition through a receiver of
+unknown class is reported rather than accepted.
+
+The invariant is a property of the object only while its fields cannot change
+behind the verifier's back, so a class with an invariant may not let `this`
+escape, write its invariant fields from closures or through other instances, or
+declare async and generator members; before any call out of a member the
+invariant must hold, since the callee may call back in. Invariants on derived
+classes, refinement types on fields, and overriding a method that has a contract
+are refused for now. As elsewhere, only classes of the same file are modeled,
+and the number models leave out `NaN`, so values from unverified code still need
+checks where they enter.
+
 String equality and scalar fields of ordinary records/discriminated unions are
 lowered into the same symbolic state. Branch conditions over `_tag` fields feed
 the path solver, so field arithmetic and postconditions can use the narrowed

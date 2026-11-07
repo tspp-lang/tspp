@@ -1,6 +1,7 @@
 import type * as TS from "typescript-upstream";
 import { nameText, ts } from "./host-api";
-import type { FunctionModel } from "./models";
+import { guardsCalls } from "./models";
+import { guardedMethodNames, memberName, resolveCallTarget } from "./classes";
 import { assignmentKey, assignmentOperators, diagnostic, isIncrementOrDecrement, type Context, type State } from "./execution-state";
 
 export function countWrites(node: TS.Node, name: string): number {
@@ -52,25 +53,46 @@ export function reportUnvisited(sourceFile: TS.SourceFile, context: Context, rej
     const reject = (node: TS.Node, what: string) => {
         if (!context.visited.has(node)) diagnostic(context, node, `${what} is outside the code the verifier can analyze, so it is not verified.`);
     };
-    const visit = (node: TS.Node, owner: FunctionModel | undefined): void => {
+    const guardedNames = guardedMethodNames(context.classes);
+    // The members whose returns owe a proof: a contract on their result, or an invariant of their class.
+    const owingReturns = new Set<TS.Node>();
+    for (const owner of context.classes.values()) {
+        for (const member of owner.members) {
+            if (member.declaration && (member.model.ensures.length || member.model.returnRefinement || owner.invariants.length && !member.isStatic)) {
+                owingReturns.add(member.declaration);
+            }
+        }
+    }
+    const visit = (node: TS.Node, owesReturn: boolean): void => {
         if (rejected.has(node)) return;
         if (ts.isLabeledStatement(node) && (nameText(node.label) === "assert" || nameText(node.label) === "assume")) reject(node, `This ${nameText(node.label)}`);
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
             const model = context.functions.get(nameText(node.expression));
-            if (model && (model.requires.length || Object.keys(model.parameterRefinements ?? {}).length)) reject(node, `The call to '${model.name}'`);
+            if (model && guardsCalls(model)) reject(node, `The call to '${model.name}'`);
         }
-        if (ts.isReturnStatement(node) && owner && (owner.ensures.length || owner.returnRefinement)) reject(node, "This return");
+        else if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && !context.visited.has(node)) {
+            const target = resolveCallTarget(node, context.classes);
+            const name = ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) ? memberName(node.expression.name) : undefined;
+            if (target && guardsCalls(target.member.model)) reject(node, `The call to '${target.member.model.name}'`);
+            else if (!target && name !== undefined && guardedNames.has(name)) {
+                diagnostic(context, node, `The class of the receiver of '${name}' cannot be determined, so a precondition of '${name}' may go unchecked; declare the receiver with the type of a class in this file.`);
+            }
+        }
+        if (ts.isReturnStatement(node) && owesReturn) reject(node, "This return");
         // Logic functions throw when called at runtime, so they may only appear in erased proof syntax.
         if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && context.logic.functions[nameText(node.expression)]
             && !context.functions.has(nameText(node.expression))
             && !isInsideSpecification(node, library)) {
             diagnostic(context, node, `Logic function '${nameText(node.expression)}' can only be used in a formal verification specification.`);
         }
-        const nextOwner = !ts.isFunctionLike(node) ? owner
-            : ts.isFunctionDeclaration(node) && node.parent === sourceFile && node.name ? context.functions.get(nameText(node.name)) : undefined;
-        ts.forEachChild(node, child => visit(child, nextOwner));
+        let next = owesReturn;
+        if (ts.isFunctionLike(node)) {
+            const model = ts.isFunctionDeclaration(node) && node.parent === sourceFile && node.name ? context.functions.get(nameText(node.name)) : undefined;
+            next = !!model && (model.ensures.length > 0 || !!model.returnRefinement) || owingReturns.has(node);
+        }
+        ts.forEachChild(node, child => visit(child, next));
     };
-    visit(sourceFile, undefined);
+    visit(sourceFile, false);
 }
 
 /** Whether evaluating an expression may write a value proofs read: an assignment in it, or a function it could run. */
@@ -110,7 +132,11 @@ export function mayCarryObligations(node: TS.Node, state: State, context: Contex
         }
         if (ts.isCallExpression(current) && ts.isIdentifier(current.expression)) {
             const model = context.functions.get(nameText(current.expression));
-            if (model && (model.requires.length || Object.keys(model.parameterRefinements ?? {}).length)) return true;
+            if (model && guardsCalls(model)) return true;
+        }
+        else if (ts.isCallExpression(current) || ts.isNewExpression(current)) {
+            const target = resolveCallTarget(current, context.classes);
+            if (target && guardsCalls(target.member.model)) return true;
         }
         return !!ts.forEachChild(current, child => visit(child) || undefined);
     };

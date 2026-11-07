@@ -14,6 +14,8 @@ This package exercises the verification path owned by
 - recursive algebraic data constructors and tag-based switch paths;
 - reusable SMT predicates/functions, quantifiers, trusted axioms, and recursive
   definitions through `@tspp/plugin-formal-verification/smt`.
+- class invariants established by constructors and preserved by methods, with
+  method preconditions checked at each call.
 
 Run `pnpm check` in this directory. An invalid assertion, precondition call,
 invariant, or refinement introduction produces a Z3 counterexample diagnostic

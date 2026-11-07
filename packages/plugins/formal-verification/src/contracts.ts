@@ -1,6 +1,7 @@
 import { maskNonCode } from "@tspp/plugin-sdk";
 import type { TSPPAnalysisDiagnostic, TSPPPreprocessedFunctionRequest, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 
+import { identifierSource } from "./expression";
 import type { Z3Query } from "./solver";
 
 export interface PendingProof {
@@ -106,11 +107,17 @@ function beforeFunctionClause(code: string, close: number): number {
     return close;
 }
 
-/**
- * The `with` clause a declaration's `function name<...>(...)` is followed by, for the clause at `withStart`: the
- * parameters are matched as brackets, so type parameters and function types in them need no special case.
- */
-function functionOfClause(code: string, withStart: number): Omit<FunctionClause, "clauseStart" | "open" | "close"> | undefined {
+interface ClauseHeader {
+    readonly parametersStart: number;
+    readonly parametersEnd: number;
+    /** The last character before the parameters and any type parameters. */
+    readonly beforeParameters: number;
+}
+
+/** The parameters, and what precedes them, of a signature followed by the clause at `withStart`. */
+function signatureOfClause(code: string, withStart: number): ClauseHeader | undefined {
+    // A class header's clause follows a name; searching back past it could reach the parameters of earlier code.
+    if (classOfClause(code, withStart)) return undefined;
     let parametersEnd = previousToken(code, withStart);
     if (code[parametersEnd] !== ")") parametersEnd = beforeFunctionClause(code, parametersEnd);
     if (code[parametersEnd] !== ")") return undefined;
@@ -128,8 +135,73 @@ function functionOfClause(code: string, withStart: number): Omit<FunctionClause,
         if (index < 0) return undefined;
         beforeParameters = previousToken(code, index);
     }
-    const header = /\bfunction\s+([A-Za-z_$][\w$]*)$/.exec(code.slice(Math.max(0, beforeParameters - 200), beforeParameters + 1));
+    return { parametersStart, parametersEnd, beforeParameters };
+}
+
+const functionHeader = new RegExp(String.raw`\bfunction\s*\*?\s*(${identifierSource})$`, "u");
+const memberHeader = new RegExp(String.raw`(?:^|[^\p{ID_Continue}$#.])(${identifierSource})$`, "u");
+const classHeader = new RegExp(String.raw`\bclass\s+(${identifierSource})$`, "u");
+/** Words a parenthesized head follows that are not member names; `) with {` after them is a loop's or nothing's. */
+const notMemberNames = new Set(["while", "if", "for", "switch", "catch", "with", "function", "return", "typeof", "await", "yield", "new", "super"]);
+
+/**
+ * The `with` clause a declaration's `function name<...>(...)` is followed by, for the clause at `withStart`: the
+ * parameters are matched as brackets, so type parameters and function types in them need no special case.
+ */
+function functionOfClause(code: string, withStart: number): Omit<FunctionClause, "clauseStart" | "open" | "close"> | undefined {
+    const signature = signatureOfClause(code, withStart);
+    if (!signature) return undefined;
+    const { beforeParameters, parametersStart, parametersEnd } = signature;
+    const header = functionHeader.exec(code.slice(Math.max(0, beforeParameters - 200), beforeParameters + 1));
     return header ? { name: header[1], start: beforeParameters - header[0].length + 1, parametersStart, parametersEnd } : undefined;
+}
+
+/**
+ * A class member's `name<...>(...) with {`, constructors included. Nothing else can stand before `) with {`: a call
+ * followed by `with {` is not JavaScript, and loops and functions are told apart by their keywords.
+ */
+function memberOfClause(code: string, withStart: number): { readonly name: string; readonly start: number; } | undefined {
+    const signature = signatureOfClause(code, withStart);
+    if (!signature || functionOfClause(code, withStart)) return undefined;
+    const header = memberHeader.exec(code.slice(Math.max(0, signature.beforeParameters - 200), signature.beforeParameters + 1));
+    if (!header || notMemberNames.has(header[1])) return undefined;
+    return { name: header[1], start: signature.beforeParameters - header[1].length + 1 };
+}
+
+/** A class declaration's `class Name<...> with {`, whose clause comes before any heritage clause. */
+function classOfClause(code: string, withStart: number): { readonly name: string; readonly start: number; } | undefined {
+    let end = previousToken(code, withStart);
+    if (code[end] === ">") {
+        let depth = 0;
+        let index = end;
+        for (; index >= 0; index--) {
+            if (code[index] === ">" && code[index - 1] !== "=") depth++;
+            else if (code[index] === "<" && --depth === 0) break;
+        }
+        if (index < 0) return undefined;
+        end = previousToken(code, index);
+    }
+    const header = classHeader.exec(code.slice(Math.max(0, end - 200), end + 1));
+    return header ? { name: header[1], start: end - header[1].length + 1 } : undefined;
+}
+
+function isLoopClause(code: string, withStart: number): boolean {
+    const end = previousToken(code, withStart);
+    if (code[end] !== ")") return false;
+    const start = matchingOpen(code, end, "(", ")");
+    return start >= 0 && /\bwhile\s*$/.test(code.slice(Math.max(0, start - 20), start));
+}
+
+export type ClauseOwner = "function" | "method" | "class" | "loop" | "refinement";
+
+/** What the `with {` at `withStart` belongs to, in text whose strings and comments are blank. */
+export function clauseOwner(code: string, withStart: number): ClauseOwner | undefined {
+    if (classOfClause(code, withStart)) return "class";
+    if (functionOfClause(code, withStart)) return "function";
+    if (isLoopClause(code, withStart)) return "loop";
+    if (memberOfClause(code, withStart)) return "method";
+    if (/\b(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, withStart - 20), withStart))) return "refinement";
+    return undefined;
 }
 
 /** Every function declaration's `with` clause in the text of a file. */
@@ -167,18 +239,16 @@ export function maskContractClauses(_fileName: string, sourceText: string): stri
             if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
         }
     };
-    for (const clause of collectFunctionClauses(sourceText)) blank(clause.clauseStart, clause.close + 1);
-    const loopPattern = /\bwith\s*\{/g;
-    for (let match; (match = loopPattern.exec(code));) {
-        const parametersEnd = previousToken(code, match.index);
-        if (code[parametersEnd] !== ")") continue;
-        const parametersStart = matchingOpen(code, parametersEnd, "(", ")");
-        if (parametersStart < 0 || !/\bwhile\s*$/.test(code.slice(Math.max(0, parametersStart - 20), parametersStart))) continue;
+    // Refinement clauses are type syntax the parser reads; every other clause is only for proofs.
+    const pattern = /\bwith\s*\{/g;
+    for (let match; (match = pattern.exec(code));) {
+        const owner = clauseOwner(code, match.index);
+        if (!owner || owner === "refinement") continue;
         const open = code.indexOf("{", match.index);
         const close = matchingClose(code, open, "{", "}");
         if (close < 0) continue;
         blank(match.index, close + 1);
-        loopPattern.lastIndex = close + 1;
+        pattern.lastIndex = close + 1;
     }
     return characters.join("");
 }
@@ -223,9 +293,13 @@ export function parseProperties(text: string, absoluteStart: number): { name: st
     return properties;
 }
 
-const loopProperties = ["invariant"];
-const functionProperties = ["requires", "ensures", "numberModel"];
-const refinementProperties = ["predicate", "numberModel"];
+const ownerProperties: Readonly<Record<ClauseOwner, { readonly owner: string; readonly properties: readonly string[]; }>> = {
+    function: { owner: "a function", properties: ["requires", "ensures", "numberModel"] },
+    method: { owner: "a class member", properties: ["requires", "ensures", "numberModel"] },
+    class: { owner: "a class", properties: ["invariant", "numberModel"] },
+    loop: { owner: "a loop", properties: ["invariant"] },
+    refinement: { owner: "a refinement type", properties: ["predicate", "numberModel"] },
+};
 
 /**
  * Reports repeated and unrecognized properties in contract `with` clauses. Both would otherwise be dropped or merged
@@ -238,18 +312,15 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
     const code = maskNonCode(sourceText);
     const pattern = /\bwith\s*\{/g;
     for (let match; (match = pattern.exec(code));) {
-        const end = previousToken(code, match.index);
-        const owner = functionOfClause(code, match.index) ? { owner: "a function", properties: functionProperties }
-            : code[end] === ")" && /\bwhile\s*$/.test(code.slice(Math.max(0, matchingOpen(code, end, "(", ")") - 20), Math.max(0, matchingOpen(code, end, "(", ")")))) ? { owner: "a loop", properties: loopProperties }
-            : /\b(?:bigint|number|boolean)\s+$/.test(code.slice(Math.max(0, match.index - 20), match.index)) ? { owner: "a refinement type", properties: refinementProperties }
-            : undefined;
-        if (!owner) continue;
+        const kind = clauseOwner(code, match.index);
+        if (!kind) continue;
+        const owner = ownerProperties[kind];
         const open = code.indexOf("{", match.index);
         const close = matchingClose(code, open, "{", "}");
         if (close < 0) continue;
         const seen = new Set<string>();
         for (const entry of topLevelEntries(sourceText, open + 1, close)) {
-            const key = /^\s*([A-Za-z_$][\w$]*)\s*:/.exec(entry.text);
+            const key = propertyKey.exec(entry.text);
             if (!key) continue;
             const name = key[1];
             const start = entry.start + key[0].indexOf(name);
@@ -264,6 +335,8 @@ export function reportWithClauseIssues(fileName: string, sourceText: string, dia
         pattern.lastIndex = close + 1;
     }
 }
+
+const propertyKey = new RegExp(String.raw`^\s*(${identifierSource})\s*:`, "u");
 
 function topLevelEntries(text: string, start: number, end: number): { text: string; start: number; }[] {
     const entries: { text: string; start: number; }[] = [];
