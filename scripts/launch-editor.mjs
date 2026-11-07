@@ -3,7 +3,10 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import process from "node:process";
 
-const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const rootDir = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "..",
+);
 const extensionDir = path.resolve(rootDir, "packages/vscode-extension");
 const workspaceDir = path.resolve(rootDir, "packages/examples");
 
@@ -15,15 +18,27 @@ function commandInvocation(command, args) {
   };
 }
 
-console.log("\x1b[36m%s\x1b[0m", "============================================================");
-console.log("\x1b[1m\x1b[32m%s\x1b[0m", "[TS++] Preparing the extension development host...");
-console.log("\x1b[36m%s\x1b[0m", "============================================================");
+console.log(
+  "\x1b[36m%s\x1b[0m",
+  "============================================================",
+);
+console.log(
+  "\x1b[1m\x1b[32m%s\x1b[0m",
+  "[TS++] Preparing the extension development host...",
+);
+console.log(
+  "\x1b[36m%s\x1b[0m",
+  "============================================================",
+);
 
 const cleanEnv = { ...process.env };
 delete cleanEnv.NODE_OPTIONS;
 delete cleanEnv.VSCODE_INSPECTOR_OPTIONS;
 
-console.log("\x1b[33m%s\x1b[0m", "[1/2] Building the SDK, plugins, compiler, language server, and extension...");
+console.log(
+  "\x1b[33m%s\x1b[0m",
+  "[1/2] Building the SDK, plugins, compiler, language server, and extension...",
+);
 const buildCommand = commandInvocation("pnpm", ["build:vscode:dev"]);
 const buildResult = spawnSync(buildCommand.command, buildCommand.args, {
   cwd: rootDir,
@@ -32,15 +47,68 @@ const buildResult = spawnSync(buildCommand.command, buildCommand.args, {
 });
 
 if (buildResult.status !== 0) {
-  console.error("\x1b[31m%s\x1b[0m", `Build failed with exit code ${buildResult.status}.`);
+  console.error(
+    "\x1b[31m%s\x1b[0m",
+    `Build failed with exit code ${buildResult.status}.`,
+  );
   process.exit(buildResult.status ?? 1);
 }
 
-console.log("\x1b[32m%s\x1b[0m", "[2/2] Build complete. Launching the Extension Development Host...");
+function detectEditorCommand() {
+  if (process.env.TSPP_EDITOR) {
+    return process.env.TSPP_EDITOR;
+  }
+
+  // Check if running inside Google Antigravity IDE
+  if (
+    process.env.ANTIGRAVITY_AGENT ||
+    process.env.ANTIGRAVITY_AUTH_SUCCESS_APP ||
+    process.env.ANTIGRAVITY_APP_DATA_DIR
+  ) {
+    return "antigravity";
+  }
+
+  // Check generic VS Code-compatible forks via VSCODE_NLS_CONFIG or VSCODE_CODE_CACHE_PATH
+  const nlsConfig = process.env.VSCODE_NLS_CONFIG;
+  if (nlsConfig && /Antigravity/i.test(nlsConfig)) {
+    return "antigravity";
+  }
+  if (
+    process.env.VSCODE_CODE_CACHE_PATH &&
+    /Antigravity/i.test(process.env.VSCODE_CODE_CACHE_PATH)
+  ) {
+    return "antigravity";
+  }
+
+  // Cursor
+  if (process.env.CURSOR_AGENT || (nlsConfig && /Cursor/i.test(nlsConfig))) {
+    return "cursor";
+  }
+
+  // VSCodium
+  if (nlsConfig && /VSCodium/i.test(nlsConfig)) {
+    return "codium";
+  }
+
+  return "code";
+}
+
+const editorCommand = detectEditorCommand();
+
+console.log(
+  "\x1b[32m%s\x1b[0m",
+  `[2/2] Build complete. Launching the Extension Development Host with '${editorCommand}'...`,
+);
 console.log("\x1b[90m%s\x1b[0m", `Extension: ${extensionDir}`);
 console.log("\x1b[90m%s\x1b[0m", `Workspace: ${workspaceDir}`);
-console.log("\x1b[33m%s\x1b[0m", "This terminal will remain active until the development host is closed.");
-console.log("\x1b[36m%s\x1b[0m", "============================================================");
+console.log(
+  "\x1b[33m%s\x1b[0m",
+  "This terminal will remain active until the development host is closed.",
+);
+console.log(
+  "\x1b[36m%s\x1b[0m",
+  "============================================================",
+);
 
 const codeArgs = [
   "--new-window",
@@ -53,7 +121,7 @@ const codeArgs = [
   "--disable-extension=biomejs.biome",
   workspaceDir,
 ];
-const codeCommand = commandInvocation("code", codeArgs);
+const codeCommand = commandInvocation(editorCommand, codeArgs);
 
 const codeProcess = spawn(codeCommand.command, codeCommand.args, {
   cwd: rootDir,
@@ -61,25 +129,43 @@ const codeProcess = spawn(codeCommand.command, codeCommand.args, {
   env: cleanEnv,
 });
 
-codeProcess.on("error", error => {
-  console.error("\x1b[31m%s\x1b[0m", "Unable to start the 'code' command. Ensure VS Code is available on PATH.");
+codeProcess.on("error", (error) => {
+  console.error(
+    "\x1b[31m%s\x1b[0m",
+    `Unable to start the '${editorCommand}' command. Ensure it is available on PATH.`,
+  );
   console.error(error);
   process.exit(1);
 });
 
 codeProcess.on("exit", (code, signal) => {
-  console.log("\x1b[36m%s\x1b[0m", "============================================================");
+  console.log(
+    "\x1b[36m%s\x1b[0m",
+    "============================================================",
+  );
   if (code === 0) {
-    console.log("\x1b[32m%s\x1b[0m", "The Extension Development Host was closed.");
+    console.log(
+      "\x1b[32m%s\x1b[0m",
+      "The Extension Development Host was closed.",
+    );
   } else {
-    console.log("\x1b[33m%s\x1b[0m", `VS Code exited (code: ${code}, signal: ${signal}).`);
+    console.log(
+      "\x1b[33m%s\x1b[0m",
+      `VS Code exited (code: ${code}, signal: ${signal}).`,
+    );
   }
-  console.log("\x1b[36m%s\x1b[0m", "============================================================");
+  console.log(
+    "\x1b[36m%s\x1b[0m",
+    "============================================================",
+  );
   process.exit(code ?? 0);
 });
 
 process.on("SIGINT", () => {
-  console.log("\x1b[33m%s\x1b[0m", "Stopping the extension development host launcher...");
+  console.log(
+    "\x1b[33m%s\x1b[0m",
+    "Stopping the extension development host launcher...",
+  );
   codeProcess.kill();
   process.exit(0);
 });
