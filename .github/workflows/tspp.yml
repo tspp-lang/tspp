@@ -71,6 +71,9 @@ jobs:
       # Fails on upstream changes without a TSPP-SLOT marker and on changed lines over the budget
       # (docs/plugin-framework.md, "Core modification rules").
       - run: node scripts/core-diff.mjs --check
+      # A version below one already released would never be released, so it fails here, before it reaches master.
+      - name: Check the release version
+        run: node scripts/release-version.mjs
 
   quality:
     name: Lint and unused exports

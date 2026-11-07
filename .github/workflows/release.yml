@@ -37,16 +37,9 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ env.SHA }}
+      # Fails when the version is below one already released.
       - id: version
-        run: |
-          version=$(node -p 'require("./package.json").version')
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
-            echo "v$version is already released."
-            echo "unreleased=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "unreleased=true" >> "$GITHUB_OUTPUT"
-          fi
+        run: node scripts/release-version.mjs
 
   release:
     name: Release ${{ needs.version.outputs.version }}

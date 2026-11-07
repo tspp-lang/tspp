@@ -77,7 +77,8 @@ to master whose root version has no `vX.Y.Z` tag, `.github/workflows/release.yml
 runs both commands above on that commit and publishes the result on GitHub
 Releases, which tags it. A
 version with a prerelease part, such as `0.2.0-beta.1`, is published as a
-prerelease. Nothing is published to npm or the Marketplace.
+prerelease. A version below one already released fails the TS++ checks
+(`scripts/release-version.mjs`), so it never reaches a release. Nothing is published to npm or the Marketplace.
 
 Compiler extensions use `@tspp/plugin-sdk`. The SDK currently covers expression,
 statement, declaration and type syntax; source projection; asynchronous program
