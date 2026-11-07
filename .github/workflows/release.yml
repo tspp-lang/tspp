@@ -1,0 +1,64 @@
+name: Release
+
+# The root package.json holds the one version TS++ releases. Whenever master reaches a commit whose version has no
+# vX.Y.Z tag yet, this assembles the release, tests it as an outside project would, and publishes it on GitHub Releases
+# with the ts-plus-plus package and the VS Code extension attached. Creating the release tags that commit. Nothing goes
+# to npm or the Marketplace.
+
+on:
+  push:
+    branches: [master]
+    paths: [package.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Never cancel a release halfway; a later version waits for the earlier one.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  CI: true
+
+jobs:
+  version:
+    name: Find an unreleased version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      unreleased: ${{ steps.version.outputs.unreleased }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null; then
+            echo "v$version is already released."
+            echo "unreleased=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "unreleased=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: Release ${{ needs.version.outputs.version }}
+    needs: version
+    if: needs.version.outputs.unreleased == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: ./.github/actions/setup
+      - run: pnpm pack:release
+      - run: pnpm test:release
+      - name: Publish on GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # A version with a prerelease part, such as 0.2.0-beta.1, is published as a prerelease.
+          prerelease=$([[ "$VERSION" == *-* ]] && echo --prerelease || true)
+          gh release create "v$VERSION" release/* --target "$GITHUB_SHA" --title "TS++ $VERSION" --generate-notes $prerelease

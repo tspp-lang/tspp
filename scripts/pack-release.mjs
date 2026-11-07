@@ -171,4 +171,4 @@ console.log(`\nAssembled ${version} from ${gitHead} in ${path.relative(root, rel
 for (const file of fs.readdirSync(release).sort()) console.log(`  ${file}`);
 const tag = `v${version}`;
 if (git("status", "--porcelain")) console.log(`\nThe working tree has uncommitted changes, so these files match no commit.`);
-else if (!git("tag", "--points-at", "HEAD").split(/\r?\n/).includes(tag)) console.log(`\n${gitHead} is not tagged ${tag}; tag the commit a release is published from.`);
+else if (!git("tag", "--points-at", "HEAD").split(/\r?\n/).includes(tag)) console.log(`\n${gitHead} is not tagged ${tag}; the release workflow tags the commit it publishes.`);

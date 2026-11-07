@@ -72,7 +72,11 @@ pnpm pack:release   # builds, then assembles release/
 pnpm test:release   # installs release/ into an empty project and exercises it
 ```
 
-Tag the commit a release is published from `vX.Y.Z`.
+Releasing is setting the version: when master reaches a commit whose root
+version has no `vX.Y.Z` tag, `.github/workflows/release.yml` runs both commands
+above and publishes the result on GitHub Releases, which tags that commit. A
+version with a prerelease part, such as `0.2.0-beta.1`, is published as a
+prerelease. Nothing is published to npm or the Marketplace.
 
 Compiler extensions use `@tspp/plugin-sdk`. The SDK currently covers expression,
 statement, declaration and type syntax; source projection; asynchronous program
