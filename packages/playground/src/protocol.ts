@@ -115,7 +115,7 @@ export type ProjectFiles = Readonly<Record<string, string>>;
 
 export interface WorkerApi {
   /** URLs are resolved by the page: the worker's own location differs between dev and build. */
-  init(z3: { workerUrl: string; wasmUrl: string }): { version: string; features: readonly FeatureDefinition[] };
+  init(z3: { workerUrl: string; wasmUrl: string }): { features: readonly FeatureDefinition[] };
   setProject(files: ProjectFiles, features: readonly string[]): void;
   editFile(fileName: string, text: string): void;
   /** Includes program analyzer results once their background run for this Program settles. */

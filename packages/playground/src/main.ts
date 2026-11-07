@@ -82,9 +82,9 @@ catch (error) {
   bootDetail.textContent = `Could not start the compiler: ${message}`;
   throw error;
 }
-const { version, features: definitions } = initialization;
+const { features: definitions } = initialization;
 outputs.addFeatureOutputs(definitions);
-status.textContent = `TypeScript ${version} base`;
+status.textContent = `TS++ ${__TSPP_VERSION__}`;
 bootOverlay.hidden = true;
 
 // ---- project ---------------------------------------------------------------------------

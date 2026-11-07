@@ -3,6 +3,9 @@
 /** The full hash of the commit this bundle was built from, or an empty string outside a git checkout. */
 declare const __TSPP_BUILD_COMMIT__: string;
 
+/** The TS++ version this bundle was built at, from the repository's root package.json. */
+declare const __TSPP_VERSION__: string;
+
 /** Where this build's Z3 lives below the shared root, e.g. `z3/0123456789abcdef`; the hash names its content. */
 declare const __TSPP_Z3_DIRECTORY__: string;
 

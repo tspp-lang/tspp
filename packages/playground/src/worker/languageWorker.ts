@@ -328,7 +328,7 @@ function sourceOfOutput(program: ts.Program, fileName: string, outputName: strin
 const api: WorkerApi = {
   init(z3) {
     formalVerification.configureZ3Solver(createBrowserZ3Solver(z3, progress => post({ event: "solver", ...progress })));
-    return { version: ts.version, features: featureDefinitions };
+    return { features: featureDefinitions };
   },
 
   setProject(projectFiles, features) {

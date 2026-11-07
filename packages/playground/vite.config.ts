@@ -40,6 +40,11 @@ const isolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
 };
 
+/** The TS++ version: the root package.json's, the one a release carries. */
+function releaseVersion(): string {
+  return (JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8")) as { version: string }).version;
+}
+
 function buildCommit(): string {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8", cwd: import.meta.dirname }).trim();
@@ -357,7 +362,7 @@ function z3Runtime(): Plugin {
 
 export default defineConfig({
   base: "./",
-  define: { __TSPP_BUILD_COMMIT__: JSON.stringify(buildCommit()) },
+  define: { __TSPP_BUILD_COMMIT__: JSON.stringify(buildCommit()), __TSPP_VERSION__: JSON.stringify(releaseVersion()) },
   resolve: { alias: [
     { find: "ts-plus-plus/source", replacement: compilerEntry },
     { find: /^monaco-editor\/(.*\.css)$/, replacement: `${monacoRoot}/esm/vs/$1` },
