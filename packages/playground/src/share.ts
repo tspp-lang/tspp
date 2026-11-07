@@ -1,7 +1,7 @@
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
+import { deflateSync, inflateSync } from "fflate";
 import type { ProjectFiles } from "./protocol";
 
-/** Playground state carried in the URL hash: `#features=a,b&file=/index.tspp&files=<lz-string JSON>`. */
+/** Playground state carried in one URL hash: `#v2=<base64url-encoded DEFLATE JSON>`. */
 export interface SharedState {
   readonly files: ProjectFiles;
   readonly features: readonly string[];
@@ -14,60 +14,43 @@ export interface SharedState {
 }
 
 export function encodeState(state: SharedState): string {
-  const params = new URLSearchParams();
-  params.set("features", state.features.join(","));
-  params.set("file", state.active);
-  params.set("files", compressToEncodedURIComponent(JSON.stringify(state.files)));
-  if (state.open?.length) params.set("open", compressToEncodedURIComponent(JSON.stringify(state.open)));
-  if (state.directories?.length) params.set("dirs", compressToEncodedURIComponent(JSON.stringify(state.directories)));
-  // URLSearchParams escapes commas and slashes; the hash reads better without that
-  return params.toString().replace(/%2C/g, ",").replace(/%2F/g, "/");
+  const compressed = deflateSync(new TextEncoder().encode(JSON.stringify(state)));
+  let binary = "";
+  for (const byte of compressed) binary += String.fromCharCode(byte);
+  return `v2=${btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")}`;
 }
 
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every(item => typeof item === "string");
+
 export function decodeState(hash: string): SharedState | undefined {
-  const params = new URLSearchParams(hash.replace(/^#/, ""));
-  const compressed = params.get("files");
-  if (compressed === null) return undefined;
-  let files: unknown;
+  const payload = /^#?v2=([A-Za-z0-9_-]+)$/.exec(hash)?.[1];
+  if (!payload) return undefined;
+  let state: unknown;
   try {
-    files = JSON.parse(decompressFromEncodedURIComponent(compressed) ?? "");
+    const binary = atob(payload.replaceAll("-", "+").replaceAll("_", "/"));
+    const compressed = Uint8Array.from(binary, char => char.charCodeAt(0));
+    state = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(inflateSync(compressed)));
   }
   catch {
     return undefined;
   }
-  if (!files || typeof files !== "object" || !Object.values(files).every(text => typeof text === "string")) return undefined;
+  if (!state || typeof state !== "object") return undefined;
+  const { files, features, active: file, open, directories } = state as Record<string, unknown>;
+  if (!isStringArray(features) || !files || typeof files !== "object" || Array.isArray(files)
+    || !Object.values(files).every(text => typeof text === "string")) return undefined;
   const paths = Object.keys(files);
-  if (!paths.length) return undefined;
-  const features = (params.get("features") ?? "").split(",").map(name => name.trim()).filter(Boolean);
-  const file = params.get("file");
-  let open: string[] | undefined;
-  const compressedOpen = params.get("open");
-  if (compressedOpen !== null) {
-    try {
-      const decoded: unknown = JSON.parse(decompressFromEncodedURIComponent(compressedOpen) ?? "");
-      if (Array.isArray(decoded) && decoded.every(path => typeof path === "string")) {
-        open = decoded.filter(path => paths.includes(path));
-      }
-    }
-    catch {
-      // Invalid optional tab state does not make an otherwise valid shared project unusable.
-    }
-  }
-  let directories: string[] | undefined;
-  const compressedDirectories = params.get("dirs");
-  if (compressedDirectories !== null) {
-    try {
-      const decoded: unknown = JSON.parse(decompressFromEncodedURIComponent(compressedDirectories) ?? "");
-      if (Array.isArray(decoded) && decoded.every(directory => typeof directory === "string")) directories = decoded;
-    }
-    catch {
-      // Invalid optional directory state does not make an otherwise valid shared project unusable.
-    }
-  }
-  const sources = paths.filter(path => /\.(tspp|ts)$/.test(path));
-  if (!sources.length) return undefined;
-  const active = file && paths.includes(file) ? file : sources[0];
-  return { files: files as ProjectFiles, features, active, open: open?.length ? [...new Set([...open, active])] : undefined, directories };
+  const firstSource = paths.find(path => /\.(?:tspp|ts)$/.test(path));
+  if (!firstSource) return undefined;
+  const active = typeof file === "string" && Object.hasOwn(files, file) ? file : firstSource;
+  const openFiles = isStringArray(open) ? open.filter(path => Object.hasOwn(files, path)) : [];
+  return {
+    files: files as ProjectFiles,
+    features,
+    active,
+    open: openFiles.length ? [...new Set([...openFiles, active])] : undefined,
+    directories: isStringArray(directories) ? directories : undefined,
+  };
 }
 
 export function onSharedStateChange(listener: (state: SharedState) => void): void {
