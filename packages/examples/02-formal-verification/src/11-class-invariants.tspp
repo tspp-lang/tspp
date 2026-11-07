@@ -1,25 +1,25 @@
 // The invariant must hold after the constructor and on every exit from a method, including a throw. Preconditions
 // replace the runtime checks: the verifier proves them at each call instead.
-class 玩家 with {
-    invariant: 生命值 >= 0;
+class Player with {
+    invariant: health >= 0;
     numberModel: "mathematical-real";
 } {
-    private 生命值: number;
+    private health: number;
 
-    public constructor(初始生命值: number) with { requires: 初始生命值 >= 0; } {
-        this.生命值 = 初始生命值;
+    public constructor(initialHealth: number) with { requires: initialHealth >= 0; } {
+        this.health = initialHealth;
     }
 
-    public 受到伤害(伤害值: number) with { requires: 伤害值 >= 0; }: void {
-        this.生命值 = Math.max(0, this.生命值 - 伤害值);
+    public takeDamage(damage: number) with { requires: damage >= 0; }: void {
+        this.health = Math.max(0, this.health - damage);
     }
 
-    public 治疗(恢复值: number) with { requires: 恢复值 > 0; }: void {
-        this.生命值 += 恢复值;
+    public heal(amount: number) with { requires: amount > 0; }: void {
+        this.health += amount;
     }
 
-    public 获得生命值() with { ensures: result >= 0; }: number {
-        return this.生命值;
+    public getHealth() with { ensures: result >= 0; }: number {
+        return this.health;
     }
 }
 
@@ -37,12 +37,12 @@ class Account with { invariant: balance >= 0n; } {
     }
 }
 
-const 勇者 = new 玩家(100);
-勇者.受到伤害(30);
-勇者.治疗(10);
+const hero = new Player(100);
+hero.takeDamage(30);
+hero.heal(10);
 
 const account = new Account();
 account.deposit(50n);
 account.withdraw(20n);
 
-console.log(勇者.获得生命值());
+console.log(hero.getHealth());
