@@ -7,7 +7,10 @@
             "request": "launch",
             "program": "${workspaceFolder}/scripts/launch-editor.mjs",
             "cwd": "${workspaceFolder}",
-            "console": "integratedTerminal"
+            "console": "integratedTerminal",
+            "env": {
+                "VSCODE_EXEC_PATH": "${execPath}"
+            }
         },
         {
             "name": "TS++: Playground",
