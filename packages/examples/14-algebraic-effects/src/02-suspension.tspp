@@ -1,71 +1,141 @@
-// Operations marked `suspend` hand their handler the continuation `k`, which it resumes once,
-// now or later. Code that may suspend is written in direct style: no `async`, no `await`.
+// ============================================================================
+// 14-algebraic-effects / 02-suspension.tspp
+//
+// 可挂起效应与续延控制（`suspend` 操作、`control` 处理器、`k.resume` 与 `k.abort`）
+//
+// 在传统 JavaScript/TypeScript 中，一旦某个底层函数涉及异步等待，它就必须标上 `async` 并返回 `Promise`，
+// 进而迫使整条调用链上的所有上层函数都跟着改成 `async / await`（即“函数染色问题 Function Coloring”）。
+//
+// TS++ 的代数效应支持将操作声明为可挂起操作（`suspend`）：
+//   1. 告别 `async / await` 传染：调用可挂起效应的函数依然采用最自然的直接风格（Direct Style）编写，无需写 `async` 和 `await`；
+//   2. 显式续延控制（`control`）：在 `handle` 中使用 `control <操作名>(..., k)` 拦截挂起操作时，
+//      处理器会收到代表“剩余后续计算”的单次续延对象 `k`（One-Shot Continuation）：
+//      - 调用 `k.resume(value)`：将 `value` 作为 `perform` 的返回值送回暂停处，继续往下执行后续代码；
+//      - 调用 `k.abort(error)`：在 `perform` 暂停的位置直接抛出异常，函数内部可以用普通的 `try / catch` 捕获并恢复！
+// ============================================================================
+// Suspending Effects & Continuation Control (`suspend` Operations, `control` Clauses, `k.resume` & `k.abort`)
+//
+// In traditional JavaScript/TypeScript, as soon as a low-level function performs an asynchronous wait, it must be
+// marked `async` and return a `Promise`, forcing every caller up the call stack to become `async / await` as well
+// (the "function coloring" problem).
+//
+// TS++ algebraic effects allow operations to be marked with `suspend`:
+//   1. Direct-style code without `async / await`: Functions that perform suspending effects are written in plain,
+//      direct style without `async` or `await` keywords;
+//   2. Explicit continuation control (`control`): Handling a suspending operation with `control <op>(..., k)` hands
+//      the handler a one-shot continuation `k` representing the rest of the computation inside `handle ... in`:
+//      - `k.resume(value)`: Supplies `value` as the result of `perform` and resumes execution from where it paused;
+//      - `k.abort(error)`: Throws `error` directly at the `perform` point, where ordinary `try / catch` can catch it!
+// ============================================================================
 
-effect Clock {
-    suspend sleep(ms: number): void;
-    now(): number;
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. `suspend` 可挂起操作与 `control` 异步恢复（`k.resume`）
+//
+// 写法：
+//   - 在 `effect` 内声明：`suspend <操作名>(<参数>): <返回类型>;`
+//   - 在 `handle` 内处理：`control <操作名>(<参数>, k) { ... k.resume(<返回值>); }`
+// 效果：当包含 `control` 子句时，整个 `handle ... in` 表达式会自动返回一个 `Promise<结果类型>`；
+// 而被调用的函数内部完全以同步直写风格编写。
+// ----------------------------------------------------------------------------
+// 1. `suspend` Operations & Asynchronous Resumption with `control` (`k.resume`)
+//
+// Syntax:
+//   - Inside `effect`: `suspend <op>(<params>): <ReturnType>;`
+//   - Inside `handle`: `control <op>(<params>, k) { ... k.resume(<returnValue>); }`
+// Effect: A `handle ... in` block with `control` clauses automatically evaluates to a `Promise<Result>`,
+// while functions inside are written in synchronous-looking direct style.
+// ----------------------------------------------------------------------------
+
+// `Timer` 同时包含可挂起操作 `wait` 与普通同步操作 `step`
+// `Timer` combines a suspending operation `wait` with an ordinary synchronous operation `step`
+effect Timer {
+  suspend wait(ms: number): void;
+  step(): number;
 }
 
-effect Http {
-    suspend get<T>(url: string, fallback: T): T;
+// `AsyncSource` 提供可挂起的泛型读取操作 `fetchValue`
+// `AsyncSource` provides a suspending generic read operation `fetchValue`
+effect AsyncSource {
+  suspend fetchValue<T>(key: string, fallback: T): T;
 }
 
-// A function whose clause lists an effect with suspending operations compiles to a
-// generator, and its calls to `yield*`. Everything else stays plain JavaScript.
-function load(id: number) / { Clock, Http }: string {
-    perform Clock.sleep(10);
-    const user = perform Http.get(`/users/${id}`, { name: `user ${id}` });
-    return `${user.name} at ${perform Clock.now()}`;
+// 注意：这里没有任何 `async` 或 `await`，但 `wait` 和 `fetchValue` 都会在运行时异步暂停并恢复
+// Note: There is no `async` or `await` here, yet both `wait` and `fetchValue` suspend and resume asynchronously
+function readOne(id: number) / { Timer, AsyncSource }: string {
+  perform Timer.wait(5);
+  const item = perform AsyncSource.fetchValue(`key-${id}`, { label: `item-${id}` });
+  return `${item.label}@${perform Timer.step()}`;
 }
 
-function loadAll(ids: number[]) / { Clock, Http }: string[] {
-    const names: string[] = [];
-    // A callback cannot suspend, so a loop delegates to each call.
-    for (const id of ids) names.push(load(id));
-    return names;
+function readBatch(ids: number[]) / { Timer, AsyncSource }: string[] {
+  const results: string[] = [];
+  for (const id of ids) {
+    results.push(readOne(id));
+  }
+  return results;
 }
 
-let started = 0;
+let tickCount = 0;
 
-// A `handle` with `control` clauses runs its body and promises its value.
-const loaded: Promise<string[]> = handle Clock {
-    control sleep(ms, k) {
-        setTimeout(() => k.resume(), ms);
-    },
-    now: () => started += 1,
-} in handle Http {
-    control get(url, fallback, k) {
-        // A real handler would fetch here, and abort on failure.
-        queueMicrotask(() => k.resume(fallback));
-    },
+// 使用 `control` 接收续延 `k`：通过 `setTimeout` 与 `queueMicrotask` 在异步回调中调用 `k.resume(...)`
+// Use `control` to receive continuation `k`: call `k.resume(...)` inside `setTimeout` and `queueMicrotask`
+const batchPromise: Promise<string[]> = handle Timer {
+  control wait(ms, k) {
+    setTimeout(() => k.resume(), ms);
+  },
+  step: () => ++tickCount,
+} in handle AsyncSource {
+  control fetchValue(_key, fallback, k) {
+    queueMicrotask(() => k.resume(fallback));
+  },
 } in {
-    loadAll([1, 2, 3]);
+  readBatch([1, 2, 3]);
 };
 
-loaded.then(names => console.log(names));
+// ----------------------------------------------------------------------------
+// 2. 使用 `k.abort(error)` 在挂起点抛出异常并由 `try / catch` 捕获
+//
+// 当外部异步操作失败时，处理器可以调用 `k.abort(new Error(...))`。
+// 该错误会精准地在 `perform` 调用处抛出，函数内部可以直接使用标准的 `try / catch` 进行兜底或重试。
+// ----------------------------------------------------------------------------
+// 2. Aborting at the Suspension Point with `k.abort(error)` & Catching with `try / catch`
+//
+// When an external asynchronous operation fails, the handler can call `k.abort(new Error(...))`.
+// The error is thrown right at the `perform` call site, allowing standard `try / catch` blocks to handle it.
+// ----------------------------------------------------------------------------
 
-// Aborting throws where the operation was performed, so the body can catch it and retry.
-effect Flaky {
-    suspend attempt(): string;
+effect Fallible {
+  suspend attempt(): string;
 }
 
-function withRetry() / Flaky: string {
-    try {
-        return perform Flaky.attempt();
-    }
-    catch (error) {
-        return `retried after: ${(error as Error).message}`;
-    }
+// 使用标准 `try / catch` 捕获由 `k.abort(...)` 在 `perform` 处注入的错误
+// Use standard `try / catch` to handle an error injected at `perform` via `k.abort(...)`
+function runWithFallback() / Fallible: string {
+  try {
+    return perform Fallible.attempt();
+  } catch (error) {
+    return `recovered:${(error as Error).message}`;
+  }
 }
 
-let failures = 1;
-const retried = handle Flaky {
-    control attempt(k) {
-        if (failures-- > 0) k.abort(new Error("timeout"));
-        else k.resume("ok");
-    },
+let remainingFailures = 1;
+const recoveredPromise: Promise<string> = handle Fallible {
+  control attempt(k) {
+    if (remainingFailures-- > 0) {
+      k.abort(new Error("timeout"));
+    } else {
+      k.resume("ok");
+    }
+  },
 } in {
-    withRetry();
+  runWithFallback();
 };
 
-retried.then(result => console.log(result));
+void Promise.all([batchPromise, recoveredPromise]).then(([batchResults, recoveredResult]) => {
+  console.log("[02-suspension]", {
+    batchResults,
+    recoveredResult,
+  });
+});

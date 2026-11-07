@@ -1,0 +1,107 @@
+// ============================================================================
+// 07-higher-kinded-types / 02-constructor-composition.tspp
+//
+// 高阶类型构造器的返回、链式调用与多容器映射
+//
+// 类型构造器（`Type => Type`）不仅能作为参数传给高阶类型，还可以作为另一个高阶类型的**返回值**。
+// 这意味着我们可以像组合普通函数一样：
+//   - 编写返回类型构造器的高阶类型，并连续传入两层尖括号 `<Array><number>` 直接求值；
+//   - 用同一个类型构造器在单次定义中同时实例化多个不同元素类型的容器（如 `[Container<Input>, Container<Output>]`）；
+//   - 为不同的容器（如 `Array` 与自定义 `Box`）实现同一个 `Functor` 接口，并编写不依赖具体容器的通用映射函数。
+// ============================================================================
+// Returning, Chaining & Composing Higher-Kinded Type Constructors
+//
+// Type constructors (`Type => Type`) can not only be passed as parameters into higher-kinded types,
+// they can also be **returned** as results from higher-kinded types.
+// This lets us work with type constructors just like higher-order functions:
+//   - Write a higher-kinded alias that returns a `Type => Type` constructor and chain applications `<Array><number>`;
+//   - Instantiate the same `Container` parameter at multiple element types in one signature (`[Container<Input>, Container<Output>]`);
+//   - Implement `Functor` for multiple containers (`Array` and `Box`) and write container-agnostic generic functions.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 返回类型构造器的高阶类型与连续调用
+//
+// 下面的 `IdentityConstructor` 接收一个 `Constructor: Type => Type`，并且它的返回 Kind 也是 `: Type => Type`。
+// 因此，`IdentityConstructor<Array>` 算出来的结果依然是一个一元类型构造器，
+// 我们可以直接在它后面继续跟一个 `<number>`（加不加括号均可），一步算出 `number[]`！
+// ----------------------------------------------------------------------------
+// 1. Returning Type Constructors & Chained Application
+//
+// `IdentityConstructor` below takes `Constructor: Type => Type` and declares return kind `: Type => Type`.
+// Consequently, `IdentityConstructor<Array>` evaluates to a unary type constructor, allowing us to immediately
+// apply `<number>` (with or without parentheses) to obtain `number[]`!
+// ----------------------------------------------------------------------------
+
+// 接收并返回一元类型构造器的高阶恒等类型
+// A higher-kinded identity alias that takes and returns a unary type constructor (`Type => Type`)
+type IdentityConstructor<Constructor: Type => Type>: Type => Type = Constructor;
+
+// 连续尖括号调用：先传入 `Array` 得到构造器，再紧接着传入 `number` 得到 `number[]`
+// Direct chained application: apply `<Array>` first to get a constructor, then `<number>` to get `number[]`
+export type DirectNumberArray = IdentityConstructor<Array><number>;
+
+// 带括号的显式分组调用：与上面完全等价
+// Parenthesized application: completely equivalent to the direct chained form above
+export type ParenthesizedNumberArray = (IdentityConstructor<Array>)<number>;
+
+const directNumbers: DirectNumberArray = [1, 2, 3];
+const parenthesizedNumbers: ParenthesizedNumberArray = directNumbers;
+
+// ----------------------------------------------------------------------------
+// 2. 在同一个高阶类型中多次实例化同一个构造器
+//
+// 高阶类型最强大的地方在于：传入一个未绑定元素类型的 `Container: Type => Type` 后，
+// 可以在右侧对同一个 `Container` 分别填入不同的类型参数 `Input` 和 `Output`！
+// 这是传统泛型（只能传入已经固定死元素类型的 `ContainerOfInput`）无法优雅做到的。
+// ----------------------------------------------------------------------------
+// 2. Instantiating the Same Constructor at Multiple Element Types
+//
+// A key advantage of higher-kinded types is that once you receive an unapplied `Container: Type => Type`,
+// you can instantiate that exact same `Container` with multiple different element types (`Input` and `Output`)!
+// ----------------------------------------------------------------------------
+
+// 用同一个 `Container` 构造器分别包裹 `Input` 和 `Output`，组成转换前后的配对元组
+// Apply the same `Container` constructor to both `Input` and `Output` to form a before/after pair
+export type Mapping<Container: Type => Type, Input, Output> = [Container<Input>, Container<Output>];
+
+// 传入 `Array` 后，自动展开为 `[string[], number[]]`
+// Passing `Array` expands `Mapping<Array, string, number>` to `[string[], number[]]`
+export type ArrayMapping = Mapping<Array, string, number>;
+const arrayMapping: ArrayMapping = [["one", "two"], [1, 2]];
+
+// 传入匿名类型构造器 `Box` 后，自动展开为 `[{ value: string }, { value: number }]`
+// Passing the anonymous constructor `Box` expands to `[{ value: string }, { value: number }]`
+type Box = <Value> =>> { value: Value };
+export type BoxMapping = Mapping<Box, string, number>;
+const boxMapping: BoxMapping = [{ value: "one" }, { value: 1 }];
+
+// ----------------------------------------------------------------------------
+// 3. 编写跨容器复用的高阶通用函数
+//
+// 有了 `Functor<Container: Type => Type>`，我们可以为 `Box` 也实现一份 `boxFunctor`，
+// 从而用完全相同的接口处理数组 `Array` 和单值盒子 `Box`。
+// ----------------------------------------------------------------------------
+// 3. Polymorphic Functions Across Different Containers
+//
+// Using `Functor<Container: Type => Type>`, we can implement `boxFunctor` for `Box`,
+// manipulating both `Array` and `Box` through the exact same higher-kinded interface.
+// ----------------------------------------------------------------------------
+
+interface Functor<Container: Type => Type> {
+    map<Input, Output>(value: Container<Input>, transform: (value: Input) => Output): Container<Output>;
+}
+
+const boxFunctor: Functor<Box> = {
+    map: (box, transform) => ({ value: transform(box.value) }),
+};
+
+const mappedBox: Box<number> = boxFunctor.map({ value: "hello" }, text => text.length);
+
+void parenthesizedNumbers;
+void arrayMapping;
+void boxMapping;
+void mappedBox;
+

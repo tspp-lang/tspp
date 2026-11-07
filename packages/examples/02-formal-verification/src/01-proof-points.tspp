@@ -1,9 +1,82 @@
+// ============================================================================
+// 02-formal-verification / 01-proof-points.tspp
+//
+// 编译期形式化验证：证明点（`assert:`）与已知前提假设（`assume:`）
+//
+// 在日常开发中，我们通常靠两种方式检查逻辑是否正确：
+//   1. 运行时判断（`if (...) throw new Error(...)`）：只有代码真正运行到那一刻才能发现错误，且有运行开销；
+//   2. 单元测试（Unit Tests）：只能抽样测试几个具体输入（比如测试了 1、2、100），却无法保证对所有可能的输入都成立。
+//
+// 形式化验证（Formal Verification）提供了第三种方式：**编译期数学证明**。
+// 编译器会把代码转化为数学逻辑公式，在编译阶段直接证明某个性质对**所有可能的输入值**都必然成立；
+// 只要存在任何一个反例（哪怕是极其罕见的边界值），编译就会直接报错并给出该反例。
+//
+// 本文件介绍形式化验证最基础的两个语句：
+//   - `assert: <逻辑条件>;`：要求编译器在当前位置静态证明该条件必然为真；
+//   - `assume: <逻辑条件>;`：向编译器补充一条已知为真的前提条件，供后续证明使用。
+// ============================================================================
+// Compile-Time Formal Verification: Proof Points (`assert:`) & Assumptions (`assume:`)
+//
+// In everyday programming, we typically rely on two ways to check correctness:
+//   1. Runtime checks (`if (...) throw new Error(...)`): only catch bugs when hit at runtime and add execution overhead;
+//   2. Unit tests: only sample a handful of concrete inputs (e.g., 1, 2, 100) and cannot guarantee correctness for all inputs.
+//
+// Formal verification provides a third way: **compile-time mathematical proof**.
+// The compiler translates code into mathematical formulas and proves at compile time that a property holds for
+// **every possible input**. If even a single counterexample exists, compilation fails and reports that counterexample.
+//
+// This file introduces the two foundational verification statements:
+//   - `assert: <condition>;`: asks the compiler to statically prove that the condition holds at this point;
+//   - `assume: <condition>;`: supplies a known-true premise that the compiler can use in subsequent proofs.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 静态证明点（`assert:`）
+//
+// 写法：`assert: <布尔表达式>;`
+// 效果：在编译期对表达式进行数学证明。证明通过后，该语句不会产生任何运行时开销。
+// 如果命题不恒成立（例如对任意 `x: bigint` 写 `assert: x + 1n > 0n;`），编译器会自动找出反例 `x = -1n` 并报错拦截。
+// ----------------------------------------------------------------------------
+// 1. Static Proof Points (`assert:`)
+//
+// Syntax: `assert: <boolean-expression>;`
+// Effect: Mathematically proves the expression at compile time, with zero runtime overhead once proven.
+// If a claim does not hold universally (e.g., `assert: x + 1n > 0n;` for arbitrary `x: bigint`), compilation fails with counterexample `x = -1n`.
+// ----------------------------------------------------------------------------
+
+// 常量算术等式证明：编译器在编译期直接验证 1n + 1n 恒等于 2n
+// Constant arithmetic proof: verified at compile time that `1n + 1n` is always `2n`
 assert: 1n + 1n === 2n;
+
+// 复合算术表达式证明：验证 (3n * 4n) - 2n 恒等于 10n
+// Compound arithmetic proof: verified at compile time that `(3n * 4n) - 2n` is always `10n`
 assert: (3n * 4n) - 2n === 10n;
 
+// ----------------------------------------------------------------------------
+// 2. 前提假设（`assume:`）与局部性质推导
+//
+// 写法：`assume: <布尔表达式>;`
+// 效果：如果一个函数的参数 `value` 是任意整数（`bigint`），我们无法凭空证明 `value + 1n > 0n`（因为 `value` 可能是负数）。
+// 当外部环境已经保证了 `value >= 0n` 时，可以用 `assume:` 告诉验证器这一前提，验证器随后就能顺理成章地证明 `value + 1n > 0n`。
+// ----------------------------------------------------------------------------
+// 2. Assumptions (`assume:`) & Local Property Deduction
+//
+// Syntax: `assume: <boolean-expression>;`
+// Effect: For an arbitrary `value: bigint`, `value + 1n > 0n` cannot be proven out of nowhere (since `value` could be negative).
+// When an external boundary guarantees `value >= 0n`, `assume:` records that premise so the verifier can prove `value + 1n > 0n`.
+// ----------------------------------------------------------------------------
+
 function incrementFromTrustedInput(value: bigint): bigint {
+    // 引入已知前提：假设传入的 value 是非负整数
+    // Introduce a known premise: assume `value` is non-negative
     assume: value >= 0n;
+
+    // 基于 value >= 0n，编译器推导出 next = value + 1n 必然大于或等于 1n
+    // From `value >= 0n`, the compiler deduces that `next = value + 1n` is at least `1n`
     const next = value + 1n;
+
+    // 静态证明点：验证对一切满足 value >= 0n 的输入，next > 0n 恒成立
+    // Proof point: proves `next > 0n` holds for every input satisfying `value >= 0n`
     assert: next > 0n;
     return next;
 }

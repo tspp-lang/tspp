@@ -1,16 +1,148 @@
+// ============================================================================
+// 05-dependent-types / 01-basics.tspp
+//
+// 类型宇宙层级与依赖函数类型（Pi 类型）
+//
+// 在认识“依赖类型（Dependent Types）”之前，我们可以用“输入与输出的关系”把编程中的四种抽象排列出来：
+//   1. 值 -> 值（普通函数）：输入一个值，算出一个值，例如 `(x: number) => x + 1`；
+//   2. 类型 -> 值（泛型 / 参数化多态）：输入一个类型参数，复用到值级函数上，例如 `<A>(x: A): A => x`；
+//   3. 类型 -> 类型（类型函数 / 高阶类型）：输入一个类型，算出一个新类型，例如 `Array<string>`；
+//   4. 值 -> 类型（依赖类型）：输入一个具体的值，直接决定产出一个什么样的类型！
+//
+// 当“类型”和“值”可以在同一套规则下互相传递时，TS++ 引入了两项核心基础机制：
+//   - 类型宇宙层级（`Type0`, `Type1`, `Type2`...）：既然类型也可以像值一样被传递，那么“类型本身的类型”是什么？
+//     普通值类型（如 `number`、`string`）属于第 0 层宇宙 `Type0`；而 `Type0` 本身属于更高一层的 `Type1`，以此类推；
+//   - 依赖函数类型（Pi 类型，`{A: Type0} -> (value: A) -> A`）：允许将“类型参数”和“值参数”统一写在一条函数签名链上，
+//     并且后面的参数类型与返回类型可以直接引用前面绑定的名字。
+// ============================================================================
+// Type Universes & Dependent Function Types (Pi Types)
+//
+// Before diving into Dependent Types, we can map out the four forms of abstraction in programming
+// by looking at what depends on what:
+//   1. Value -> Value (ordinary functions): takes a value and computes a value, e.g. `(x: number) => x + 1`;
+//   2. Type -> Value (generics / polymorphism): takes a type parameter and uses it in a value function, e.g. `<A>(x: A): A => x`;
+//   3. Type -> Type (type operators / HKTs): takes a type and computes a new type, e.g. `Array<string>`;
+//   4. Value -> Type (dependent types): takes a concrete value and computes a type that depends on that value!
+//
+// Once types and values can be passed around under a unified model, TS++ introduces two core foundations:
+//   - Type Universes (`Type0`, `Type1`, `Type2`...): if types can be passed as inputs, what is the "type of a type"?
+//     Ordinary value types (`number`, `string`) live in `Type0`; `Type0` itself lives in `Type1`, `Type1` in `Type2`, and so on;
+//   - Dependent Function Types (Pi types, `{A: Type0} -> (value: A) -> A`): unify type parameters and value parameters
+//     into a single arrow signature where later parameter types and the return type can depend on earlier bindings.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 类型宇宙层级（`Type0 : Type1 : Type2`）
+//
+// 为什么不能简单规定“所有类型的类型都是 `Type`（即 `Type : Type`）”？
+// 在逻辑学中，如果允许一个集合或类型宇宙直接包含它自己，就会触发著名的罗素悖论（或类型论中的 Girard 悖论），
+// 导致类型系统的逻辑证明失效。
+//
+// 因此，TS++ 采用严格分层的类型宇宙（Universe Hierarchy）：
+//   - 日常描写真实数据的类型（如 `number`、`string`、`boolean`）都属于 `Type0`；
+//   - `Type0` 这个宇宙本身，属于更高一层的 `Type1`；
+//   - `Type1` 本身，则属于 `Type2`。每一层宇宙都由它的上一层宇宙来分类。
+// ----------------------------------------------------------------------------
+// 1. Type Universe Hierarchy (`Type0 : Type1 : Type2`)
+//
+// Why can't we simply say "the type of every type is `Type` (`Type : Type`)"?
+// In logic and type theory, allowing a type universe to contain itself leads to Russell's/Girard's paradox,
+// making the type system logically inconsistent for proofs.
+//
+// Instead, TS++ organizes types into a stratified hierarchy of universes:
+//   - Everyday value types (`number`, `string`, `boolean`) inhabit `Type0`;
+//   - `Type0` itself is a member of the next universe level, `Type1`;
+//   - `Type1` itself is a member of `Type2`. Each universe is classified by the level above it.
+// ----------------------------------------------------------------------------
+
+// 普通值类型 `number` 属于第 0 层类型宇宙 `Type0`
+// An ordinary value type like `number` lives in the base universe `Type0`
+export type NumberInUniverseZero: Type0 = number;
+
+// `Type0` 本身是一个包含所有基础类型的“类型宇宙”，因此它的类型是更高一层的 `Type1`
+// `Type0` is the universe of base types, so its own type is the next universe level `Type1`
 export type UniverseZero: Type1 = Type0;
+
+// 同理，`Type1` 本身属于更高一层的 `Type2`
+// Likewise, `Type1` itself inhabits `Type2`
 export type UniverseOne: Type2 = Type1;
 
+// ----------------------------------------------------------------------------
+// 2. 依赖函数类型（Pi 类型）与隐式类型参数
+//
+// 在依赖类型理论中，结果类型依赖于参数的函数类型被称为“Pi 类型（$\Pi$ 类型）”。
+// TS++ 用统一的 `->` 箭头连接参数与返回类型，并提供两种参数绑定方式：
+//   - 隐式参数 `{A: Type0}`：用花括号包裹。调用函数时无需手写传入，编译器会根据实参自动推导，也支持按需显式指定；
+//   - 显式参数 `(value: A)`：用圆括号包裹。调用函数时必须在圆括号内正常传入对应的值。
+//
+// 注意观察 `{A: Type0} -> (value: A) -> A`：
+// 第一个参数绑定了类型 `A`，紧接着第二个参数 `(value: A)` 和返回值 `A` 就直接使用了前面绑定的 `A`！
+// 而且因为这个签名内部量化了 `Type0`，它整体属于更高一层的宇宙 `Type1`。
+// ----------------------------------------------------------------------------
+// 2. Dependent Function Types (Pi Types) & Implicit Type Binders
+//
+// In dependent type theory, a function type whose later types depend on earlier parameters is called a "Pi type".
+// TS++ chains parameters and return types with `->` and supports two binder styles:
+//   - Implicit binder `{A: Type0}`: enclosed in braces. Inferred automatically at call sites, or supplied explicitly;
+//   - Explicit binder `(value: A)`: enclosed in parentheses. Passed normally as a function argument at call sites.
+//
+// Notice how `{A: Type0} -> (value: A) -> A` works:
+// The first binder introduces `A: Type0`, and both the value parameter `(value: A)` and return type `A` depend on `A`!
+// Because this function type quantifies over `Type0`, the signature as a whole lives in `Type1`.
+// ----------------------------------------------------------------------------
+
+// 声明多态恒等函数的 Pi 类型：接收隐式类型 `A` 和显式值 `value: A`，原样返回类型 `A`
+// Declare the Pi type of a polymorphic identity function: takes implicit `A: Type0` and explicit `value: A`, returning `A`
 export type PolymorphicIdentity: Type1 =
   {A: Type0} -> (value: A) -> A;
 
+// 普通的泛型箭头函数可以直接赋值给兼容的 Pi 类型
+// An ordinary generic arrow function can be assigned directly to a compatible Pi type
 const ordinaryIdentity = <A>(value: A): A => value;
 export const identity: PolymorphicIdentity = ordinaryIdentity;
+
+// 隐式推导调用：因为 `{A: Type0}` 是隐式参数，传入 `"inferred"` 时编译器自动推导出 `A = string`
+// Implicit inference call: because `{A: Type0}` is implicit, passing `"inferred"` infers `A = string` automatically
 export const inferredIdentity = identity("inferred");
+
+// 显式指定类型参数：也可以通过 `<number>` 显式传入隐式参数 `{A: Type0}`
+// Explicit type argument call: you can also supply the implicit `{A: Type0}` binder explicitly via `<number>`
 export const explicitIdentity = identity<number>(42);
 
+// ----------------------------------------------------------------------------
+// 3. 交错参数绑定与部分显式传参（`<auto, T>`）
+//
+// 在传统 TypeScript 中，所有泛型参数 `<A, B>` 必须全部挤在函数最前面；如果只想手动指定 `B` 而让编译器推导 `A`，
+// 语法上根本做不到（要么全写，要么全不写）。
+//
+// 在 TS++ 中：
+//   1. 隐式类型参数 `{A: Type0}` 和显式值参数 `(left: A)` 可以按依赖顺序自由交错书写；
+//   2. 调用时可以使用 `auto` 占位符（如 `<auto, string>`），让编译器自动推导第一个隐式参数，同时手动锁定第二个隐式参数。
+// ----------------------------------------------------------------------------
+// 3. Interleaved Binders & Partial Explicit Instantiation (`<auto, T>`)
+//
+// In standard TypeScript, all type parameters `<A, B>` must be grouped at the front, and you cannot explicitly
+// specify `B` while letting the compiler infer `A` (it is all-or-nothing).
+//
+// In TS++:
+//   1. Implicit binders `{A: Type0}` and explicit value binders `(left: A)` can be interleaved in dependency order;
+//   2. At call sites, you can pass `auto` (e.g. `<auto, string>`) to let the compiler infer the first implicit parameter
+//      while explicitly fixing the second one.
+// ----------------------------------------------------------------------------
+
+// 交错绑定签名：先引入隐式 `A` 和左值 `left: A`，再引入隐式 `B` 和右值 `right: B`，最后返回 `B`
+// Interleaved signature: introduces implicit `A` and `left: A`, then implicit `B` and `right: B`, returning `B`
 export type SelectRight: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
+
+// 实现函数：忽略第一个参数，返回第二个参数
+// Implementation: ignores the first argument and returns the second argument
 const selectRightImplementation = <A, B>(_left: A, right: B): B => right;
 export const selectRight: SelectRight = selectRightImplementation;
+
+// 全自动推导：`A` 从 `1` 推导为 `number`，`B` 从 `"right"` 推导为 `string`
+// Full inference: `A` is inferred from `1` (`number`), and `B` is inferred from `"right"` (`string`)
 export const selected = selectRight(1, "right");
+
+// 部分显式传参：用 `auto` 让第一个类型参数 `A` 自动从 `1` 推导，同时显式指定第二个类型参数 `B` 为 `string`
+// Partial explicit instantiation: `auto` infers `A` from `1`, while explicitly fixing `B` to `string`
 export const partiallyExplicit = selectRight<auto, string>(1, "right");

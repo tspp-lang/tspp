@@ -1,20 +1,91 @@
+// ============================================================================
+// 05-dependent-types / 08-runtime-reification.tspp
+//
+// 类型具象化与编译期类型分支（`reify` 与 `typecase`）
+//
+// 在标准 TypeScript 中，所有类型在编译为 JavaScript 后都会被彻底擦除（Type Erasure）：
+// 你既不能把一个类型（如 `string` 或 `Array<string>`）存进变量里查看它的描述信息，
+// 也不能根据一个类型描述对象用模式匹配来决定生成哪段值级代码。
+//
+// 为了打通“编译期类型”与“值级表达式”之间的桥梁，TS++ 引入了两个配套特性：
+//   - `reify <Type>`（类型具象化）：把一个编译期类型转化为一个真实存在、可序列化的运行时类型描述符对象；
+//   - `typecase <描述符> { <类型模式> => <结果表达式>, ... }`：在编译期对类型描述符进行结构模式匹配，
+//     直接选出匹配分支对应的表达式（编译后仅保留选中的结果表达式，没有任何运行时分支判断开销！）。
+// ============================================================================
+// Type Reification & Compile-Time Type Branching (`reify` & `typecase`)
+//
+// In standard TypeScript, all types are completely erased when compiled to JavaScript:
+// You cannot store a type like `string` or `Array<string>` in a variable to inspect its metadata,
+// nor can you pattern-match on a type descriptor to select a value-level expression.
+//
+// To bridge compile-time types and value-level expressions, TS++ introduces two companion features:
+//   - `reify <Type>`: turns a compile-time type into a concrete, serializable runtime type descriptor value;
+//   - `typecase <descriptor> { <TypePattern> => <expression>, ... }`: pattern-matches on a type descriptor
+//     at compile time and selects the matching branch expression with zero runtime dispatch overhead.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. `reify <Type>`：将类型转化为运行时描述符对象
+//
+// 写法：`reify <任意类型>`
+// 效果：产出一个包含 `kind: "type"` 和 `text: string`（类型文本表示）的普通只读对象，
+// 既可以在运行时读取、打印或序列化，也可以传给 `typecase` 做编译期匹配。
+// ----------------------------------------------------------------------------
+// 1. `reify <Type>`: Turning a Type into a Runtime Descriptor Value
+//
+// Syntax: `reify <Type>`
+// Effect: Produces a plain serializable object with `kind: "type"` and `text: string` (the textual form of the type),
+// which can be inspected at runtime or matched at compile time via `typecase`.
+// ----------------------------------------------------------------------------
+
+// 将基础类型 `string` 具象化为值级描述符对象
+// Reify the primitive type `string` into a value-level descriptor object
 export const stringDescriptor = reify string;
+
+// 将泛型数组类型 `Array<string>` 具象化为值级描述符对象
+// Reify the generic type `Array<string>` into a value-level descriptor object
 export const arrayDescriptor = reify Array<string>;
 
+// 描述符本身就是普通的运行时对象，可以直接访问 `.kind` 和 `.text` 属性
+// Descriptors are ordinary runtime objects whose `.kind` and `.text` properties can be read directly
+export const descriptorKind: "type" = stringDescriptor.kind;
+export const descriptorText: string = arrayDescriptor.text;
+
+// ----------------------------------------------------------------------------
+// 2. `typecase`：对类型描述符进行编译期模式匹配与 `infer` 类型捕获
+//
+// 写法：`typecase <描述符> { <类型模式> => <表达式>, _ => <默认表达式> }`
+// 效果：
+//   1. 编译器在编译期直接根据描述符对应的类型选出匹配分支，最终只生成该分支右侧的表达式；
+//   2. 如果模式中使用了 `infer <类型变量>`（如 `Array<infer Element>`），捕获到的类型变量 `Element`
+//      可以直接在该分支右侧的值级表达式中作为类型使用（例如 `[] as Element[]`）！
+// ----------------------------------------------------------------------------
+// 2. `typecase`: Compile-Time Pattern Matching & `infer` Type Captures
+//
+// Syntax: `typecase <descriptor> { <TypePattern> => <expression>, _ => <fallback> }`
+// Effect:
+//   1. The compiler selects the matching branch at compile time and emits only the chosen expression;
+//   2. Any `infer <TypeVar>` captured in the pattern (such as `Array<infer Element>`) becomes an in-scope
+//      type parameter inside that branch's expression (for example `[] as Element[]`)!
+// ----------------------------------------------------------------------------
+
+// 匹配 `stringDescriptor`：命中第一条 `string => "text"` 分支，直接得出 `"text"`
+// Match `stringDescriptor`: hits the `string => "text"` branch and evaluates directly to `"text"`
 export const matchedDescriptor = typecase stringDescriptor {
   string => "text",
   number => "number",
   _ => "fallback"
 };
 
-// `infer` captures in a pattern become type parameters of its arm.
+// 使用 `infer Element` 捕获数组元素类型：因为 `arrayDescriptor` 是 `Array<string>`，
+// 所以分支内的 `Element` 自动绑定为 `string`，返回类型即为 `string[]`
+// Capture the element type with `infer Element`: since `arrayDescriptor` is `Array<string>`,
+// `Element` is bound to `string` inside the branch, giving `elements` the type `string[]`
 export const elements = typecase arrayDescriptor {
   Array<infer Element> => [] as Element[],
   _ => []
 };
-export const firstElement: string | undefined = elements[0];
 
-// Only the selected expression is emitted; the match itself has no runtime
-// dispatch cost. The descriptors remain ordinary serializable values.
-export const descriptorKind: "type" = stringDescriptor.kind;
-export const descriptorText: string = arrayDescriptor.text;
+// 验证 `elements` 的元素类型已被精确推导为 `string`
+// Verify that indexing into `elements` yields `string | undefined`
+export const firstElement: string | undefined = elements[0];

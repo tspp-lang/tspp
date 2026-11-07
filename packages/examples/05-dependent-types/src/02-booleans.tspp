@@ -1,5 +1,67 @@
+// ============================================================================
+// 05-dependent-types / 02-booleans.tspp
+//
+// 布尔值与依赖条件分支（`Bool`、`True`、`False` 与 `If`）
+//
+// 什么是“值 -> 类型（依赖类型）”最直观的例子？
+// 就是根据一个布尔值（真或假），直接决定算出哪一种类型！
+//
+// 在普通的值级编程中，三元表达式 `cond ? "hello" : 42` 是根据布尔值算出不同的“值”；
+// 而在 TS++ 的依赖类型系统中，内置了布尔类型 `Bool`（拥有两个构造值 `True` 和 `False`）以及条件消去器 `If`：
+// 当条件是 `True` 时，`If` 在编译期直接计算出第一个分支的类型（如 `string`）；
+// 当条件是 `False` 时，`If` 直接计算出第二个分支的类型（如 `number`）。
+// ============================================================================
+// Booleans & Dependent Conditional Branches (`Bool`, `True`, `False` & `If`)
+//
+// What is the simplest example of "Value -> Type" (a dependent type)?
+// Choosing between two completely different types based on a boolean value (`True` or `False`)!
+//
+// In value-level code, a conditional expression `cond ? "hello" : 42` picks between two values based on a boolean.
+// In TS++'s dependent type system, built-in `Bool` (with inhabitants `True` and `False`) and its eliminator `If`
+// let a type depend directly on a boolean value:
+// When the condition is `True`, `If` computes to the first branch type (e.g. `string`);
+// When the condition is `False`, `If` computes to the second branch type (e.g. `number`).
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 布尔类型 `Bool` 与布尔函数签名
+//
+// `Bool` 是类型系统内置的布尔数据分类，属于 `Type0`，包含 `True` 和 `False` 两个值。
+// 我们可以用 `(value: Bool) -> Bool` 描述一个接收布尔值并返回布尔值的函数类型。
+// ----------------------------------------------------------------------------
+// 1. The `Bool` Type & Boolean Function Signatures
+//
+// `Bool` is the built-in boolean data type in `Type0`, inhabited by `True` and `False`.
+// We can write `(value: Bool) -> Bool` to describe a function type from `Bool` to `Bool`.
+// ----------------------------------------------------------------------------
+
+// 接收一个 `Bool` 值并返回 `Bool` 的函数类型，它本身是一个基础类型（属于 `Type0`）
+// A function type taking a `Bool` and returning a `Bool`, which itself lives in `Type0`
 export type BooleanConsumer: Type0 = (value: Bool) -> Bool;
 
+// ----------------------------------------------------------------------------
+// 2. 依赖条件消去器 `If<Condition, Motive, ThenBranch, ElseBranch>`
+//
+// 写法：`If<条件值, 动机函数(Motive), True分支结果, False分支结果>`
+//
+// 为什么中间需要写一个 `<ignored: Bool> =>> Type0`（在依赖类型中称为 Motive，“动机函数”）？
+// 因为在依赖类型里，`If` 既可以用来计算一个“值”，也可以用来计算一个“类型”，甚至计算更高阶的宇宙。
+// 第二个参数 Motive 就是在告诉类型检查器：“对于任意输入的布尔值，整个 `If` 表达式算出来的结果属于哪个类型（或哪个宇宙）？”
+// 这里写 `<ignored: Bool> =>> Type0`，表示无论条件是 `True` 还是 `False`，算出来的结果都是一个 `Type0` 中的普通类型！
+// ----------------------------------------------------------------------------
+// 2. Dependent Conditional Eliminator `If<Condition, Motive, ThenBranch, ElseBranch>`
+//
+// Syntax: `If<Condition, Motive, ThenBranch, ElseBranch>`
+//
+// Why does `If` take `<ignored: Bool> =>> Type0` (called the "Motive" in dependent type theory) as its second argument?
+// Because in a dependent type system, `If` can compute values, types, or higher-level terms whose own type might
+// even depend on the boolean being inspected.
+// The Motive tells the type checker: "Given the boolean condition, what is the type (or universe) of the result?"
+// Writing `<ignored: Bool> =>> Type0` states that whether the condition is `True` or `False`, the result is a type in `Type0`.
+// ----------------------------------------------------------------------------
+
+// 当条件为 `True` 时，`If` 直接选取第三个参数，计算出类型 `string`
+// When the condition is `True`, `If` selects the `ThenBranch` and computes to `string`
 export type TrueResult: Type0 = If<
   True,
   <ignored: Bool> =>> Type0,
@@ -7,9 +69,18 @@ export type TrueResult: Type0 = If<
   number
 >;
 
+// 当条件为 `False` 时，`If` 直接选取第四个参数，计算出类型 `number`
+// When the condition is `False`, `If` selects the `ElseBranch` and computes to `number`
 export type FalseResult: Type0 = If<
   False,
   <ignored: Bool> =>> Type0,
   string,
   number
 >;
+
+// 效果验证：`TrueResult` 确实等价于 `string`，`FalseResult` 确实等价于 `number`
+// Effect check: `TrueResult` is definitionally equal to `string`, and `FalseResult` is `number`
+const trueBranchValue: TrueResult = "picked string branch";
+const falseBranchValue: FalseResult = 42;
+void trueBranchValue;
+void falseBranchValue;

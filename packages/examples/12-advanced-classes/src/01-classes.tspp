@@ -1,228 +1,153 @@
 // ============================================================================
-// @tspp/example-advanced-classes
-// Demonstrates modern OOP features in TS++, their mutual composition (ADTs,
-// singletons, data classes), and their unique compile-time safety constraints.
+// 12-advanced-classes / 01-classes.tspp
+//
+// 现代类特性（`field` 隐式存储属性、`object` 单例、`data class` 数据类与 `with` 拷贝表达式）
+//
+// 在标准 TypeScript 中编写面向对象的类时，常常会遇到三类样板代码痛点：
+//   1. 当属性需要自定义 `get` / `set` 校验逻辑时，必须额外手动声明一个私有后备字段（如 `private _value: number`）；
+//   2. 当只需要一个全局唯一的无状态或固定配置实例时，仍需先定义 `class` 再手动 `new` 出实例，且无法直接把单例名当作类型使用；
+//   3. 定义承载数据的类时，需要手写构造函数参数、结构相等比较（`equals`）、格式化输出（`toString`）以及浅拷贝更新（`copy`）。
+//
+// 为此，TS++ 引入了四项现代类特性：
+//   - `field` 属性：自带隐式后备存储（在 `get`/`set` 内通过 `field` 关键字直接读写），告别手写 `_prop` 私有字段；
+//   - `object` 单例声明：一步声明既是运行时唯一实例、又是自身静态类型的命名单例；
+//   - `data class` 数据类：用主构造器参数直接定义属性，并自动合成 `equals`、`toString` 与 `copy` 方法；
+//   - `with(instance, { ... })` 表达式：以非破坏性（Non-Destructive）方式基于原实例创建修改了部分属性的新副本。
+// ============================================================================
+// Modern Class Features (`field` Backing Properties, `object` Singletons, `data class` & `with` Copy Expressions)
+//
+// Writing classes in standard TypeScript often involves three recurring sources of boilerplate:
+//   1. Adding custom `get` / `set` validation to a property forces you to declare a separate private backing field (`private _value`);
+//   2. Creating a single shared instance still requires defining a `class` and instantiating it manually, without a unified value/type name;
+//   3. Defining data-holding classes requires manually writing constructor properties, structural `equals`, `toString`, and `copy` methods.
+//
+// To eliminate this boilerplate, TS++ introduces four modern class features:
+//   - `field` properties: Provide implicit backing storage accessed via the `field` keyword inside `get`/`set` accessors;
+//   - `object` declarations: Define a named singleton that serves simultaneously as a runtime instance and its own type;
+//   - `data class`: Declares properties right in the class header and automatically synthesizes `equals`, `toString`, and `copy`;
+//   - `with(instance, { ... })`: Creates a new modified copy of an instance non-destructively without mutating the original.
 // ============================================================================
 
+export {};
+
 // ----------------------------------------------------------------------------
-// 1. `field` Property Syntax
-// Semi-automatic property declaration with implicit backing storage ('field')
+// 1. `field` 属性（自带隐式后备存储的访问器）
+//
+// 写法：`field <属性名>: <类型> = <初始值> { get() { ... } set(v) { ... } }`
+// 效果：无需在类中额外声明私有变量，直接在 `get` 和 `set` 内部使用关键字 `field` 读写底层存储值。
 // ----------------------------------------------------------------------------
+// 1. `field` Properties (Accessors with Implicit Backing Storage)
+//
+// Syntax: `field <name>: <Type> = <initialValue> { get() { ... } set(v) { ... } }`
+// Effect: Reads and writes the underlying storage directly via the `field` keyword inside `get` and `set`
+// without declaring a separate private backing property on the class.
+// ----------------------------------------------------------------------------
+
 class Counter {
+  // 声明初始值为 0 的 `count` 属性，在 `set` 中只允许写入非负数
+  // Declare a `count` property initialized to 0 whose setter only accepts non-negative numbers
   field count: number = 0 {
     get() {
       return field;
     }
-    set(v) {
-      if (v >= 0) {
-        field = v;
+    set(next) {
+      if (next >= 0) {
+        field = next;
       }
     }
   }
 }
 
-/*
-// [DIAGNOSTIC TS19104]: 'field' is only allowed inside a getter or setter.
-function illegalFieldUsage(): number {
-  return field;
-}
-*/
+const counter = new Counter();
+const initialCount: number = counter.count;
+counter.count = 42;
+const updatedCount: number = counter.count;
+// 传入负数会被 setter 中的校验逻辑忽略，`count` 保持 42
+// Assigning a negative number is ignored by the setter check, keeping `count` at 42
+counter.count = -10;
+const afterNegativeCount: number = counter.count;
 
 // ----------------------------------------------------------------------------
-// 2. `object` Singleton Declarations
-// First-class singleton instances that also serve as their own type definitions
+// 2. `object` 单例声明（值与类型合一）
+//
+// 写法：`object <名称> { <属性与方法...> }`
+// 效果：直接创建一个全局唯一实例 `<名称>`，同时 `<名称>` 也可以直接作为类型注解使用。
 // ----------------------------------------------------------------------------
-object AppConfig {
-  appName: string = "TS++ Advanced Classes Demo";
-  version: number = 1;
-  debugMode: boolean = true;
+// 2. `object` Singleton Declarations (Unified Value and Type)
+//
+// Syntax: `object <Name> { <properties and methods...> }`
+// Effect: Directly creates a singleton instance `<Name>`, while `<Name>` can also be used directly as a type annotation.
+// ----------------------------------------------------------------------------
 
-  greet(name: string): string {
-    return `Hello ${name} from ${this.appName} (v${this.version})`;
+// 声明一个表示坐标原点配置的全局单例 `Origin`
+// Declare a singleton `Origin` representing a shared origin descriptor
+object Origin {
+  label: string = "origin";
+  dimension: number = 2;
+
+  describe(): string {
+    return `${this.label}(${this.dimension}D)`;
   }
 }
 
-function displayConfig(cfg: AppConfig): string {
-  return `[Config] ${cfg.appName} v${cfg.version} (debug=${cfg.debugMode})`;
+// `Origin` 既可以作为函数参数的类型注解，也可以直接作为值传入
+// `Origin` can be used both as a parameter type annotation and as the runtime value passed in
+function formatOrigin(target: Origin): string {
+  return `${target.describe()}:dim=${target.dimension}`;
 }
 
+const originDescription: string = formatOrigin(Origin);
+
 // ----------------------------------------------------------------------------
-// 3. `data class`
-// Primary constructor parameter syntax with auto-synthesized copy, equals, and toString
+// 3. `data class` 数据类与 `with` 非破坏性拷贝表达式
+//
+// 写法：
+//   - 定义数据类：`data class <类名>(<属性1>: <类型1>, <属性2>: <类型2>, ...)`
+//   - 非破坏性更新：`with(<原实例>, { <要修改的属性>: <新值> })`
+// 效果：
+//   - `data class` 自动将参数绑定为实例属性，并自动生成按值比较的 `.equals(other)`、
+//     可读的 `.toString()` 以及局部更新的 `.copy(patch)` 方法；
+//   - `with(instance, patch)` 返回一个更新了指定字段的新实例，原实例保持不变。
 // ----------------------------------------------------------------------------
+// 3. `data class` Declarations & `with` Non-Destructive Copy Expressions
+//
+// Syntax:
+//   - Data class declaration: `data class <ClassName>(<prop1>: <Type1>, <prop2>: <Type2>, ...)`
+//   - Non-destructive update: `with(<instance>, { <propToUpdate>: <newValue> })`
+// Effect:
+//   - `data class` binds constructor parameters as properties and auto-synthesizes structural `.equals(other)`,
+//     formatted `.toString()`, and `.copy(patch)` methods;
+//   - `with(instance, patch)` returns a new instance with updated fields while leaving the original untouched.
+// ----------------------------------------------------------------------------
+
+// 一行定义二维坐标点数据类 `Point` 与键值对数据类 `Pair`
+// Define a 2D coordinate data class `Point` and a key-value data class `Pair` in one line each
 data class Point(x: number, y: number)
-data class User(id: number, username: string, active: boolean)
+data class Pair(key: string, value: number, active: boolean)
 
-// ----------------------------------------------------------------------------
-// 4. `with` Expressions
-// Non-destructive copy expression for data classes and objects
-// ----------------------------------------------------------------------------
-const pointOrigin = new Point(0, 0);
-const moved = with(pointOrigin, { x: 10, y: 20 });
+const p0 = new Point(0, 0);
 
-const user = new User(101, "alice", true);
-const deactivatedUser = with(user, { active: false });
+// 自动生成的结构相等比较：两个不同实例只要字段值相同，`equals` 即返回 `true`
+// Auto-synthesized structural equality: two distinct instances with identical field values return `true` for `equals`
+const isSameOrigin: boolean = p0.equals(new Point(0, 0));
 
-/*
-// [TYPE ERROR TS2353]: 'with' validates that patch properties strictly exist on target type.
-// const badCopy = with(pointOrigin, { nonExistentCoord: 999 });
-*/
+// 使用 `.copy(...)` 或 `with(...)` 创建更新了部分字段的新实例，原实例 `p0` 仍为 `Point(x=0, y=0)`
+// Create new instances with updated fields via `.copy(...)` or `with(...)`; `p0` remains `Point(x=0, y=0)`
+const p1 = p0.copy({ y: 5 });
+const p2 = with(p0, { x: 10, y: 20 });
 
-// ----------------------------------------------------------------------------
-// 5. `sealed class` Hierarchy: The Complete Algebraic Data Type (ADT) Pattern
-// Sealed hierarchies represent closed Sum Types by composing with:
-// - `object` singletons for stateless variants (e.g. Loading, Idle)
-// - `data class` for payload-carrying variants (e.g. Success, Failure)
-// - `final` methods for invariant methods shared by the whole hierarchy
-// ----------------------------------------------------------------------------
-sealed abstract class NetworkResult {
-  abstract describe(): string;
+const pair0 = new Pair("alpha", 1, true);
+const pair1 = with(pair0, { active: false });
 
-  // Shared final method across all variants in the sealed family:
-  final isTerminal(): boolean {
-    // Note: `Loading` is a singleton instance (use `===`), while `Success`/`Failure` are classes (use `instanceof`)
-    return this !== Loading;
-  }
-}
-
-// (A) Stateless variant: Singleton object extending the sealed base
-object Loading extends NetworkResult {
-  describe(): string {
-    return "Loading network request...";
-  }
-}
-
-// (B) Payload variants: Data classes extending the sealed base with auto copy/equals/toString
-data class Success(payload: string, statusCode: number) extends NetworkResult {
-  describe(): string {
-    return `Success (${this.statusCode}): "${this.payload}"`;
-  }
-}
-
-data class Failure(error: string, retryable: boolean) extends NetworkResult {
-  describe(): string {
-    return `Failure: ${this.error} (retryable=${this.retryable})`;
-  }
-}
-
-/*
-// [DIAGNOSTIC TS19102]: Cannot extend sealed class 'NetworkResult' outside of its declaring file.
-// In another file (e.g. `client.tspp`):
-// import { NetworkResult } from "./01-classes";
-// class ThirdPartyResult extends NetworkResult { ... }
-*/
-
-// ----------------------------------------------------------------------------
-// 6. `final class` & `final` Methods
-// Prevent unauthorized subclassing and method overrides
-// ----------------------------------------------------------------------------
-final class SecureToken {
-  constructor(public readonly secret: string) {}
-}
-
-/*
-// [DIAGNOSTIC TS19101]: Cannot inherit from final class 'SecureToken'.
-class InsecureTokenSubclass extends SecureToken {
-  customField: string = "leaked";
-}
-*/
-
-class PaymentGateway {
-  // Final method cannot be overridden by any subclass
-  final getRoutingPrefix(): string {
-    return "GATEWAY-US-EAST";
-  }
-
-  processPayment(amount: number): string {
-    return `Processed standard payment: $${amount}`;
-  }
-}
-
-/*
-// [DIAGNOSTIC TS19103]: Cannot override final member 'getRoutingPrefix' of class 'PaymentGateway'.
-class MaliciousGateway extends PaymentGateway {
-  override getRoutingPrefix(): string {
-    return "COMPROMISED";
-  }
-}
-*/
-
-// ----------------------------------------------------------------------------
-// 7. Advanced Interplay: Multi-Feature Compositions
-// ----------------------------------------------------------------------------
-
-// (A) Combining `field` property + `final` method
-class BankAccount {
-  field balance: number = 100 {
-    get() {
-      return field;
-    }
-    set(amount) {
-      if (amount >= 0) {
-        field = amount;
-      }
-    }
-  }
-
-  final getAccountType(): string {
-    return "SAVINGS_TIER_1";
-  }
-
-  deposit(amount: number): void {
-    this.balance += amount;
-  }
-}
-
-// ============================================================================
-// Executable Demonstration & Verification
-// ============================================================================
-function main(): void {
-  console.log("=== 1. field Property Syntax ===");
-  const counter = new Counter();
-  console.log("Initial count (from backing field):", counter.count);
-  counter.count = 42;
-  console.log("Updated count:", counter.count);
-  counter.count = -5; // Ignored by setter validation
-  console.log("After negative assignment (ignored):", counter.count);
-
-  console.log("\n=== 2. object Singleton Declaration ===");
-  console.log(AppConfig.greet("Developer"));
-  console.log(displayConfig(AppConfig));
-
-  console.log("\n=== 3. data class Synthesized Methods ===");
-  console.log("pointOrigin.toString():", pointOrigin.toString());
-  console.log("pointOrigin.equals(new Point(0, 0)):", pointOrigin.equals(new Point(0, 0)));
-  console.log("pointOrigin.equals(moved):", pointOrigin.equals(moved));
-  console.log("pointOrigin.copy({ y: 50 }):", pointOrigin.copy({ y: 50 }).toString());
-
-  console.log("\n=== 4. with Copy Expressions ===");
-  console.log("Origin before:", pointOrigin.toString());
-  console.log("Moved via with():", moved.toString());
-  console.log("Original User:", user.toString());
-  console.log("Deactivated User via with():", deactivatedUser.toString());
-
-  console.log("\n=== 5. sealed Class ADT Hierarchy (sealed + object + data class) ===");
-  const responses: NetworkResult[] = [
-    Loading,
-    new Success("User profile payload", 200),
-    new Failure("Network timeout", true),
-  ];
-  for (const res of responses) {
-    console.log(` - ${res.describe()} [terminal=${res.isTerminal()}]`);
-  }
-
-  console.log("\n=== 6. final Class and Member ===");
-  const token = new SecureToken("secret-abc-123");
-  const gateway = new PaymentGateway();
-  console.log("Secure token:", token.secret);
-  console.log("Gateway prefix (final):", gateway.getRoutingPrefix());
-  console.log(gateway.processPayment(250));
-
-  console.log("\n=== 7. Feature Interplay ===");
-  // BankAccount (field + final)
-  const account = new BankAccount();
-  account.deposit(50);
-  console.log(`BankAccount (${account.getAccountType()}): balance = $${account.balance}`);
-}
-
-main();
+console.log("[01-classes]", {
+  initialCount,
+  updatedCount,
+  afterNegativeCount,
+  originDescription,
+  p0: p0.toString(),
+  isSameOrigin,
+  p1: p1.toString(),
+  p2: p2.toString(),
+  pair0: pair0.toString(),
+  pair1: pair1.toString(),
+});

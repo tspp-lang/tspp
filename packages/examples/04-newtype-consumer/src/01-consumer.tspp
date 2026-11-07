@@ -1,44 +1,124 @@
+// ============================================================================
+// 04-newtype-consumer / 01-consumer.tspp
+//
+// 跨包消费名义类型（`newtype`）与代数数据类型（`data`）
+//
+// 当一个库包导出了 `newtype` 名义包装类型或 `data` 代数数据类型时，下游包在导入它们之后，
+// 依然享有一模一样的名义隔离性、构造器类型检查与 `match` 模式匹配能力。
+//
+// 本文件从 `@tspp/example-nominal-types` 导入 `UserId`、`OrderId`、`Option`、`Status` 与 `OptionBox`，
+// 演示跨包构造、嵌套模式匹配，以及跨包边界上的编译期安全拦截（`@ts-expect-error`）。
+// ============================================================================
+// Cross-Package Consumption of Nominal Types (`newtype`) and ADTs (`data`)
+//
+// When a library package exports `newtype` nominal wrappers or `data` algebraic data types,
+// downstream packages that import them preserve the exact same nominal isolation, constructor
+// type checking, and `match` pattern matching guarantees.
+//
+// This file imports `UserId`, `OrderId`, `Option`, `Status`, and `OptionBox` from
+// `@tspp/example-nominal-types`, demonstrating cross-package construction, nested pattern matching,
+// and compile-time safety checks (`@ts-expect-error`).
+// ============================================================================
+
 import {
-    Loading,
-    None,
-    OptionBox,
-    Option,
-    OrderId,
-    Some,
-    Status,
-    UserId,
+  Loading,
+  None,
+  Option,
+  OptionBox,
+  OrderId,
+  Some,
+  Status,
+  UserId,
 } from "@tspp/example-nominal-types";
 
+// ----------------------------------------------------------------------------
+// 1. 跨包使用 `newtype` 与 `data` 构造器及 `match` 匹配
+//
+// 导入的名义类型构造器（如 `UserId`、`OrderId`）与代数数据类型构造器（如 `Some`、`None`、`Loading`）
+// 可以像在定义包内部一样直接调用，并参与各种 `match` 模式匹配。
+// ----------------------------------------------------------------------------
+// 1. Using Imported `newtype` & `data` Constructors and `match` Expressions
+//
+// Imported nominal constructors (`UserId`, `OrderId`) and ADT constructors (`Some`, `None`, `Loading`)
+// can be called and matched directly just as in the defining package.
+// ----------------------------------------------------------------------------
+
+// 提取导入构造器的类型，并构造跨包的 `UserId` 与 `OrderId` 名义值
+// Capture the imported constructor type and construct cross-package `UserId` and `OrderId` values
 type UserIdConstructor = typeof UserId;
 const userId: UserId = UserId("consumer-1");
 const orderId: OrderId = OrderId("order-1");
+
+// 对跨包导入的 `Option<number>` 进行穷尽模式匹配
+// Exhaustively match an imported `Option<number>` value
 const importedOption: Option<number> = Some(3);
 const importedValue: number = match importedOption {
-    None => 0,
-    Some(value) => value,
-};
-const importedStatus: Status = Loading;
-const importedStatusText = match importedStatus {
-    Loading => "loading",
-    _ => "other",
-};
-const importedNested = match OptionBox(importedOption) {
-    OptionBox(None()) => 0,
-    OptionBox(Some(value)) if value > 0 => value,
-    OptionBox(Some(_)) => 0,
+  None => 0,
+  Some(value) => value,
 };
 
+// 对跨包导入的常量分支类型 `Status` 使用通配符 `_` 匹配
+// Match an imported `Status` variant with a wildcard `_` fallback
+const importedStatus: Status = Loading;
+const importedStatusText: string = match importedStatus {
+  Loading => "loading",
+  _ => "other",
+};
+
+// 对跨包导入的嵌套结构 `OptionBox(Option<number>)` 进行深层解构与 `if` 守卫过滤
+// Deeply destructure an imported `OptionBox(Option<number>)` with an `if` guard
+const importedNested: number = match OptionBox(importedOption) {
+  OptionBox(None()) => 0,
+  OptionBox(Some(value)) if value > 0 => value,
+  OptionBox(Some(_)) => 0,
+};
+
+// ----------------------------------------------------------------------------
+// 2. 跨包编译期错误拦截（`@ts-expect-error`）
+//
+// 即使跨越了包边界，不同 `newtype` 之间的名义隔离以及 `newtype` 构造器的调用规范依然严格生效：
+//   - `OrderId` 依然不能赋给 `UserId`；
+//   - `newtype` 构造器仅允许以 `UserId(value)` 的形式直接调用，且必须恰好传入 1 个参数，
+//     不允许不带括号当作普通函数值传递。
+// ----------------------------------------------------------------------------
+// 2. Cross-Package Compile-Time Error Interception (`@ts-expect-error`)
+//
+// Even across package boundaries, nominal isolation and `newtype` constructor rules remain strictly enforced:
+//   - `OrderId` still cannot be assigned to `UserId`;
+//   - A `newtype` constructor can only be called directly as `UserId(value)` with a single argument,
+//     and cannot be passed around as a standalone runtime function value.
+// ----------------------------------------------------------------------------
+
+// 1. 跨包导入的两个不同 `newtype` 依然互不兼容
+// 1. Distinct `newtype` declarations imported from another package remain mutually incompatible
 // @ts-expect-error Distinct newtype declarations remain nominal across packages.
 const wrong: UserId = orderId;
 
 function compileTimeErrorExamples(): void {
-    // @ts-expect-error Erased constructors cannot escape into runtime values.
-    const escapedConstructor: UserIdConstructor = UserId;
-    // @ts-expect-error Newtype constructors require exactly one argument.
-    UserId();
-    // @ts-expect-error Extra arguments are rejected and are not silently erased.
-    UserId("consumer-2", "extra");
-    console.log(escapedConstructor);
+  // 2. `newtype` 构造器只能直接调用，不能作为普通值赋给变量或向外传递
+  // 2. A `newtype` constructor must be called directly and cannot be used as a first-class value
+  // @ts-expect-error Erased constructors cannot escape into runtime values.
+  const escapedConstructor: UserIdConstructor = UserId;
+
+  // 3. `newtype` 构造器必须传入要包装的底层值，不能无参调用
+  // 3. A `newtype` constructor requires the underlying argument and cannot be called with zero arguments
+  // @ts-expect-error Newtype constructors require exactly one argument.
+  UserId();
+
+  // 4. `newtype` 构造器只接收一个参数，多余的参数会被编译期拒绝
+  // 4. A `newtype` constructor accepts only a single argument; extra arguments are rejected
+  // @ts-expect-error Extra arguments are rejected and are not silently erased.
+  UserId("consumer-2", "extra");
+
+  console.log(escapedConstructor);
 }
 
-console.log(userId, orderId, importedValue, importedStatusText, importedNested, wrong);
+console.log("[01-consumer]", {
+  userId,
+  orderId,
+  importedValue,
+  importedStatusText,
+  importedNested,
+  wrong,
+  compileTimeErrorExamples,
+});

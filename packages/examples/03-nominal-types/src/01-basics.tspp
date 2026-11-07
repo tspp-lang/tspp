@@ -1,32 +1,143 @@
+// ============================================================================
+// 03-nominal-types / 01-basics.tspp
+//
+// 名义类型（`newtype`）、代数数据类型（`data`）与模式匹配（`match`）
+//
+// 标准 TypeScript 采用结构化类型系统（Structural Typing）：只要两个类型的底层结构相同
+// （例如 `type UserId = string` 与 `type OrderId = string`），它们在编译器眼中就是完全等价的，
+// 即使把 `orderId` 误传给只接收 `UserId` 的函数，也不会触发任何类型错误。
+// 此外，在标准 TypeScript 中表达“多种分支状态（可辨识联合）”需要手动编写 `{ tag: "..." }` 对象与冗长的 `switch` 语句。
+//
+// 为了解决这些表达痛点，TS++ 引入了三项核心特性：
+//   - `newtype`：在现有类型之上创建名字独立的名义类型（Nominal Type）。两个不同的 `newtype` 绝不互相等价，
+//     必须通过显式构造器 `UserId("...")` 创建，但创建的名义值可以直接当成底层类型使用（单向兼容）；
+//   - `data`：用简洁的语法声明代数数据类型（ADT / 和类型），自动生成零参或带字段的构造器；
+//   - `match`：面向表达式的模式匹配，支持构造器解构、嵌套拆包、或模式（`|`）、守卫条件（`if`）以及编译期穷尽性检查。
+// ============================================================================
+// Nominal Types (`newtype`), Algebraic Data Types (`data`), and Pattern Matching (`match`)
+//
+// Standard TypeScript uses structural typing: any two types with the same underlying structure
+// (such as `type UserId = string` and `type OrderId = string`) are completely interchangeable.
+// Passing an `OrderId` where a `UserId` is expected causes no compile-time error.
+// Furthermore, modeling tagged unions requires manually writing `{ tag: "..." }` objects and verbose `switch` statements.
+//
+// To solve these limitations, TS++ introduces three core features:
+//   - `newtype`: Defines a distinct nominal type over an underlying representation. Two different `newtype`s
+//     are mutually incompatible and require explicit construction (`UserId("...")`), while remaining directly
+//     assignable back to their underlying base type (one-way compatibility);
+//   - `data`: Declares algebraic data types (ADTs / sum types) with concise zero-argument or positional-field constructors;
+//   - `match`: Expression-oriented pattern matching with constructor destructuring, nested patterns,
+//     or-patterns (`|`), `if` guards, and compile-time exhaustiveness checking.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. `newtype` 名义包装类型与单向兼容性
+//
+// 写法：`newtype <类型名><泛型参数> = <底层类型>;`
+// 效果：
+//   - 构造：必须通过同名构造器 `UserId("user-1")` 将底层值包装为名义类型；
+//   - 隔离：`UserId` 与 `OrderId` 互不兼容，原始 `string` 也不能直接当成 `UserId`；
+//   - 单向退化：`UserId` 依然是 `string` 的子类型，在需要普通 `string` 的地方可以直接传入，无需手动拆包。
+// ----------------------------------------------------------------------------
+// 1. `newtype` Nominal Wrappers & One-Way Compatibility
+//
+// Syntax: `newtype <Name><TypeParams> = <UnderlyingType>;`
+// Effect:
+//   - Construction: Wrap an underlying value explicitly via the constructor `UserId("user-1")`;
+//   - Isolation: `UserId` and `OrderId` are mutually incompatible, and raw `string` cannot be assigned to `UserId`;
+//   - One-way assignability: `UserId` is a subtype of `string` and can be used directly where `string` is expected.
+// ----------------------------------------------------------------------------
+
+// 声明两个底层同为 `string` 但名字相互独立的名义类型，以及一个泛型名义包装类型 `Box<T>`
+// Declare two distinct nominal types backed by `string`, plus a generic nominal wrapper `Box<T>`
 export newtype UserId = string;
 export newtype OrderId = string;
 newtype Box<T> = T;
-export data Option<T> = None | Some(value: T);
-data List<T> = Nil | Cons(head: T, tail: List<T>);
-export data Status = Idle | Loading | Ready;
-export data OptionBox = OptionBox(value: Option<number>);
 
+// 必须通过显式调用同名构造器来创建对应的名义类型值
+// Values must be created explicitly through their same-named nominal constructors
 const userId: UserId = UserId("user-1");
 const orderId: OrderId = OrderId("order-1");
-const rawUserId: string = userId;
 const boxed: Box<number> = Box(42);
+
+// 单向兼容性：名义类型可以直接赋给它的底层类型，无需额外拆包调用
+// One-way compatibility: a nominal value is directly assignable to its underlying type without manual unwrapping
+const rawUserId: string = userId;
 const unboxed: number = boxed;
+
+// ----------------------------------------------------------------------------
+// 2. `data` 代数数据类型（ADT）
+//
+// 写法：`data <类型名><泛型参数> = <分支1> | <分支2>(<字段名>: <类型>, ...);`
+// 效果：定义一个封闭的分支集合。每个分支既可以是不带参数的常量构造器（如 `None`、`Idle`），
+// 也可以是携带位置字段的构造器函数（如 `Some(value: T)`、`Cons(head: T, tail: List<T>)`）。
+// ----------------------------------------------------------------------------
+// 2. `data` Algebraic Data Types (ADTs)
+//
+// Syntax: `data <Name><TypeParams> = <Variant1> | <Variant2>(<field>: <Type>, ...);`
+// Effect: Defines a closed set of variants. Each variant can be either a zero-argument constant constructor
+// (like `None` or `Idle`) or a constructor function with positional fields (like `Some(value: T)`).
+// ----------------------------------------------------------------------------
+
+// 可选值类型：要么是没有值的 `None`，要么是携带一个 `T` 类型值的 `Some(value: T)`
+// Optional value type: either `None` (no value) or `Some(value: T)` carrying a value of type `T`
+export data Option<T> = None | Some(value: T);
+
+// 递归链表类型：要么是空链表 `Nil`，要么是当前元素 `head` 加剩余链表 `tail` 的 `Cons`
+// Recursive linked list: either empty `Nil` or `Cons` holding `head` and the rest of the list `tail`
+data List<T> = Nil | Cons(head: T, tail: List<T>);
+
+// 纯常量分支枚举：表示三种离散状态
+// Pure constant variants representing three discrete states
+export data Status = Idle | Loading | Ready;
+
+// 单构造器包装类型：内部持有一个 `Option<number>`，用于演示多层嵌套解构
+// Single-constructor wrapper holding an `Option<number>`, used to demonstrate nested destructuring
+export data OptionBox = OptionBox(value: Option<number>);
+
+// 使用零参构造器 `None` 和带参构造器 `Some(42)` 创建 `Option<number>` 实例
+// Create `Option<number>` instances using the nullary constructor `None` and unary constructor `Some(42)`
 const nothing: Option<number> = None;
 const something: Option<number> = Some(42);
+
+// ----------------------------------------------------------------------------
+// 3. `match` 模式匹配表达式
+//
+// 写法：`match <目标值> { <模式1> => <结果1>, <模式2> if <守卫条件> => <结果2>, ... }`
+// 效果：根据目标值所属的构造器分支提取内部字段并算出对应结果。编译器会静态检查是否覆盖了所有可能分支。
+// ----------------------------------------------------------------------------
+// 3. `match` Pattern Matching Expressions
+//
+// Syntax: `match <scrutinee> { <Pattern1> => <expr1>, <Pattern2> if <guard> => <expr2>, ... }`
+// Effect: Branches on the active constructor of the target value, extracts its fields, and evaluates
+// the matching arm. The compiler statically verifies that all possible cases are covered.
+// ----------------------------------------------------------------------------
+
+// 基础解构匹配：分别处理 `None` 和 `Some(value)`，直接取出内部的 `value`
+// Basic destructuring match: handle `None` and `Some(value)`, extracting `value` directly
 const selected: number = match something {
   None => 0,
   Some(value) => value,
 };
+
+// 通配符兜底分支：`_` 可以匹配任意剩余情况
+// Wildcard fallback arm: `_` matches any remaining case
 const fallback: number = match nothing {
   Some(value) => value,
   _ => 0,
 };
+
+// 守卫条件（`if`）：仅当构造器匹配且 `if` 后的布尔条件成立时才进入该分支
+// Pattern guard (`if`): enters the arm only when the constructor matches AND the boolean guard holds
 const guardedOption: Option<string> = Some("TS++");
 const guarded: string = match guardedOption {
   Some(value) if value.length > 3 => value,
   Some(_) => "short",
   None => "missing",
 };
+
+// 或模式（`|`）：多个无参构造器可以用 `|` 合并到同一个分支处理
+// Or-pattern (`|`): combine multiple nullary constructors into a single arm
 function currentStatus(): Status {
   return Loading;
 }
@@ -34,11 +145,17 @@ const sharedStatus: string = match currentStatus() {
   Idle | Loading => "waiting",
   Ready => "ready",
 };
+
+// 嵌套构造器匹配：一步解构外层 `OptionBox` 与内层 `Option`
+// Nested constructor pattern: destructure outer `OptionBox` and inner `Option` in a single step
 const nestedOption = OptionBox(Some(9));
 const nestedValue: number = match nestedOption {
   OptionBox(None()) => 0,
   OptionBox(Some(value)) => value,
 };
+
+// 单次求值保证：`match` 后的被匹配表达式只会求值一次，不会在对比各个分支时重复调用
+// Single-evaluation guarantee: the scrutinee expression is evaluated exactly once across all arms
 let evaluationCount = 0;
 function nextOption(): Option<number> {
   evaluationCount++;
@@ -49,6 +166,9 @@ const evaluatedOnce = match nextOption() {
   Some(value) => value,
 };
 if (evaluationCount !== 1) throw new Error("match scrutinee was evaluated more than once");
+
+// 递归数据结构匹配：配合 `match` 递归计算链表 `List<number>` 的长度
+// Matching recursive data structures: recursively compute the length of a `List<number>`
 const list: List<number> = Cons(1, Cons(2, Nil));
 function length(values: List<number>): number {
   return match values {
@@ -57,37 +177,88 @@ function length(values: List<number>): number {
   };
 }
 const listLength = length(list);
+
+// ----------------------------------------------------------------------------
+// 4. 编译期错误拦截（`@ts-expect-error`）
+//
+// 下面展示当名义类型混用、`match` 分支未穷尽或伪造 `data` 结构时，编译器如何静态报错拦截。
+// ----------------------------------------------------------------------------
+// 4. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The cases below show how the compiler statically rejects mixing distinct `newtype`s,
+// non-exhaustive `match` expressions, and forged `data` objects.
+// ----------------------------------------------------------------------------
+
 function compileTimeErrorExamples(): void {
+  // 1. 两个不同的 `newtype` 即使底层都是 `string`，也绝不能互相赋值
+  // 1. Two distinct `newtype`s cannot be assigned to each other even with the same underlying type
+  // @ts-expect-error Distinct newtypes are mutually incompatible.
+  const crossedId: UserId = orderId;
+
+  // 2. 原始底层类型 `string` 不能不经构造器直接赋给 `UserId`
+  // 2. A raw `string` cannot be assigned to `UserId` without calling `UserId(...)`
+  // @ts-expect-error Raw underlying values must be wrapped explicitly.
+  const rawAsNominal: UserId = "user-2";
+
   const unknownOption = null as unknown as Option<number>;
+
+  // 3. 非穷尽匹配：漏掉了 `None` 分支，编译期报错
+  // 3. Non-exhaustive match: omitting the `None` branch is rejected at compile time
   // @ts-expect-error A non-exhaustive match omits None.
   const incomplete: number = match unknownOption {
     Some(value) => value,
   };
+
+  // 4. 构造器字段个数不匹配：`Some` 只声明了 1 个字段，解构写 2 个参数会报错
+  // 4. Constructor arity mismatch: `Some` has 1 field, so destructuring 2 arguments is rejected
   // @ts-expect-error Some has only one positional field.
   const invalidPattern = match unknownOption {
     None => 0,
     Some(value, extra) => value,
   };
+
+  // 5. 带 `if` 守卫的分支不能单独穷尽该构造器（因为守卫条件可能为 false）
+  // 5. A guarded constructor pattern alone does not exhaust that variant because the guard may be false
   // @ts-expect-error A guarded constructor does not exhaust that constructor.
   const guardedOnly = match unknownOption {
     Some(value) if Number(value) > 0 => value,
     None => 0,
   };
+
+  // 6. 或模式 `|` 仅支持合并无参构造器，不能混入带参构造器
+  // 6. Or-patterns `|` only combine nullary constructors and cannot include parameterized variants
   // @ts-expect-error Or-patterns currently share only nullary constructors.
   const invalidOrPattern = match unknownOption {
     None | Some(_) => 0,
   };
 
+  // 7. 构造器字段与泛型参数保持严格类型检查：`Some("wrong")` 不是 `Option<number>`
+  // 7. Constructor fields and type parameters are strictly checked: `Some("wrong")` is not `Option<number>`
   const wrongSome = Some("wrong");
   // @ts-expect-error Variant fields retain their declared types.
   const wrongValue: number = wrongSome.value;
   // @ts-expect-error A string variant is not an Option<number>.
   const badOption: Option<number> = wrongSome;
+
+  // 8. `data` 类型是名义类型，手写外形相似的普通对象不能伪装成 `Option<number>`
+  // 8. `data` types are nominal; a plain object literal cannot masquerade as `Option<number>`
   // @ts-expect-error Data values are nominal, not structural lookalikes.
   const forgedOption: Option<number> = { _tag: "None", _values: [] };
+
+  console.log(
+    crossedId,
+    rawAsNominal,
+    incomplete,
+    invalidPattern,
+    guardedOnly,
+    invalidOrPattern,
+    wrongValue,
+    badOption,
+    forgedOption,
+  );
 }
 
-console.log(
+console.log("[01-basics]", {
   userId,
   orderId,
   rawUserId,
@@ -101,8 +272,5 @@ console.log(
   nestedValue,
   evaluatedOnce,
   listLength,
-);
-
-// Deliberately invalid when uncommented:
-// const wrong: UserId = orderId;
-// const alsoWrong: UserId = "user-2";
+  compileTimeErrorExamples,
+});

@@ -1,25 +1,82 @@
-data RegressionPair<A, B> = RegressionPair(left: A, right: B);
+// ============================================================================
+// 03-nominal-types / 03-regressions.tspp
+//
+// 构造器字段直接访问、多层 `match` 嵌套与通配符位置忽略
+//
+// 本文件补充展示 `data` 与 `match` 在日常使用中的三个实用细节：
+//   1. 当使用带名字段的构造器创建实例时，除了用 `match` 解构外，也可以直接通过属性名访问其字段；
+//   2. `match` 本身是表达式，因此可以在一个 `match` 分支的右侧直接嵌套另一个 `match` 表达式；
+//   3. 当构造器包含多个字段但只关心其中一部分时，可以用 `_` 忽略不需要的位置参数。
+// ============================================================================
+// Direct Constructor Field Access, Nested `match` Expressions, and Positional Wildcards
+//
+// This file covers three practical details when working with `data` and `match`:
+//   1. Instances created by a single-variant constructor expose their declared named fields directly;
+//   2. Because `match` is an expression, one `match` can be nested directly inside an arm of another `match`;
+//   3. When a constructor has multiple positional fields, `_` can ignore the fields you do not need.
+// ============================================================================
 
-const inferredPair = RegressionPair(1, "right");
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 泛型构造器属性推断与直接访问
+//
+// 调用 `Pair(1, "right")` 时，编译器会自动根据传入的参数推断出 `Pair<number, string>`，
+// 并且可以直接通过 `.left` 和 `.right` 读取对应字段。
+// ----------------------------------------------------------------------------
+// 1. Generic Constructor Field Inference & Direct Property Access
+//
+// Calling `Pair(1, "right")` automatically infers `Pair<number, string>`, and its declared
+// `.left` and `.right` fields can be accessed directly as properties.
+// ----------------------------------------------------------------------------
+
+data Pair<A, B> = Pair(left: A, right: B);
+
+const inferredPair = Pair(1, "right");
 const inferredLeft: number = inferredPair.left;
 const inferredRight: string = inferredPair.right;
 
-data RegressionOption<T> = RegressionNone | RegressionSome(value: T);
+// ----------------------------------------------------------------------------
+// 2. 在 `match` 分支内部嵌套 `match` 表达式
+//
+// 因为每个 `match` 都会算出一个值，所以外层分支可以直接返回内层 `match` 的结果。
+// ----------------------------------------------------------------------------
+// 2. Nesting a `match` Expression Inside Another `match` Arm
+//
+// Because every `match` evaluates to a value, an outer arm can directly evaluate an inner `match`.
+// ----------------------------------------------------------------------------
 
-function unwrapNested(value: RegressionOption<RegressionOption<number>>): number {
+data Maybe<T> = Nothing | Just(value: T);
+
+function unwrapNested(value: Maybe<Maybe<number>>): number {
   return match value {
-    RegressionSome(inner) => match inner {
-      RegressionSome(result) => result,
-      RegressionNone => 0,
+    Just(inner) => match inner {
+      Just(result) => result,
+      Nothing => 0,
     },
-    RegressionNone => 0,
+    Nothing => 0,
   };
 }
 
-data RegressionFields = RegressionFields(text: string, count: number);
+// ----------------------------------------------------------------------------
+// 3. 用 `_` 忽略不关心的构造器字段
+//
+// 解构多字段构造器 `Entry(text, count)` 时，若只需要第二个字段 `count`，第一个位置直接写 `_` 即可。
+// ----------------------------------------------------------------------------
+// 3. Ignoring Unused Constructor Fields with `_`
+//
+// When destructuring `Entry(text, count)`, write `_` in the first position if you only need `count`.
+// ----------------------------------------------------------------------------
 
-const selectedCount: number = match RegressionFields("value", 1) {
-  RegressionFields(_, count) => count,
+data Entry = Entry(text: string, count: number);
+
+const selectedCount: number = match Entry("value", 1) {
+  Entry(_, count) => count,
 };
 
-console.log(inferredLeft, inferredRight, unwrapNested(RegressionSome(RegressionSome(1))), selectedCount);
+console.log("[03-regressions]", {
+  inferredLeft,
+  inferredRight,
+  unwrapped: unwrapNested(Just(Just(1))),
+  selectedCount,
+});

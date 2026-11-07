@@ -1,14 +1,96 @@
+// ============================================================================
+// 05-dependent-types / 05-equality.tspp
+//
+// 命题即类型与相等性证明（`Eq`、`Refl` 与 `PathInduction`）
+//
+// 在普通编程语言中，“类型”只用来检查数据格式（比如是不是字符串），而“两个值是否相等”只能在运行时用 `a === b` 判断。
+// 但在依赖类型系统中，著名的“柯里-霍华德同构（Curry-Howard Isomorphism，即‘命题即类型’）”告诉我们：
+//   - 一个**数学命题（Proposition）**，可以表示为一个**类型（Type）**；
+//   - 对该命题的一个**证明（Proof）**，就是属于这个类型的一个**值（Value / Term）**！
+//     如果一个命题为真，你就能构造出这个类型的值；如果命题为假，这个类型就是空的，任何试图构造它的代码都会编译报错。
+//
+// TS++ 内置了相等性命题类型 `Eq<A, left, right>`，代表命题：“在类型 `A` 下，`left` 与 `right` 相等”：
+//   - `Refl<A, value>`（自反性证明，Reflexivity）：构造“任意值等于它自己（`value = value`）”的唯一基础证明；
+//   - 计算相等（Definitional Equality）：如果 `left` 和 `right` 在编译期化简后是同一个值（例如 `1 + 1` 和 `2`），
+//     那么 `Eq<Nat, 1 + 1, 2>` 就直接等价于 `Eq<Nat, 2, 2>`，可以直接用 `Refl` 完成证明！
+// ============================================================================
+// Propositions as Types & Equality Proofs (`Eq`, `Refl` & `PathInduction`)
+//
+// In mainstream languages, types only check data shapes (like `string`), while equality (`a === b`) is checked at runtime.
+// In dependent type theory, the Curry-Howard Isomorphism ("Propositions as Types") reveals a deeper connection:
+//   - A **mathematical proposition** is represented as a **Type**;
+//   - A **proof** of that proposition is a **term/value** inhabiting that type!
+//     If a proposition is true, you can construct a term of its type; if false, the type is uninhabited and rejected at compile time.
+//
+// TS++ provides the built-in propositional equality type `Eq<A, left, right>`, stating "`left` equals `right` in type `A`":
+//   - `Refl<A, value>` (Reflexivity): the canonical proof constructor showing that any `value` equals itself;
+//   - Definitional equality by computation: if `left` and `right` reduce to the exact same normal form at compile time
+//     (such as `1 + 1` and `2`), then `Eq<Nat, 1 + 1, 2>` is identical to `Eq<Nat, 2, 2>` and is proved directly by `Refl`!
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 相等性命题类型 `Eq<A, left, right>` 与自反性规则
+//
+// 写法：`Eq<所属类型, 左值, 右值>`
+// 效果：构造一个属于 `Type0` 的命题类型，用于断言两个值在编译期相等。
+// ----------------------------------------------------------------------------
+// 1. Equality Proposition Type `Eq<A, left, right>` & Reflexivity
+//
+// Syntax: `Eq<CarrierType, LeftValue, RightValue>`
+// Effect: Forms a proposition type in `Type0` asserting that two values of `CarrierType` are equal.
+// ----------------------------------------------------------------------------
+
+// 表达命题：“自然数 Zero 等于 Zero”
+// Express the proposition: "the natural number Zero equals Zero"
 export type ZeroEqualsZero: Type0 = Eq<Nat, Zero, Zero>;
 
+// 自反性公理的签名：对于任意类型 `A: Type0` 和任意值 `value: A`，命题 `Eq<A, value, value>` 恒成立
+// Signature of the reflexivity law: for any type `A: Type0` and `value: A`, `Eq<A, value, value>` holds
 export type Reflexivity: Type1 =
   (A: Type0) -> (value: A) -> Eq<A, value, value>;
 
+// ----------------------------------------------------------------------------
+// 2. 编译期计算相等：证明 `1 + 1 = 2`
+//
+// 观察下面的 `AdditionComputation`：
+// 左边是 `NatAdd<Succ<Zero>, Succ<Zero>>`（即 `1 + 1`），右边是 `Succ<Succ<Zero>>`（即 `2`）。
+// 类型检查器在对比两边时，会自动把左边的 `NatAdd` 计算化简为 `Succ<Succ<Zero>>`，从而确认两边相等。
+// ----------------------------------------------------------------------------
+// 2. Definitional Equality by Computation: Expressing `1 + 1 = 2`
+//
+// Look at `AdditionComputation` below:
+// The left side is `NatAdd<Succ<Zero>, Succ<Zero>>` (`1 + 1`), and the right side is `Succ<Succ<Zero>>` (`2`).
+// When comparing both sides, the type checker automatically reduces `NatAdd<Succ<Zero>, Succ<Zero>>` to `Succ<Succ<Zero>>`.
+// ----------------------------------------------------------------------------
+
+// 表达命题：“1 + 1 等于 2”
+// Express the proposition: "1 + 1 equals 2"
 export type AdditionComputation: Type0 = Eq<
   Nat,
   NatAdd<Succ<Zero>, Succ<Zero>>,
   Succ<Succ<Zero>>
 >;
 
+// ----------------------------------------------------------------------------
+// 3. 相等性消去原则 / 路径归纳法（`PathInduction`）
+//
+// 当我们手上已经拿到一个相等性证明 `proof: Eq<Nat, left, right>` 时，怎样使用它来证明其他结论？
+// 类型论中的“路径归纳法（Path Induction，也称 J 公理）”给出了一个极其优雅的法则：
+//   - 因为构造相等性证明的唯一基础方式就是自反性 `Refl<Nat, value>`（即左右两边本来就是同一个值 `value`），
+//   - 所以，只要你能证明某个目标性质 `Motive` 在“左右两边都是同一个 `value`、且证明是 `Refl<Nat, value>`”时成立（即 `reflexivityCase`），
+//   - 那么对于任意相等的 `left`、`right` 以及任意证明 `proof: Eq<Nat, left, right>`，性质 `Motive<left, right, proof>` 就自动成立！
+// ----------------------------------------------------------------------------
+// 3. Equality Elimination / Path Induction (`PathInduction`)
+//
+// Once we have an equality proof `proof: Eq<Nat, left, right>`, how do we use it to prove further properties?
+// Path Induction (also known as the J eliminator in Martin-Löf Type Theory) states:
+//   - Since the only canonical way to construct an equality proof is reflexivity `Refl<Nat, value>` (where both sides are `value`),
+//   - To prove a property `Motive<left, right, proof>` for any equal `left` and `right`, it suffices to prove it
+//     for the reflexive case `Motive<value, value, Refl<Nat, value>>` (`reflexivityCase`)!
+// ----------------------------------------------------------------------------
+
+// 路径归纳法（J 消去器）的完整依赖函数签名
+// Complete dependent function signature for Path Induction (the J eliminator)
 export type PathInduction: Type1 =
   (Motive: (left: Nat) -> (right: Nat) -> (proof: Eq<Nat, left, right>) -> Type0) ->
   (reflexivityCase: (value: Nat) -> Motive<value, value, Refl<Nat, value>>) ->

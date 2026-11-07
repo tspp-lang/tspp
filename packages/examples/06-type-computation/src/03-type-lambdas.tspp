@@ -1,20 +1,114 @@
+// ============================================================================
+// 06-type-computation / 03-type-lambdas.tspp
+//
+// 匿名类型函数（`<T> =>> ...`）
+//
+// 在值级编程中，我们早已习惯使用匿名箭头函数 `(x) => x + 1`：可以把函数赋给变量、分步柯里化调用（Currying），
+// 或者把一个函数作为参数传给另一个高阶函数（如 `array.map(x => x * 2)`）。
+//
+// 然而在标准 TypeScript 的类型系统中，泛型别名 `type Box<T> = { value: T }` 并不是“一等公民（First-Class）”：
+//   1. 你不能写出匿名的类型函数；
+//   2. 你不能对多参数类型做柯里化（即先传第一个类型参数，返回一个等待第二个类型参数的新类型函数）；
+//   3. 你不能把一个“未传参的类型函数”作为参数传给另一个高阶类型（如 `Apply<Box, number>`）。
+//
+// 为此，TS++ 引入了匿名类型函数（Type Lambdas），语法为 `<参数列表> =>> <结果类型>`（注意是双箭头 `=>>`）：
+// 让类型层面的函数也拥有与值级箭头函数完全一致的一等公民能力！
+// ============================================================================
+// Anonymous Type Functions / Type Lambdas (`<T> =>> ...`)
+//
+// In value-level code, we use anonymous arrow functions `(x) => x + 1` every day: we can bind them to variables,
+// curry multi-argument functions, and pass functions as arguments to higher-order functions (like `array.map(x => x * 2)`).
+//
+// In standard TypeScript's type system, however, generic aliases like `type Box<T> = { value: T }` are not first-class:
+//   1. You cannot write an anonymous type function inline;
+//   2. You cannot curry a multi-parameter type (partially applying the first type argument to get a new type function);
+//   3. You cannot pass an unapplied type constructor as an argument to a higher-order type (like `Apply<Box, number>`).
+//
+// TS++ solves this with Anonymous Type Functions (Type Lambdas), written `<Params> =>> <BodyType>` (using `=>>`):
+// giving type-level functions the exact same first-class composability as value-level arrow functions!
+// ============================================================================
+
 export {};
 
+// ----------------------------------------------------------------------------
+// 1. 基础匿名类型函数、柯里化与参数约束
+//
+// 写法：`<T> =>> <结果类型>` 或 `<Left, Right> =>> <结果类型>`
+// 特性：
+//   - 支持单参数与多参数；
+//   - 支持嵌套 `<Left> =>> <Right> =>> [Left, Right]` 实现类型级柯里化（先传 `Left` 得到接收 `Right` 的新类型函数）；
+//   - 支持在参数上添加 `extends` 约束（如 `<T extends string> =>> ...`）。
+// ----------------------------------------------------------------------------
+// 1. Basic Type Lambdas, Currying & Parameter Constraints
+//
+// Syntax: `<T> =>> <ResultType>` or `<Left, Right> =>> <ResultType>`
+// Features:
+//   - Supports single and multiple type parameters;
+//   - Supports nested `<Left> =>> <Right> =>> [Left, Right]` for type-level currying (partial application);
+//   - Supports `extends` constraints on lambda parameters (such as `<T extends string> =>> ...`).
+// ----------------------------------------------------------------------------
+
+// 恒等类型函数：接收任意类型 `T`，原样返回 `T`
+// Identity type lambda: takes any type `T` and returns `T`
 export type Identity = <T> =>> T;
+
+// 双参数选择函数：接收 `Left` 和 `Right`，只返回第一个类型 `Left`
+// Two-parameter projection lambda: takes `Left` and `Right` and returns `Left`
 export type First = <Left, Right> =>> Left;
+
+// 双参数交换函数：接收 `Left` 和 `Right`，返回翻转后的元组类型 `[Right, Left]`
+// Two-parameter swap lambda: takes `Left` and `Right` and returns `[Right, Left]`
 export type Swap = <Left, Right> =>> [Right, Left];
+
+// 柯里化类型函数：先接收 `Left`，返回一个“接收 `Right` 并产出 `[Left, Right]`”的新类型函数
+// Curried type lambda: takes `Left` first and returns a new type lambda `<Right> =>> [Left, Right]`
 export type CurriedPair = <Left> =>> <Right> =>> [Left, Right];
+
+// 部分应用（Partial Application）：只给 `CurriedPair` 传入第一个参数 `string`，得到固定左元素为 `string` 的一元类型函数
+// Partial application: pass only `string` to `CurriedPair`, yielding a unary type function expecting `Right`
 export type StringPair = CurriedPair<string>;
+
+// 也可以在带泛型参数的 `type` 别名右侧直接返回一个匿名类型函数
+// A parameterized `type` alias can also return an anonymous type lambda directly
 export type WithLeft<Left> = <Right> =>> [Left, Right];
 export type NumberPair = WithLeft<number>;
+
+// 带类型约束的匿名类型函数：要求传入的 `T` 必须是 `string` 的子类型
+// Constrained type lambda: requires the argument `T` to satisfy `T extends string`
 export type OnlyString = <T extends string> =>> { tag: T };
 
+// ----------------------------------------------------------------------------
+// 2. 高阶类型应用（`Apply`）与类型函数组合（`Compose`）
+//
+// 既然类型函数是一等公民，我们就可以编写接收“类型函数”作为参数的**高阶类型（Higher-Order Types）**！
+// 在参数位置使用 `: Type => Type`（称为 Kind 标注）表示：“这个参数不是普通类型，而是一个接收 1 个类型并返回 1 个类型的类型函数”。
+// ----------------------------------------------------------------------------
+// 2. Higher-Order Application (`Apply`) & Function Composition (`Compose`)
+//
+// Because type lambdas are first-class, we can write **higher-order types** that accept type functions as parameters!
+// Annotating a parameter with `: Type => Type` (a Kind annotation) specifies that the parameter is a unary type constructor
+// taking one type and producing one type.
+// ----------------------------------------------------------------------------
+
+// 高阶应用 `Apply`：接收任意一元类型构造器 `Constructor: Type => Type` 和类型 `Value`，计算 `Constructor<Value>`
+// Higher-order `Apply`: takes a unary constructor `Constructor: Type => Type` and `Value`, computing `Constructor<Value>`
 type Apply<Constructor: Type => Type, Value> = Constructor<Value>;
+
+// 高阶组合 `Compose`：把两个一元类型构造器 `Outer` 和 `Inner` 组合成一个新的匿名类型函数 `<Value> =>> Outer<Inner<Value>>`
+// Higher-order `Compose`: composes two unary constructors `Outer` and `Inner` into `<Value> =>> Outer<Inner<Value>>`
 type Compose<Outer: Type => Type, Inner: Type => Type> =
     <Value> =>> Outer<Inner<Value>>;
+
+// 定义一个把类型包装进 `{ readonly value: Value }` 的匿名类型函数 `Box`
+// Define a `Box` type lambda that wraps `Value` into `{ readonly value: Value }`
 type Box = <Value> =>> { readonly value: Value };
+
+// 将内置泛型构造器 `Array` 与自身组合，得到“把元素套两层数组”的新构造器 `Twice`
+// Compose built-in `Array` with itself to create a doubly-nested array constructor `Twice`
 type Twice = Compose<Array, Array>;
 
+// 验证上述所有类型函数的实际求值效果
+// Verify the evaluated results of all the type lambdas above
 const identity: Identity<number> = 42;
 const first: First<boolean, string> = true;
 const swapped: Swap<string, number> = [1, "one"];
@@ -24,10 +118,28 @@ const constrained: OnlyString<"user"> = { tag: "user" };
 const boxed: Apply<Box, number> = { value: 42 };
 const nested: Twice<string> = [["TS++"]];
 
+// ----------------------------------------------------------------------------
+// 3. 编译期错误拦截（`@ts-expect-error`）
+//
+// 类型检查器会严格校验匿名类型函数的参数个数（Arity）、Kind 签名以及 `extends` 约束。
+// ----------------------------------------------------------------------------
+// 3. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The type checker strictly validates arity, kind signatures (`Type => Type`), and `extends` constraints.
+// ----------------------------------------------------------------------------
+
+// 1. 参数个数不匹配：`Swap` 需要传入 2 个类型参数，只传 1 个会报错
+// 1. Arity mismatch: `Swap` requires two type arguments; passing only one is rejected
 // @ts-expect-error Swap requires two arguments.
 type MissingArgument = Swap<string>;
+
+// 2. Kind 不匹配：`Apply` 的第一个参数要求是 `Type => Type` 构造器，传入普通值类型 `string` 会报错
+// 2. Kind mismatch: `Apply` expects a `Type => Type` constructor, so passing value type `string` is rejected
 // @ts-expect-error A value type is not a unary type constructor.
 type InvalidConstructor = Apply<string, number>;
+
+// 3. 违反泛型约束：`OnlyString` 要求参数满足 `extends string`，传入 `number` 会报错
+// 3. Constraint violation: `OnlyString` requires `T extends string`, so passing `number` is rejected
 // @ts-expect-error The constructor parameter is constrained to string.
 type InvalidConstraint = OnlyString<number>;
 

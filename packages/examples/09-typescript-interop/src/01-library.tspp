@@ -1,9 +1,68 @@
+// ============================================================================
+// 09-typescript-interop / 01-library.tspp
+//
+// TS++ 与标准 TypeScript 的互操作（单向源码导入与双声明产物）
+//
+// 在混合项目中，你可能既有使用 TS++ 扩展语法编写的 `.tspp` 模块，也有使用标准 TypeScript 编写的 `.ts` 模块，
+// 或者需要将 `.tspp` 编写的库发布给只使用标准 `tsc` 编译器的下游项目消费。
+//
+// TS++ 提供了清晰的互操作机制：
+//   1. `.tspp` 源码可以直接导入同工程内的标准 `.ts` 模块；
+//   2. 开启声明生成（`declaration: true`）后，编译器会同时输出两套类型声明：
+//      - `.d.tspp`：完整保留 `newtype`、`data` 等 TS++ 原生类型特性，供下游 TS++ 项目消费；
+//      - `.d.ts`：自动将上述特性投影为标准 TypeScript 兼容的类型与构造函数声明，供普通 TS 项目直接消费。
+// ============================================================================
+// Interoperability Between TS++ and Standard TypeScript (One-Way Source Imports & Dual Declarations)
+//
+// In mixed projects, you may have both `.tspp` modules using TS++ extended syntax and `.ts` modules written in
+// standard TypeScript, or you may publish a library written in `.tspp` for downstream projects that only use `tsc`.
+//
+// TS++ provides a clean interoperability model:
+//   1. `.tspp` source files can directly import standard `.ts` modules within the same project;
+//   2. When declaration emit (`declaration: true`) is enabled, the compiler outputs two sets of type declarations:
+//      - `.d.tspp`: Preserves native TS++ type features (`newtype`, `data`, etc.) for downstream TS++ consumers;
+//      - `.d.ts`: Automatically projects those features into standard TypeScript declarations for ordinary TS consumers.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 从 `.tspp` 导入标准 `.ts` 模块
+//
+// `.tspp` 是标准 TypeScript 的超集，因此可以直接导入项目中已有的 `.ts` 工具函数与类型定义。
+// ----------------------------------------------------------------------------
+// 1. Importing Standard `.ts` Modules from `.tspp`
+//
+// Because `.tspp` is a superset of standard TypeScript, it can directly import existing `.ts` helper functions and types.
+// ----------------------------------------------------------------------------
+
+// 从同目录的标准 `.ts` 模块（`02-legacy.ts`）中导入接口与辅助函数
+// Import an interface and a helper function from the sibling standard `.ts` module (`02-legacy.ts`)
 import { normalizeName, type LegacyUser } from "./02-legacy.js";
 
+// ----------------------------------------------------------------------------
+// 2. 导出 TS++ 扩展类型与函数（同时生成 `.d.tspp` 与 `.d.ts`）
+//
+// 下面导出的 `newtype` 名义类型与 `data` 代数数据类型在编译后会：
+//   - 在 `dist/01-library.d.tspp` 中保留原始的 `newtype` 与 `data` 声明；
+//   - 在 `dist/01-library.d.ts` 中映射为标准 TypeScript 的品牌类型与判别联合类型构造器。
+// ----------------------------------------------------------------------------
+// 2. Exporting TS++ Extended Types & Functions (Emitting Both `.d.tspp` and `.d.ts`)
+//
+// When compiled, the exported `newtype` and `data` declarations below will:
+//   - Retain their native `newtype` and `data` declarations in `dist/01-library.d.tspp`;
+//   - Project into standard TypeScript branded types and discriminated-union constructors in `dist/01-library.d.ts`.
+// ----------------------------------------------------------------------------
+
+// 导出名义包装类型 `UserId`
+// Export nominal wrapper type `UserId`
 export newtype UserId = string;
+
+// 导出代数数据类型 `Lookup<T>`，包含无参分支 `Missing` 与带值分支 `Found`
+// Export algebraic data type `Lookup<T>` with parameterless variant `Missing` and payload variant `Found`
 export data Lookup<T> = Missing | Found(value: T);
 
+// 结合导入的标准 TS 函数与 TS++ 的 `Lookup<T>` 构造器编写导出函数
+// Combine the imported standard TS helper with TS++ `Lookup<T>` constructors in an exported function
 export function loadUser(user: LegacyUser): Lookup<LegacyUser> {
-    const displayName = normalizeName(user.displayName);
-    return displayName ? Found({ ...user, displayName }) : Missing;
+  const displayName = normalizeName(user.displayName);
+  return displayName ? Found({ ...user, displayName }) : Missing;
 }

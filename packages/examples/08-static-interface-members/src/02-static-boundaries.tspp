@@ -1,0 +1,98 @@
+// ============================================================================
+// 08-static-interface-members / 02-static-boundaries.tspp
+//
+// 静态接口成员的实例类型隔离与编译期错误拦截（`@ts-expect-error`）
+//
+// 在 `interface` 中声明 `static` 成员后，有两个重要的类型边界性质：
+//   1. 实例类型纯净性：接口中的 `static` 成员仅用于约束实现了该接口的“类（构造函数端）”，
+//      不会混入接口所代表的“实例类型”中；普通对象或类实例无需、也不应该拥有这些静态属性；
+//   2. 严格编译期校验：当一个类声明 `implements` 带有静态成员的接口时，如果漏写某个静态成员、
+//      静态方法返回值不是当前类的实例，或者未实现父接口继承下来的静态成员，编译器都会直接报错拦截。
+// ============================================================================
+// Instance-Side Isolation & Compile-Time Error Interception (`@ts-expect-error`)
+//
+// Declaring `static` members in an `interface` guarantees two important boundary properties:
+//   1. Clean instance types: `static` members constrain only the implementing class constructor and do NOT
+//      pollute the instance type described by the interface;
+//   2. Strict compile-time checking: When a class `implements` an interface with static members, omitting
+//      a static member, returning an incompatible type for `this`, or missing an inherited static member
+//      is rejected at compile time.
+// ============================================================================
+
+import type { Serializable, VersionedSerializable } from "./01-basics.tspp";
+
+// ----------------------------------------------------------------------------
+// 1. 实例类型不被静态成员污染
+//
+// 将变量标注为 `Serializable` 接口类型时，该类型只要求具备实例方法 `serialize()`，
+// 无需在实例对象上提供 `mediaType` 或 `deserialize`。
+// ----------------------------------------------------------------------------
+// 1. Static Members Do Not Pollute Instance Types
+//
+// A variable typed as `Serializable` only requires the instance method `serialize()`;
+// instance values do not carry `mediaType` or `deserialize`.
+// ----------------------------------------------------------------------------
+
+const instanceOnly: Serializable = {
+  serialize(): string {
+    return "plain-instance";
+  },
+};
+
+// ----------------------------------------------------------------------------
+// 2. 编译期错误拦截（`@ts-expect-error`）
+//
+// 下面展示当实现类违反静态接口契约时，编译器如何在编译期报错拦截。
+// ----------------------------------------------------------------------------
+// 2. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The examples below demonstrate how the compiler rejects classes that violate static interface contracts.
+// ----------------------------------------------------------------------------
+
+export function compileTimeErrorExamples(): void {
+  // 1. 实现 `Serializable` 但漏写了静态成员 `mediaType` 和 `deserialize`，编译报错
+  // 1. Implementing `Serializable` without providing static `mediaType` and `deserialize` is rejected
+  // @ts-expect-error Missing static members required by Serializable.
+  class MissingStatics implements Serializable {
+    serialize(): string {
+      return "missing-statics";
+    }
+  }
+
+  // 2. 静态方法 `deserialize` 要求返回当前实现类实例（`this`），返回不相干的 `number` 会报错
+  // 2. `deserialize` must return an instance of the implementing class (`this`); returning `number` is rejected
+  // @ts-expect-error Static deserialize return type does not match implementing class instance type.
+  class WrongStaticReturn implements Serializable {
+    static readonly mediaType = "application/x-wrong";
+
+    static deserialize(_data: string): number {
+      return 0;
+    }
+
+    serialize(): string {
+      return "wrong-return";
+    }
+  }
+
+  // 3. 实现子接口 `VersionedSerializable` 时，漏掉子接口新增的 `fromVersion` 静态方法会报错
+  // 3. Implementing `VersionedSerializable` without the `fromVersion` static method is rejected
+  // @ts-expect-error Missing static fromVersion required by VersionedSerializable.
+  class MissingInheritedStatic implements VersionedSerializable {
+    static readonly mediaType = "application/x-partial";
+
+    static deserialize(_data: string): MissingInheritedStatic {
+      return new MissingInheritedStatic();
+    }
+
+    serialize(): string {
+      return "partial";
+    }
+  }
+
+  console.log(MissingStatics, WrongStaticReturn, MissingInheritedStatic);
+}
+
+console.log("[02-static-boundaries]", {
+  serialized: instanceOnly.serialize(),
+  compileTimeErrorExamples,
+});

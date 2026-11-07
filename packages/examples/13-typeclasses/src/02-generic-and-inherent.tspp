@@ -1,0 +1,127 @@
+// ============================================================================
+// 13-typeclasses / 02-generic-and-inherent.tspp
+//
+// 泛型条件推导实现（`impl<T> ... where`）、带约束的类与固有扩展方法（`impl Class`）
+//
+// 类型类系统最强大的地方在于“能力的自动组合推导”与“非侵入式方法扩展”：
+//   1. 泛型条件实现（Conditional Implementation）：我们可以声明“只要元素类型 `T` 可以比较相等，
+//      那么装有 `T` 的容器 `Box<T>` 也自动可以比较相等”；
+//   2. 带 `where` 约束的类：类可以在声明时要求类型参数满足某个类型类约束，并在所有实例方法中直接使用该能力；
+//   3. 固有扩展方法（Inherent `impl`）：无需修改类定义，即可在外部为泛型类 `Box<T>` 或特定实例化类型 `Box<number>`
+//      直接添加可通过 `instance.method()` 调用的成员方法。
+// ============================================================================
+// Generic Conditional Implementations (`impl<T> ... where`), Constrained Classes & Inherent Methods (`impl Class`)
+//
+// Two of the most powerful aspects of the typeclass system are automatic capability derivation and non-intrusive
+// method extension:
+//   1. Conditional generic implementations: You can declare that "whenever element type `T` implements `Eq`,
+//      a container `Box<T>` automatically implements `Eq` as well";
+//   2. Classes with `where` constraints: A class can require a typeclass capability on its type parameter and use
+//      that capability freely across all its instance methods;
+//   3. Inherent extension methods (`impl Class`): Add methods callable via `instance.method()` to `Box<T>` or to a
+//      specific specialization like `Box<number>` without modifying the original class declaration.
+// ============================================================================
+
+import { Eq, NumberEq, equal } from "./01-typeclasses";
+
+// Re-reference `NumberEq` so it is active in this module's implicit search scope
+void NumberEq;
+
+// ----------------------------------------------------------------------------
+// 1. 泛型条件实现（`impl<T> ... where <...>`）
+//
+// 写法：`impl<T> <实现名> = <类型类><容器<T>> where <<元素约束>> { ... }`
+// 效果：当调用 `equal(new Box(1), new Box(1))` 时，编译器发现 `number` 满足 `Eq<number>`，
+// 于是自动组合出 `Box<number>` 的相等实现。
+// ----------------------------------------------------------------------------
+// 1. Conditional Generic Implementations (`impl<T> ... where <...>`)
+//
+// Syntax: `impl<T> <ImplName> = <Typeclass><Container<T>> where <<ElementConstraint>> { ... }`
+// Effect: When calling `equal(new Box(1), new Box(1))`, the compiler sees that `number` satisfies `Eq<number>`
+// and automatically composes an `Eq<Box<number>>` implementation.
+// ----------------------------------------------------------------------------
+
+// 定义一个极简的泛型包装容器 `Box<T>`
+// Define a minimal generic wrapper container `Box<T>`
+class Box<T> {
+  constructor(readonly value: T) {}
+}
+
+// 只要内部元素 `T` 具备 `Eq<T, T>`，容器 `Box<T>` 就自动具备 `Eq<Box<T>, Box<T>>`
+// Whenever inner type `T` satisfies `Eq<T, T>`, `Box<T>` automatically satisfies `Eq<Box<T>, Box<T>>`
+impl<T> BoxEq = Eq<Box<T>, Box<T>> where <Eq<T, T>> {
+  equals(a, b) {
+    return Eq.equals(a.value, b.value);
+  }
+}
+
+// 自动由 `BoxEq` + `NumberEq` 组合完成比较
+// Automatically compares two `Box<number>` instances by composing `BoxEq` with `NumberEq`
+const boxesEqual: boolean = equal(new Box(1), new Box(1));
+
+// ----------------------------------------------------------------------------
+// 2. 带 `where` 约束的类声明
+//
+// 写法：`class <类名><T> where <<约束列表>> { ... }`
+// 效果：在构造实例时捕获 `T` 对应的类型类实现，类的所有实例方法内部都可以直接使用该类型类。
+// ----------------------------------------------------------------------------
+// 2. Classes with `where` Constraints
+//
+// Syntax: `class <ClassName><T> where <<constraints>> { ... }`
+// Effect: Captures the typeclass implementation for `T` at construction time so all instance methods can use it.
+// ----------------------------------------------------------------------------
+
+// 统计数组中与 `target` 相等的元素个数（使用 `Eq.equals` 而非死板的 `===`）
+// Count how many elements in an array equal `target` using `Eq.equals`
+class OccurrenceCounter<T> where <Eq<T, T>> {
+  constructor(readonly target: T) {}
+
+  count(values: T[]): number {
+    return values.filter(value => Eq.equals(value, this.target)).length;
+  }
+}
+
+const matchedCount: number = new OccurrenceCounter(1).count([1, 2, 1, 3, 1]);
+
+// ----------------------------------------------------------------------------
+// 3. 固有扩展方法（`impl<T> Box<T>` 与特化扩展 `impl Box<number>`）
+//
+// 写法：`impl<类型参数> <目标类> { <方法名>(self, ...): <返回类型> { ... } }`
+// 效果：
+//   - `impl<T> Box<T>` 为所有类型的 `Box` 实例添加通用方法 `.get()`；
+//   - `impl Box<number>` 仅为装有数字的 `Box<number>` 实例添加特化方法 `.doubled()`。
+// ----------------------------------------------------------------------------
+// 3. Inherent Extension Methods (`impl<T> Box<T>` & Specialized `impl Box<number>`)
+//
+// Syntax: `impl<TypeParams> <TargetClass> { <methodName>(self, ...): <ReturnType> { ... } }`
+// Effect:
+//   - `impl<T> Box<T>` adds `.get()` to `Box` instances of every element type `T`;
+//   - `impl Box<number>` adds `.doubled()` exclusively to `Box<number>` instances.
+// ----------------------------------------------------------------------------
+
+// 为任意 `Box<T>` 扩展 `.get()` 方法，第一个参数 `self` 代表当前实例
+// Extend every `Box<T>` with a `.get()` method, where the first parameter `self` represents the receiver instance
+impl<T> Box<T> {
+  get(self): T {
+    return self.value;
+  }
+}
+
+// 仅为 `Box<number>` 特化扩展 `.doubled()` 方法
+// Extend only `Box<number>` with a specialized `.doubled()` method
+impl Box<number> {
+  doubled(self): number {
+    return self.value * 2;
+  }
+}
+
+const numberBox = new Box(4);
+const unpackedValue: number = numberBox.get();
+const doubledValue: number = numberBox.doubled();
+
+console.log("[02-generic-and-inherent]", {
+  boxesEqual,
+  matchedCount,
+  unpackedValue,
+  doubledValue,
+});
