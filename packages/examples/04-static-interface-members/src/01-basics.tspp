@@ -1,0 +1,117 @@
+// ============================================================================
+// 04-static-interface-members / 01-basics.tspp
+//
+// 接口中的静态成员契约（`interface` 中的 `static` 属性与方法）
+//
+// 在标准 TypeScript 中，`interface` 只能约束类实例（Instance）上的属性和方法，
+// 无法直接在同一个接口里要求实现类必须提供某个静态属性（如类型标识 `static readonly mediaType`）
+// 或静态工厂方法（如从字符串反序列化出当前类实例的 `static deserialize(data: string): this`）。
+// 如果想在标准 TypeScript 中约束静态端，往往不得不把接口拆成“实例接口 + 构造函数接口”两个分离的类型，
+// 并且无法直接在类的 `implements` 子句里统一检查。
+//
+// 为了解决这一痛点，TS++ 允许在 `interface` 中直接使用 `static` 关键字声明静态属性与静态方法：
+//   - 当类通过 `implements` 实现接口时，编译器会同时检查实例成员与类本身的静态成员；
+//   - 静态方法签名中的 `this` 类型会自动指向当前实现类的实例类型；
+//   - 接口继承（`extends`）与接口声明合并也会自动传递这些静态契约。
+// ============================================================================
+// Static Member Contracts in Interfaces (`static` Properties & Methods in `interface`)
+//
+// In standard TypeScript, an `interface` only describes the instance side of a class. It cannot
+// directly require an implementing class to provide a static property (like `static readonly mediaType`)
+// or a static factory method (like `static deserialize(data: string): this`). Enforcing static members
+// normally requires splitting the contract into separate instance and constructor interfaces that cannot
+// be checked together in a standard `implements` clause.
+//
+// To solve this, TS++ lets interfaces declare static properties and methods directly with `static`:
+//   - When a class `implements` an interface, the compiler checks both instance members and static members;
+//   - `this` in a static method return type automatically refers to the instance type of the implementing class;
+//   - Interface inheritance (`extends`) and declaration merging automatically propagate static contracts.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 在 `interface` 中声明 `static` 成员与 `this` 返回类型
+//
+// 写法：在 `interface` 成员前加上 `static` 关键字
+// 效果：任何 `implements Serializable` 的类都必须同时实现实例方法 `serialize()`，
+// 以及静态只读属性 `mediaType` 和返回当前类实例（`this`）的静态方法 `deserialize()`。
+// ----------------------------------------------------------------------------
+// 1. Declaring `static` Members & `this` Return Types in an `interface`
+//
+// Syntax: Prefix interface property or method signatures with `static`
+// Effect: Any class that `implements Serializable` must provide the instance method `serialize()`
+// as well as the static `mediaType` property and the static `deserialize()` factory returning `this`.
+// ----------------------------------------------------------------------------
+
+export interface Serializable {
+  static readonly mediaType: string;
+  static deserialize(data: string): this;
+  serialize(): string;
+}
+
+// 实现 `Serializable`：必须同时提供静态端的 `mediaType`、`deserialize` 和实例端的 `serialize`
+// Implement `Serializable`: must provide both static `mediaType` / `deserialize` and instance `serialize`
+export class Box implements Serializable {
+  static readonly mediaType = "application/x-box";
+
+  static deserialize(data: string): Box {
+    return new Box(data);
+  }
+
+  constructor(readonly value: string) {}
+
+  serialize(): string {
+    return this.value;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// 2. 接口继承中的静态契约传递
+//
+// 当子接口 `extends` 父接口时，父接口中的 `static` 成员契约会自动继承到子接口中。
+// 实现子接口的类必须满足整条继承链上的所有静态成员与实例成员要求。
+// ----------------------------------------------------------------------------
+// 2. Inheriting Static Contracts Across Interfaces
+//
+// When a sub-interface `extends` a base interface, all `static` member requirements from the base
+// interface are inherited automatically. Implementing classes must satisfy every static and instance member.
+// ----------------------------------------------------------------------------
+
+// 在 `Serializable` 的基础上，额外要求实现类提供静态工厂方法 `fromVersion(version: number): this`
+// Extend `Serializable` with an additional static factory requirement `fromVersion(version: number): this`
+export interface VersionedSerializable extends Serializable {
+  static fromVersion(version: number): this;
+}
+
+export class VersionedBox implements VersionedSerializable {
+  static readonly mediaType = "application/x-versioned-box";
+
+  static deserialize(data: string): VersionedBox {
+    const [value, rawVersion] = data.split("@");
+    return new VersionedBox(value ?? "", Number(rawVersion ?? 1));
+  }
+
+  static fromVersion(version: number): VersionedBox {
+    return new VersionedBox("default", version);
+  }
+
+  constructor(
+    readonly value: string,
+    readonly version: number,
+  ) {}
+
+  serialize(): string {
+    return `${this.value}@${this.version}`;
+  }
+}
+
+// 调用静态方法与实例方法验证运行效果
+// Verify both static factory methods and instance methods
+const box = Box.deserialize("hello");
+const versioned = VersionedBox.fromVersion(2);
+
+console.log("[01-basics]", {
+  boxMediaType: Box.mediaType,
+  boxSerialized: box.serialize(),
+  versionedMediaType: VersionedBox.mediaType,
+  versionedSerialized: versioned.serialize(),
+});

@@ -1,0 +1,102 @@
+// ============================================================================
+// 08-type-computation / 04-combined-computation.tspp
+//
+// 组合类型计算（`match` + `let ... in` + `<T> =>>`）
+//
+// 当我们把前三个文件中的特性组合在一起时，就能写出表达力极强的通用类型转换器：
+//   - 用高阶类型参数 `Mapper: Type => Type` 接收任意由调用方传入的**匿名类型函数（`<T> =>> ...`）**；
+//   - 用 **`match Container { ... }`** 识别输入容器的不同结构形态（二元元组、数组、包装对象或普通标量类型）；
+//   - 在分支内部用 **`let ... in ...`** 绑定转换后的中间元素类型，再重新组装回对应形态的容器。
+// ============================================================================
+// Combined Type Computation (`match` + `let ... in` + `<T> =>>`)
+//
+// Combining the three features from the previous files lets us write expressive, reusable type transformations:
+//   - A higher-order parameter `Mapper: Type => Type` accepts any caller-supplied **type lambda (`<T> =>> ...`)**;
+//   - **`match Container { ... }`** inspects the shape of the target container (2-tuple, array, wrapper object, or scalar);
+//   - Inside each branch, **`let ... in ...`** names intermediate mapped element types before rebuilding the result.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 定义通用结构映射类型 `Transform<Container, Mapper>`
+//
+// `Transform` 接收一个待转换的目标类型 `Container` 和一个一元类型转换函数 `Mapper: Type => Type`：
+//   - 如果 `Container` 是二元元组 `[Left, Right]`，就分别对左右元素应用 `Mapper`，返回 `[Mapper<Left>, Mapper<Right>]`；
+//   - 如果 `Container` 是数组 `Array<Element>`，就对元素类型应用 `Mapper`，返回 `Array<Mapper<Element>>`；
+//   - 如果 `Container` 是形如 `{ value: Value }` 的对象，就转换其内部 `value` 属性的类型；
+//   - 如果是其他标量类型 `Other`，就直接返回 `Mapper<Other>`。
+// ----------------------------------------------------------------------------
+// 1. Defining a Generic Structural Mapper `Transform<Container, Mapper>`
+//
+// `Transform` takes a target type `Container` and a unary type function `Mapper: Type => Type`:
+//   - If `Container` is a 2-tuple `[Left, Right]`, it maps both elements and returns `[Mapper<Left>, Mapper<Right>]`;
+//   - If `Container` is an `Array<Element>`, it maps the element type and returns `Array<Mapper<Element>>`;
+//   - If `Container` is an object `{ value: Value }`, it transforms the inner `value` property type;
+//   - Otherwise (`infer Other`), it applies `Mapper<Other>` directly.
+// ----------------------------------------------------------------------------
+
+export type Transform<Container, Mapper: Type => Type> = match Container {
+    [infer Left, infer Right]:
+        let NextLeft = Mapper<Left> in
+        let NextRight = Mapper<Right> in
+        [NextLeft, NextRight],
+    Array<infer Element>:
+        let Next = Mapper<Element> in
+        Array<Next>,
+    { value: infer Value }:
+        { value: Mapper<Value> },
+    infer Other: Mapper<Other>
+};
+
+// ----------------------------------------------------------------------------
+// 2. 传入不同的匿名类型函数测试转换效果
+//
+// 我们定义两个小型匿名类型函数作为插件式的转换规则：
+//   - `WrapInArray`：把任意类型 `Value` 变成数组 `Value[]`；
+//   - `PairWithSelf`：把任意类型 `Value` 变成成对元组 `[Value, Value]`。
+// 然后将它们传给同一个 `Transform`，观察不同容器结构下的自动转换结果。
+// ----------------------------------------------------------------------------
+// 2. Applying `Transform` with Different Type Lambdas
+//
+// We define two small type lambdas as pluggable transformation rules:
+//   - `WrapInArray`: turns any `Value` into `Value[]`;
+//   - `PairWithSelf`: turns any `Value` into `[Value, Value]`.
+// Passing them into `Transform` maps each container shape while preserving its outer structure.
+// ----------------------------------------------------------------------------
+
+// 转换规则 1：把元素包装为单层数组 `Value[]`
+// Transformation rule 1: wrap a type `Value` into `Value[]`
+type WrapInArray = <Value> =>> Value[];
+
+// 转换规则 2：把元素复制为二元元组 `[Value, Value]`
+// Transformation rule 2: duplicate a type `Value` into `[Value, Value]`
+type PairWithSelf = <Value> =>> [Value, Value];
+
+// 对 `number[]` 应用 `WrapInArray`：命中 `Array<infer Element>` 分支，元素从 `number` 变成 `number[]`，整体变成 `number[][]`
+// Map `number[]` with `WrapInArray`: hits `Array<infer Element>`, turning element `number` into `number[]` -> `number[][]`
+type ArrayResult = Transform<number[], WrapInArray>;
+
+// 对 `[string, boolean]` 应用 `PairWithSelf`：命中二元元组分支，变成 `[[string, string], [boolean, boolean]]`
+// Map `[string, boolean]` with `PairWithSelf`: hits `[infer Left, infer Right]` -> `[[string, string], [boolean, boolean]]`
+type TupleResult = Transform<[string, boolean], PairWithSelf>;
+
+// 对 `{ value: bigint }` 应用 `WrapInArray`：命中 `{ value: infer Value }` 分支，变成 `{ value: bigint[] }`
+// Map `{ value: bigint }` with `WrapInArray`: hits `{ value: infer Value }` -> `{ value: bigint[] }`
+type ObjectResult = Transform<{ value: bigint }, WrapInArray>;
+
+// 对普通标量 `string` 应用 `WrapInArray`：命中兜底 `infer Other` 分支，直接变成 `string[]`
+// Map scalar `string` with `WrapInArray`: hits fallback `infer Other` -> `string[]`
+type ScalarResult = Transform<string, WrapInArray>;
+
+// 用具体的值验证以上四个计算结果类型
+// Verify all four computed types with concrete values
+const array: ArrayResult = [[1], [2]];
+const tuple: TupleResult = [["left", "left"], [true, true]];
+const object: ObjectResult = { value: [1n] };
+const scalar: ScalarResult = ["TS++"];
+
+void array;
+void tuple;
+void object;
+void scalar;

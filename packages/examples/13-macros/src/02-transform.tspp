@@ -1,0 +1,85 @@
+// ============================================================================
+// 13-macros / 02-transform.tspp
+//
+// 编译期代码生成（AST 构造与类型感知展开）
+//
+// 除了做静态检查，宏还可以在编译期构造并返回新的语法树语句（`MacroStatement`）。
+// 编译器会将宏返回的语句原地插入到源文件中参与后续的类型检查与代码输出：
+// 这意味着同一文件下方的代码可以直接引用宏生成的变量或类型，并享受完整的静态类型推导！
+// ============================================================================
+// Compile-Time Code Generation (AST Construction & Type-Aware Expansion)
+//
+// Beyond static checks, a macro can construct and return new AST statements (`MacroStatement`) at compile time.
+// The compiler splices the returned statements directly into the source file for type checking and JavaScript emit:
+// code later in the same file can immediately reference macro-generated bindings with full static type inference!
+// ============================================================================
+
+import type { MacroContext, MacroReturn, MacroTarget } from "@tspp/plugin-macros/sdk";
+
+// ----------------------------------------------------------------------------
+// 1. 定义生成新声明的宏
+//
+// 下面的 `exposeTypeName` 宏接收任意类型或声明目标 `target`，并在编译期自动生成一条导出常量声明：
+//   `export const <目标名>TypeName: "<目标名>" = "<目标名>";`
+// ----------------------------------------------------------------------------
+// 1. Defining a Declaration-Generating Macro
+//
+// The `exposeTypeName` macro below takes a target declaration `target` and synthesizes an exported constant at compile time:
+//   `export const <TargetName>TypeName: "<TargetName>" = "<TargetName>";`
+// ----------------------------------------------------------------------------
+
+// 待反射的示例接口 `Box`
+// Sample interface `Box` whose name will be exposed as a runtime constant
+export interface Box {
+  readonly value: number;
+}
+
+// 根据传入的目标名称，在编译期构造并返回一条 `export const` 变量声明语句
+// Construct and return an `export const` variable statement at compile time based on the target's name
+export macro function exposeTypeName(
+  [target]: readonly MacroTarget[],
+  context: MacroContext,
+): MacroReturn {
+  const { factory, SyntaxKind, NodeFlags } = context.typescript;
+
+  // 创建字符串字面量节点 `"Box"`
+  // Create the string literal AST node `"Box"`
+  const literal = factory.createStringLiteral(target.name);
+
+  // 创建变量声明 `BoxTypeName: "Box" = "Box"`
+  // Create the variable declaration `BoxTypeName: "Box" = "Box"`
+  const declaration = factory.createVariableDeclaration(
+    `${target.name}TypeName`,
+    undefined,
+    factory.createLiteralTypeNode(literal),
+    literal,
+  );
+
+  // 包装为完整的 `export const BoxTypeName: "Box" = "Box";` 语句并返回
+  // Wrap into a complete `export const BoxTypeName: "Box" = "Box";` statement and return it
+  return factory.createVariableStatement(
+    [factory.createModifier(SyntaxKind.ExportKeyword)],
+    factory.createVariableDeclarationList([declaration], NodeFlags.Const),
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 2. 触发宏展开并在后续代码中直接使用生成的常量
+//
+// `macro exposeTypeName(Box);` 在编译期展开后，下方代码即可直接读取 `BoxTypeName`，
+// 且类型检查器精确知道它的字面量类型是 `"Box"`。
+// ----------------------------------------------------------------------------
+// 2. Expanding the Macro & Referencing the Generated Constant
+//
+// After `macro exposeTypeName(Box);` expands at compile time, subsequent code can directly access `BoxTypeName`,
+// and the type checker knows its exact literal type is `"Box"`.
+// ----------------------------------------------------------------------------
+
+// 对接口 `Box` 调用宏，生成 `export const BoxTypeName: "Box" = "Box"`
+// Invoke the macro on interface `Box` to generate `export const BoxTypeName: "Box" = "Box"`
+macro exposeTypeName(Box);
+
+// 验证宏生成的常量不仅在运行时存在，而且具有精确的字面量类型 `"Box"`
+// Verify that the generated constant exists at runtime and carries the exact literal type `"Box"`
+const checkedName: "Box" = BoxTypeName;
+console.log("[02-transform]", { checkedName });

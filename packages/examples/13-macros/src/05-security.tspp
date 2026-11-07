@@ -1,0 +1,76 @@
+// ============================================================================
+// 13-macros / 05-security.tspp
+//
+// 宏执行预算配置与无参编译期求值（`macro({ timeout: ... })`）
+//
+// 因为宏在编译期（甚至在编辑器实时类型检查期间）运行，如果宏陷入死循环或耗时过长，会直接阻塞编译与编辑器响应。
+// 为此，TS++ 允许在声明宏时通过 `macro({ timeout: ... })` 显式配置执行时间预算：
+//   - 固定时长预算：`{ timeout: { type: "fixed", value: 2, unit: "s" } }`（支持 `"ms"` 或 `"s"`）；
+//   - 一旦宏执行超时，编译器会立即终止该宏并报告编译期超时诊断错误。
+//
+// 同时，宏也可以不接收任何目标参数（`macro exposePackageName()`），直接把编译期读取到的项目元数据固化为运行时常量。
+// ============================================================================
+// Macro Execution Timeout Budgets & Zero-Argument Compile-Time Evaluation (`macro({ timeout: ... })`)
+//
+// Because macros execute during compilation (and during live editor type checking), an infinite loop or slow macro
+// could stall builds and editor responsiveness.
+// TS++ lets you configure an explicit execution time budget via `macro({ timeout: ... })`:
+//   - Fixed duration budget: `{ timeout: { type: "fixed", value: 2, unit: "s" } }` (supports `"ms"` or `"s"`);
+//   - If a macro exceeds its budget, the compiler terminates it immediately and reports a compile-time timeout error.
+//
+// A macro can also take zero target arguments (`macro exposePackageName()`) to bake compile-time metadata into
+// a runtime constant.
+// ============================================================================
+
+import type { MacroContext, MacroResult } from "@tspp/plugin-macros/sdk";
+
+declare function require(name: string): { name: string };
+
+// ----------------------------------------------------------------------------
+// 1. 声明带超时预算的无参宏
+//
+// 写法：`export macro({ timeout: { type: "fixed", value: 2, unit: "s" } }) function <宏名>(...)`
+// 效果：在编译期读取当前包的 `package.json` 名称，并生成 `const MacroPackageName` 字面量常量；
+// 生成后的 JavaScript 直接内联了字符串 `"@tspp/example-macros"`，运行时不再需要读取文件。
+// ----------------------------------------------------------------------------
+// 1. Declaring a Zero-Argument Macro with a Timeout Budget
+//
+// Syntax: `export macro({ timeout: { type: "fixed", value: 2, unit: "s" } }) function <name>(...)`
+// Effect: Reads `package.json` at compile time and emits `const MacroPackageName` with its exact string literal type;
+// emitted JavaScript inlines `"@tspp/example-macros"` directly with zero runtime file I/O.
+// ----------------------------------------------------------------------------
+
+export macro({ timeout: { type: "fixed", value: 2, unit: "s" } }) function exposePackageName(
+  _targets: readonly never[],
+  context: MacroContext,
+): MacroResult {
+  const packageName = require("../package.json").name;
+  const { factory, NodeFlags } = context.typescript;
+  const literal = factory.createStringLiteral(packageName);
+  return factory.createVariableStatement(
+    undefined,
+    factory.createVariableDeclarationList([
+      factory.createVariableDeclaration(
+        "MacroPackageName",
+        undefined,
+        factory.createLiteralTypeNode(literal),
+        literal,
+      ),
+    ], NodeFlags.Const),
+  );
+}
+
+// ----------------------------------------------------------------------------
+// 2. 调用无参宏并验证内联常量
+// ----------------------------------------------------------------------------
+// 2. Invoking the Zero-Argument Macro & Verifying the Inlined Constant
+// ----------------------------------------------------------------------------
+
+// 在编译期执行 `exposePackageName()`，生成 `const MacroPackageName: "@tspp/example-macros"`
+// Execute `exposePackageName()` at compile time to emit `const MacroPackageName: "@tspp/example-macros"`
+macro exposePackageName();
+
+// 验证生成的常量类型精确为字面量 `"@tspp/example-macros"`
+// Verify that the generated constant has the exact literal type `"@tspp/example-macros"`
+const checkedPackageName: "@tspp/example-macros" = MacroPackageName;
+console.log("[05-security]", { checkedPackageName });

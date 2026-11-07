@@ -379,7 +379,135 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/02-formal-verification:
+  packages/examples/02-operator-sections:
+    devDependencies:
+      '@tspp/plugin-operator-sections':
+        specifier: workspace:*
+        version: link:../../plugins/operator-sections
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/03-advanced-classes:
+    devDependencies:
+      '@tspp/plugin-advanced-classes':
+        specifier: workspace:*
+        version: link:../../plugins/advanced-classes
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/04-static-interface-members:
+    dependencies:
+      '@tspp/plugin-static-interface-members':
+        specifier: workspace:*
+        version: link:../../plugins/static-interface-members
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+
+  packages/examples/05-nominal-types:
+    dependencies:
+      '@tspp/plugin-nominal-types':
+        specifier: workspace:*
+        version: link:../../plugins/nominal-types
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+
+  packages/examples/06-newtype-consumer:
+    dependencies:
+      '@tspp/example-nominal-types':
+        specifier: workspace:*
+        version: link:../05-nominal-types
+      '@tspp/plugin-nominal-types':
+        specifier: workspace:*
+        version: link:../../plugins/nominal-types
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+
+  packages/examples/07-typeclasses:
+    devDependencies:
+      '@tspp/plugin-typeclasses':
+        specifier: workspace:*
+        version: link:../../plugins/typeclasses
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/08-type-computation:
+    dependencies:
+      '@tspp/plugin-type-computation':
+        specifier: workspace:*
+        version: link:../../plugins/type-computation
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+
+  packages/examples/09-higher-kinded-types:
+    dependencies:
+      '@tspp/plugin-type-computation':
+        specifier: workspace:*
+        version: link:../../plugins/type-computation
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+    devDependencies:
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+
+  packages/examples/10-dependent-types:
+    devDependencies:
+      '@tspp/plugin-type-computation':
+        specifier: workspace:*
+        version: link:../../plugins/type-computation
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/11-algebraic-effects:
+    devDependencies:
+      '@tspp/plugin-algebraic-effects':
+        specifier: workspace:*
+        version: link:../../plugins/algebraic-effects
+      eslint:
+        specifier: ^10.10.0
+        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/examples/12-formal-verification:
     dependencies:
       '@tspp/plugin-formal-verification':
         specifier: workspace:*
@@ -395,40 +523,11 @@ importers:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
 
-  packages/examples/03-nominal-types:
-    dependencies:
-      '@tspp/plugin-nominal-types':
-        specifier: workspace:*
-        version: link:../../plugins/nominal-types
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
+  packages/examples/13-macros:
     devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-
-  packages/examples/04-newtype-consumer:
-    dependencies:
-      '@tspp/example-nominal-types':
+      '@tspp/plugin-macros':
         specifier: workspace:*
-        version: link:../03-nominal-types
-      '@tspp/plugin-nominal-types':
-        specifier: workspace:*
-        version: link:../../plugins/nominal-types
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-
-  packages/examples/05-dependent-types:
-    devDependencies:
-      '@tspp/plugin-type-computation':
-        specifier: workspace:*
-        version: link:../../plugins/type-computation
+        version: link:../../plugins/macros
       eslint:
         specifier: ^10.10.0
         version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
@@ -436,46 +535,7 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
-  packages/examples/06-type-computation:
-    dependencies:
-      '@tspp/plugin-type-computation':
-        specifier: workspace:*
-        version: link:../../plugins/type-computation
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-
-  packages/examples/07-higher-kinded-types:
-    dependencies:
-      '@tspp/plugin-type-computation':
-        specifier: workspace:*
-        version: link:../../plugins/type-computation
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-
-  packages/examples/08-static-interface-members:
-    dependencies:
-      '@tspp/plugin-static-interface-members':
-        specifier: workspace:*
-        version: link:../../plugins/static-interface-members
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-    devDependencies:
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-
-  packages/examples/09-typescript-interop:
+  packages/examples/14-typescript-interop:
     dependencies:
       '@tspp/plugin-nominal-types':
         specifier: workspace:*
@@ -493,66 +553,6 @@ importers:
       typescript-eslint:
         specifier: ^8.56.1
         version: 8.72.1(eslint@10.13.0(jiti@2.7.0)(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.9.3)
-
-  packages/examples/10-macros:
-    devDependencies:
-      '@tspp/plugin-macros':
-        specifier: workspace:*
-        version: link:../../plugins/macros
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/11-operator-sections:
-    devDependencies:
-      '@tspp/plugin-operator-sections':
-        specifier: workspace:*
-        version: link:../../plugins/operator-sections
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/12-advanced-classes:
-    devDependencies:
-      '@tspp/plugin-advanced-classes':
-        specifier: workspace:*
-        version: link:../../plugins/advanced-classes
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/13-typeclasses:
-    devDependencies:
-      '@tspp/plugin-typeclasses':
-        specifier: workspace:*
-        version: link:../../plugins/typeclasses
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
-
-  packages/examples/14-algebraic-effects:
-    devDependencies:
-      '@tspp/plugin-algebraic-effects':
-        specifier: workspace:*
-        version: link:../../plugins/algebraic-effects
-      eslint:
-        specifier: ^10.10.0
-        version: 10.13.0(jiti@2.7.0)(supports-color@10.2.2)
-      ts-plus-plus:
-        specifier: workspace:*
-        version: link:../../compiler
 
   packages/language-server:
     devDependencies:

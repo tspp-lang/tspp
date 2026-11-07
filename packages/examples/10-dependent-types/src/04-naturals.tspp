@@ -1,0 +1,84 @@
+// ============================================================================
+// 10-dependent-types / 04-naturals.tspp
+//
+// 皮亚诺自然数与数学归纳法（`Nat`、`Zero`、`Succ` 与归纳原理）
+//
+// 为什么类型系统里会有“自然数（0, 1, 2, ...）”？
+// 在依赖类型编程与定理证明中，我们经常需要在编译期对数字做精确推理（例如表示“长度为 N 的容器”或证明算术定理）。
+// 为了让编译器能够一步步展开和证明关于自然数的性质，类型论采用数学家皮亚诺（Peano）的递归定义方式：
+//   - `Zero`：代表自然数 0（基础起点）；
+//   - `Succ<N>`（Successor，后继）：代表“自然数 N 加 1”。
+//     因此 1 就是 `Succ<Zero>`，2 就是 `Succ<Succ<Zero>>`，依此类推；
+//   - `NatAdd<A, B>`：类型级自然数加法，可以在编译期直接把两个自然数相加并化简。
+//
+// 更奇妙的是：中学数学里的“数学归纳法（Mathematical Induction）”，在依赖类型系统中其实就是一条普通的函数类型签名！
+// ============================================================================
+// Peano Natural Numbers & Mathematical Induction (`Nat`, `Zero`, `Succ` & Induction)
+//
+// Why does a type system have built-in natural numbers (0, 1, 2, ...)?
+// In dependent typing and theorem proving, we often reason about exact sizes and arithmetic at compile time
+// (such as "a container of length N" or proving arithmetic equations).
+// To let the compiler unfold and verify properties step by step, type theory uses Peano's inductive definition:
+//   - `Zero`: represents the natural number 0 (the base case);
+//   - `Succ<N>` (Successor): represents "N + 1".
+//     Thus 1 is `Succ<Zero>`, 2 is `Succ<Succ<Zero>>`, and so on;
+//   - `NatAdd<A, B>`: type-level addition on `Nat`, reducing sums directly at compile time.
+//
+// Remarkably, the principle of Mathematical Induction from mathematics is simply a dependent function type (Pi type)!
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 皮亚诺自然数构造与加法计算（`Zero`、`Succ<N>`、`NatAdd<A, B>`）
+//
+// 所有皮亚诺自然数都属于类型 `Nat`。
+// 通过 `Succ`（后继）和 `NatAdd`（加法），编译器可以在类型检查阶段直接完成算术运算。
+// ----------------------------------------------------------------------------
+// 1. Peano Natural Construction & Addition (`Zero`, `Succ<N>`, `NatAdd<A, B>`)
+//
+// Every Peano natural number has type `Nat`.
+// Using `Succ` and `NatAdd`, the type checker evaluates natural number arithmetic directly at compile time.
+// ----------------------------------------------------------------------------
+
+// 1 是 0 的后继：`Succ<Zero>`
+// 1 is the successor of 0: `Succ<Zero>`
+export type One: Nat = Succ<Zero>;
+
+// 2 是 1 + 1：编译期通过 `NatAdd<One, One>` 计算得到 `Succ<Succ<Zero>>`
+// 2 is 1 + 1: computed at compile time via `NatAdd<One, One>` to `Succ<Succ<Zero>>`
+export type Two: Nat = NatAdd<One, One>;
+
+// 4 是 2 + 2：编译期通过 `NatAdd<Two, Two>` 计算得到 4
+// 4 is 2 + 2: computed at compile time via `NatAdd<Two, Two>`
+export type Four: Nat = NatAdd<Two, Two>;
+
+// ----------------------------------------------------------------------------
+// 2. 数学归纳法即依赖函数类型（`NaturalNumberInduction`）
+//
+// 回想一下数学归纳法是如何证明“某条性质 P 对所有自然数 N 都成立”的：
+//   第一步（明确命题 P）：给定一个关于自然数 `N` 的性质（在依赖类型中，性质就是一个接收 `N: Nat` 并返回类型 `Type0` 的函数 `P: (N: Nat) -> Type0`）；
+//   第二步（证明起点 `zeroCase`）：提供当 `N = Zero` 时性质成立的证明，即一个类型为 `P<Zero>` 的值；
+//   第三步（证明递推步 `successorCase`）：提供一个递推函数——对于任意自然数 `N`，只要假定前一步 `P<N>` 已经成立，就能推导出下一步 `P<Succ<N>>` 也成立；
+//   结论：满足以上条件后，对于任意自然数 `N: Nat`，都能得出 `P<N>` 成立！
+//
+// 把上面四句话直接写成依赖函数签名（Pi 类型），就是下面的 `NaturalNumberInduction`：
+// ----------------------------------------------------------------------------
+// 2. Mathematical Induction as a Dependent Function Type (`NaturalNumberInduction`)
+//
+// Recall how Mathematical Induction proves that a property `P` holds for every natural number `N`:
+//   1. Property (`P`): a proposition indexed by `N` — in dependent types, a family `P: (N: Nat) -> Type0`;
+//   2. Base case (`zeroCase`): a proof that the property holds for 0, i.e. a term of type `P<Zero>`;
+//   3. Inductive step (`successorCase`): a function showing that for any `N: Nat`, given a proof `previous: P<N>`,
+//      we can construct a proof of `P<Succ<N>>`;
+//   Conclusion: for any target `(N: Nat)`, we obtain a proof of `P<N>`!
+//
+// Writing those four parts directly as a Pi type gives `NaturalNumberInduction`:
+// ----------------------------------------------------------------------------
+
+// 自然数数学归纳原理的完整依赖函数类型签名
+// The complete dependent function signature expressing Mathematical Induction over `Nat`
+export type NaturalNumberInduction: Type1 =
+  (P: (N: Nat) -> Type0) ->
+  (zeroCase: P<Zero>) ->
+  (successorCase: (N: Nat) -> (previous: P<N>) -> P<Succ<N>>) ->
+  (N: Nat) ->
+  P<N>;

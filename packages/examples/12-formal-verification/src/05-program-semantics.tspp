@@ -1,0 +1,66 @@
+// ============================================================================
+// 12-formal-verification / 05-program-semantics.tspp
+//
+// 整数除法与取余的精确语义（向零截断与除零检查）
+//
+// 在形式化验证中，算术运算的语义必须与语言的真实运行行为完全一致：
+//   1. **向零截断除法（Truncation Toward Zero）**：JavaScript 的 `bigint` 整数除法 `/` 会向 0 的方向截断小数部分
+//      （例如 `-7n / 2n` 的结果是 `-3n`，而不是向下取整的 `-4n`）；
+//   2. **余数符号跟随被除数**：取余运算 `value % divisor` 的结果符号始终与被除数 `value` 保持一致（或为 `0n`）；
+//   3. **静态除零拦截**：任何 `/` 或 `%` 运算都隐含了“除数不能为 `0n`”的证明义务。如果无法证明除数非零，编译直接报错。
+// ============================================================================
+// Exact Semantics of Integer Division & Remainder (Truncation Toward Zero & Non-Zero Divisor Checks)
+//
+// In formal verification, arithmetic reasoning must match the language's exact runtime semantics:
+//   1. **Truncation toward zero**: JavaScript `bigint` division `/` truncates fractional parts toward zero
+//      (e.g., `-7n / 2n` evaluates to `-3n`, not floored `-4n`);
+//   2. **Remainder sign follows the dividend**: `value % divisor` always has the same sign as `value` (or is `0n`);
+//   3. **Static division-by-zero prevention**: Every `/` and `%` operation carries an implicit proof obligation
+//      that the divisor is non-zero. If the compiler cannot prove `divisor !== 0n`, compilation fails.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 负数整数除法的向零截断验证
+//
+// 当被除数为 `-7n`、除数为 `2n` 时，向零截断的精确商为 `-3n`。
+// ----------------------------------------------------------------------------
+// 1. Verifying Truncation Toward Zero on Negative Division
+//
+// When dividing `-7n` by `2n`, truncating toward zero produces the exact quotient `-3n`.
+// ----------------------------------------------------------------------------
+
+// 验证 -7n / 2n 在向零截断语义下精确等于 -3n
+// Prove that `-7n / 2n` equals `-3n` under truncation-toward-zero semantics
+function halveTowardZero(value: bigint) with {
+    requires: value === -7n;
+    ensures: result === -3n;
+}: bigint {
+    return value / 2n;
+}
+
+// ----------------------------------------------------------------------------
+// 2. 取余运算的除数非零要求与余数符号定律
+//
+// 写法：通过 `requires: divisor !== 0n` 履行除数非零义务（若省略该前置条件，编译器会因 `divisor` 可能为 `0n` 而拒绝编译）。
+// 效果：无论除数 `divisor` 是正是负，编译器都能证明：
+//   - 若被除数 `value >= 0n`，则余数 `result >= 0n`（等价于 `value < 0n || result >= 0n`）；
+//   - 若被除数 `value <= 0n`，则余数 `result <= 0n`（等价于 `value >= 0n || result <= 0n`）。
+// ----------------------------------------------------------------------------
+// 2. Non-Zero Divisor Obligation & Remainder Sign Law
+//
+// Syntax: Discharge the non-zero divisor obligation via `requires: divisor !== 0n` (omitting it fails compilation since `divisor` could be `0n`).
+// Effect: Regardless of the sign of `divisor`, the compiler proves:
+//   - If `value >= 0n`, then `result >= 0n` (written as `value < 0n || result >= 0n`);
+//   - If `value <= 0n`, then `result <= 0n` (written as `value >= 0n || result <= 0n`).
+// ----------------------------------------------------------------------------
+
+// 验证在除数非零的前提下，余数的符号始终与被除数保持一致
+// Prove that for any non-zero divisor, the remainder's sign matches the dividend's sign
+function remainder(value: bigint, divisor: bigint) with {
+    requires: divisor !== 0n;
+    ensures: [value < 0n || result >= 0n, value >= 0n || result <= 0n];
+}: bigint {
+    return value % divisor;
+}
+
+console.log(halveTowardZero(-7n), remainder(-7n, 2n));

@@ -1,0 +1,76 @@
+// ============================================================================
+// 12-formal-verification / 09-recursive-data.tspp
+//
+// 递归代数数据类型（`data`）上的契约验证
+//
+// TS++ 支持使用 `data` 关键字定义代数数据类型（Algebraic Data Types，简称 ADT，详见 `05-nominal-types`），
+// 包括像单向链表这样自身引用自身的递归数据结构。
+//
+// 在形式化验证中，编译器完全理解 `data` 构造器与标签分支（`_tag`）：
+//   - 调用构造器（如 `Link(value, End)`）创建值时，验证器知道返回值的 `_tag` 必然是 `"Link"`，且 `head` 等于 `value`；
+//   - 在前置契约与 `switch (input._tag)` 分支中，验证器可以根据构造器标签安全地推理其内部字段（如 `input.head`）的性质。
+// ============================================================================
+// Contract Verification over Recursive Algebraic Data Types (`data`)
+//
+// TS++ supports algebraic data types (ADTs) via the `data` keyword (covered in detail in `05-nominal-types`),
+// including recursive data structures such as singly linked lists.
+//
+// In formal verification, the compiler understands `data` constructors and tag discrimination (`_tag`):
+//   - When constructing a value (e.g., `Link(value, End)`), the verifier knows `result._tag === "Link"` and `result.head === value`;
+//   - In preconditions and `switch (input._tag)` branches, the verifier reasons about variant-specific fields like `input.head`.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 递归链表定义与构造器后置性质证明
+//
+// 写法：`data BigIntList = End | Link(head: bigint, tail: BigIntList);`
+// 效果：定义一个由空表 `End` 或节点 `Link(head, tail)` 构成的递归整数链表，并直接证明构造函数的返回变体。
+// ----------------------------------------------------------------------------
+// 1. Recursive List Definition & Constructor Postcondition Proof
+//
+// Syntax: `data BigIntList = End | Link(head: bigint, tail: BigIntList);`
+// Effect: Defines a recursive integer list made of empty `End` or `Link(head, tail)` nodes, and proves constructor postconditions.
+// ----------------------------------------------------------------------------
+
+// 递归整数链表：要么是空节点 End，要么是包含首元素 head 与剩余链表 tail 的 Link 节点
+// Recursive integer list: either empty `End` or a `Link` node holding `head` and `tail`
+data BigIntList = End | Link(head: bigint, tail: BigIntList);
+
+// 构造单元素链表：验证返回值的构造器标签必然是 "Link"
+// Construct a singleton list: proves the returned variant tag is always `"Link"`
+function singleton(value: bigint) with {
+    ensures: result._tag === "Link";
+}: BigIntList {
+    return Link(value, End);
+}
+
+// ----------------------------------------------------------------------------
+// 2. 条件蕴含前置契约与 `switch` 分支提取验证
+//
+// 在 `requires: input._tag !== "Link" || input.head >= 0n` 中：
+// 利用逻辑析取（`A || B` 等价于“若非 A 则 B”），表达了“**如果传入的链表是 `Link` 节点，那么它的首元素 `head` 必须非负**”。
+// 随后在 `switch (input._tag)` 中：
+//   - 当走 `case "Link"` 分支时，因为 `input._tag === "Link"`，根据前置条件必然有 `input.head >= 0n`；
+//   - 当走 `case "End"` 分支时，直接返回 `0n`，同样满足 `result >= 0n`。
+// ----------------------------------------------------------------------------
+// 2. Conditional Preconditions & `switch` Branch Verification
+//
+// In `requires: input._tag !== "Link" || input.head >= 0n`:
+// Using disjunction (`!A || B`, i.e., "if `A` then `B`"), this expresses: "**if `input` is a `Link`, its `head` must be `>= 0n`**".
+// Inside `switch (input._tag)`:
+//   - In `case "Link"`, `input._tag === "Link"` combines with `requires:` to establish `input.head >= 0n`;
+//   - In `case "End"`, returning `0n` trivially satisfies `result >= 0n`.
+// ----------------------------------------------------------------------------
+
+// 提取非负表头或默认返回 0n：验证所有构造器分支的返回值都满足 >= 0n
+// Extract non-negative head or default to `0n`: proves every variant branch returns `>= 0n`
+function nonnegativeHeadOrZero(input: BigIntList) with {
+    requires: input._tag !== "Link" || input.head >= 0n;
+    ensures: result >= 0n;
+}: bigint {
+    switch (input._tag) {
+        case "Link": return input.head;
+        case "End": return 0n;
+    }
+}
+

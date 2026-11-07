@@ -66,7 +66,7 @@ function compileExamples(consumer) {
         assert.equal(compiled.status, 0, `${path.basename(directory)}\n${compiled.stdout}${compiled.stderr}`);
         console.log(`ok  compiled ${path.basename(directory)}`);
     }
-    const emitted = spawnSync(process.execPath, [path.join(consumer, "examples", "03-nominal-types", "dist", "01-basics.js")], { encoding: "utf8" });
+    const emitted = spawnSync(process.execPath, [path.join(consumer, "examples", "05-nominal-types", "dist", "01-basics.js")], { encoding: "utf8" });
     assert.equal(emitted.status, 0, `emitted JavaScript failed\n${emitted.stdout}${emitted.stderr}`);
     console.log("ok  ran emitted JavaScript");
 }

@@ -1,0 +1,93 @@
+// ============================================================================
+// 10-dependent-types / 06-sigma.tspp
+//
+// 依赖对类型与存在命题（Sigma 类型、`Pair`、`First` 与 `Second`）
+//
+// 在普通 TypeScript 中，二元元组 `[A, B]` 的两个元素类型 `A` 和 `B` 是完全独立的（例如 `[number, string]`）。
+// 但如果我们想表达：“一个二元组，其中第二个元素的**类型**取决于第一个元素的**具体值**”，普通元组就无能为力了。
+//
+// 依赖类型理论把这种“第二个元素的类型依赖于第一个元素的值”的成对结构称为“Sigma 类型（$\Sigma$ 类型 / 依赖对类型）”，
+// 在 TS++ 中写作 `Sigma<(x: A) -> B(x)>`：
+//   - 从数据结构角度看：它打包了一个值 `x: A`，以及一个类型随 `x` 变化的伴随数据 `y: B(x)`；
+//   - 从逻辑命题角度看（命题即类型）：它对应逻辑学中的“存在量词（$\exists x: A.\, P(x)$）”——
+//     要证明“存在某个 `x` 满足性质 `P(x)`”，你只需要给出一个具体的证人 `x`，再附带一份 `P(x)` 的证明，把它们配成一对即可！
+// ============================================================================
+// Dependent Pair Types & Existential Witnesses (Sigma Types, `Pair`, `First` & `Second`)
+//
+// In standard TypeScript, the two element types in a tuple `[A, B]` are completely independent (e.g. `[number, string]`).
+// But what if the **type** of the second element depends on the **concrete value** of the first element?
+//
+// Dependent type theory calls such a structure a "Sigma type" ($\Sigma$ type, or Dependent Pair Type),
+// written in TS++ as `Sigma<(x: A) -> B(x)>`:
+//   - As a data structure: it pairs a first value `x: A` with a second value whose type is `B(x)`;
+//   - As a logical proposition (Propositions as Types): it represents existential quantification ($\exists x: A.\, P(x)$) —
+//     to prove "there exists an `x: A` such that `P(x)` holds", you supply a witness `x` together with a proof of `P(x)`!
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 定义 Sigma 类型（`Sigma<(x: A) -> P(x)>`）
+//
+// 写法：`Sigma<依赖函数 (x: A) -> P(x)>`
+// 效果：描述一个依赖二元组类型——第一个分量的类型是 `A`，当第一个分量取值为 `value` 时，
+// 第二个分量的类型就必须是 `P(value)`。
+// ----------------------------------------------------------------------------
+// 1. Defining Sigma Types (`Sigma<(x: A) -> P(x)>`)
+//
+// Syntax: `Sigma<(x: A) -> P(x)>`
+// Effect: Describes a dependent pair whose first component has type `A` and whose second component
+// has type `P(value)`, where `value` is the concrete first component.
+// ----------------------------------------------------------------------------
+
+// 单例自然数类型：第一个分量是某个自然数 `value: Nat`，第二个分量是证明“`value` 等于 `Zero`”的证据 `Eq<Nat, value, Zero>`。
+// 这在逻辑上等价于命题：“存在一个自然数 value，使得 value = 0”
+// Singleton natural type: pairs a `value: Nat` with a proof `Eq<Nat, value, Zero>` that `value` equals `Zero`.
+// Logically, this represents: "there exists a natural number `value` such that `value = 0`"
+export type SingletonNat: Type0 =
+  Sigma<(value: Nat) -> Eq<Nat, value, Zero>>;
+
+// 参数化的存在命题：对于任意给定的自然数 `N: Nat`，存在一个自然数 `value` 等于 `N`
+// Parameterized existential type: for any given `N: Nat`, pairs a `value: Nat` with a proof that `value = N`
+export type SelfWitness: Type0 =
+  (N: Nat) -> Sigma<(value: Nat) -> Eq<Nat, value, N>>;
+
+// ----------------------------------------------------------------------------
+// 2. 构造与拆解 Sigma 类型（`Pair`、`First` 与 `Second`）
+//
+// TS++ 提供三个内置原语来操作 Sigma 类型：
+//   - `Pair<Sigma类型, 第一个值, 第二个值>`：把第一个值和对应的第二个值（证明）打包成一个 Sigma 实例；
+//   - `First<pair>`：提取依赖对中的第一个分量（在编译期直接化简为传入的第一个值）；
+//   - `Second<pair>`：提取依赖对中的第二个分量（在编译期直接化简为传入的第二个值）。
+// ----------------------------------------------------------------------------
+// 2. Constructing & Projecting Sigma Types (`Pair`, `First` & `Second`)
+//
+// TS++ provides three built-in primitives for working with Sigma types:
+//   - `Pair<SigmaType, FirstValue, SecondValue>`: packages the first value and its dependent second value into a pair;
+//   - `First<pair>`: projects the first component (reducing definitionally to `FirstValue`);
+//   - `Second<pair>`: projects the second component (reducing definitionally to `SecondValue`).
+// ----------------------------------------------------------------------------
+
+// 第一分量投影计算法则：用 `N` 和自反证明 `Refl<Nat, N>` 构造 `Pair` 后，通过 `First` 提取出的结果恒等于 `N`
+// First-projection computation law: projecting `First` from `Pair<..., N, Refl<Nat, N>>` reduces directly to `N`
+export type SigmaFirstComputation: Type0 =
+  (N: Nat) -> Eq<
+    Nat,
+    First<Pair<
+      Sigma<(value: Nat) -> Eq<Nat, value, N>>,
+      N,
+      Refl<Nat, N>
+    >>,
+    N
+  >;
+
+// 第二分量投影计算法则：对同一个依赖对通过 `Second` 提取出的结果，其类型正是 `Eq<Nat, N, N>`，且值恒等于 `Refl<Nat, N>`
+// Second-projection computation law: projecting `Second` from the pair has type `Eq<Nat, N, N>` and reduces to `Refl<Nat, N>`
+export type SigmaSecondComputation: Type0 =
+  (N: Nat) -> Eq<
+    Eq<Nat, N, N>,
+    Second<Pair<
+      Sigma<(value: Nat) -> Eq<Nat, value, N>>,
+      N,
+      Refl<Nat, N>
+    >>,
+    Refl<Nat, N>
+  >;

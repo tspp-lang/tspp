@@ -10,13 +10,13 @@ const exampleNames = readdirSync(examplesRoot, { withFileTypes: true })
     .map(entry => entry.name)
     .sort();
 const richDeclarationExamples = new Set([
-    "02-formal-verification",
-    "03-nominal-types",
-    "05-dependent-types",
-    "06-type-computation",
-    "07-higher-kinded-types",
-    "08-static-interface-members",
-    "10-macros",
+    "04-static-interface-members",
+    "05-nominal-types",
+    "08-type-computation",
+    "09-higher-kinded-types",
+    "10-dependent-types",
+    "12-formal-verification",
+    "13-macros",
 ]);
 
 if (exampleNames.length === 0) {
@@ -109,13 +109,13 @@ for (const example of packages) {
 }
 
 function verifyFeatureRichDeclarations(example, outputDirectory) {
-    if (example === "02-formal-verification") return verifyFormalVerificationDeclarations(outputDirectory);
-    if (example === "03-nominal-types") return verifyNominalTypeDeclarations(outputDirectory);
-    if (example === "05-dependent-types") return verifyDependentTypeDeclarations(outputDirectory);
-    if (example === "06-type-computation") return verifyTypeComputationDeclarations(outputDirectory);
-    if (example === "07-higher-kinded-types") return verifyHigherKindedDeclarations(outputDirectory);
-    if (example === "08-static-interface-members") return verifyStaticInterfaceDeclarations(outputDirectory);
-    if (example === "10-macros") return verifyMacroDeclarations(outputDirectory);
+    if (example === "04-static-interface-members") return verifyStaticInterfaceDeclarations(outputDirectory);
+    if (example === "05-nominal-types") return verifyNominalTypeDeclarations(outputDirectory);
+    if (example === "08-type-computation") return verifyTypeComputationDeclarations(outputDirectory);
+    if (example === "09-higher-kinded-types") return verifyHigherKindedDeclarations(outputDirectory);
+    if (example === "10-dependent-types") return verifyDependentTypeDeclarations(outputDirectory);
+    if (example === "12-formal-verification") return verifyFormalVerificationDeclarations(outputDirectory);
+    if (example === "13-macros") return verifyMacroDeclarations(outputDirectory);
     throw new Error(`Missing rich declaration verifier for ${example}.`);
 }
 

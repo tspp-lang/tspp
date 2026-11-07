@@ -1,0 +1,54 @@
+// ============================================================================
+// 12-formal-verification / 06-real-number-model.tspp
+//
+// 数学实数模型（`numberModel: "mathematical-real"`）
+//
+// 与任意精度的 `bigint` 不同，JavaScript 中的 `number` 在底层是双精度浮点数（IEEE-754），
+// 既可能用于表达连续的小数/实数计算（如几何比例、均值计算），也可能用于表达有范围上限的整数计数。
+//
+// 为了让验证器明确按照哪种数学规则来推导 `number`，TS++ 要求在涉及 `number` 的验证契约中显式指定数值模型（`numberModel`）：
+//   - `"mathematical-real"`（数学实数模型）：将 `number` 视为理想的连续数学实数，支持小数运算（如 `* 0.5`）与代数恒等变换；
+//   - `"safe-integer"`（安全整数模型，见下一节 `07`）：将 `number` 视为整数，并额外强制证明每一步运算都不会超出安全整数范围。
+// ============================================================================
+// Mathematical Real Number Model (`numberModel: "mathematical-real"`)
+//
+// Unlike arbitrary-precision `bigint`, JavaScript's `number` is an IEEE-754 floating-point value used for two distinct purposes:
+// continuous real-valued math (such as averages and scaling) and bounded integer counting.
+//
+// So the verifier knows which mathematical rules to apply to `number`, TS++ lets you specify an explicit `numberModel`:
+//   - `"mathematical-real"`: treats `number` as ideal continuous mathematical reals, supporting fractional arithmetic (e.g., `* 0.5`) and algebraic identities;
+//   - `"safe-integer"` (see next file `07`): treats `number` as integers and additionally proves that every operation stays within safe integer bounds.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 在数学实数模型下证明小数运算与代数性质
+//
+// 写法：`with { numberModel: "mathematical-real"; ... }`
+// 效果：将参数 `left`、`right` 和返回值作为连续实数进行推导，支持小数乘法与区间上下界证明。
+// ----------------------------------------------------------------------------
+// 1. Proving Fractional Arithmetic & Algebraic Properties under `"mathematical-real"`
+//
+// Syntax: `with { numberModel: "mathematical-real"; ... }`
+// Effect: Reasons about `left`, `right`, and `result` as continuous real numbers, supporting fractional scaling and bound proofs.
+// ----------------------------------------------------------------------------
+
+// 实数比例缩放：在数学实数模型下验证返回值等于两数之和的一半
+// Real-valued scaling: proves under the mathematical-real model that the result equals half the sum
+function scaledSum(left: number, right: number) with {
+    numberModel: "mathematical-real";
+    ensures: result === (left + right) * 0.5;
+}: number {
+    return (left + right) * 0.5;
+}
+
+// 均值夹逼性质：当 left <= right 时，证明它们的平均值 (left + right) * 0.5 必然落在 [left, right] 区间内
+// Midpoint sandwich property: when `left <= right`, proves their average `(left + right) * 0.5` lies within `[left, right]`
+function midpoint(left: number, right: number) with {
+    numberModel: "mathematical-real";
+    requires: left <= right;
+    ensures: [result >= left, result <= right];
+}: number {
+    return (left + right) * 0.5;
+}
+
+console.log(scaledSum(2, 6), midpoint(2, 6));
