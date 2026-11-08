@@ -87,6 +87,23 @@ test("match captures type constructor arguments", () => assertOnlyErrors(`
   const bad: Id<Array<number>> = 2;
 `, 1));
 
+test("match ignores nested wildcard types without binding names in the result", () => {
+  const { program, outputs } = createProgram(`
+    type _ = "ordinary";
+    type _tsppWildcard0 = "outer";
+    type Container<A extends string, B> = { first: (value: A) => A; rest: B };
+    export type ExtractRest<C> = match C {
+      [Container<_, infer Rest>, _]: [Rest, _, _tsppWildcard0],
+      _: never
+    };
+    export const result: ExtractRest<[Container<"a", number>, boolean]> = [1, "ordinary", "outer"];
+  `, { noUnusedParameters: true, declaration: true, emitDeclarationOnly: true });
+  assert.deepEqual(diagnosticMessages(program), []);
+  assert.deepEqual(program.emit().diagnostics, []);
+  assert.match(outputs.get("/main.d.ts"), /Container<infer \w+, infer Rest>/);
+  assert.match(outputs.get("/main.d.tspp"), /Container<_, infer Rest>/);
+});
+
 test("match stays usable as an ordinary identifier", () => {
   assert.deepEqual(messagesOf(`
     let match = 5;
@@ -216,10 +233,11 @@ test("a let-bound type lambda checks its arity and can be shadowed", () => {
 });
 
 test("an unused let binding is reported on its name", () => {
-  const source = "type T = let Unused = number in string;";
+  const source = "type T = let /* binding */ Unused = number in string;";
   const { program } = createProgram(source, { noUnusedParameters: true });
   const [diagnostic, ...rest] = program.getSemanticDiagnostics();
   assert.deepEqual(rest, []);
+  assert.equal(diagnostic.code, 18086);
   assert.equal(source.slice(diagnostic.start, diagnostic.start + diagnostic.length), "Unused");
 });
 

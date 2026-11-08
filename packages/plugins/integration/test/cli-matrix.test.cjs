@@ -152,6 +152,30 @@ function compileAndRun(set) {
 
 for (const set of pluginSets()) test(set.join(" + "), () => compileAndRun(set));
 
+test("the command line checks type-level let bindings and indexed arguments", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    installCompiler(directory);
+    fs.writeFileSync(path.join(directory, "index.tspp"), [
+      "type T = let X = Missing in X;",
+      "interface Holder { tag: 0 }",
+      'type Result<T extends Holder> = Succ<T["tag"]>;',
+      "const value: Result<Holder> = 2;",
+    ].join("\n"));
+    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+      compilerOptions: { types: [], plugins: [{ name: pluginName("type-computation"), tspp: true }] },
+      files: ["index.tspp"],
+    }));
+    const compiled = spawnSync(process.execPath, [tsc, "-p", ".", "--noEmit", "--pretty", "false"], { cwd: directory, encoding: "utf8" });
+    assert.equal(compiled.status, 2, `${compiled.stdout}${compiled.stderr}`);
+    assert.match(compiled.stdout, /index\.tspp\(1,18\): error TS2304: Cannot find name 'Missing'/);
+    assert.match(compiled.stdout, /error TS2322: Type '2' is not assignable to type '1'/);
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("solution builds load each project's plugins and do not call a refuted project up to date", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
   try {

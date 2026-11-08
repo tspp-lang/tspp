@@ -4,6 +4,7 @@ import type * as TS from "typescript-upstream";
 import { normalizeMlttTerm, type MlttTerm } from "./core";
 import { resolveTermNames } from "./dependent";
 import { kindsEqual, kindToString, ordinaryKind, type TypeKind, type TypeSyntaxModel, universeLevel } from "./kinds";
+import { indexedComputationLiterals } from "./lower";
 
 /** The codes of this plugin's kind errors; `notGeneric` is TypeScript's own code for the same message. */
 const diagnosticCodes = { kindMismatch: 18072, wrongArity: 18073, notGeneric: 2315 } as const;
@@ -142,7 +143,13 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
     /** The type of syntax this plugin owns, or of a reference that applies a type constructor or names a universe. */
     function resolveOwn(node: TS.TypeNode, host: TSPPTypeHost, state: CheckerState): TS.Type | undefined {
         const term = model.terms.get(node);
-        if (term) return computedValue(term, node, host);
+        if (term) {
+            const value = computedValue(term, node, host);
+            if (indexedComputationLiterals.has(node)) {
+                indexedComputationLiterals.set(node, value && host.checker.typeToString(value));
+            }
+            return value;
+        }
         const application = model.applications.get(node);
         if (application) {
             const target = host.checker.getTypeFromTypeNode(application.target);

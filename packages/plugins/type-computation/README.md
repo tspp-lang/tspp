@@ -3,7 +3,8 @@
 An isolated type-level computation capsule with these composable forms:
 
 - `let Name = Value in Body` for lexical type bindings;
-- `match Input { Pattern: Result, _: Fallback }` for ordered, non-distributive structural matching;
+- `match Input { Pattern: Result, _: Fallback }` for ordered, non-distributive structural matching. A bare `_` can
+  also ignore a part of a structural pattern, as in `Container<_, infer Rest>`.
 - `<T> =>> Body` for anonymous type constructors that can be applied through ordinary type-reference syntax;
 - kind annotations such as `F: Type => Type`, first-class references to generic aliases and interfaces, and
   application of higher-kinded parameters through normal type-reference syntax. `Type` is the ordinary `Type0` kind,

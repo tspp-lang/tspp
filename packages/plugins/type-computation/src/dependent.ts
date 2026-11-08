@@ -6,14 +6,20 @@ import {
     checkMlttType,
     inferMlttType,
     MlttTypeError,
+    mlttBoolType,
+    mlttFalse,
+    mlttNatType,
+    mlttSuccessor,
+    mlttTrue,
+    mlttZero,
     normalizeMlttTerm,
     printMlttTerm,
     type MlttExternal,
     type MlttTerm,
 } from "./core";
-import { keywordTypes, lowerTermToTypeNode } from "./lower";
+import { indexedAccessLocations, keywordTypes, lowerTermToTypeNode } from "./lower";
 import { termToKind, type TypeSyntaxModel } from "./kinds";
-import { parseDependentTypeText, startsBuiltinTerm, TermParser, type TermLocation, type TermTokens } from "./term-parser";
+import { indexedAccessKey, parseDependentTypeText, startsBuiltinTerm, TermParser, type IndexedAccessLocation, type TermLocation, type TermTokens } from "./term-parser";
 
 // Terms of the dependent type theory inside ordinary type syntax: the parts of an alias TypeScript has no spelling for.
 // The kernel in `core` checks them and works out what they compute; `lower` hands the result to TypeScript as a type.
@@ -136,36 +142,101 @@ function isTermLambdaStart(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: T
  * of its own, by that term, and a declaration with a kind, by a value of that kind. Parsing only knows earlier aliases
  * of the same file. Returns `term` itself when nothing changed.
  */
-export function resolveTermNames(ts: TSPPTypeScript, model: TypeSyntaxModel, checker: TS.TypeChecker, term: MlttTerm, location: TS.Node): MlttTerm {
+export function resolveTermNames(ts: TSPPTypeScript, model: TypeSyntaxModel, checker: TS.TypeChecker, term: MlttTerm, location: TS.Node, expected?: MlttTerm): MlttTerm {
     const visiting = new Set<TS.Symbol>();
-    const resolve = (current: MlttTerm): MlttTerm => {
+    const accessesByRoot = new Map<TS.Node, Map<IndexedAccessLocation, TS.IndexedAccessTypeNode>>();
+    const resolve = (current: MlttTerm, root: TS.Node, expectedKind?: MlttTerm["kind"]): MlttTerm => {
         const external = current.kind === "external" && current.identity ? current : undefined;
+        if (external?.key === indexedAccessKey) {
+            if (expectedKind !== "nat-type" && expectedKind !== "bool-type") return current;
+            const access = indexedAccesses(root).get(external.identity as IndexedAccessLocation);
+            if (!access) return current;
+            const type = checker.getTypeFromTypeNode(access);
+            const constraint = checker.getBaseConstraintOfType(type) ?? type;
+            return resolveIndexedValue(ts, checker, external, constraint, expectedKind);
+        }
         if (external && !keywordTypes.has(external.key)) {
-            let symbol = checker.resolveName(external.key, location, ts.SymbolFlags.Type | ts.SymbolFlags.Alias, /*excludeGlobals*/ false);
+            let symbol = checker.resolveName(external.key, root, ts.SymbolFlags.Type | ts.SymbolFlags.Alias, /*excludeGlobals*/ false);
             if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol);
             const declaration = symbol?.declarations?.[0];
             if (symbol && declaration && !visiting.has(symbol)) {
-                const body = ts.isTypeAliasDeclaration(declaration) ? model.terms.get(declaration.type) : undefined;
-                if (body) {
-                    visiting.add(symbol);
-                    const resolved = resolve(body);
-                    visiting.delete(symbol);
-                    return resolved;
+                if (ts.isTypeAliasDeclaration(declaration)) {
+                    const body = model.terms.get(declaration.type);
+                    if (body) {
+                        visiting.add(symbol);
+                        const resolved = resolve(body, declaration.type, expectedKind);
+                        visiting.delete(symbol);
+                        return resolved;
+                    }
                 }
                 const kind = model.declarationKinds.get(declaration);
                 if (kind?.kind === "term") return { ...external, type: kind.term };
             }
         }
-        return mapChildren(current, resolve);
+        return mapChildren(current, (child, key) => resolve(child, root, expectedChildKind(current, key, expectedKind)));
     };
-    return resolve(term);
+    return resolve(term, location, expected?.kind);
+
+    function indexedAccesses(root: TS.Node): Map<IndexedAccessLocation, TS.IndexedAccessTypeNode> {
+        const cached = accessesByRoot.get(root);
+        if (cached) return cached;
+        const accesses = new Map<IndexedAccessLocation, TS.IndexedAccessTypeNode>();
+        const visit = (node: TS.Node): void => {
+            if (ts.isIndexedAccessTypeNode(node)) {
+                const location = indexedAccessLocations.get(node);
+                if (location) accesses.set(location, node);
+            }
+            ts.forEachChild(node, visit);
+        };
+        visit(root);
+        accessesByRoot.set(root, accesses);
+        return accesses;
+    }
+}
+
+/** An indexed access is an ordinary TypeScript type until used as a natural or boolean value. */
+function expectedChildKind(term: MlttTerm, child: string, expected: MlttTerm["kind"] | undefined): MlttTerm["kind"] | undefined {
+    switch (term.kind) {
+        case "successor":
+        case "nat-add": return "nat-type";
+        case "nat-elim": return child === "scrutinee" ? "nat-type" : undefined;
+        case "bool-elim": return child === "scrutinee" ? "bool-type" : child === "motive" ? undefined : expected;
+        case "identity-type":
+        case "identity-elim": return child === "left" || child === "right" ? term.type.kind : undefined;
+        case "refl":
+        case "annotation": return child === "term" ? term.type.kind : undefined;
+        case "application": return child === "argument" && term.functionTerm.kind === "lambda" ? term.functionTerm.parameterType?.kind : undefined;
+        default: return undefined;
+    }
+}
+
+function resolveIndexedValue(ts: TSPPTypeScript, checker: TS.TypeChecker, access: MlttExternal, type: TS.Type, expected: "nat-type" | "bool-type"): MlttTerm {
+    if (expected === "bool-type") {
+        if (type === checker.getTrueType()) return mlttTrue();
+        if (type === checker.getFalseType()) return mlttFalse();
+        return type.flags & ts.TypeFlags.Boolean ? { ...access, type: mlttBoolType() } : access;
+    }
+    const isNatural = (candidate: TS.Type): candidate is TS.NumberLiteralType => {
+        if (!(candidate.flags & ts.TypeFlags.NumberLiteral)) return false;
+        const { value } = candidate as TS.NumberLiteralType;
+        return Number.isSafeInteger(value) && value >= 0;
+    };
+    if (!isNatural(type)) {
+        const isNaturalUnion = (type.flags & ts.TypeFlags.Union) && (type as TS.UnionType).types.every(isNatural);
+        return isNaturalUnion ? { ...access, type: mlttNatType() } : access;
+    }
+    // A natural's normal form is unary, so keep large literals opaque rather than exhausting the stack.
+    if (type.value > 1024) return { ...access, type: mlttNatType() };
+    let value: MlttTerm = mlttZero();
+    for (let index = 0; index < type.value; index++) value = mlttSuccessor(value);
+    return value;
 }
 
 /** A term with `visit` applied to its direct subterms; the term itself when none of them changed. */
-function mapChildren(term: MlttTerm, visit: (term: MlttTerm) => MlttTerm): MlttTerm {
+function mapChildren(term: MlttTerm, visit: (term: MlttTerm, key: string) => MlttTerm): MlttTerm {
     let changed = false;
     const mapped = Object.fromEntries(Object.entries(term).map(([key, value]) => {
-        const next = mapValue(value, child => visit(child));
+        const next = mapValue(value, child => visit(child, key));
         if (next !== value) changed = true;
         return [key, next];
     }));
@@ -279,7 +350,7 @@ export function createTermDiagnostics(ts: TSPPTypeScript, model: TypeSyntaxModel
                 if (!term || typeof term !== "object") return;
                 const external = term as MlttExternal;
                 const written = external.kind === "external" ? external.identity as TermLocation | undefined : undefined;
-                if (written && !keywordTypes.has(external.key) && !checker.resolveName(external.key, location, ts.SymbolFlags.Type | ts.SymbolFlags.Namespace, /*excludeGlobals*/ false)) {
+                if (written && external.key !== indexedAccessKey && !keywordTypes.has(external.key) && !checker.resolveName(external.key, location, ts.SymbolFlags.Type | ts.SymbolFlags.Namespace, /*excludeGlobals*/ false)) {
                     diagnostics.push({
                         category: ts.DiagnosticCategory.Error,
                         code: cannotFindName,
@@ -315,7 +386,7 @@ export function createTermDiagnostics(ts: TSPPTypeScript, model: TypeSyntaxModel
                 try {
                     const annotation = alias && model.termAnnotations.get(alias);
                     const resolvedAnnotation = annotation && resolveTermNames(ts, model, checker, annotation, node);
-                    checkTerm(resolveTermNames(ts, model, checker, term, node), resolvedAnnotation, alias && ts.idText(alias.name));
+                    checkTerm(resolveTermNames(ts, model, checker, term, node, resolvedAnnotation), resolvedAnnotation, alias && ts.idText(alias.name));
                 }
                 catch (error) {
                     const start = model.authored.get(node) ?? node.pos;

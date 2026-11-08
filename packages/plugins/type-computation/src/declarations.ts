@@ -2,6 +2,7 @@ import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import { kindToDeclarationString, type TypeKind, type TypeSyntaxModel } from "./kinds";
+import { indexedComputationLiterals } from "./lower";
 
 /** Well-known generic globals that a constructor argument may name without type arguments. */
 const genericGlobals = new Set(["Array", "ReadonlyArray", "Promise", "Map", "ReadonlyMap", "Set", "ReadonlySet", "WeakMap", "WeakSet"]);
@@ -68,6 +69,8 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
         },
         restoreCompatibilityDeclaration(node: TS.Node): string | undefined {
             const original = ts.getOriginalNode(node);
+            const literal = indexedComputationLiterals.get(original);
+            if (literal !== undefined) return literal;
             if (model.constructors.has(original) || model.applications.has(original)) return "unknown";
             if (ts.isTypeAliasDeclaration(original)) {
                 const arity = constructorAliasArity(original);

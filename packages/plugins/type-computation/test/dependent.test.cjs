@@ -58,6 +58,42 @@ test("computed terms reach TypeScript as their values", () => {
     export const bad: Two = 3;`), ["Type '3' is not assignable to type '2'."]);
 });
 
+test("computes successors of indexed accesses with singleton constraints", () => {
+  const source = `
+    interface DataHolder { tag: 0; }
+    export type Result<T extends DataHolder> = Succ<T["tag"]>;
+    type Lookup<T extends DataHolder, K extends "tag"> = Succ<T[K]>;
+    export const result: Result<DataHolder> = 1;
+    export const lookup: Lookup<DataHolder, "tag"> = 1;`;
+  assert.deepEqual(check(source), []);
+  assert.deepEqual(check(`${source}\nexport const wrong: Result<DataHolder> = 2;`), ["Type '2' is not assignable to type '1'."]);
+
+  const { rich, compatible } = emitted(source);
+  assert.match(rich, /export type Result<T extends DataHolder> = Succ<T\["tag"\]>;/);
+  assert.match(compatible, /export type Result<T extends DataHolder> = 1;/);
+});
+
+test("uses chained indexed accesses as ordinary types or as MLTT values", () => {
+  assert.deepEqual(check(`
+    interface DataHolder { nested: { tag: 2; flag: true; }; }
+    type Tag: Type0 = Ann<DataHolder[][number]["nested"]["tag"], Type0>;
+    type Result = NatAdd<Succ<Array<DataHolder>[number]["nested"]["tag"]>, DataHolder["nested"]["tag"]>;
+    type Flag = If<DataHolder["nested"]["flag"], <b: Bool> =>> Type0, string, number>;
+    export const tag: Tag = 2;
+    export const value: Result = 5;
+    export const flag: Flag = "text";
+    export const wrong: Result = 4;`), ["Type '4' is not assignable to type '5'."]);
+});
+
+test("checks indexed access keys and the kind of the projected value", () => {
+  assert.match(check(`
+    interface DataHolder { tag: 0; }
+    export type Bad<T extends DataHolder> = Succ<T["missing"]>;`).join("\n"), /Type '"missing"' cannot be used to index type 'T'/);
+  assert.deepEqual(check(`
+    interface DataHolder { tag: string; }
+    export type Bad<T extends DataHolder> = Succ<T["tag"]>;`), ["Expected Nat, but inferred Type0."]);
+});
+
 test("a match on types is decided by TypeScript, never falling back to any", () => {
   assert.deepEqual(check(`
     type R: Type0 = match number { number: string, _: boolean };

@@ -60,15 +60,12 @@ export const typeComputationPlugin = definePlugin({
                     context.compiler.registerDiagnosticProvider({
                         id: "let-bindings",
                         getSemanticDiagnostics: () => [],
-                        // A `let` binding lowers to an `infer` whose range runs over the bound value; report on its name.
+                        // A `let` binding lowers to an `infer`, but unused-type-parameter fixes do not apply to its syntax.
                         filterDiagnostic: diagnostic => {
                             if (!diagnostic.file || diagnostic.start === undefined) return true;
                             if (isUnusedBinderDiagnostic(ts, diagnostic.file, diagnostic.start, diagnostic.code)) return false;
-                            const name = findLetBinding(ts, model, diagnostic.file, diagnostic.start);
-                            if (!name) return true;
-                            const length = ts.idText(name).length;
-                            // Under its own code: the fixes for an unused name would delete a type parameter from a list it isn't in.
-                            return { ...diagnostic, start: name.end - length, length, code: letBindingDiagnosticCode };
+                            const binding = findLetBinding(ts, model, diagnostic.file, diagnostic.start);
+                            return binding ? { ...diagnostic, ...binding, code: letBindingDiagnosticCode } : true;
                         },
                     }),
                 ];
@@ -368,13 +365,10 @@ function isUnusedBinderDiagnostic(ts: typeof TS, sourceFile: TS.SourceFile, posi
 }
 
 function findLetBinding(ts: typeof TS, model: ReturnType<typeof createTypeSyntaxModel>, sourceFile: TS.SourceFile, position: number) {
-    let found: TS.Identifier | undefined;
-    const visit = (node: TS.Node): void => {
-        if (found || node.pos > position || node.end < position) return;
-        const name = model.letBindings.get(node);
-        found = name?.getStart(sourceFile) === position ? name : undefined;
-        if (!found) ts.forEachChild(node, visit);
+    const visit = (node: TS.Node): { readonly start: number; readonly length: number; } | undefined => {
+        if (node.pos > position || node.end < position) return;
+        const binding = model.letBindings.get(node);
+        return binding?.start === position ? binding : ts.forEachChild(node, visit);
     };
-    visit(sourceFile);
-    return found;
+    return visit(sourceFile);
 }

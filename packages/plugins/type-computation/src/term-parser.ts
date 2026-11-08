@@ -53,6 +53,10 @@ export interface TermLocation {
     readonly end: number;
 }
 
+export interface IndexedAccessLocation extends TermLocation {
+    readonly index: TermLocation;
+}
+
 export interface TermParserOptions {
     /** Earlier aliases of the file, by name, which are inlined. */
     readonly aliases?: ReadonlyMap<string, MlttTerm>;
@@ -217,6 +221,7 @@ export class TermParser {
     }
 
     private parseApplication(stop?: string): MlttTerm {
+        const start = this.tokens.position();
         let term = this.parseAtom(stop);
         while (this.at("<")) {
             const argumentsList = this.parseArguments();
@@ -227,10 +232,19 @@ export class TermParser {
                 for (const argument of argumentsList) term = mlttApplication(term, argument);
             }
         }
-        while (this.at("[") && this.tokens.peek(1) === "]") {
+        while (this.at("[")) {
             this.take();
-            this.take();
-            term = mlttExternal("Array", `${display(term)}[]`, [term], mlttUniverse(0));
+            if (this.at("]")) {
+                this.take();
+                term = mlttExternal("Array", `${display(term)}[]`, [term], mlttUniverse(0));
+                continue;
+            }
+            const indexStart = this.tokens.position();
+            const index = this.parseTerm("]");
+            const indexEnd = this.tokens.position();
+            this.expect("]");
+            const location: IndexedAccessLocation = { start, end: indexEnd + 1, index: { start: indexStart, end: indexEnd } };
+            term = mlttExternal(indexedAccessKey, `${display(term)}[${display(index)}]`, [term, index], mlttUniverse(0), location);
         }
         return term;
     }
@@ -382,6 +396,7 @@ function unionKey(separators: readonly string[]): string {
 }
 
 export const unionKeyPrefix = "union:";
+export const indexedAccessKey = "indexed-access:";
 
 function display(term: MlttTerm): string {
     if (term.kind === "external") return term.displayName;

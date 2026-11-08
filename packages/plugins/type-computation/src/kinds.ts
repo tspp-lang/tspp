@@ -160,8 +160,8 @@ export interface TypeSyntaxModel {
     readonly authored: WeakMap<TS.Node, number>;
     /** Where authored syntax ends, for a type node with no range of its own. */
     readonly authoredEnds: WeakMap<TS.Node, number>;
-    /** The `infer` nodes a type-level `let` lowers to, with the authored name they bind. */
-    readonly letBindings: WeakMap<TS.Node, TS.Identifier>;
+    /** Lowered `let` conditionals and the source ranges of their binding names. */
+    readonly letBindings: WeakMap<TS.Node, { readonly start: number; readonly length: number; }>;
     /** Type nodes lowered from a term of the type theory, with that term; the kernel checks them, not the kinds. */
     readonly terms: WeakMap<TS.Node, MlttTerm>;
     /** The built-in names lowered terms read, which only the checker can tell apart from a type in another file. */

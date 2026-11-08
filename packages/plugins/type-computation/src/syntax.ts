@@ -122,6 +122,7 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
 
     function parseLet(cursor: TSPPSyntaxCursor, pos: number): TS.TypeNode {
         cursor.nextToken();
+        const nameStart = cursor.getTokenStart();
         const name = cursor.parseIdentifier();
         cursor.parseExpected(kinds.EqualsToken);
         const value = cursor.parseType();
@@ -142,8 +143,9 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
             { pos: value.end, end: value.end },
         );
         const infer = ts.setTextRange(factory.createInferTypeNode(parameter), parameter);
-        model.letBindings.set(infer, name);
-        return cursor.finishNode(createNonDistributiveConditional(cursor, value, infer, body, createEmptyNever(cursor, body.end)), pos);
+        const node = cursor.finishNode(createNonDistributiveConditional(cursor, value, infer, body, createEmptyNever(cursor, body.end)), pos);
+        model.letBindings.set(node, { start: nameStart, length: name.end - nameStart });
+        return node;
     }
 
     function parseMatch(cursor: TSPPSyntaxCursor, pos: number): TS.TypeNode {
@@ -152,9 +154,10 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
         cursor.parseExpected(kinds.OpenBraceToken);
         const arms: { readonly pattern: TS.TypeNode; readonly result: TS.TypeNode; }[] = [];
         while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) {
-            const pattern = parsePattern(cursor);
+            const pattern = cursor.parseType();
             cursor.parseExpected(kinds.ColonToken);
-            arms.push({ pattern, result: cursor.parseType() });
+            const result = cursor.parseType();
+            arms.push({ pattern: lowerPattern(pattern, result, cursor.factory), result });
             if (cursor.token() !== kinds.CommaToken && cursor.token() !== kinds.SemicolonToken) break;
             cursor.nextToken();
         }
@@ -171,13 +174,34 @@ export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): re
         return cursor.finishNode(result, pos);
     }
 
-    function parsePattern(cursor: TSPPSyntaxCursor): TS.TypeNode {
-        if (cursor.token() === kinds.Identifier && cursor.tokenText() === "_") {
-            const pos = cursor.getNodePos();
-            cursor.nextToken();
-            return cursor.finishNode(cursor.factory.createKeywordTypeNode(kinds.UnknownKeyword), pos);
-        }
-        return cursor.parseType();
+    function lowerPattern(pattern: TS.TypeNode, result: TS.TypeNode, factory: TS.NodeFactory): TS.TypeNode {
+        const isWildcard = (node: TS.Node) => ts.isTypeReferenceNode(node) && !node.typeArguments
+            && ts.isIdentifier(node.typeName) && ts.idText(node.typeName) === "_";
+        if (isWildcard(pattern)) return ts.setTextRange(factory.createKeywordTypeNode(kinds.UnknownKeyword), pattern);
+
+        let index = 0;
+        const names = new Set<string>();
+        const collectNames = (node: TS.Node): void => {
+            if (ts.isIdentifier(node)) names.add(ts.idText(node));
+            ts.forEachChild(node, collectNames);
+        };
+        const visit = (node: TS.Node): TS.Node => {
+            // Leave nested plugin expressions and their own pattern scopes intact.
+            if (model.authored.has(node)) return node;
+            if (!isWildcard(node)) return ts.visitEachChild(node, visit, /*context*/ undefined);
+            if (index === 0) {
+                collectNames(pattern);
+                collectNames(result);
+            }
+            // An independent inference variable works in constrained and invariant type arguments.
+            let name: string;
+            do {
+                name = `_tsppWildcard${index++}`;
+            } while (names.has(name));
+            const parameter = ts.setTextRange(factory.createTypeParameterDeclaration(/*modifiers*/ undefined, ts.factory.createIdentifier(name)), node);
+            return ts.setTextRange(factory.createInferTypeNode(parameter), node);
+        };
+        return visit(pattern) as TS.TypeNode;
     }
 
     function parseConstructor(cursor: TSPPSyntaxCursor, pos: number): TS.TypeNode {

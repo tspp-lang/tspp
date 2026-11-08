@@ -4,7 +4,7 @@ import type * as TS from "typescript-upstream";
 
 import { normalizeMlttTerm, type MlttTerm } from "./core";
 import { termToKind, type TypeSyntaxModel } from "./kinds";
-import { getDependentBinderMode, unionKeyPrefix } from "./term-parser";
+import { getDependentBinderMode, indexedAccessKey, unionKeyPrefix, type IndexedAccessLocation } from "./term-parser";
 
 interface Binder {
     readonly name: string;
@@ -13,6 +13,10 @@ interface Binder {
 }
 
 export const keywordTypes: ReadonlySet<string> = new Set(["any", "bigint", "boolean", "never", "null", "number", "object", "string", "symbol", "undefined", "unknown", "void"]);
+
+export const indexedAccessLocations = new WeakMap<TS.IndexedAccessTypeNode, IndexedAccessLocation>();
+/** Arithmetic nodes retaining indexed operands, and their literal values once checked. */
+export const indexedComputationLiterals = new WeakMap<TS.Node, string | undefined>();
 
 /**
  * Builds the ordinary TypeScript type a term stands for, as nodes the checker reads like any other: numbers for
@@ -65,8 +69,8 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
             case "false": return factory.createLiteralTypeNode(factory.createFalse());
             case "nat-type": return keyword(kinds.NumberKeyword);
             case "zero": return numeric(0);
-            case "successor":
-            case "nat-add": return natural(current) ?? keyword(kinds.NumberKeyword);
+            case "successor": return lowerNatural(current, [current.predecessor], scope);
+            case "nat-add": return lowerNatural(current, [current.left, current.right], scope);
             case "variable": return scope[current.index] ? reference(scope[current.index]) : unknownType();
             case "external": return lowerExternal(current, scope);
             case "pi": return lowerFunction(current, scope);
@@ -119,6 +123,16 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
 
     function lowerExternal(term: Extract<MlttTerm, { kind: "external"; }>, scope: readonly string[]): TS.TypeNode {
         if (term.key.startsWith(unionKeyPrefix)) return lowerUnion(term, scope);
+        if (term.key === indexedAccessKey) {
+            const node = factory.createIndexedAccessTypeNode(lower(term.arguments[0], scope), lower(term.arguments[1], scope));
+            const location = term.identity as IndexedAccessLocation;
+            indexedAccessLocations.set(node, location);
+            if (location.start >= position) {
+                ts.setTextRange(node, { pos: location.start, end: location.end });
+                ts.setTextRange(node.indexType, { pos: location.index.start, end: location.index.end });
+            }
+            return node;
+        }
         if (keywordTypes.has(term.key)) return keywordType(term.key);
         const literal = literalType(term.key);
         if (literal) return literal;
@@ -145,7 +159,11 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
 
     function literalType(text: string): TS.TypeNode | undefined {
         if (/^\d/.test(text)) return factory.createLiteralTypeNode(factory.createNumericLiteral(text));
-        if (/^["']/.test(text)) return factory.createLiteralTypeNode(factory.createStringLiteral(text.slice(1, -1)));
+        if (/^["']/.test(text)) {
+            const scanner = ts.createScanner(ts.ScriptTarget.Latest, /*skipTrivia*/ false, ts.LanguageVariant.Standard, text);
+            scanner.scan();
+            return factory.createLiteralTypeNode(factory.createStringLiteral(scanner.getTokenValue()));
+        }
         return undefined;
     }
 
@@ -220,7 +238,7 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         if (term.kind === "variable" && term.index < captures.length) {
             return factory.createInferTypeNode(factory.createTypeParameterDeclaration(/*modifiers*/ undefined, captures[term.index]));
         }
-        if (term.kind === "external" && term.arguments.length && !term.key.startsWith(unionKeyPrefix)) {
+        if (term.kind === "external" && term.arguments.length && term.key !== indexedAccessKey && !term.key.startsWith(unionKeyPrefix)) {
             return reference(term.key, term.arguments.map(argument => lowerPattern(argument, captures, scope)));
         }
         return lower(term, [...captures, ...scope]);
@@ -236,11 +254,34 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         return current.kind === "zero" ? numeric(value) : undefined;
     }
 
-    function lowerReduced(term: MlttTerm, scope: readonly string[]): TS.TypeNode {
+    function lowerNatural(term: MlttTerm, operands: readonly MlttTerm[], scope: readonly string[]): TS.TypeNode {
+        const result = natural(term) ?? keyword(kinds.NumberKeyword);
+        return preserveIndexedOperands(term, result, operands, scope);
+    }
+
+    /** Keeps accesses in the tree for the checker even when the arithmetic itself lowers to `number`. */
+    function preserveIndexedOperands(term: MlttTerm, result: TS.TypeNode, operands: readonly MlttTerm[], scope: readonly string[]): TS.TypeNode {
+        const indexed = operands.filter(containsIndexedAccess);
+        if (!indexed.length) return result;
+        const checked = indexed.map(operand => factory.createIntersectionTypeNode(factory.createNodeArray([keyword(kinds.NeverKeyword), lower(operand, scope)])));
+        const node = factory.createUnionTypeNode(factory.createNodeArray([result, ...checked]));
+        model.terms.set(node, term);
+        indexedComputationLiterals.set(node, undefined);
+        return node;
+    }
+
+    function lowerReduced(term: Extract<MlttTerm, { kind: "nat-elim" | "identity-elim"; }>, scope: readonly string[]): TS.TypeNode {
         const normalized = normalizeSafely(term);
         // Still the same kind of term, so it is stuck on an open binder; TypeScript has no type for that.
-        return normalized.kind === term.kind ? uncheckedType() : lower(normalized, scope);
+        const result = normalized.kind === term.kind ? uncheckedType() : lower(normalized, scope);
+        return preserveIndexedOperands(term, result, [term.kind === "nat-elim" ? term.scrutinee : term.equality], scope);
     }
+}
+
+function containsIndexedAccess(value: unknown): boolean {
+    if (!value || typeof value !== "object") return false;
+    const term = value as { readonly kind?: string; readonly key?: string; };
+    return term.kind === "external" && term.key === indexedAccessKey || Object.values(value).some(containsIndexedAccess);
 }
 
 function normalizeSafely(term: MlttTerm): MlttTerm {
