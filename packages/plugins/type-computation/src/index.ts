@@ -142,7 +142,7 @@ export const typeComputationPlugin = definePlugin({
                     if (declaringOwner) return quickInfo(token, `(type parameter) ${token.text} in ${declaringOwner}`);
 
                     const propertyType = propertyTypeAt(request.sourceText, token.start, token.text);
-                    if (propertyType) return quickInfo(token, `(property) ${token.text}: ${propertyType}`);
+                    if (propertyType && !usefulDisplay(request.upstream?.display)) return quickInfo(token, `(property) ${token.text}: ${propertyType}`);
 
                     const owner = enclosingTypeParameterOwner(request.sourceText, token.start, token.text);
                     if (owner && !usefulDisplay(request.upstream?.display)) {

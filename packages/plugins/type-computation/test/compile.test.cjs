@@ -331,3 +331,11 @@ test("kind errors carry this plugin's own codes", () => {
   const codes = program.getSemanticDiagnostics().map(diagnostic => diagnostic.code).sort();
   assert.deepEqual(codes, [18072, 18073], diagnosticMessages(program).join("\n"));
 });
+
+test("hover on an ordinary parameter stays the language service's answer", () => {
+  const source = "export function pick<T>(first: T, second: T): T { return first; }\n";
+  const service = createLanguageService("/main.tspp", source);
+  const hover = text => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", source.indexOf(text)).displayParts);
+  assert.equal(hover("first"), "(parameter) first: T");
+  assert.equal(hover("second"), "(parameter) second: T");
+});
