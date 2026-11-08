@@ -124,7 +124,9 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             head.pos,
             head.type?.end ?? head.name.end,
         );
-        const body = range(f.createBlock(range(f.createNodeArray(rest), head.end, end), /*multiLine*/ true), head.end, end);
+        // The body starts where the parameter ends, so the tokens of `<- target;` between them are the block's, not the
+        // closure's, which editor features would read as the parameter list of a function.
+        const body = range(f.createBlock(range(f.createNodeArray(rest), head.end, end), /*multiLine*/ true), parameter.end, end);
         const closure = range(f.createArrowFunction(
             /*modifiers*/ undefined,
             /*typeParameters*/ undefined,

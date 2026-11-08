@@ -8,6 +8,24 @@ export interface FoundBlock {
     readonly block: InherentBlock;
 }
 
+const unusedCodes = new Set([6133, 6138, 6192, 6196, 6198, 6199, 6205]);
+
+/**
+ * Whether a diagnostic reports a declaration an inherent block lowers to as unused. Its interface and functions are
+ * generated, and its methods are public members of the type, which TypeScript never reports as unused; the fix offered
+ * for a generated name would delete text that is not its declaration.
+ */
+export function isUnusedInherentDiagnostic(ts: TSPPTypeScript, syntax: TypeclassSyntax, diagnostic: TS.Diagnostic): boolean {
+    if (!unusedCodes.has(diagnostic.code) || !diagnostic.file) return false;
+    const name = /^'([^']+)'/.exec(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))?.[1];
+    if (!name?.includes("$")) return false;
+    return diagnostic.file.statements.some(statement => {
+        if (!syntax.inherent.has(statement) && !syntax.helpers.has(statement)) return false;
+        const declared = (statement as TS.DeclarationStatement).name;
+        return !!declared && ts.isIdentifier(declared) && ts.idText(declared) === name;
+    });
+}
+
 /** Inherent methods are not on the value or in its type: a member lookup that finds nothing else finds them here. */
 export function createInherentLookup(ts: TSPPTypeScript, syntax: TypeclassSyntax) {
     const sourceFileOf = (node: TS.Node) => {

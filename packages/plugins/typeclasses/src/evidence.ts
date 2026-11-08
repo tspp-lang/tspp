@@ -2,7 +2,7 @@ import type { TSPPDiagnosticProvider, TSPPSignatureConstraint, TSPPTypeOperation
 import type * as TS from "typescript-upstream";
 
 import { createSignatureConstraint } from "./constraint";
-import { createInherentLookup } from "./inherent";
+import { createInherentLookup, isUnusedInherentDiagnostic } from "./inherent";
 import { createSearch } from "./search";
 import type { Evidence } from "./search";
 import type { InherentBlock, TypeclassSyntax } from "./syntax";
@@ -110,6 +110,7 @@ export function createTypeclassEvidence(ts: TSPPTypeScript, syntax: TypeclassSyn
         filterDiagnostic(diagnostic) {
             // `(context, [] as const)`: the left side of the comma exists to be checked.
             if (diagnostic.code === 2695) return false;
+            if (isUnusedInherentDiagnostic(ts, syntax, diagnostic)) return false;
             // An implementation's superclass fields are filled in by emit, unlike those of a dictionary an author writes.
             const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
             if (diagnostic.code === 2741 && message.startsWith("Property '(Missing)'")) return false;

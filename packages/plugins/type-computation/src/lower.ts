@@ -200,7 +200,9 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
             }
             scope.unshift(binder.name);
         });
-        return factory.createFunctionTypeNode(typeParameters.length ? typeParameters : undefined, parameters, lower(result, scope));
+        // Positioned like every generated node, at the term, for the checker reads the list's range to report it unused.
+        const typeParameterList = typeParameters.length ? ts.setTextRange(factory.createNodeArray(typeParameters), { pos: 0, end: 0 }) : undefined;
+        return factory.createFunctionTypeNode(typeParameterList, parameters, lower(result, scope));
     }
 
     function lowerTypeMatch(term: Extract<MlttTerm, { kind: "type-match"; }>, scope: readonly string[]): TS.TypeNode {

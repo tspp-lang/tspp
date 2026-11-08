@@ -341,25 +341,32 @@ export function createTypeclassSyntax(ts: TSPPTypeScript): TypeclassSyntax {
                 ? { items: [...block.items, ...method.items], itemTexts: new Map([...block.itemTexts, ...method.itemTexts]), text: "" }
                 : block ?? method;
         const ambient = cursor.inAmbientContext();
-        for (let index = 0; index < count && targetName; index++) {
+        for (let index = 0; index < count; index++) {
             const forFunction = cursor.lookAhead(parseHeader);
             const forSignature = cursor.lookAhead(parseHeader);
             const method = forFunction.members[index];
             const signature = forSignature.members[index];
             if (!ts.isMethodDeclaration(method) || !ts.isMethodDeclaration(signature)) continue;
             const self = method.parameters[0];
-            if (!ts.isIdentifier(method.name) || !self || !ts.isIdentifier(self.name) || ts.idText(self.name) !== "self" || self.type || self.questionToken || self.dotDotDotToken || self.initializer || !method.type) continue;
-            const helperName = `${targetName}$${ts.idText(method.name)}`;
+            const valid = !!targetName && ts.isIdentifier(method.name) && !!self && ts.isIdentifier(self.name) && ts.idText(self.name) === "self"
+                && !self.type && !self.questionToken && !self.dotDotDotToken && !self.initializer && !!method.type;
+            // A method in error, as while it is being typed, still lowers to a function that covers its text, so editor
+            // features find its nodes there, but it gives the type no member. Its errors are reported below.
+            const helperName = `${targetName ?? "unnamed"}$${ts.isIdentifier(method.name) ? ts.idText(method.name) : index}`;
             clearPositions(forFunction.head);
             forFunction.typeParameters?.forEach(clearPositions);
             const modifiers: TS.Modifier[] = [...ts.getModifiers(method) ?? []].filter(modifier => modifier.kind === kinds.AsyncKeyword);
             if (ambient) modifiers.push(f.createModifier(kinds.DeclareKeyword));
-            const helper = f.createFunctionDeclaration(modifiers, method.asteriskToken, f.createIdentifier(helperName), listOrNone([...forFunction.typeParameters ?? [], ...method.typeParameters ?? []]), [f.createParameterDeclaration(undefined, undefined, self.name, undefined, forFunction.head), ...method.parameters.slice(1)], method.type, method.body);
+            const parameters = self
+                ? [f.createParameterDeclaration(undefined, undefined, self.name, undefined, forFunction.head), ...method.parameters.slice(1)]
+                : [...method.parameters];
+            const helper = f.createFunctionDeclaration(modifiers, method.asteriskToken, f.createIdentifier(helperName), listOrNone([...forFunction.typeParameters ?? [], ...method.typeParameters ?? []]), parameters, method.type, method.body);
             const clause = combine(forFunction.clause, wheres.get(method));
             if (clause) attachWhere(f, helper, clause);
-            helpers.set(helper, targetName);
-            helperTable.set(ts.idText(method.name), helper);
+            helpers.set(helper, targetName ?? "unnamed");
             functions.push(placeGenerated(cursor.finishNode(helper, method.pos, method.end), start, method.body));
+            if (!valid) continue;
+            helperTable.set(ts.idText(method.name as TS.Identifier), helper);
 
             const member = f.createMethodSignature(undefined, f.createIdentifier(ts.idText(signature.name as TS.Identifier)), undefined, signature.typeParameters, signature.parameters.slice(1), signature.type);
             clearPositions(member);

@@ -307,6 +307,56 @@
       ]
     },
     {
+      "comment": "A `let` that starts the line after one ending in `=` stands where a value or type goes, so it is `let ... in` even when its binding is a pattern or its `in` is on a later line.",
+      "begin": "(?<==)\\s*$",
+      "end": "(?=\\S)",
+      "applyEndPatternLast": 1,
+      "patterns": [
+        {
+          "begin": "(?<![.\\w$])(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{))",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.let.tspp"
+            }
+          },
+          "end": "(?<![.\\w$])in(?![\\w$])",
+          "endCaptures": {
+            "0": {
+              "name": "keyword.control.in.tspp"
+            }
+          },
+          "patterns": [
+            {
+              "match": "(?<![.\\w$])in(?![\\w$])",
+              "name": "keyword.control.in.tspp"
+            },
+            {
+              "include": "source.ts#comment"
+            },
+            {
+              "match": "(?<![.\\w$])([A-Za-z_$][\\w$]*)\\s*(?=(?::[^=\\n]*)?=)",
+              "captures": {
+                "1": {
+                  "name": "variable.other.constant.ts"
+                }
+              }
+            },
+            {
+              "match": "=",
+              "name": "keyword.operator.assignment.ts"
+            },
+            {
+              "match": ":",
+              "name": "keyword.operator.type.annotation.ts"
+            },
+            {
+              "include": "source.ts#type"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "comment": "`let name = value in body`, on one line or after an `=`, in values and in types. A plain `let` is TypeScript's.",
       "begin": "(?<![.\\w$])(?:(let)(?=\\s+(?:[A-Za-z_$][\\w$]*|\\[|\\{)[^;\\n]*\\bin\\b)|(?:(?<==)|(?<==\\s))(let)(?=\\s+[A-Za-z_$][\\w$]*\\s*(?::[^=\\n]*)?=))",
       "beginCaptures": {

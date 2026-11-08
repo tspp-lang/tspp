@@ -1,3 +1,4 @@
+import { scanTSPPCode } from "@tspp/plugin-sdk/language-service";
 import type { TSPPQuickInfoProvider, TSPPQuickInfoRequest, TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 
 const keywords: Record<string, string> = {
@@ -95,12 +96,14 @@ function isTypeclassName(request: TSPPSemanticTokensRequest, name: string): bool
 export function typeclassSemanticTokens(request: TSPPSemanticTokensRequest): readonly TSPPSemanticToken[] {
     const text = request.sourceText;
     const tokens: TSPPSemanticToken[] = [];
-    for (const match of text.matchAll(/[A-Za-z_$][\w$]*/g)) {
-        const start = match.index;
+    // Names of code only: a comment or string can show this syntax, as documentation does, and holds no tokens.
+    for (const name of scanTSPPCode(text)) {
+        if (name.kind !== "name") continue;
+        const { start, text: word } = name;
         if (!isInImplHeader(text, start) && !isInWhereClause(text, start)) continue;
-        if (!request.isOwned(start, start + match[0].length) && !isInImplHeader(text, start)) continue;
-        if (typeParametersBefore(text, start).includes(match[0])) tokens.push({ start, length: match[0].length, type: "typeParameter" });
-        else if (isTypeclassName(request, match[0])) tokens.push({ start, length: match[0].length, type: "interface" });
+        if (!request.isOwned(start, start + word.length) && !isInImplHeader(text, start)) continue;
+        if (typeParametersBefore(text, start).includes(word)) tokens.push({ start, length: word.length, type: "typeParameter" });
+        else if (isTypeclassName(request, word)) tokens.push({ start, length: word.length, type: "interface" });
     }
     return tokens;
 }

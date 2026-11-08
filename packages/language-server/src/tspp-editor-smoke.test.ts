@@ -60,6 +60,23 @@ function positionAt(text: string, offset: number): lsp.Position {
     return lsp.Position.create(before.length - 1, before.at(-1)?.length ?? 0);
 }
 
+/** Whether `offset` is in a comment. The examples' comments quote their code, which has no hover there. */
+function isInComment(text: string, offset: number): boolean {
+    const lineStart = text.lastIndexOf('\n', offset - 1) + 1;
+    return text.slice(lineStart, offset).includes('//') || text.lastIndexOf('/*', offset) > text.lastIndexOf('*/', offset);
+}
+
+/** The first, or last, occurrence of `search` in code, outside comments. */
+function codeIndexOf(text: string, search: string, fromEnd = false): number {
+    const occurrences: number[] = [];
+    for (let index = text.indexOf(search); index >= 0; index = text.indexOf(search, index + 1)) {
+        if (!isInComment(text, index)) {
+            occurrences.push(index);
+        }
+    }
+    return (fromEnd ? occurrences.at(-1) : occurrences[0]) ?? -1;
+}
+
 describe('TS++ examples editor smoke test', () => {
     const exampleFiles = collectExampleFiles();
 
@@ -136,7 +153,7 @@ describe('TS++ examples editor smoke test', () => {
         try {
             const document = toDocument(example.filePath);
             server.didOpenTextDocument({ textDocument: document });
-            const placeholder = document.text.indexOf('_');
+            const placeholder = codeIndexOf(document.text, '_');
             expect(placeholder).toBeGreaterThanOrEqual(0);
             const hover = await server.hover({
                 textDocument: { uri: document.uri },
@@ -156,7 +173,7 @@ describe('TS++ examples editor smoke test', () => {
         const cases = [
             {
                 packageName: '01-modern-syntax',
-                fileName: 'src/01-basics.tspp',
+                fileName: 'src/02-use-continuations.tspp',
                 targets: [
                     { search: 'use left', offset: 4, includes: ['left', 'number'] },
                     { search: 'withValue(20)', fromEnd: true, includes: ['withValue', 'number'] },
@@ -233,9 +250,7 @@ describe('TS++ examples editor smoke test', () => {
                 const document = toDocument(filePath);
                 server.didOpenTextDocument({ textDocument: document });
                 for (const target of testCase.targets) {
-                    const start = 'fromEnd' in target && target.fromEnd
-                        ? document.text.lastIndexOf(target.search)
-                        : document.text.indexOf(target.search);
+                    const start = codeIndexOf(document.text, target.search, 'fromEnd' in target && target.fromEnd);
                     expect(start, `${testCase.fileName}: ${target.search}`).toBeGreaterThanOrEqual(0);
                     const hover = await server.hover({
                         textDocument: { uri: document.uri },
@@ -263,6 +278,9 @@ describe('TS++ examples editor smoke test', () => {
             const text = fs.readFileSync(filePath, 'utf8');
             const offsets = targets.get(filePath) ?? [];
             for (const match of text.matchAll(expression)) {
+                if (isInComment(text, match.index)) {
+                    continue;
+                }
                 if (skipExpectedErrors && text.slice(Math.max(0, match.index - 160), match.index).includes('@ts-expect-error')) {
                     continue;
                 }
@@ -290,7 +308,7 @@ describe('TS++ examples editor smoke test', () => {
         }
         const consumerFile = path.join(examplesRoot, '06-newtype-consumer', 'src', '01-consumer.tspp');
         const consumerText = fs.readFileSync(consumerFile, 'utf8');
-        targets.get(consumerFile)!.push(consumerText.indexOf('None'));
+        targets.get(consumerFile)!.push(codeIndexOf(consumerText, 'None'));
         const formalFile = path.join(examplesRoot, '12-formal-verification', 'src', '10-logic-library.tspp');
         addMatches(formalFile, /\b([A-Za-z_$][\w$]*)\s*=>/gu);
 

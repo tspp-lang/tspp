@@ -203,6 +203,15 @@ export const advancedClassesPlugin = definePlugin({
                                 documentation: `Implicit backing storage property for '${accessor}'.`,
                             };
                         }
+                        // Followed by a name, it declares a property; anywhere else it is the backing storage, out of place.
+                        if (!/^\s+[A-Za-z_$]/.test(request.sourceText.slice(token.start + token.length))) {
+                            return {
+                                start: token.start,
+                                length: token.length,
+                                display: "(TS++ backing storage) field",
+                                documentation: "Implicit backing storage, only available inside the accessors of a 'field' property.",
+                            };
+                        }
                         return {
                             start: token.start,
                             length: token.length,

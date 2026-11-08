@@ -63,6 +63,7 @@ export const typeComputationPlugin = definePlugin({
                         // A `let` binding lowers to an `infer` whose range runs over the bound value; report on its name.
                         filterDiagnostic: diagnostic => {
                             if (!diagnostic.file || diagnostic.start === undefined) return true;
+                            if (isUnusedBinderDiagnostic(ts, diagnostic.file, diagnostic.start, diagnostic.code)) return false;
                             const name = findLetBinding(ts, model, diagnostic.file, diagnostic.start);
                             if (!name) return true;
                             const length = ts.idText(name).length;
@@ -341,6 +342,27 @@ function escapeRegExp(value: string): string {
 
 /** The code of plugin diagnostics without a code of their own. */
 const letBindingDiagnosticCode = 18086;
+
+const unusedCodes = new Set([6133, 6205]);
+
+/**
+ * Whether an unused-type-parameter diagnostic is about the binders of a dependent function type. They lower to a type
+ * parameter list with no text of its own, which the checker reports just before or at the term; a binder the rest of
+ * the type does not mention is ordinary there, and the fix would delete text that is not the list.
+ */
+function isUnusedBinderDiagnostic(ts: typeof TS, sourceFile: TS.SourceFile, position: number, code: number) {
+    if (!unusedCodes.has(code)) return false;
+    let found = false;
+    const visit = (node: TS.Node): void => {
+        if (found || node.pos > position + 1 || node.end < position) return;
+        const list = ts.isFunctionTypeNode(node) ? node.typeParameters : undefined;
+        found = !!list && list.pos === list.end && (position === list.pos - 1 || position === list.pos)
+            && list.every(parameter => parameter.name.pos < 0);
+        if (!found) ts.forEachChild(node, visit);
+    };
+    visit(sourceFile);
+    return found;
+}
 
 function findLetBinding(ts: typeof TS, model: ReturnType<typeof createTypeSyntaxModel>, sourceFile: TS.SourceFile, position: number) {
     let found: TS.Identifier | undefined;

@@ -247,3 +247,19 @@ test("requires the '_' default arm to close a type match", () => {
   assert.throws(() => parseDependentType("match number { { value: infer U }: U, _: never }"));
 });
 
+
+test("binders the rest of a function type does not mention are not reported unused", () => {
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  for (const source of [
+    "export type F: Type1 = {A: Type0} -> number;",
+    "export type G: Type1 = {A: Type0} -> {B: Type0} -> number;",
+    "export type H: Type1 = {A: Type0} -> {B: Type0} -> (x: B) -> B;",
+    // As while it is edited: the parameter that used the binder has lost its `(`.
+    "export type I: Type1 = {A: Type0} -> left: A) -> A;",
+  ]) {
+    const service = createLanguageService("/main.tspp", source, { noUnusedLocals: true, noUnusedParameters: true });
+    const unused = [...service.getSemanticDiagnostics("/main.tspp"), ...service.getSuggestionDiagnostics("/main.tspp")]
+      .filter(diagnostic => [6133, 6205].includes(diagnostic.code));
+    assert.deepEqual(unused.map(diagnostic => diagnostic.messageText), [], source);
+  }
+});

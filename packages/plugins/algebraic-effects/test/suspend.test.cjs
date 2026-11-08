@@ -330,3 +330,24 @@ test("transpiling to an older target turns the generators into state machines", 
   `, { target: 2, lib: ["lib.es2015.d.ts", "lib.dom.d.ts"] });
   assert.equal(await exports.done, 4);
 });
+
+test("signature help inside the parameters of a handler clause does not throw", () => {
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  // Every parameter list of a clause, including one being edited, starts after its `(` as upstream lists do.
+  for (const clause of ["control sleep(s, k) { k.resume(); }", "control sleep(ms, k) { k.resume(); }", "note(m) { lines.push(m); }"]) {
+    const source = `${prelude}
+export const done = handle Async { ${clause} } in 1;
+`;
+    const service = createLanguageService("/main.tspp", source, { noLib: false });
+    const open = source.indexOf(clause) + clause.indexOf("(") + 1;
+    for (const position of [open, open + 1]) assert.doesNotThrow(() => service.getSignatureHelpItems("/main.tspp", position, undefined));
+  }
+});
+
+test("signature help inside the parameters of an operation does not throw", () => {
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  const service = createLanguageService("/main.tspp", prelude, { noLib: false });
+  // An operation's list starts at its `(`, as the copy a handler's type makes of it does.
+  const open = prelude.indexOf("sleep(") + "sleep(".length;
+  for (const position of [open, open + 1]) assert.doesNotThrow(() => service.getSignatureHelpItems("/main.tspp", position, undefined));
+});

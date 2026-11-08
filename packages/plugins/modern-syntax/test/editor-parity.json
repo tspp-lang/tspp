@@ -18,5 +18,15 @@
     "name": "an arrow outside plugin syntax stays TypeScript's",
     "tspp": "§const a = (b: string) => b;§",
     "ts": "§const a = (b: string) => b;§"
+  },
+  {
+    "name": "code after a let ... in on later lines reads as code",
+    "tspp": "const a: number =\n  let { b }: { b: number } = c\n  in b;\n§const d: string = f(\"s\");§",
+    "ts": "§const d: string = f(\"s\");§"
+  },
+  {
+    "name": "a plain let after a line ending in = stays TypeScript's",
+    "tspp": "const a =\n  1;\n§let b: string = f(\"s\");§",
+    "ts": "§let b: string = f(\"s\");§"
   }
 ]

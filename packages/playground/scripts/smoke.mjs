@@ -81,9 +81,9 @@ async function runExample(page, example, errors) {
     reasons.push(...runFailures.map(reason => `${path}: ${reason}`));
     if (example === "11-algebraic-effects" && path === "/src/02-suspension.tspp" && !runFailures.length) {
       const output = (await page.locator("#run-output .runtime-log").allTextContents()).map(line => line.trimEnd());
+      // Logged only once both suspended computations have resumed from their timers and settled.
       const expected = [
-        "retried after: timeout",
-        JSON.stringify(["user 1 at 1", "user 2 at 2", "user 3 at 3"], undefined, 2),
+        `[02-suspension] ${JSON.stringify({ batchResults: ["item-1@1", "item-2@2", "item-3@3"], recoveredResult: "recovered:timeout" }, undefined, 2)}`,
       ];
       if (output.length !== expected.length || expected.some((line, index) => output[index] !== line)) {
         reasons.push(`${path}: expected ${JSON.stringify(expected)} before exit, got ${JSON.stringify(output)}`);

@@ -216,3 +216,12 @@ test("checks trailing closure results and the block completion type through use 
   assert.ok(invalid.some(message => message.includes("Type 'number' is not assignable to type 'string'")), invalid.join("\n"));
   assert.deepEqual(compile(pipeline("withResource()")).messages, []);
 });
+
+test("signature help on a use binding cut off at its call does not throw", () => {
+  // As while the binding is typed: the call has no arguments or closing parenthesis yet.
+  const source = `function withValue<T>(value: number, continuation: (value: number) => T): T { return continuation(value); }
+const continued: number = do {
+  use value: number <- withValue(`;
+  const service = createLanguageService("/main.tspp", source);
+  assert.doesNotThrow(() => service.getSignatureHelpItems("/main.tspp", source.length, undefined));
+});

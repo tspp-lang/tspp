@@ -561,3 +561,45 @@ test("editor features reach names in a where clause and inherent methods", () =>
   assert.ok(completions?.entries.some(entry => entry.name === "get"));
   assert.ok(completions?.entries.some(entry => entry.name === "value"));
 });
+
+test("an inherent block's generated declarations are never reported as unused", () => {
+  const source = `
+    export class Box<T> { constructor(readonly value: T) {} }
+    impl<T> Box<T> { get(self): T { return self.value; } }
+    impl Box<number> { doubled(self): number { return self.value * 2; } }
+  `;
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  const service = createLanguageService("/main.tspp", source, { noUnusedLocals: true });
+  const unused = [...service.getSemanticDiagnostics("/main.tspp"), ...service.getSuggestionDiagnostics("/main.tspp")]
+    .filter(diagnostic => [6133, 6196].includes(diagnostic.code));
+  assert.deepEqual(unused.map(diagnostic => diagnostic.messageText), []);
+});
+
+test("editor features find the names of an inherent method in error", () => {
+  // As while it is typed: the receiver is not named 'self' yet.
+  const source = `
+    export class Box<T> { constructor(readonly value: T) {} }
+    impl<T> Box<T> { get(selfx): T { return selfx.value; } }
+  `;
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  const service = createLanguageService("/main.tspp", source);
+  const name = source.indexOf("selfx)");
+  const references = service.findReferences("/main.tspp", name);
+  assert.ok(references?.[0].references.some(reference => reference.textSpan.start === source.indexOf("selfx.value")));
+  assert.match(messages(source).join(), /must take 'self'/);
+});
+
+test("a where clause shown in a comment or string gets no semantic tokens", () => {
+  const { typeclassSemanticTokens } = require("../dist/quickinfo.js");
+  const code = "function equal<A>(a: A, b: A) where <Eq<A>>: boolean { return true; }";
+  const sourceText = `typeclass Eq<A> { equals(a: A, b: A): boolean; }
+// A function lists its typeclass constraints after 'where':
+// Syntax: function <name><TypeParams>(<params>) where <<constraints>>: <ReturnType>
+const shown = "where <Eq<A>>";
+${code}
+`;
+  const tokens = typeclassSemanticTokens({ sourceText, tokens: [], imports: [], isOwned: () => true });
+  const codeStart = sourceText.indexOf(code);
+  assert.ok(tokens.length > 0);
+  assert.deepEqual(tokens.filter(token => token.start < codeStart), []);
+});

@@ -115,3 +115,14 @@ test("modifier validation: reports error on invalid modifier combinations", () =
   const msgs3 = diagnosticMessages(prog3);
   assert.ok(msgs3.some(m => /A field property cannot be 'abstract'/.test(m)), "Should report field abstract error");
 });
+
+test("field out of an accessor reads as the backing storage it names, not as the keyword", () => {
+  const code = `
+function misplaced(): unknown {
+  return field;
+}
+`;
+  const service = createLanguageService("/test.tspp", code);
+  const quickInfo = service.getQuickInfoAtPosition("/test.tspp", code.indexOf("field;"));
+  assert.equal(quickInfo?.displayParts.map(part => part.text).join(""), "(TS++ backing storage) field");
+});
