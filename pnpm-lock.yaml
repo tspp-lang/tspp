@@ -396,6 +396,12 @@ importers:
         specifier: 9.3.2
         version: 9.3.2
 
+  packages/examples/00-hello-world:
+    dependencies:
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/examples/01-modern-syntax:
     dependencies:
       ts-plus-plus:
