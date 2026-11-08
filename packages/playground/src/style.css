@@ -333,6 +333,21 @@ main { position: relative; flex: 1; display: flex; min-height: 0; }
   animation: output-spin 0.75s linear infinite;
 }
 @keyframes output-spin { to { transform: rotate(360deg); } }
+#markdown-preview { display: none; flex: 1; min-height: 0; overflow: auto; padding: 4px 20px 20px; line-height: 1.6; overflow-wrap: anywhere; }
+.markdown-mode #markdown-preview { display: block; }
+.markdown-mode #output-tabs, .markdown-mode #output-editor, .markdown-mode #output-empty { display: none; }
+#markdown-preview h1, #markdown-preview h2 { padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+#markdown-preview h1 { font-size: 1.6em; }
+#markdown-preview h2 { font-size: 1.3em; }
+#markdown-preview h3 { font-size: 1.1em; }
+#markdown-preview a { color: var(--accent-hover); }
+#markdown-preview img { max-width: 100%; }
+#markdown-preview code { padding: 1px 4px; border-radius: 4px; background: var(--panel); font: 0.9em ui-monospace, Consolas, monospace; }
+#markdown-preview pre { overflow: auto; padding: 10px 12px; border-radius: 6px; background: var(--panel); }
+#markdown-preview pre code { padding: 0; background: none; }
+#markdown-preview blockquote { margin-inline: 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
+#markdown-preview table { display: block; overflow: auto; border-collapse: collapse; }
+#markdown-preview th, #markdown-preview td { padding: 4px 10px; border: 1px solid var(--border); }
 
 #run-pane {
   display: flex;

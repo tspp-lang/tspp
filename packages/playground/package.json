@@ -22,8 +22,10 @@
     "@tspp/plugin-static-interface-members": "workspace:*",
     "@tspp/plugin-type-computation": "workspace:*",
     "@tspp/plugin-typeclasses": "workspace:*",
+    "dompurify": "3.4.15",
     "fflate": "^0.8.3",
     "jsonc-parser": "^3.3.1",
+    "marked": "14.0.0",
     "monaco-editor": "^0.57.0",
     "ts-plus-plus": "workspace:*",
     "z3-solver": "5.2.0"

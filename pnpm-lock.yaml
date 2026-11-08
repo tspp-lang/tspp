@@ -691,12 +691,18 @@ importers:
       '@tspp/plugin-typeclasses':
         specifier: workspace:*
         version: link:../plugins/typeclasses
+      dompurify:
+        specifier: 3.4.15
+        version: 3.4.15
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
       jsonc-parser:
         specifier: ^3.3.1
         version: 3.3.1
+      marked:
+        specifier: 14.0.0
+        version: 14.0.0
       monaco-editor:
         specifier: ^0.57.0
         version: 0.57.0

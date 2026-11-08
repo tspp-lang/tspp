@@ -1,4 +1,5 @@
 import type { LanguageClient } from "./client";
+import { relativeLinkTarget, renderMarkdown } from "./markdownPreview";
 import * as monaco from "./monaco";
 import type { FeatureDefinition, OutputCategory, OutputItem, OutputSnapshot, RunnableProgram } from "./protocol";
 import { languageId } from "./tsppLanguage";
@@ -26,8 +27,16 @@ export interface OutputController {
 }
 
 /** Owns lazily-loaded compiler artifacts and the explicitly-invoked runtime worker. */
-export function createOutputController(client: LanguageClient, enabledFeatures: () => readonly string[]): OutputController {
+export function createOutputController(
+  client: LanguageClient,
+  enabledFeatures: () => readonly string[],
+  projectModel: (fileName: string) => monaco.editor.ITextModel | undefined,
+  openProjectFile: (fileName: string) => void,
+): OutputController {
   const editorColumn = element("editor-column");
+  const outputsPane = element("outputs-pane");
+  const outputsTitle = element("outputs-title");
+  const markdownPreview = element("markdown-preview");
   const outputTabs = element("output-tabs");
   const outputStatus = element("outputs-status");
   const outputEmpty = element("output-empty");
@@ -45,6 +54,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   let runBlock: string | undefined;
   let preparingRun: object | undefined;
   let runtime: Worker | undefined;
+  let previewing: monaco.IDisposable | undefined;
 
   const artifactEditor = monaco.editor.create(element("output-editor"), {
     model: null,
@@ -75,6 +85,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
   }
 
   function savedOutputStatus(): string {
+    if (previewing) return "Rendered from the editor";
     if (!sourceFile) return "Project configuration";
     const snapshot = loaded.get(category);
     if (!snapshot) return "Load on demand";
@@ -173,16 +184,54 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     if (runBlock) runStatus.textContent = runBlock;
   }
 
+  /** Puts the pane on a live rendering of a Markdown file, or back on compiler outputs without one. */
+  function showMarkdown(model: monaco.editor.ITextModel | undefined): void {
+    previewing?.dispose();
+    previewing = undefined;
+    outputsPane.classList.toggle("markdown-mode", !!model);
+    outputsTitle.textContent = model ? "Preview" : "Outputs";
+    markdownPreview.replaceChildren();
+    if (!model) return;
+    const render = () => {
+      markdownPreview.innerHTML = renderMarkdown(model.getValue());
+    };
+    render();
+    markdownPreview.scrollTop = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const changes = model.onDidChangeContent(() => {
+      clearTimeout(timer);
+      timer = setTimeout(render, 80);
+    });
+    previewing = {
+      dispose() {
+        clearTimeout(timer);
+        changes.dispose();
+      },
+    };
+  }
+
+  markdownPreview.onclick = event => {
+    const link = (event.target as Element).closest("a");
+    if (!link) return;
+    const href = link.getAttribute("href") ?? "";
+    if (href.startsWith("#")) return;
+    event.preventDefault();
+    const target = relativeLinkTarget(fileName, href);
+    if (target) openProjectFile(target);
+    else window.open(link.href, "_blank", "noopener,noreferrer");
+  };
+
   function setFile(nextFileName: string, force = false, nextSourceFile = true): void {
     if (fileName === nextFileName && sourceFile === nextSourceFile && !force) return;
     fileName = nextFileName;
     sourceFile = nextSourceFile;
     dirty = false;
+    showMarkdown(nextFileName.endsWith(".md") ? projectModel(nextFileName) : undefined);
     if (!sourceFile) {
       requestGeneration++;
       loaded.clear();
       renderItems();
-      outputStatus.textContent = "Project configuration";
+      outputStatus.textContent = savedOutputStatus();
       outputEmpty.hidden = false;
       outputEmpty.textContent = "Compiler outputs are available for source files.";
       stopRuntime("Run is available for source files.");
@@ -205,7 +254,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     requestGeneration++;
     loaded.clear();
     renderItems();
-    outputStatus.textContent = "Out of date — select an output to refresh";
+    outputStatus.textContent = sourceFile ? "Out of date — select an output to refresh" : savedOutputStatus();
     if (runtime || preparingRun) stopRuntime("Source changed; run output is stale.");
     else if (runBlock) runStatus.textContent = runBlock;
     else if (!sourceFile) runStatus.textContent = "Run is available for source files.";
@@ -333,7 +382,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     setFile,
     setDirty(nextDirty) {
       dirty = nextDirty;
-      outputStatus.textContent = dirty ? "Unsaved changes — showing saved output" : savedOutputStatus();
+      outputStatus.textContent = dirty && !previewing ? "Unsaved changes — showing saved output" : savedOutputStatus();
     },
     setRunBlock(reason) {
       runBlock = reason;
@@ -343,6 +392,7 @@ export function createOutputController(client: LanguageClient, enabledFeatures: 
     refresh,
     dispose() {
       stopRuntime();
+      previewing?.dispose();
       artifactEditor.dispose();
       outputModel?.dispose();
     },
