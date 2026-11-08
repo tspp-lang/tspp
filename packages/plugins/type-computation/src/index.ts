@@ -1,4 +1,4 @@
-import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { definePlugin, maskNonCode, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import { isTypeScriptKeyword, scanTSPPCode } from "@tspp/plugin-sdk/language-service";
 import type { TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import type * as TS from "typescript-upstream";
@@ -261,14 +261,17 @@ function typeLambdaAt(sourceText: string, position: number): {
     readonly constructor: string;
 } | undefined {
     const expression = /\btype\s+([A-Za-z_$][\w$]*)\s*(?::(?:[^=;]|=>)*?)?=\s*(<([^>]*)>\s*=>>\s*[^;]+)\s*;/g;
+    // Comments may read like a declaration: "type lambda: ...". Only the text of the lambda is read back from the source.
+    const code = maskNonCode(sourceText);
     let match: RegExpExecArray | null;
-    while ((match = expression.exec(sourceText))) {
+    while ((match = expression.exec(code))) {
         if (match.index <= position && position <= expression.lastIndex) {
             const parameters = match[3].split(",").map(parameter => parameter.trim().split(/\s*:/)[0]);
+            const lambdaStart = match.index + match[0].indexOf(match[2]);
             return {
                 name: match[1],
                 parameters,
-                declaration: `${match[1]} = ${normalizeSource(match[2])}`,
+                declaration: `${match[1]} = ${normalizeSource(sourceText.slice(lambdaStart, lambdaStart + match[2].length))}`,
                 constructor: `<${normalizeKindParameters(match[3])}> =>>`,
             };
         }

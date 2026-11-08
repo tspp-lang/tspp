@@ -347,3 +347,10 @@ test("hover on a type lambda shows it as written, with or without a kind annotat
   assert.equal(hover("Inc"), "type Inc = <n: Nat> =>> Succ<n>");
   assert.equal(hover("Sized"), "type Sized = <N: Nat> =>> { size: N }");
 });
+
+test("a comment that reads like a type declaration does not hide the lambda after it", () => {
+  const source = "// Identity type lambda: takes any type\nexport type Identity = <T> =>> T;\n";
+  const service = createLanguageService("/main.tspp", source);
+  const position = source.indexOf("Identity =");
+  assert.equal(ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", position).displayParts), "type Identity = <T> =>> T");
+});
