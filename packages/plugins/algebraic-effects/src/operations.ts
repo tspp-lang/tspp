@@ -23,14 +23,11 @@ export function createOperationParser(ts: TSPPTypeScript, helpers: Helpers) {
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end: number): T => ts.setTextRange(node, { pos, end });
 
     /** `(a: A, b?: B, ...rest: C[])`, from the `(`. */
-    const parseParameters = (cursor: TSPPSyntaxCursor, { fromParen = false } = {}): TS.NodeArray<TS.ParameterDeclaration> => {
+    const parseParameters = (cursor: TSPPSyntaxCursor): TS.NodeArray<TS.ParameterDeclaration> => {
         const f = cursor.factory;
-        const parenPos = cursor.getNodePos();
         cursor.parseExpected(kinds.OpenParenToken);
-        // A list starts after its `(`, as upstream, where editor features look for the `(` among the declaration's own
-        // tokens. An operation's list starts at the `(`: the copy a handler's type makes of it has the same range plus `k`,
-        // and where two lists overlap, editor features keep the one that starts first, which must be the operation's.
-        const parametersPos = fromParen ? parenPos : cursor.getNodePos();
+        // A list starts after its `(`, as upstream, where editor features look for the `(` among the declaration's own tokens.
+        const parametersPos = cursor.getNodePos();
         const parameters: TS.ParameterDeclaration[] = [];
         while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
             const parameterPos = cursor.getNodePos();
@@ -79,7 +76,7 @@ export function createOperationParser(ts: TSPPTypeScript, helpers: Helpers) {
             }
             else {
                 const typeParameters = cursor.parseTypeParameters();
-                const parameters = parseParameters(cursor, { fromParen: true });
+                const parameters = parseParameters(cursor);
                 if (cursor.token() === kinds.SlashToken) {
                     const clauseStart = cursor.getTokenStart();
                     cursor.parseClause("function-clause");

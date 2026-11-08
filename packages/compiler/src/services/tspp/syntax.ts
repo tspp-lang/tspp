@@ -18,6 +18,7 @@ import {
     isLiteralKind,
     isNamedImports,
     isTemplateLiteralKind,
+    isTSPPSourceCopy,
     isTSPPSyntaxNode,
 } from "../_namespaces/ts.js";
 import type {
@@ -75,8 +76,9 @@ export function createTSPPChildren(node: Node, sourceFile: SourceFileLike | unde
     let pos = node.pos;
     let hasSyntheticChildren = false;
     const processNode = (child: Node) => {
-        // A generated child has no tokens, and an empty one marks no place: the source around it is still scanned.
-        if (child.pos < 0 || child.end < 0 || child.pos === child.end) {
+        // A generated child has no tokens, an empty one marks no place, and the tokens of a copy are its original's: the
+        // source around them is still scanned.
+        if (child.pos < 0 || child.end < 0 || child.pos === child.end || isTSPPSourceCopy(child)) {
             hasSyntheticChildren = true;
             return;
         }
@@ -211,7 +213,7 @@ function createSyntaxList(nodes: NodeArray<Node>, parent: Node, createNode: (kin
     let pos = nodes.pos;
     let hasSyntheticChildren = false;
     for (const node of nodes) {
-        if (isPositionless(node) || node.pos === node.end) {
+        if (isPositionless(node) || node.pos === node.end || isTSPPSourceCopy(node)) {
             hasSyntheticChildren = true;
             continue;
         }

@@ -87,6 +87,8 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
     const handleResults = new WeakMap<TS.Node, HandleSyntax>();
     const suspending = new WeakMap<TS.Node, ReadonlySet<string>>();
     const restored = new WeakMap<TS.Node, string>();
+    /** The `__tspp_handler` properties, whose types repeat the operations of their effects. */
+    const handlerCopies = new WeakSet<TS.Node>();
     let used = false;
 
     const table = <T>(entries: WeakMap<TS.Node, T>, found?: (node: TS.Node, entry: T) => void): SyntaxTable<T> => ({
@@ -217,7 +219,10 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
             const copy = cursor.lookAhead(() => operations.parseOperations(cursor));
             const { members, suspending: suspended } = operations.parseOperations(cursor);
             const end = cursor.getNodePos();
-            const allMembers = suspended.size ? f.createNodeArray([...members, operations.handlerMember(f, copy, end)]) : members;
+            // Anchored inside the `}`, which the list of members must leave to the declaration: folding looks for it there.
+            const handlerCopy = suspended.size ? operations.handlerMember(f, copy, members.end) : undefined;
+            if (handlerCopy) handlerCopies.add(handlerCopy);
+            const allMembers = handlerCopy ? f.createNodeArray([...members, handlerCopy]) : members;
             const declaration = cursor.finishNode(f.createInterfaceDeclaration(cursor.modifiers as readonly TS.ModifierLike[] | undefined, name, typeParameters, undefined, allMembers), cursor.modifiers?.pos ?? pos, end);
             effects.set(declaration, true);
             if (suspended.size) suspending.set(declaration, suspended);
@@ -226,6 +231,7 @@ export function createEffectSyntax(ts: TSPPTypeScript): EffectSyntax {
             return declaration;
         },
         restoreDeclaration: node => restored.get(ts.getOriginalNode(node)),
+        isSourceCopy: node => handlerCopies.has(node),
     };
 
     const performExpression: TSPPSyntaxExtension = {

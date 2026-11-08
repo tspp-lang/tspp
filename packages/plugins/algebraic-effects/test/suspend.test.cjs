@@ -347,7 +347,63 @@ export const done = handle Async { ${clause} } in 1;
 test("signature help inside the parameters of an operation does not throw", () => {
   const { createLanguageService } = require("../../test-support/compile.cjs");
   const service = createLanguageService("/main.tspp", prelude, { noLib: false });
-  // An operation's list starts at its `(`, as the copy a handler's type makes of it does.
+  // An operation's list starts after its `(`, as upstream lists do.
   const open = prelude.indexOf("sleep(") + "sleep(".length;
   for (const position of [open, open + 1]) assert.doesNotThrow(() => service.getSignatureHelpItems("/main.tspp", position, undefined));
+});
+
+// Each arrangement puts the copy a handler's type makes of an operation somewhere else among the operations it overlaps.
+const operationArrangements = [
+  ["suspend ask<T>(question: string, fallback: T): T;", "note(message: string): void;"],
+  ["note(message: string): void;", "suspend ask<T>(question: string, fallback: T): T;"],
+  ["note(message: string): void;", "suspend ask<T>(question: string, fallback: T): T;", "suspend sleep(ms: number): void;"],
+  ["suspend sleep(ms: number): void;", "suspend ask<T>(question: string, fallback: T): T;", "note(message: string): void;"],
+];
+
+const quickInfoText = (service, position) => {
+  const { displayParts } = service.getQuickInfoAtPosition("/main.tspp", position);
+  return displayParts.map(part => part.text).join("");
+};
+
+test("editor features inside an operation resolve to the operation, not to the copy in its handler's type", () => {
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  for (const operations of operationArrangements) {
+    const body = operations.join(" ");
+    const source = `effect Async { ${body} }\n`;
+    const service = createLanguageService("/main.tspp", source, { noLib: false });
+    const parameterType = source.indexOf("fallback: T") + "fallback: ".length;
+    const typeParameter = source.indexOf("ask<T>") + "ask<".length;
+    const returnType = source.indexOf("fallback: T): T") + "fallback: T): ".length;
+
+    assert.match(quickInfoText(service, parameterType), /^\(type parameter\) T in Async\.ask<T>\(question: string, fallback: T\): T$/, body);
+    assert.match(quickInfoText(service, source.indexOf("fallback")), /^\(parameter\) fallback: T$/, body);
+    assert.match(quickInfoText(service, source.indexOf("message")), /^\(parameter\) message: string$/, body);
+    assert.match(quickInfoText(service, source.indexOf("note")), /^\(method\) Async\.note\(message: string\): void$/, body);
+
+    const definitions = service.getDefinitionAtPosition("/main.tspp", parameterType);
+    assert.deepEqual(definitions.map(definition => definition.textSpan.start), [typeParameter], body);
+
+    const references = service.findReferences("/main.tspp", parameterType).flatMap(symbol => symbol.references.map(reference => reference.textSpan.start));
+    assert.deepEqual(references.sort((left, right) => left - right), [typeParameter, parameterType, returnType], body);
+  }
+});
+
+test("an error in an operation is reported once, wherever the operation stands", () => {
+  for (const operations of operationArrangements) {
+    const source = `effect Async { ${operations.join(" ").replace("fallback: T", "fallback: Missing")} }\n`;
+    const start = source.indexOf("Missing");
+    const errors = createProgram(source).program.getSemanticDiagnostics().filter(diagnostic => diagnostic.messageText === "Cannot find name 'Missing'.");
+    assert.deepEqual(errors.map(diagnostic => diagnostic.start), [start], source);
+  }
+});
+
+test("an effect folds whether or not its operations suspend", () => {
+  const { createLanguageService } = require("../../test-support/compile.cjs");
+  for (const operation of ["suspend ask(): void;", "note(): void;"]) {
+    const source = `effect Async {\n  ${operation}\n}\n`;
+    const spans = createLanguageService("/main.tspp", source, { noLib: false }).getOutliningSpans("/main.tspp");
+    // As upstream, a fold starts at the full start of the `{`, so at the space before it.
+    const start = source.indexOf(" {");
+    assert.deepEqual(spans.map(span => span.textSpan), [{ start, length: source.indexOf("}") + 1 - start }], operation);
+  }
 });

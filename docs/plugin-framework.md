@@ -341,7 +341,7 @@ its own: it runs from the `command-line` and `plugin-host` call sites.
 | Slot | Registration | Host |
 |---|---|---|
 | `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreFunctionPrefix`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `compiler/tspp/emit.ts` |
-| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`, `function-clause`, `header-clause`; `restoreDeclaration`, `restoreCompatibilityDeclaration`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `services/tspp/syntax.ts` |
+| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`, `function-clause`, `header-clause`; `restoreDeclaration`, `restoreCompatibilityDeclaration`, `restoreFunctionClause`, `getBoundChild`, `isSourceCopy`) | `registry.ts`, `services/tspp/syntax.ts` |
 | `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` |
 | `interface-member-binding` | `registerInterfaceMemberBinding` (`isStaticMember`) | `registry.ts` |
 | `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` |

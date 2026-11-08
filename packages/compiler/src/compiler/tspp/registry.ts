@@ -323,6 +323,16 @@ export function getTSPPBoundChild(node: Node): Node | undefined {
     return undefined;
 }
 
+/** Whether a plugin says that a node repeats source another node holds, which editor features must not walk into. @internal */
+export function isTSPPSourceCopy(node: Node): boolean {
+    for (const candidates of syntaxExtensions.values()) {
+        for (const { extension } of candidates) {
+            if (extension.isSourceCopy?.(node as never)) return true;
+        }
+    }
+    return false;
+}
+
 const clauseOwners = new WeakMap<Node, string>();
 
 /**

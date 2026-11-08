@@ -299,6 +299,11 @@ export interface TSPPSyntaxExtension {
      * tree that still holds names and types. Editor features reach it by position.
      */
     getBoundChild?(node: import("typescript-upstream").Node): import("typescript-upstream").Node | undefined;
+    /**
+     * Whether a node repeats source that another node of the tree holds, keeping its positions so that an error in it is the
+     * original's error, reported once. The compiler sees it as any other node; editor features only see the original.
+     */
+    isSourceCopy?(node: import("typescript-upstream").Node): boolean;
 }
 
 /** A type the checker hands to a type extension's instantiation, mapping type parameters to types. Opaque. */
