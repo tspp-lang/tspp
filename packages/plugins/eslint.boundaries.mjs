@@ -1,4 +1,4 @@
-// Plugins couple only to TypeScript and the SDK (docs/core-restoration-plan.md, "插件间关系"). A plugin reaches a
+// Plugins couple only to TypeScript and the SDK (docs/plugin-framework.md, rule 7). A plugin reaches a
 // dependency's API through `context.dependencies.get` and may import the provider's types, never its runtime values.
 export const pluginBoundaryRules = {
   "@typescript-eslint/no-restricted-imports": ["error", {

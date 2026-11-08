@@ -1,4 +1,4 @@
-// With no plugins loaded, the TS++ compiler must be upstream TypeScript (docs/core-restoration-plan.md, rule 5): no
+// With no plugins loaded, the TS++ compiler must be upstream TypeScript (docs/plugin-framework.md, "Core modification rules"): no
 // new keywords, no new syntax, the same diagnostics and the same output. Each sample compiles with both compilers.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");

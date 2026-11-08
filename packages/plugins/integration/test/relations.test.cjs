@@ -1,4 +1,4 @@
-// Checks the relations between plugins that docs/core-restoration-plan.md allows ("插件间关系"): only one-way
+// Checks the relations between plugins that docs/plugin-framework.md allows (rule 7): only one-way
 // dependencies declared in manifests may last. Keyword conflicts, dependency cycles, and tests that lean on plugins
 // they never declared are reported here. Existing violations are listed with the plan step that removes them; a new
 // violation fails, and so does a listed one that has been fixed, so that the list only shrinks.
@@ -25,7 +25,7 @@ function assertMatchesKnown(actual, known, describe) {
   const actualKeys = Object.keys(actual).sort();
   const knownKeys = Object.keys(known).sort();
   for (const key of actualKeys) {
-    assert.ok(key in known, `New ${describe}: ${key} (${actual[key].join(", ")}). Resolve it; see docs/core-restoration-plan.md.`);
+    assert.ok(key in known, `New ${describe}: ${key} (${actual[key].join(", ")}). Resolve it; see docs/plugin-framework.md.`);
     assert.deepEqual(actual[key], known[key], `The ${describe} ${key} changed.`);
   }
   for (const key of knownKeys) {

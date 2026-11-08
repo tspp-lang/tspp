@@ -40,3 +40,25 @@ Higher-kinded types used to be a separate package; they share the type-construct
 
 The package owns the surface syntax and lowers it to ordinary type nodes; the compiler core contains no feature id or
 keyword-specific branch.
+
+## How terms lower
+
+The private MLTT core in `src/core` owns the Martin-Löf term IR, de Bruijn operations, normalization, definitional
+equality, and bidirectional checking. The surrounding plugin owns the source syntax and translates into that kernel
+through opaque external terms.
+
+Terms of the theory lower as they are parsed. An alias annotation `type X: K = ...` is read as a kind when it can be
+(`Type => Type`) and as a term otherwise (`Nat`); a binder `(x: A) ->` or a built-in name such as `Nat`, in any type
+position, starts a term. `src/lower.ts` turns a term into ordinary type nodes: naturals into literals, Pi types into
+generic signatures, and a `match` into a conditional type, so TypeScript decides it whether or not a binder is still
+open. There is no fallback to `any`.
+
+Kind equality is the kernel's definitional equality, which lets a kind be a term: `Vec: Nat => Type`. The kernel's errors
+are reported by a diagnostic provider, like the checker's, and the analyzer publishes normal forms and warns where a term
+has no TypeScript type. Names in a term resolve through the checker when it is checked, so a term sees aliases of other
+files; when a term needs one to compute, its value is worked out then, if it is a natural or a boolean. The kernel never
+calls two different TypeScript types apart, so it cannot contradict TypeScript's decision on a `match`.
+
+`reify T` desugars to a descriptor object whose static type carries `T` in a phantom property, and expression-level
+`typecase` desugars to a call whose overloads are its arms, so TypeScript's overload resolution selects the arm and
+infers its captures. A program rebuild without replacements adds the emit transformer that keeps only the selected arm.

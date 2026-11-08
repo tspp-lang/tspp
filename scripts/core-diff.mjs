@@ -1,5 +1,5 @@
 // Measures how far packages/compiler/src has drifted from the upstream TypeScript baseline
-// (docs/core-restoration-plan.md). Upstream files may only change at slot call sites marked `TSPP-SLOT(<slot>)`;
+// (docs/plugin-framework.md, "Core modification rules"). Upstream files may only change at slot call sites marked `TSPP-SLOT(<slot>)`;
 // this reports the changed lines per upstream file, the hunks without that marker, and how often feature terms
 // still appear in the added lines. Usage: node scripts/core-diff.mjs [--base <ref>] [--json] [--check]
 //

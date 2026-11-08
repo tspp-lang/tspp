@@ -1,6 +1,6 @@
 # TSPP feature plugin framework
 
-TSPP features are complete capsules. Feature-specific compiler, language
+Each TSPP feature is a self-contained plugin. Feature-specific compiler, language
 service, LSP, and editor code belongs to the feature package; core packages own
 only loading, composition, transport, and stable SDK contracts.
 
@@ -34,8 +34,8 @@ A feature package may expose four facets:
 
 - `compiler`: parsing, checking, diagnostics, and lowering;
 - `languageService`: feature-specific synchronous semantic contributions not
-  already derived by the standard TypeScript language service; Quick Info is
-  the first concrete port;
+  already derived by the standard TypeScript language service: Quick Info and
+  semantic tokens;
 - `lsp`: reserved for capabilities that cannot be represented by tsserver; no
   current feature needs this escape hatch;
 - `editor`: optional editor metadata: grammars, keywords, and views. An artifact
@@ -76,8 +76,7 @@ belongs to, and nothing depends on the order plugins were loaded in:
 
 ## Project declaration
 
-The first vertical slice uses the existing `compilerOptions.plugins` array as
-the single executable capability declaration:
+A project declares its plugins in the `compilerOptions.plugins` array:
 
 ```json
 {
@@ -92,62 +91,44 @@ the single executable capability declaration:
 }
 ```
 
-The `tspp` marker distinguishes a feature capsule from an ordinary TypeScript
-language-service plugin. Both the TSPP compiler CLI and TSPP tsserver resolve that name from the
-project's `node_modules`, so any package can be a plugin. The plugins of this repository are internal
-packages that are never published on their own: the compiler package `ts-plus-plus` ships them, and a
-project names one as `ts-plus-plus/plugins/<name>`, the way it imports a plugin's other entry points,
-such as `ts-plus-plus/plugins/formal-verification/smt`. `scripts/plugin-entries.mjs` writes those
-forwarding entries from each plugin's `exports`. The compiler activates its compiler facet before parsing project source
-files. Tsserver activates the compiler and language-service facets before
-constructing the configured project. Ordinary TypeScript language-service
-features operate on the resulting AST, symbols, and types, while feature-owned
-Quick Info flows through the same request the generic LSP bridge translates.
+The `tspp` marker distinguishes a feature plugin from an ordinary TypeScript
+language-service plugin. The compiler CLI and tsserver resolve the name from the
+project's `node_modules`, so any package can be a plugin. This repository's plugins
+are never published on their own: `ts-plus-plus` ships them as
+`ts-plus-plus/plugins/<name>`, along with their other entry points such as
+`ts-plus-plus/plugins/formal-verification/smt`. `scripts/plugin-entries.mjs` writes
+those forwarding entries from each plugin's `exports`.
 
-`typescript-language-server` remains a generic LSP-to-tsserver bridge and the
-VS Code extension remains a generic client. Neither contains a modern-syntax branch.
+The compiler activates compiler facets before parsing project source files; tsserver
+activates compiler and language-service facets before constructing the configured
+project. `typescript-language-server` stays a generic LSP-to-tsserver bridge and the
+VS Code extension a generic client; neither has a branch for any plugin.
 
-## First feature capsule
+## Lowering
 
-`ts-plus-plus/plugins/modern-syntax` proves the compiler boundary. It owns the
-lookahead, parse shape, type result, and lowering of `let x = value in body`
-and completion-valued `do` blocks. It also owns `use pattern <- target` while
-the SDK supplies the reusable trailing-closure binding mechanism: a standard
-block-scoped binding plus out-of-band target metadata. The ordinary binder
-still owns scope and destructuring; completion checking and lowering consume
-the metadata without adding a feature-specific syntax kind.
-
-The same capsule implements `def` through the SDK's deep-readonly binding
-boundary. The parser produces an ordinary `const` declaration, while
-out-of-band ownership makes its initializer a recursive const-inference
-context. Emission therefore has zero runtime machinery.
-Syntax plugins desugar while parsing: the parser hands them a cursor with its
-own factory, and they return ordinary TypeScript nodes that the upstream binder,
-checker, and emitter process unchanged. `markGenerated` from the SDK gives the nodes
-a plugin creates the source positions editor services and declaration output expect.
-A function a plugin lowers to has an empty `=>` from `createLoweredArrowToken`, and
-`isLoweredFunction` tells it from a scope the author wrote, so a hole of an operator
-section reaches through it, a `use` continuation included. `replaceChild` rewrites syntax a plugin has just parsed,
-and `createGeneratedName` gives it a name that stays unique in JavaScript; compiler
-details those two need stay in the SDK rather than in each plugin.
-
-```mermaid
-flowchart LR
-    Source[.tspp source] --> Parse[plugin syntax extension]
-    Parse --> Nodes[ordinary TypeScript nodes]
-    Nodes --> Check[upstream checker + plugin diagnostics]
-    Nodes --> Emit[upstream emitter]
-    Emit --> JS[ordinary JavaScript]
-```
-
-A trailing-closure binding turns the remainder of the enclosing completion
-block into a callback:
+Syntax plugins desugar while parsing: the parser hands them a cursor with its own
+factory, and they return ordinary TypeScript nodes that the upstream binder, checker,
+and emitter process unchanged.
 
 ```text
 use value <- acquire(arg); rest(value)
         ↓
 return acquire(arg, value => { return rest(value); })
+
+def point = { x: 1 };
+        ↓
+const point = { x: 1 } as const;
 ```
+
+The SDK holds the compiler details each plugin would otherwise repeat:
+
+- `markGenerated` gives generated nodes the source positions editor services and
+  declaration output expect;
+- `createLoweredArrowToken` gives a function a plugin lowers to an empty `=>`, and
+  `isLoweredFunction` tells it from a scope the author wrote, so a hole of an operator
+  section reaches through it, a `use` continuation included;
+- `replaceChild` rewrites syntax a plugin has just parsed;
+- `createGeneratedName` gives a name that stays unique in JavaScript.
 
 ## Reading declarations across plugin sets
 
@@ -175,11 +156,8 @@ A `.ts` file always reads the `.d.ts`. A `.d.tspp` file without a header, or wit
 - no plugin-to-plugin implementation imports, and no plugin spelling another's id
   or keywords, even in a string or a regular expression (`getSyntaxKeywords` answers
   what a plugin needs to know about active syntax);
-- no compiler-internal imports from feature packages;
 - registrations return disposers and are owned by a host lifecycle;
 - duplicate IDs and incompatible API versions fail at activation;
-- required and optional capsule relationships and provided APIs are manifest
-  data;
 - plugin packages are resolved from the declaring project;
 - standard language-service behavior is reused instead of reimplemented;
 - new SDK ports require a concrete feature consumer.
@@ -189,28 +167,35 @@ A `.ts` file always reads the `.d.ts`. A `.d.tspp` file without a header, or wit
 Complex features register a `TSPPProgramAnalyzer`. The compiler hands it the
 authored text of the root source files and awaits analyzers before choosing the
 CLI exit status. An analyzer never receives a `Program`, checker, compiler node,
-host, or filesystem capability.
+host, or filesystem capability. It can ask for more, delivered as ranges of the
+authored text that the host computes only on request:
 
-An analyzer that sets `needsCallTargets` also receives, for each file, what the
-checker resolved its calls to: every call and `new` expression by its range,
-with the declarations of the symbol its callee names (a `super(...)` call names
-the base class). These are ranges of the authored text, not compiler objects, and
-the host computes them only when some analyzer asks. Likewise `needsClassAncestry`
-adds each class's `extends` chain: the class declarations it extends, nearest
-first, and whether the chain could be followed to its end.
+- `needsCallTargets`: for every call and `new` expression, the declarations of the
+  symbol its callee names (a `super(...)` call names the base class);
+- `needsClassAncestry`: each class's `extends` chain, nearest first, and whether the
+  chain could be followed to its end.
 
-`ts-plus-plus/plugins/formal-verification` is the first consumer. It owns proof-point
-discovery, SMT lowering, Z3 worker isolation, timeouts, and diagnostics; the
-compiler owns only scheduling and diagnostic transport. Analyzers run in one-shot,
-incremental, and watch compilations and in solution builds, which load each project's
-plugins as they reach it. A build info file records no analyzer errors, so a project
-with some loses its file and is built again next time. It parses each file with
-the host's parser (`context.ts.createSourceFile`), so every active plugin's syntax
-is already lowered to ordinary TypeScript. It models that TypeScript, immediately
-invoked functions and conditional expressions included, and knows no other plugin
-except through the optional nominal-types ADT API.
+Analyzers run in one-shot, incremental, and watch compilations and in solution
+builds, which load each project's plugins as they reach it. A build info file records
+no analyzer errors, so a project with some is built again next time. Tsserver caches
+analyzer results per `Program`; a finished analysis requests the existing project
+diagnostic refresh, and the LSP bridge publishes the merged diagnostics.
 
-### Length-preserving source projections
+Analyzers may attach `TSPPAnalysisArtifact` values to their diagnostic array:
+immutable, compiler-neutral text outputs identified by source location, language,
+name, and status. The compiler caches them per `Program` without interpreting them,
+and the VS Code command **TS++: Show Analysis Artifacts** opens the current file's
+artifacts beside the source. Formal verification publishes replayable SMT-LIB this
+way, and type computation its normalized MLTT forms.
+
+`ts-plus-plus/plugins/formal-verification` owns proof-point discovery, SMT lowering,
+Z3 worker isolation, timeouts, and diagnostics; the compiler owns only scheduling and
+diagnostic transport. It parses each file with the host's parser
+(`context.ts.createSourceFile`), so every active plugin's syntax is already lowered to
+ordinary TypeScript, and knows no other plugin except through the optional
+nominal-types ADT API.
+
+## Length-preserving source projections
 
 Syntax with no parser position to start from can be erased before ordinary TypeScript
 parsing by a registered source preprocessor. A preprocessor sees text and has to guess
@@ -221,43 +206,27 @@ plugin writes beside it. A preprocessor may replace characters but must preserve
 the exact UTF-16 length and every line break. The host retains the original text
 for plugin analysis while the upstream parser, checker, language service, and
 emitter see the projection. This lets formal contracts remain entirely inside
-their feature capsule without adding contract-specific AST fields to TypeScript.
+their feature plugin without adding contract-specific AST fields to TypeScript.
 
 Every preprocessor receives the authored text and the host merges the results, so
 none sees another's work. Where two rewrite the same text differently, the first
 by plugin id keeps it and the file gets a diagnostic. Preprocessors search through
 `maskNonCode` from the SDK, so strings and comments are never taken for syntax.
 
-Tsserver caches analyzer results per `Program`. Completion of an asynchronous
-analysis requests the existing project diagnostic refresh; the generic LSP
-bridge then publishes the merged semantic diagnostics normally.
-
-Analyzers may attach `TSPPAnalysisArtifact` values to their diagnostic array.
-Artifacts are immutable, compiler-neutral text outputs identified by source
-location, language, name, and status. The compiler caches them per `Program`
-without interpreting their contents. The generic VS Code command **TS++: Show
-Analysis Artifacts** rebuilds the active project, runs its configured analyzers,
-and opens the current file's artifacts beside the source. Formal verification
-uses this seam for replayable SMT-LIB and dependent types publish normalized
-MLTT forms without adding feature branches to the compiler or editor.
-
 ## Tooling and observability
 
-The VS Code client exposes generic views for active capsule manifests, projected
-TypeScript, and analyzer artifacts. It does not import feature implementations.
-Feature packages declare grammars and views in their `editor` facet;
-`scripts/build-plugin-grammar.mjs` merges them into the files the extension ships
-and checks that `package.json`, which VS Code reads first, repeats each command. All
-runtime data crosses compiler-neutral SDK shapes. The playground reads the same
-views for its output tabs and hovers, and finds the plugins through its package
-dependencies.
+The VS Code client exposes generic views for active plugin manifests, projected
+TypeScript, and analyzer artifacts, and imports no feature implementation. Plugins
+declare grammars and views in their `editor` facet;
+`packages/vscode-extension/scripts/build-plugin-grammar.mjs` merges them into the files
+the extension ships and checks that `package.json`, which VS Code reads first, repeats
+each command. The playground reads the same views for its output tabs and hovers, and
+finds the plugins through its package dependencies.
 
-The browser playground starts a fresh Web Worker whenever its selected capsule
-set changes. That makes the current process-wide parser boundary explicit and
-prevents registrations from one configuration leaking into another. A host may
-still need an adapter for what only it can supply: the playground runs Z3 in a
-browser worker and evaluates macro modules itself, which are the only places a host
-names a plugin.
+The playground starts a fresh Web Worker whenever its plugin set changes, so
+registrations from one configuration cannot leak into another. A host may still need
+an adapter for what only it can supply: the playground runs Z3 in a browser worker and
+evaluates macro modules itself, which are the only places a host names a plugin.
 
 A rebuilder that parses in another thread loads the plugins named by
 `request.pluginModulePaths` first, because a project's text holds every active
@@ -266,29 +235,21 @@ plugin's syntax. The compile-time macro worker is the first consumer.
 ## What keeps plugins additive
 
 - `integration/test/cli-matrix.test.cjs` runs every plugin alone, every pair, every
-  set without one plugin, and all of them through the real command line, and each
-  must keep reporting its own errors. Describing a new plugin there is required: the
-  test fails otherwise, and every combination then follows.
-- `integration/test/inert-plugins.test.cjs` compiles every example with each plugin
-  it does not use, one at a time: the errors and the JavaScript must not change. This
-  is what additive means, and it grows with plugins times examples, not with their
-  combinations. A plugin only acts on its own syntax: formal verification, for one,
-  checks a function only when it has a contract, a refinement, a proof directive, or a
-  call or binding that owes a proof to one of those.
+  set without one plugin, and all of them through the real command line, and each must
+  keep reporting its own errors. A new plugin must be described there; the test fails
+  otherwise.
+- `integration/test/inert-plugins.test.cjs` compiles every example with each plugin it
+  does not use: the errors and the JavaScript must not change. This is what additive
+  means. It also writes every keyword a manifest lists as a member name, where
+  TypeScript takes any word: the program must not change.
 - `integration/test/nesting-matrix.test.cjs` writes each plugin's syntax inside each
-  other plugin's: a plugin lists where it holds code and what it can be held in, and
-  every pairing follows, so a new plugin adds one entry rather than one test per pair.
-  Each pairing must run to its value and keep its errors, and a declaration must keep
-  the syntax it holds.
-- `integration/test/inert-plugins.test.cjs` also writes every keyword a manifest lists
-  as a member name, where TypeScript takes any word: the program must not change.
-- `integration/test/boundaries.test.cjs` scans the strings and regular expressions
-  of plugins and hosts for other plugins' ids and keywords, which ESLint cannot see. In
-  regular expressions it checks every keyword, however short: one that spells another
-  plugin's word is reading that syntax out of text.
-- `integration/test/nesting-matrix.test.cjs` also has a plugin that holds expressions
-  say where a section's hole reaches through it, so one that lowers to a function
-  cannot leave out `createLoweredArrowToken` unnoticed.
+  other plugin's. A plugin lists where it holds code and what it can be held in, so a
+  new plugin adds one entry rather than one test per pair. Each pairing must run to its
+  value and keep its errors, and a declaration must keep the syntax it holds. A plugin
+  that holds expressions also says where a section's hole reaches through it, so one
+  that lowers to a function cannot leave out `createLoweredArrowToken` unnoticed.
+- `integration/test/boundaries.test.cjs` scans the strings and regular expressions of
+  plugins and hosts for other plugins' ids and keywords, which ESLint cannot see.
 - `integration/test/composition.test.cjs` holds the interactions worth stating by
   hand, such as a `match` inside a section or a contract over a lowered `do`.
 
@@ -303,52 +264,16 @@ computation (`Nat`, `Pair`, ...) work this way.
 
 ## Semantic kernels are not one universal IR
 
-Feature capsules may extract a pure semantic kernel when more than one host
-surface needs the same algebra. That does not imply that unrelated algebras
-belong in a single shared package.
+A plugin may extract a pure semantic kernel when more than one host surface needs the
+same algebra; that does not put unrelated algebras in one shared package. Type
+computation's private MLTT core has no compiler, SDK, editor, or solver dependency,
+while the verification IR behind Z3 represents first-order solver formulas. They stay
+separate: sharing utilities is fine when real duplication appears, merging two models
+because both are called “IR” is not. A kernel stays an internal module until a second
+concrete consumer justifies a package. Type computation's
+[README](../packages/plugins/type-computation/README.md) explains how its terms lower.
 
-```mermaid
-flowchart LR
-    Dependent[type-computation plugin] --> MLTT[private MLTT core]
-    Verification[formal-verification plugin] --> SMT[verification IR]
-    MLTT --> Terms[binders, universes, normalization]
-    SMT --> Formulas[sorts, quantifiers, solver lowering]
-```
-
-
-The type-computation package's private MLTT core owns the Martin-Löf term IR, de Bruijn operations,
-normalization, definitional equality, and bidirectional checking. It has no
-compiler, SDK, editor, or solver dependency. The surrounding feature owns
-source syntax and translates into that kernel through opaque external terms.
-
-The kernel remains an internal module until a second concrete consumer justifies
-extracting a package. The verification IR used by Z3 is deliberately separate. It represents
-first-order solver formulas rather than dependent terms. Sharing utilities is
-allowed when real duplication appears; merging the two semantic models merely
-because both are called “IR” is not.
-
-Terms of the theory lower as they are parsed. An alias annotation `type X: K = ...`
-is read as a kind when it can be (`Type => Type`) and as a term otherwise (`Nat`);
-a binder `(x: A) ->` or a built-in name such as `Nat`, in any type position, starts a
-term. `src/lower.ts` turns a term into ordinary type nodes: naturals into literals,
-Pi types into generic signatures, and a `match` into a conditional type, so
-TypeScript decides it whether or not a binder is still open. There is no fallback
-to `any`. Kind equality is the kernel's definitional equality, which lets a kind be
-a term: `Vec: Nat => Type`. The kernel's errors are reported by a diagnostic
-provider, like the checker's, and the analyzer publishes normal forms and warns
-where a term has no TypeScript type. Names in a term resolve through the checker
-when it is checked, so a term sees aliases of other files; when a term needs one to
-compute, its value is worked out then, if it is a natural or a boolean. The kernel
-never calls two different TypeScript types apart, so it cannot contradict
-TypeScript's decision on a `match`.
-`reify T` desugars to a descriptor object whose static type carries `T` in a
-phantom property, and expression-level `typecase` desugars to a call whose
-overloads are its arms, so TypeScript's overload resolution selects the arm and
-infers its captures. A program rebuild without replacements adds the emit
-transformer that keeps only the selected arm. The host has no MLTT feature IDs
-or operations; the plugin owns its syntax, kernel, and editor grammar.
-
-### Declaration extensions
+## Declaration extensions
 
 Declaration plugins register a syntax extension at the `declaration` position
 and return ordinary upstream declaration nodes built with the parser's factory.
@@ -359,7 +284,7 @@ transformers process the lowered declarations unchanged, and the extension's
 with the `printNested` it receives, so another plugin's syntax inside a declaration
 is restored by that plugin instead of printing as what it lowered to.
 
-### Plugin-owned diagnostics and checks
+## Plugin-owned diagnostics and checks
 
 Plugins report diagnostics with their own codes and messages; the core has no
 plugin message in `diagnosticMessages.json`. The parser cursor's `parseErrorAt`
@@ -373,9 +298,8 @@ elaboration. The type extension host offers the same operations.
 
 ## Core modification rules
 
-The compiler package stays as close to upstream TypeScript as possible
-(docs/core-restoration-plan.md). Against the upstream baseline (the
-`tspp-core-baseline` tag):
+The compiler package stays as close to upstream TypeScript as possible. Against
+the upstream baseline (the `tspp-core-baseline` tag):
 
 1. **Only slot call sites.** Every change to an upstream file is a call site of a
    registered slot and carries the marker `// TSPP-SLOT(<slot>)` on an added
@@ -409,37 +333,38 @@ as a new slot.
 ## Slot registry
 
 Feature slots are what plugins register with, through `context.compiler` (or
-`context.languageService` for Quick Info). The host implementation lives in
-`compiler/tspp/registry.ts` unless noted. Call sites are in
-`packages/compiler/src`; `parser.ts` means `compiler/parser.ts` and so on.
+`context.languageService` for Quick Info and semantic tokens). The host implementation
+lives in `compiler/tspp/registry.ts` unless noted. Every call site carries its slot's
+marker, so searching for `TSPP-SLOT(<slot>)` lists them. `program-analysis` has none of
+its own: it runs from the `command-line` and `plugin-host` call sites.
 
-| Slot | Registration | Host | Call sites |
-|---|---|---|---|
-| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreFunctionPrefix`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `compiler/tspp/emit.ts` | `parser.ts` (`parseSourceFile` projects the text); `emitter.ts` (text restored before `function` and after the parameters of declaration output); `services/findAllReferences.ts` (`getImplementationsAtPosition` on removed text) |
-| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`, `function-clause`, `header-clause`; `restoreDeclaration`, `restoreCompatibilityDeclaration`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `services/tspp/syntax.ts` | `parser.ts` (the cursor, each position, list expansion, no incremental reuse of plugin nodes); `emitter.ts` (restored declarations); `services/services.ts` (`createChildren`); `services/formatting/formatting.ts`; `binder.ts` (`bindChildren`); `services/utilities.ts` (`getTokenAtPositionWorker`); `services/codefixes/fixUnusedIdentifier.ts`; `services/codefixes/inferFromUsage.ts` (a parameter that shares its reference's position); `utilities.ts` (`getErrorSpanForNode`), `services/utilities.ts`, `services/findAllReferences.ts`, `services/documentHighlights.ts` (nodes built without a source position stand for their parent) |
-| `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` | `program.ts` (semantic and suggestion diagnostics) |
-| `interface-member-binding` | `registerInterfaceMemberBinding` (`isStaticMember`) | `registry.ts` | `binder.ts` (bound outside the instance type); `checker.ts` (static name resolution, modifier grammar); `utilities.ts` (`createNameResolver`) |
-| `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` | `program.ts` (`createProgram` return); `types.ts` (`CompilerHost.invalidateTSPPProgram`); `services/services.ts` and `services/types.ts` (invalidation and rebuild on the next request); `server/project.ts` and `server/session.ts`; `resolutionCache.ts` |
-| `program-analysis` | `registerProgramAnalyzer` | `compiler/tspp/analysis.ts` | none of its own: runs from the `command-line` and `plugin-host` call sites |
-| `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` | `checker.ts` (host creation, which also serves diagnostic providers, `getTypeFromTypeNodeWorker`, `instantiateTypeWorker`, the type node builder, `isTypeParameterPossiblyReferenced`) |
-| `signature-constraint` | `registerSignatureConstraint` (`isOverloadApplicable`, `whyNotRelated`, `getMember`, `getMembers`) | `compiler/tspp/types.ts` | `checker.ts` (`chooseOverload`, `compareSignaturesRelated`, the property access check); `services/completions.ts` (`addTypeProperties`) |
-| `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` | `services/services.ts` (`getQuickInfoAtPosition` of the language service object) |
-| `semantic-tokens` | `languageService.registerSemanticTokensProvider` | `services/tspp/syntax.ts` | `services/services.ts` (`getEncodedSemanticClassifications` of the language service object) |
+| Slot | Registration | Host |
+|---|---|---|
+| `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreFunctionPrefix`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `compiler/tspp/emit.ts` |
+| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`, `function-clause`, `header-clause`; `restoreDeclaration`, `restoreCompatibilityDeclaration`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `services/tspp/syntax.ts` |
+| `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` |
+| `interface-member-binding` | `registerInterfaceMemberBinding` (`isStaticMember`) | `registry.ts` |
+| `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` |
+| `program-analysis` | `registerProgramAnalyzer` | `compiler/tspp/analysis.ts` |
+| `type-extension` | `registerTypeExtension` | `compiler/tspp/types.ts` |
+| `signature-constraint` | `registerSignatureConstraint` (`isOverloadApplicable`, `whyNotRelated`, `getMember`, `getMembers`) | `compiler/tspp/types.ts` |
+| `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` |
+| `semantic-tokens` | `languageService.registerSemanticTokensProvider` | `services/tspp/syntax.ts` |
 
 `interface-member-binding` is a controlled exception to rule 6: its one consumer's feature
 is what the slot does, so it cannot really be described without naming that feature. It
-stays because binding and name resolution cannot be reached any other way (see the
-2026-11-03 record in docs/core-restoration-plan.md). It is no precedent for a new slot.
+stays because binding and name resolution cannot be reached any other way. It is no
+precedent for a new slot.
 
 Product-layer slots belong to the host; no plugin registers with them:
 
-| Slot | Implementation | Call sites |
-|---|---|---|
-| `tspp-extension` (`.tspp` sources and `.d.tspp` declarations) | `compiler/tspp/files.ts` | `parser.ts` (`getDeclarationFileExtension`); `types.ts` (`Extension.Tspp`); `utilities.ts` (extension tables, script kind, declaration extensions); `program.ts`; `checker.ts`; `moduleSpecifiers.ts`; `moduleNameResolver.ts` (`extensionIsOk`); `services/stringCompletions.ts`; `server/project.ts` (`hasNoTypeScriptSource`) |
-| `module-resolution` (`.tspp`/`.d.tspp` resolution, `tsppTypes`, the `tspp-types` condition) | `compiler/tspp/files.ts` | `moduleNameResolver.ts` |
-| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`, and which of them a project reads) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts` | `emitter.ts` (and the header of a `.d.tspp`); `program.ts` (`verifyEmitFilePath`, `findSourceFileWorker`); `types.ts` (`PrinterOptions`) |
-| `command-line` (branding, plugins from tsconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` | `executeCommandLine.ts`; `tsc/tsc.ts`; `_namespaces/ts.ts` |
-| `plugin-host` (the registry, plugin activation in tsserver) | `compiler/tspp/registry.ts`, `server/tspp/project.ts` | `_namespaces/ts.ts`; `types.ts` (`PluginImport.tspp`); `server/project.ts` (`enableProxy`) |
+| Slot | Implementation |
+|---|---|
+| `tspp-extension` (`.tspp` sources and `.d.tspp` declarations) | `compiler/tspp/files.ts` |
+| `module-resolution` (`.tspp`/`.d.tspp` resolution, `tsppTypes`, the `tspp-types` condition) | `compiler/tspp/files.ts` |
+| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`, and which of them a project reads) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts` |
+| `command-line` (branding, plugins from tsconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` |
+| `plugin-host` (the registry, plugin activation in tsserver) | `compiler/tspp/registry.ts`, `server/tspp/project.ts` |
 
 ## Current process boundary
 
@@ -452,17 +377,13 @@ not work around this with globals.
   project's plugins the active ones when it creates the project's program, and again
   when analyzers run on that program after the build.
 - **Language server.** `PluginSetRoutingTsServer`
-  (`packages/language-server/src/tsServer/pluginSetRouting.ts`) looks like one
-  tsserver to the client and runs one per plugin set behind it. A file goes to the
-  server of the project tsserver would choose for it: the nearest config containing
-  the file, directly or through references, read with the compiler's own config
-  parsing (`pluginSets.ts`). Only `"tspp": true` entries count, as on the command
-  line. A server starts when a file of its set first opens, projects with the same
-  set share it, and it stops a minute after its last file closes unless it is the
-  only one. Settings reach every server, including later ones. When a config edit
-  changes a project's plugins, its open files move to the server of the new set.
-  If one server crashes all of them stop and the client restarts everything, as it
-  did with a single server.
+  (`packages/language-server/src/tsServer/pluginSetRouting.ts`) looks like one tsserver
+  to the client and runs one per plugin set behind it. A file goes to the server of the
+  project tsserver would choose for it, read with the compiler's own config parsing
+  (`pluginSets.ts`); only `"tspp": true` entries count. A server starts when a file of
+  its set first opens and stops a minute after its last file closes unless it is the
+  only one. When a config edit changes a project's plugins, its open files move to the
+  new set's server. If one server crashes, the client restarts all of them.
 - **tsserver.** A server still reads configs that are not its files' projects: it
   loads referencing projects to find references, and it reloads an edited config
   before the host can move the files. So the host passes `--tsppPluginSet <names>`

@@ -1,4 +1,4 @@
-// Runs every feature plugin's own test suite with all feature plugins loaded (docs/core-restoration-plan.md,
+// Runs every feature plugin's own test suite with all feature plugins loaded, to catch implicit interference between them.
 // "插件间关系": implicit interference). One plugin at a time, in a single process each, to keep memory bounded.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
