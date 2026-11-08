@@ -32,6 +32,10 @@ export function renderEditorTabs(
     };
     tab.append(label, close);
     tab.onclick = () => onOpen(path);
+    // Pressing the middle button over the scrollable tab bar starts autoscroll where the browser has it, and then no auxclick follows.
+    tab.onmousedown = event => {
+      if (event.button === 1) event.preventDefault();
+    };
     tab.onauxclick = event => event.button === 1 && onClose(path);
     tab.onkeydown = event => {
       if (event.key === "Enter" || event.key === " ") onOpen(path);
