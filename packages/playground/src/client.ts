@@ -7,7 +7,7 @@ export interface Cancellation {
 }
 
 /** Every method takes an optional trailing cancellation; a cancelled call rejects with Monaco's "Canceled" error. */
-export type LanguageClient = {
+export type LanguageClient = { dispose(): void } & {
   [K in keyof WorkerApi]: (...args: [...Parameters<WorkerApi[K]>, Cancellation?]) => Promise<Awaited<ReturnType<WorkerApi[K]>>>;
 };
 
@@ -22,17 +22,20 @@ function canceled(): Error {
 }
 
 /** A stable RPC facade. Changing the capsule set starts a fresh compiler worker. */
-export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): LanguageClient {
+export function startLanguageWorker(onEvent: (event: WorkerEvent) => void, initialZ3?: Parameters<WorkerApi["init"]>[0]): LanguageClient {
   const pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   let nextId = 1;
-  let z3: Parameters<WorkerApi["init"]>[0] | undefined;
+  let z3 = initialZ3;
   let featureSignature: string | undefined;
-  let transition: Promise<unknown> = Promise.resolve();
   let worker = createWorker();
+  let disposed = false;
+  const ready = initialZ3 ? send("init", [initialZ3]) : Promise.resolve();
+  let transition = ready;
 
   function createWorker(): Worker {
     const next = new Worker(new URL("./worker/languageWorker.ts", import.meta.url), { type: "module" });
     next.onmessage = (event: MessageEvent<Response | WorkerEvent>) => {
+      if (disposed || worker !== next) return;
       if ("event" in event.data) return onEvent(event.data);
       const request = pending.get(event.data.id);
       if (!request) return;
@@ -40,7 +43,9 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
       if ("error" in event.data) request.reject(new Error(event.data.error));
       else request.resolve(event.data.result);
     };
-    next.onerror = event => rejectPending(new Error(`Language worker failed: ${event.message}`));
+    next.onerror = event => {
+      if (!disposed && worker === next) rejectPending(new Error(`Language worker failed: ${event.message}`));
+    };
     return next;
   }
 
@@ -50,7 +55,7 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
   }
 
   function send(method: keyof WorkerApi, args: unknown[], cancellation?: Cancellation): Promise<unknown> {
-    if (cancellation?.isCancellationRequested) return Promise.reject(canceled());
+    if (disposed || cancellation?.isCancellationRequested) return Promise.reject(canceled());
     return new Promise((resolve, reject) => {
       const id = nextId++;
       const target = worker;
@@ -75,9 +80,16 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
     if (z3) await send("init", [z3]);
   }
 
-  return new Proxy({} as LanguageClient, {
-    get: (_target, method: keyof WorkerApi | "then") => {
+  return new Proxy({
+    dispose() {
+      disposed = true;
+      rejectPending(canceled());
+      worker.terminate();
+    },
+  } as LanguageClient, {
+    get: (target, method: keyof LanguageClient | "then") => {
       if (method === "then") return undefined;
+      if (method === "dispose") return target.dispose;
       return async (...args: unknown[]) => {
         const cancellation = isCancellation(args.at(-1)) ? args.pop() as Cancellation : undefined;
         if (method === "init") {
@@ -87,6 +99,8 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void): Lang
         if (method === "setProject") {
           const signature = JSON.stringify(args[1]);
           transition = transition.catch(() => undefined).then(async () => {
+            await ready;
+            if (disposed) throw canceled();
             if (featureSignature !== undefined && featureSignature !== signature) await restart();
             featureSignature = signature;
             return send(method, args);

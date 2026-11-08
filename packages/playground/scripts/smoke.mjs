@@ -28,6 +28,8 @@ try {
   const examples = requested.length ? requested : available;
   if (!examples.length) throw new Error("The playground lists no examples.");
 
+  await checkUnsavedDiagnostics(page);
+
   let fileCount = 0;
   for (const example of examples) {
     errors.length = 0;
@@ -49,6 +51,41 @@ if (failures.length) {
   process.exit(1);
 }
 process.exit(0);
+
+async function checkUnsavedDiagnostics(page) {
+  page.once("dialog", dialog => dialog.accept("diagnostics-smoke.tspp"));
+  await page.getByRole("button", { name: "New file" }).click();
+  const editor = page.locator("#editor .monaco-editor");
+  const problem = page.locator("#problems .problem-message").filter({ hasText: "TS2322" });
+  const write = async source => {
+    await page.keyboard.press("Control+a");
+    await page.keyboard.insertText(source);
+  };
+  const save = async () => {
+    await page.keyboard.press("Control+s");
+    await page.locator("#outputs-status").filter({ hasText: /^Up to date$/ }).waitFor();
+  };
+  const runAndCheck = async expected => {
+    const errors = await runActiveFile(page);
+    if (errors.length) throw new Error(errors.join(" | "));
+    await page.locator("#run-output").getByText(expected, { exact: true }).waitFor();
+  };
+
+  await write('console.log("saved-output");');
+  await save();
+  await write('const value: number = "draft-output"; console.log(value);');
+  await problem.waitFor();
+  await editor.locator(".squiggly-error").first().waitFor();
+  await page.locator("#output-editor .view-lines").getByText("saved-output", { exact: false }).first().waitFor();
+  await runAndCheck("saved-output");
+
+  await editor.locator(".view-lines").click();
+  await write('const value: string = "draft-output"; console.log(value);');
+  await problem.waitFor({ state: "hidden" });
+  await save();
+  await runAndCheck("draft-output");
+  console.log("ok   unsaved diagnostics and saved outputs");
+}
 
 /** Selects an example project and runs all its source files. */
 async function runExample(page, example, errors) {

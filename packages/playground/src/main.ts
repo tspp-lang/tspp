@@ -1,14 +1,14 @@
 import examples from "virtual:tspp-examples";
-import { startLanguageWorker } from "./client";
+import { startLanguageWorker, type LanguageClient } from "./client";
 import { editorLanguage, isEditorFile, isSourceFile, registerEditorLanguages } from "./editorLanguages";
 import { defaultConfiguration, parseProjectConfiguration, setFeatureInConfiguration } from "./configuration";
 import { currentVersion, z3Location } from "./deployment";
 import { effectiveFeatures, renderFeaturePanel } from "./features";
 import * as monaco from "./monaco";
 import { createOutputController } from "./outputs";
-import { renderProblemList } from "./problems";
+import { createProblemChecker } from "./problems";
 import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, replacePathPrefix, validItemName } from "./projectTree";
-import type { DiagnosticInfo, ProjectFiles } from "./protocol";
+import type { ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeShared, encodeExample, encodeState, onSharedStateChange, type SharedState } from "./share";
 import { renderSolverStatus } from "./solverStatus";
@@ -37,23 +37,25 @@ const projectTree = element("project-tree");
 const renameProjectItem = element<HTMLButtonElement>("rename-project-item");
 const deleteProjectItem = element<HTMLButtonElement>("delete-project-item");
 const featureList = element("features");
-const problemList = element("problems");
-const problemCount = element("problem-count");
 const analysisStatus = element("analysis-status");
 const bootOverlay = element("boot-overlay");
 const bootDetail = element("boot-detail");
 
+let draftClient: LanguageClient | undefined;
 const client = startLanguageWorker(event => {
   // several background runs (macros, then analyzers) often settle together
-  if (event.event === "analysisSettled") requestCheck(50);
+  if (event.event === "analysisSettled") {
+    if (!draftClient) requestCheck(50);
+  }
   else if (event.event === "programChanged") {
-    requestCheck(50);
+    if (!draftClient) requestCheck(50);
     outputs.refresh();
   }
-  else renderSolverStatus(analysisStatus, event);
+  else if (!draftClient) renderSolverStatus(analysisStatus, event);
 });
+const languageClient = () => draftClient ?? client;
 registerEditorLanguages();
-registerProviders(client);
+registerProviders(languageClient);
 
 const dark = matchMedia("(prefers-color-scheme: dark)");
 const editor = monaco.editor.create(element("editor"), {
@@ -69,8 +71,10 @@ const outputs = createOutputController(client, () => currentFeatures(), path => 
 dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
 let initialization: Awaited<ReturnType<typeof client.init>>;
+let solverLocation: Awaited<ReturnType<typeof z3Location>>;
 try {
-  initialization = await client.init(await z3Location());
+  solverLocation = await z3Location();
+  initialization = await client.init(solverLocation);
 }
 catch (error) {
   const message = error instanceof Error ? error.message : String(error);
@@ -100,14 +104,50 @@ const currentFeatures = () => effectiveFeatures(definitions, selected);
 const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...savedContents]);
 const isDirty = (path: string) => models.get(path)?.getValue() !== savedContents.get(path);
 const dirtyFiles = () => new Set([...models.keys()].filter(isDirty));
+const isLiveFile = (path: string) => path !== "/tsconfig.json" && !path.endsWith(".md");
+const { requestCheck, cancelCheck } = createProblemChecker(editor, models, () => active, openFile, languageClient, definitions, isDirty);
+
+function disposeDraft(): void {
+  if (!draftClient) return;
+  cancelCheck();
+  draftClient.dispose();
+  draftClient = undefined;
+  analysisStatus.hidden = true;
+}
+
+function reportDraftError(error: Error): void {
+  if (error.name !== "Canceled") console.error(error);
+}
+
+/** The draft worker isolates plugin state from the project used by Outputs and Run. */
+function startDraft(): void {
+  const edits = [...dirtyFiles()].filter(isLiveFile);
+  if (!edits.length) return;
+  const files = { ...projectFiles() };
+  for (const path of edits) files[path] = models.get(path)!.getValue();
+  analysisStatus.hidden = true;
+  draftClient = startLanguageWorker(event => {
+    if (event.event === "solver") renderSolverStatus(analysisStatus, event);
+    else requestCheck(50);
+  }, solverLocation);
+  void draftClient.setProject(files, currentFeatures()).catch(reportDraftError);
+}
 
 function createProjectModel(path: string, text: string): monaco.editor.ITextModel {
   const model = monaco.editor.createModel(text, editorLanguage(path), monaco.Uri.file(path));
   model.onDidChangeContent(() => {
-    checkGeneration++;
-    checkCancellation?.cancel();
-    setDiagnosticMarkers(model, []);
-    renderTabs();
+    const dirty = dirtyFiles();
+    if (!path.endsWith(".md")) {
+      cancelCheck();
+      setDiagnosticMarkers(model, []);
+      requestCheck(300);
+    }
+    if (isLiveFile(path)) {
+      if (![...dirty].some(isLiveFile)) disposeDraft();
+      else if (draftClient) void draftClient.editFile(path, model.getValue()).catch(reportDraftError);
+      else startDraft();
+    }
+    renderTabs(dirty);
     if (path === active) outputs.setDirty(isDirty(path));
     exampleSelect.value = "";
   });
@@ -126,6 +166,7 @@ async function applyConfiguration(): Promise<void> {
 }
 
 function loadProject(state: SharedState) {
+  disposeDraft();
   editor.setModel(null);
   active = "";
   for (const model of models.values()) model.dispose();
@@ -176,8 +217,8 @@ function openFile(path: string, refreshOutput = false) {
   scheduleCheck();
 }
 
-function renderTabs() {
-  renderEditorTabs(tabBar, openFiles.filter(path => models.has(path)), active, dirtyFiles(), openFile, closeFile);
+function renderTabs(dirty = dirtyFiles()) {
+  renderEditorTabs(tabBar, openFiles.filter(path => models.has(path)), active, dirty, openFile, closeFile);
 }
 
 function closeFile(path: string): void {
@@ -240,7 +281,9 @@ function selectedDirectory(): string {
 const projectPathExists = (path: string) => directories.has(path) || models.has(path) || resources.has(path);
 
 function syncProjectChange(nextActive = active): void {
+  disposeDraft();
   void client.setProject(projectFiles(), currentFeatures());
+  startDraft();
   outputs.markStale();
   renderTabs();
   renderProjectTree();
@@ -250,6 +293,7 @@ function syncProjectChange(nextActive = active): void {
 async function saveProject(): Promise<void> {
   const dirty = dirtyFiles();
   for (const path of dirty) savedContents.set(path, models.get(path)!.getValue());
+  disposeDraft();
   renderTabs();
   await applyConfiguration();
   if (active) outputs.setFile(active, true, isSourceFile(active));
@@ -472,21 +516,9 @@ const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selec
   renderTabs();
 });
 
-// ---- checking ------------------------------------------------------------------------
-let checkTimer: ReturnType<typeof setTimeout> | undefined;
-let checkGeneration = 0;
-
-let checkCancellation: monaco.CancellationTokenSource | undefined;
-
-/** Type checks the open file after a pause, replacing a check that has not run yet. */
-function requestCheck(delay: number) {
-  clearTimeout(checkTimer);
-  checkTimer = setTimeout(check, delay);
-}
-
-/** Type checks the saved open file after a pause, and keeps the saved project URL current. */
+/** Type checks the open file after a pause, and keeps the saved project URL current. */
 function scheduleCheck() {
-  if (!active || !isDirty(active)) requestCheck(300);
+  requestCheck(300);
   const example = syncExampleSelect();
   history.replaceState(null, "", "#" + (example ? encodeExample(example.id, active, example.entry) : encodeState({
     files: projectFiles(),
@@ -496,41 +528,6 @@ function scheduleCheck() {
     directories: [...directories].sort(),
   })));
   shareLink.hidden = true;
-}
-
-async function check() {
-  const generation = ++checkGeneration;
-  const model = models.get(active);
-  if (!model) return;
-  // an older check still waiting in the worker is skipped there
-  checkCancellation?.cancel();
-  const cancellation = checkCancellation = new monaco.CancellationTokenSource();
-  let diagnostics: DiagnosticInfo[];
-  try {
-    diagnostics = await client.diagnostics(active, cancellation.token);
-  }
-  catch (error) {
-    if (cancellation.token.isCancellationRequested) return;
-    // a crash in the compiler must not look like a clean file
-    diagnostics = [{ message: `Type checking failed: ${(error as Error).message}`, code: 0, category: "error", unnecessary: false, deprecated: false }];
-  }
-  if (generation !== checkGeneration || model.isDisposed()) return;
-  for (const [path, projectModel] of models) {
-    const forModel = diagnostics.filter(diagnostic => (diagnostic.fileName ?? active) === path);
-    setDiagnosticMarkers(projectModel, forModel);
-  }
-  renderProblems(diagnostics.filter(d => d.category !== "suggestion"));
-}
-
-function renderProblems(problems: readonly DiagnosticInfo[]) {
-  renderProblemList(problemList, problemCount, problems, active,
-    (problem, fileName) => problem.span && models.get(fileName)?.getPositionAt(problem.span.start),
-    (fileName, position) => {
-      openFile(fileName);
-      editor.setPosition(position);
-      editor.revealPositionInCenter(position);
-      editor.focus();
-    });
 }
 
 loadProject(stateFromHash(location.hash) ?? exampleState(examples[0].id)!);
