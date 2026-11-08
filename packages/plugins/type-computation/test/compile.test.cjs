@@ -339,3 +339,11 @@ test("hover on an ordinary parameter stays the language service's answer", () =>
   assert.equal(hover("first"), "(parameter) first: T");
   assert.equal(hover("second"), "(parameter) second: T");
 });
+
+test("hover on a type lambda shows it as written, with or without a kind annotation", () => {
+  const source = "export type Inc: Nat => Nat = <n: Nat> =>> Succ<n>;\nexport type Sized: Nat => Type = <N: Nat> =>> { size: N };\n";
+  const service = createLanguageService("/main.tspp", source);
+  const hover = text => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", source.indexOf(text)).displayParts);
+  assert.equal(hover("Inc"), "type Inc = <n: Nat> =>> Succ<n>");
+  assert.equal(hover("Sized"), "type Sized = <N: Nat> =>> { size: N }");
+});

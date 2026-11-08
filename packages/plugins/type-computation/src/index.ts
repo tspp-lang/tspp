@@ -260,7 +260,7 @@ function typeLambdaAt(sourceText: string, position: number): {
     readonly declaration: string;
     readonly constructor: string;
 } | undefined {
-    const expression = /\btype\s+([A-Za-z_$][\w$]*)\s*=\s*(<([^>]*)>\s*=>>\s*[^;]+)\s*;/g;
+    const expression = /\btype\s+([A-Za-z_$][\w$]*)\s*(?::(?:[^=;]|=>)*?)?=\s*(<([^>]*)>\s*=>>\s*[^;]+)\s*;/g;
     let match: RegExpExecArray | null;
     while ((match = expression.exec(sourceText))) {
         if (match.index <= position && position <= expression.lastIndex) {
