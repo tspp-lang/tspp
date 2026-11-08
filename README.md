@@ -73,12 +73,12 @@ pnpm pack:release   # builds, then assembles release/
 pnpm test:release   # installs release/ into an empty project and exercises it
 ```
 
-Releasing is setting the version: when the TS++ checks pass on a commit pushed
+Releasing is setting the version: when the TSPP checks pass on a commit pushed
 to master whose root version has no `vX.Y.Z` tag, `.github/workflows/release.yml`
 runs both commands above on that commit and publishes the result on GitHub
 Releases, which tags it. A
 version with a prerelease part, such as `0.2.0-beta.1`, is published as a
-prerelease. A version below one already released fails the TS++ checks
+prerelease. A version below one already released fails the TSPP checks
 (`scripts/release-version.mjs`), so it never reaches a release. Nothing is published to npm or the Marketplace.
 
 The steps, how to choose a version and what to do when a release fails are in

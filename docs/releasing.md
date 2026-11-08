@@ -52,7 +52,7 @@ repository as they are:
    Run them one after another, not in parallel; the build and the test each need
    a lot of memory.
 
-3. **Merge into master and push.** The push starts the `TS++` workflow. When it
+3. **Merge into master and push.** The push starts the `TSPP` workflow. When it
    succeeds, `.github/workflows/release.yml` starts on the commit it checked. The
    commit may be behind master by then. The release workflow:
    1. runs `scripts/release-version.mjs` to find whether the version is released;
@@ -78,10 +78,10 @@ A version with a prerelease part is published as a GitHub prerelease.
 
 | What happened | Result | What to do |
 | --- | --- | --- |
-| The `TS++` checks fail or are cancelled | Nothing is released | Fix and push to master again; the next passing run releases the version, because it is still untagged |
+| The `TSPP` checks fail or are cancelled | Nothing is released | Fix and push to master again; the next passing run releases the version, because it is still untagged |
 | The release workflow itself fails, for example on the network | No tag is created | Re-run that run from the Actions page |
 | A push leaves the version unchanged | The tag exists, so the release is skipped | Nothing |
-| The version is below one already released | `scripts/release-version.mjs` fails the `TS++` checks, so nothing is released | Set a version above the latest release |
+| The version is below one already released | `scripts/release-version.mjs` fails the `TSPP` checks, so nothing is released | Set a version above the latest release |
 | A published release is broken | It is out | Release a new patch version rather than deleting and reusing the version |
 
 `scripts/release-version.mjs` reads the `vX.Y.Z` tags on origin and compares

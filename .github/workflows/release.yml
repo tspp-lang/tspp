@@ -1,6 +1,6 @@
 name: Release
 
-# The root package.json holds the one version TS++ releases. Whenever the TS++ checks pass on a commit pushed to master
+# The root package.json holds the one version TS++ releases. Whenever the TSPP checks pass on a commit pushed to master
 # whose version has no vX.Y.Z tag yet, this assembles the release from that commit, tests it as an outside project would,
 # and publishes it on GitHub Releases with the ts-plus-plus package and the VS Code extension attached. Creating the
 # release tags that commit. A failed or cancelled check run releases nothing; the next passing one on master still
@@ -8,7 +8,8 @@ name: Release
 
 on:
   workflow_run:
-    workflows: [TS++]
+    # Names here are filter patterns, where `+` is special: the checks are named TSPP so that they can be named here.
+    workflows: [TSPP]
     types: [completed]
     branches: [master]
 
