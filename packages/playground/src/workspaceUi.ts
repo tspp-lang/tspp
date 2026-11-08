@@ -81,9 +81,9 @@ export function setupSaveShortcut(save: () => void): void {
   });
 }
 
-export function setupShareButton(button: HTMLButtonElement, manualLink: HTMLInputElement, link: () => Promise<string>): void {
+export function setupShareButton(button: HTMLButtonElement, manualLink: HTMLInputElement): void {
   button.onclick = async () => {
-    const href = await link();
+    const href = location.href;
     try {
       await navigator.clipboard.writeText(href);
     }

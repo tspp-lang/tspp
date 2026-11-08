@@ -1,6 +1,6 @@
 name: Deploy playground to GitHub Pages
 
-# The site serves the latest release at its root, master at next/ and every release at v/<version>/, each release from
+# The site redirects its root to the latest stable release, serves master at next/ and every release at v/<version>/ from
 # the playground zip its GitHub release carries (packages/playground/scripts/assemble-site.mjs). It is assembled anew
 # on every push to master and after every release, so a new release appears as soon as it is published.
 

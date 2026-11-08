@@ -95,14 +95,14 @@ and after every release, with `packages/playground/scripts/assemble-site.mjs`:
 
 | Path | Serves |
 |---|---|
-| `/` | The latest release without a prerelease part; master before the first release |
+| `/` | Redirects to the latest stable release, or to `/next/` before one is available |
 | `/next/` | The build of master |
 | `/v/X.Y.Z/` | Every release whose GitHub release carries a playground zip |
 | `/z3/<hash>/` | One copy of each Z3 the builds above load |
 | `/versions.json` | The releases, for the version selector |
 
 Each release is served from its own zip, so it runs the code it was released
-with. The version selector opens the chosen version with the current project,
-and Share links to `/v/X.Y.Z/` or `/next/`, never to `/`, which moves to each
-new release. A build whose Z3 changes gets a new `/z3/<hash>/`, and the old one
+with. The root redirect carries the query string and project hash to the target.
+The version selector opens the chosen version with the current project, and Share
+copies the editor's current URL. A build whose Z3 changes gets a new `/z3/<hash>/`, and the old one
 stays for as long as a served release uses it.

@@ -24,6 +24,7 @@ pnpm playground:dev
 pnpm build:playground
 ```
 
-The deployed site serves the latest release at its root, master at `next/` and every release at
-`v/<version>/`, with a selector between them; `docs/releasing.md` describes how it is assembled.
+The deployed site's root redirects to the latest stable release under `v/<version>/`, or to `next/`
+before the first stable release. The version selector can open any available release or the latest
+build of master at `next/`. See `docs/releasing.md` for how the site is assembled.
 A build on its own, such as a release's zip served from any directory, has no selector.

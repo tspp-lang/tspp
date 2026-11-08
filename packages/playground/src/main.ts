@@ -12,7 +12,7 @@ import type { ProjectFiles } from "./protocol";
 import { registerProviders, setDiagnosticMarkers } from "./providers";
 import { decodeShared, encodeExample, encodeState, onSharedStateChange, type SharedState } from "./share";
 import { renderSolverStatus } from "./solverStatus";
-import { pinnedShareLink, setupVersionSelector } from "./versionSelector";
+import { setupVersionSelector } from "./versionSelector";
 import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
 
 self.MonacoEnvironment = {
@@ -541,5 +541,5 @@ onSharedStateChange(stateFromHash, state => {
   loadProject(state);
 });
 
-setupShareButton(shareButton, shareLink, pinnedShareLink);
+setupShareButton(shareButton, shareLink);
 void setupVersionSelector(element<HTMLSelectElement>("versions"), () => dirtyFiles().size > 0);

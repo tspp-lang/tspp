@@ -21,12 +21,3 @@ export async function setupVersionSelector(select: HTMLSelectElement, hasUnsaved
     location.href = versionPage(deployment, select.value).href + location.hash;
   };
 }
-
-/**
- * The link that shares the current project on this version for good: a release's `v/<version>/` page even when this
- * is the site's root, which moves to each new release, or `next/`. A build that stands alone shares its own address.
- */
-export async function pinnedShareLink(): Promise<string> {
-  const deployment = await findDeployment();
-  return deployment.versions ? versionPage(deployment, currentVersion).href + location.hash : location.href;
-}

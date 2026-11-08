@@ -1,6 +1,6 @@
 /**
- * Where this build sits in the site that serves it. The playground site keeps the latest release at its root, master at
- * `next/` and every release at `v/<version>/`, with the files the builds share, such as Z3, at the root. Each build ships
+ * Where this build sits in the site that serves it. The playground site redirects its root to the latest stable release,
+ * serves master at `next/` and releases at `v/<version>/`, and keeps shared files such as Z3 at the root. Each build ships
  * `deployment.json` naming its own directory as the shared root; assembling the site rewrites it, and adds the
  * `versions.json` that lists what the site serves. Without them, as on the development server or in a release's zip
  * served on its own, the build stands alone: no other versions, and shared files beside the page.
@@ -13,7 +13,7 @@ export interface Deployment {
 }
 
 export interface SiteVersions {
-  /** The release served at the site's root, or null before the first release. */
+  /** The stable release the site's root redirects to, or null before one is available. */
   readonly latest: string | null;
   /** Every release the site serves, newest first. */
   readonly releases: readonly string[];
