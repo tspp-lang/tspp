@@ -32,7 +32,7 @@ function treeViolation(sourceFile) {
 const configFile = path.join(root, "tsconfig.json");
 const { options } = ts.parseJsonConfigFileContent(ts.readConfigFile(configFile, ts.sys.readFile).config, ts.sys, root);
 ts.loadTSPPConfiguredPlugins(options, configFile, ts.sys);
-if (!ts.getActiveTSPPPlugins().length) throw new Error(`No TS++ plugins active for ${root}.`);
+if (options.plugins?.some(plugin => plugin.tspp) && !ts.getActiveTSPPPlugins().length) throw new Error(`No TS++ plugins active for ${root}.`);
 
 for (let index = startIndex; index < points.length; index++) {
   parentPort.postMessage({ index });
