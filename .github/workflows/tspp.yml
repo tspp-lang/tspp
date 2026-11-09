@@ -46,8 +46,12 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - uses: ./.github/actions/setup
       - run: pnpm build
+        env:
+          TSPP_PLAYGROUND_CHANNEL: ${{ github.ref_name == 'dev' && 'dev' || 'master' }}
       - name: Type check the Playground
         run: pnpm --filter tspp-playground typecheck
+      - name: Test Playground site assembly
+        run: pnpm --filter tspp-playground test:site
       # The build above supplies the real tsserver and every plugin that editor conformance exercises.
       - run: pnpm test:editor-conformance:run
       - run: pnpm test:language-server
@@ -56,6 +60,17 @@ jobs:
         run: pnpm test:playground
       # The unit tests of what TS++ added to the compiler. The full upstream suite does not run here.
       - run: pnpm test:compiler:tspp
+      - name: Archive the tested branch preview
+        if: github.event_name == 'push'
+        working-directory: packages/playground/dist
+        run: zip -q -r "$RUNNER_TEMP/playground-preview.zip" .
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push'
+        with:
+          name: playground-preview
+          path: ${{ runner.temp }}/playground-preview.zip
+          if-no-files-found: error
+          overwrite: true
 
   core-drift:
     name: Core drift gate

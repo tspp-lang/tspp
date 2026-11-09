@@ -7,7 +7,7 @@ declare const __TSPP_BUILD_COMMIT__: string;
 declare const __TSPP_VERSION__: string;
 
 /** Whether this bundle is a release's playground or a build of master. */
-declare const __TSPP_PLAYGROUND_CHANNEL__: "release" | "next";
+declare const __TSPP_PLAYGROUND_CHANNEL__: "release" | "master" | "dev";
 
 /** Where this build's Z3 lives below the shared root, e.g. `z3/0123456789abcdef`; the hash names its content. */
 declare const __TSPP_Z3_DIRECTORY__: string;

@@ -90,19 +90,30 @@ TypeScript commit this fork started from, not a TS++ release.
 
 ## The playground site
 
-`.github/workflows/playground.yml` assembles the site on every push to master
-and after every release, with `packages/playground/scripts/assemble-site.mjs`:
+After TSPP passes on a push to `master` or `dev`, the Pages workflow publishes
+the tested preview for that branch. A single workflow on `master` assembles and
+deploys the whole site. It restores the other branch's zip from the last
+successful Pages deployment and checks its checksum, preserving its assets and URLs.
+Release updates reuse both published previews. A failed build or a missing
+published archive leaves the live site in place.
 
 | Path | Serves |
 |---|---|
-| `/` | Redirects to the latest stable release, or to `/next/` before one is available |
-| `/next/` | The build of master |
+| `/` | Redirects to the latest stable release, or to `/master/` before one is available |
+| `/master/` | The published Master preview |
+| `/dev/` | The published Dev preview, once it passes checks |
 | `/v/X.Y.Z/` | Every release whose GitHub release carries a playground zip |
 | `/z3/<hash>/` | One copy of each Z3 the builds above load |
-| `/versions.json` | The releases, for the version selector |
+| `/versions.json` | The previews and releases available in the version selector |
+
+The first Master publication can also seed Dev from its latest successful push
+with a preview archive. To publish a tested preview manually, run the Pages
+workflow on `master` and select the branch to update.
 
 Each release is served from its own zip, so it runs the code it was released
-with. The root redirect carries the query string and project hash to the target.
+with. The site updates the archived v0.1.0 page's version selector to use the
+published branch links. The root redirect carries the query string and project
+hash to the target.
 The version selector opens the chosen version with the current project, and Share
 copies the editor's current URL. A build whose Z3 changes gets a new `/z3/<hash>/`, and the old one
 stays for as long as a served release uses it.
