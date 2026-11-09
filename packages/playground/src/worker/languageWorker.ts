@@ -66,6 +66,7 @@ const files = new Map<string, { text: string; version: number }>();
 let options: ts.CompilerOptions = createOptions();
 let rootFileNames: string[] = [];
 let configurationDiagnostics: readonly DiagnosticInfo[] = [];
+let activeOverlayViews: readonly TSPPSourceOverlayView[] = [];
 let service: ts.LanguageService | undefined;
 
 /** Declarations for `ts-plus-plus` and its subpaths, loaded once a file imports the package. */
@@ -350,6 +351,7 @@ const api: WorkerApi = {
     options = configured.options;
     rootFileNames = configured.rootFileNames;
     configurationDiagnostics = configured.diagnostics;
+    activeOverlayViews = features.flatMap(id => pluginById.get(id)?.facets.editor?.overlayViews ?? []);
     service?.dispose();
     service = undefined;
     projectVersion++;
@@ -396,7 +398,7 @@ const api: WorkerApi = {
     const info = activeService.getQuickInfoAtPosition(fileName, offset);
     const normalized = normalizedTypeAt(fileName, offset);
     const program = activeService.getProgram();
-    const overlay = program && overlayViews.flatMap(view => view.getOverlays(program, fileName)).find(candidate => contains(candidate, offset));
+    const overlay = program && activeOverlayViews.flatMap(view => view.getOverlays(program, fileName)).find(candidate => contains(candidate, offset));
     const artifact = program && tspp.getTSPPAnalysisArtifacts(program, fileName).find(candidate => contains(candidate, offset));
     const span = info?.textSpan ?? normalized?.span ?? overlay ?? artifact;
     if (!span) return undefined;

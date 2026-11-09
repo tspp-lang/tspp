@@ -13,9 +13,9 @@ import {
     type MacroCompilerHost,
     type MacroExpansionResult,
     type MacroInvocationEvents,
-    reportMacroOptionDiagnostics,
 } from "./expand";
 import { findStatement, getProjectedElements } from "./nodes";
+import { reportMacroOptionDiagnostics } from "./options";
 import type { MacroExpansion } from "./sdk";
 import { getDeclarationPrefix, isMacroSourceFile, type MacroSourceSyntax, scanMacroSource } from "./syntax";
 import { canUseMacroWorkers, MacroWorkerError, type MacroWorkerResult, runMacroExpansionWorker } from "./worker";

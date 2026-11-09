@@ -109,6 +109,26 @@ test("rebuilds the final program from returned statements", () => {
   assert.match(expansion.text, /var UserTypeName: "User" = "User";/);
 });
 
+test("reports an invalid generated tree and keeps subsequent macro expansions", async () => {
+  const content = `
+    ${exposeTypeNameSource().replace(", literal);", ', target.name === "Broken" ? "aaa" : literal);')}
+    interface Broken {}
+    interface User {}
+    macro exposeTypeName(Broken);
+    macro exposeTypeName(User);
+    const checked: "User" = UserTypeName;
+  `;
+  for (const program of [build(content).program, (await buildAsync(content)).program]) {
+    const [diagnostic, ...others] = program.getSemanticDiagnostics();
+    assert.deepEqual(others, []);
+    assert.match(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"), /Macro 'exposeTypeName' returned an invalid syntax tree/);
+    assert.equal(content.slice(diagnostic.start, diagnostic.start + diagnostic.length), "macro exposeTypeName(Broken);");
+    const [broken, valid] = getMacroExpansions(program, "/file.tspp");
+    assert.equal(broken.text, "");
+    assert.match(valid.text, /^var UserTypeName: "User" = "User";$/);
+  }
+});
+
 test("checks suggestion diagnostics on the expanded file", async () => {
   // The rebuilt file is re-created by the factory; the checker must treat it as the parse tree rather than following
   // `original` to the unexpanded, unbound file.
