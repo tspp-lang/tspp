@@ -26,6 +26,8 @@ export type MacroTimeout =
 export interface MacroFactory {
   createIdentifier(text: string): MacroNode;
   createStringLiteral(text: string): MacroNode;
+  /** Creates a type annotation such as `string` from `context.typescript.SyntaxKind.StringKeyword`. */
+  createKeywordTypeNode(kind: number): MacroNode;
   createLiteralTypeNode(literal: MacroNode): MacroNode;
   createModifier(kind: number): MacroNode;
   createVariableDeclaration(name: string, exclamationToken?: MacroNode, type?: MacroNode, initializer?: MacroNode): MacroNode;
@@ -40,7 +42,22 @@ export interface MacroContext {
   readonly factory: MacroFactory;
   readonly typescript: {
     readonly factory: MacroFactory;
-    readonly SyntaxKind: Readonly<Record<string, number>>;
+    readonly SyntaxKind: Readonly<Record<string, number> & {
+      FunctionDeclaration: number;
+      ExportKeyword: number;
+      AnyKeyword: number;
+      BigIntKeyword: number;
+      BooleanKeyword: number;
+      IntrinsicKeyword: number;
+      NeverKeyword: number;
+      NumberKeyword: number;
+      ObjectKeyword: number;
+      StringKeyword: number;
+      SymbolKeyword: number;
+      UndefinedKeyword: number;
+      UnknownKeyword: number;
+      VoidKeyword: number;
+    }>;
     readonly NodeFlags: Readonly<Record<string, number>>;
   };
   readonly sourceFile: MacroSourceFile;

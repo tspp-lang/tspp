@@ -2,6 +2,7 @@
 // (unittests/tspp/macros.ts). Programs are built through the compiler's program-rebuild slot, synchronously,
 // asynchronously (in a worker or in this thread), and in a language service.
 const assert = require("node:assert/strict");
+const { readFileSync } = require("node:fs");
 const { test } = require("node:test");
 const { usePlugins, createProgram, diagnosticMessages } = require("../../test-support/compile.cjs");
 const { macrosPlugin, getMacroExpansions } = require("../dist");
@@ -107,6 +108,35 @@ test("rebuilds the final program from returned statements", () => {
   assert.equal(expansion.macroName, "exposeTypeName");
   assert.equal(expandingSource.slice(expansion.start, expansion.start + expansion.length), "macro exposeTypeName(User);");
   assert.match(expansion.text, /var UserTypeName: "User" = "User";/);
+});
+
+test("exposes keyword type annotations to typed macros", () => {
+  const source = `
+    import type { MacroContext, MacroTarget } from "./sdk";
+    macro function expose([target]: readonly MacroTarget[], context: MacroContext) {
+      const { factory, SyntaxKind, NodeFlags } = context.typescript;
+      const declaration = factory.createVariableDeclaration(
+        target.name + "TypeName", undefined,
+        factory.createKeywordTypeNode(SyntaxKind.StringKeyword),
+        factory.createStringLiteral("AAA"),
+      );
+      return factory.createVariableStatement(
+        [factory.createModifier(SyntaxKind.ExportKeyword)],
+        factory.createVariableDeclarationList([declaration], NodeFlags.Const),
+      );
+    }
+    interface Box {}
+    macro expose(Box);
+  `;
+  const { program, outputs } = createProgram({
+    "/file.tspp": source,
+    "/sdk.d.ts": readFileSync(require.resolve("../dist/sdk.d.ts"), "utf8"),
+  }, { declaration: true, moduleResolution: ts.ModuleResolutionKind.Node10, noLib: false });
+  assert.deepEqual(diagnosticMessages(program), []);
+  const [expansion] = getMacroExpansions(program, "/file.tspp");
+  assert.equal(expansion.text, 'export const BoxTypeName: string = "AAA";');
+  assert.equal(program.emit().emitSkipped, false);
+  assert.match(outputs.get("/file.d.ts"), /export declare const BoxTypeName: string;/);
 });
 
 test("reports an invalid generated tree and keeps subsequent macro expansions", async () => {

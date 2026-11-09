@@ -6,7 +6,7 @@ import { describeTimeout, macroDiagnosticCodes, type MacroTimeoutBudget, readMac
 import {
     asyncEvaluations,
     type AsyncEvaluation,
-    createMacroFactory,
+    createMacroTypeScript,
     evaluateMacroModuleInNode,
     type Invocation,
     isPromiseLike,
@@ -59,13 +59,12 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
 export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsync: false): MacroExpansionResult;
 export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsync: boolean): MacroExpansionResult | Promise<MacroExpansionResult> {
     const { ts, program, host } = options;
-    const kinds = ts.SyntaxKind;
     const checker = program.getTypeChecker();
     const compilerOptions = program.getCompilerOptions();
     const diagnostics: TS.Diagnostic[] = [];
     let printer = ts.createPrinter();
     const moduleCache = new Map<string, Record<string, unknown>>();
-    const factory = createMacroFactory(ts);
+    const macroTypeScript = createMacroTypeScript(ts);
     let macroProgram: TS.Program | undefined;
     let macroHost: MacroCompilerHost | undefined;
     let inputKey: string | undefined;
@@ -344,11 +343,11 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
             const result = (macro as (targets: readonly unknown[], context: Record<string, unknown>) => unknown)(targets, {
                 program,
                 checker,
-                factory,
+                factory: macroTypeScript.factory,
                 typescript: {
-                    factory,
-                    SyntaxKind: { FunctionDeclaration: kinds.FunctionDeclaration, ExportKeyword: kinds.ExportKeyword },
-                    NodeFlags: { Const: ts.NodeFlags.Const },
+                    ...macroTypeScript,
+                    SyntaxKind: { ...macroTypeScript.SyntaxKind },
+                    NodeFlags: { ...macroTypeScript.NodeFlags },
                 },
                 sourceFile: invocationSource,
                 macroInvocation: invocation.statement,
