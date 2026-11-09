@@ -1,6 +1,6 @@
 /**
  * Where this build sits in the site that serves it. The playground site redirects its root to the latest stable release,
- * serves master at `next/` and releases at `v/<version>/`, and keeps shared files such as Z3 at the root. Each build ships
+ * serves branch previews and releases, and keeps shared files such as Z3 at the root. Each build ships
  * `deployment.json` naming its own directory as the shared root; assembling the site rewrites it, and adds the
  * `versions.json` that lists what the site serves. Without them, as on the development server or in a release's zip
  * served on its own, the build stands alone: no other versions, and shared files beside the page.
@@ -15,12 +15,13 @@ export interface Deployment {
 export interface SiteVersions {
   /** The stable release the site's root redirects to, or null before one is available. */
   readonly latest: string | null;
+  /** The branch previews published on this site. */
+  readonly branches: readonly ("master" | "dev")[];
   /** Every release the site serves, newest first. */
   readonly releases: readonly string[];
 }
 
-/** The version this build is: a release's version, or `next` for a build of master. */
-export const currentVersion = __TSPP_PLAYGROUND_CHANNEL__ === "release" ? __TSPP_VERSION__ : "next";
+export const currentVersion = __TSPP_PLAYGROUND_CHANNEL__ === "release" ? __TSPP_VERSION__ : __TSPP_PLAYGROUND_CHANNEL__;
 
 async function readJson(url: URL): Promise<unknown> {
   try {
@@ -34,9 +35,13 @@ async function readJson(url: URL): Promise<unknown> {
 
 function siteVersions(value: unknown): SiteVersions | undefined {
   if (!value || typeof value !== "object") return undefined;
-  const { latest, releases } = value as Record<string, unknown>;
-  if (!Array.isArray(releases) || !releases.every(release => typeof release === "string")) return undefined;
-  return { latest: typeof latest === "string" ? latest : null, releases };
+  const { latest, branches, releases } = value as Record<string, unknown>;
+  if (!Array.isArray(branches) || !Array.isArray(releases) || !releases.every(release => typeof release === "string")) return undefined;
+  return {
+    latest: typeof latest === "string" ? latest : null,
+    branches: branches.filter(branch => branch === "master" || branch === "dev"),
+    releases,
+  };
 }
 
 let deployment: Promise<Deployment> | undefined;
@@ -50,9 +55,9 @@ export function findDeployment(): Promise<Deployment> {
   })();
 }
 
-/** The page of the site that serves `version` for good: `next/` or `v/<version>/`, never the root, whose release changes. */
+/** The branch or release URL, independent of the version served by the site root. */
 export function versionPage({ root }: Deployment, version: string): URL {
-  return new URL(version === "next" ? "next/" : `v/${version}/`, root);
+  return new URL(version === "master" || version === "dev" ? `${version}/` : `v/${version}/`, root);
 }
 
 /** The Z3 this build was made with, in the deployment's shared files. */

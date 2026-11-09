@@ -40,6 +40,12 @@ const isolationHeaders = {
   "Cross-Origin-Embedder-Policy": "require-corp",
 };
 
+function playgroundChannel(): "master" | "dev" | "release" {
+  const channel = process.env.TSPP_PLAYGROUND_CHANNEL ?? "master";
+  if (channel === "master" || channel === "dev" || channel === "release") return channel;
+  throw new Error(`Unknown playground channel '${channel}'.`);
+}
+
 /** The TS++ version: the root package.json's, the one a release carries. */
 function releaseVersion(): string {
   return (JSON.parse(readFileSync(resolve(import.meta.dirname, "../../package.json"), "utf8")) as { version: string }).version;
@@ -367,8 +373,7 @@ export default defineConfig({
   define: {
     __TSPP_BUILD_COMMIT__: JSON.stringify(buildCommit()),
     __TSPP_VERSION__: JSON.stringify(releaseVersion()),
-    // A release's playground is built with TSPP_PLAYGROUND_CHANNEL=release; any other build is of master.
-    __TSPP_PLAYGROUND_CHANNEL__: JSON.stringify(process.env.TSPP_PLAYGROUND_CHANNEL === "release" ? "release" : "next"),
+    __TSPP_PLAYGROUND_CHANNEL__: JSON.stringify(playgroundChannel()),
   },
   resolve: { alias: [
     { find: "ts-plus-plus/source", replacement: compilerEntry },

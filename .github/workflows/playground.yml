@@ -1,32 +1,49 @@
 name: Deploy playground to GitHub Pages
 
-# The site redirects its root to the latest stable release, serves master at next/ and every release at v/<version>/ from
-# the playground zip its GitHub release carries (packages/playground/scripts/assemble-site.mjs). It is assembled anew
-# on every push to master and after every release, so a new release appears as soon as it is published.
+# Publish tested branch previews and release zips together from the default branch.
 
 on:
-  push:
-    branches: [master]
   workflow_run:
-    workflows: [Release]
+    workflows: [TSPP, Release]
     types: [completed]
+    branches: [master, dev]
   workflow_dispatch:
+    inputs:
+      preview:
+        description: Branch preview to update, or refresh the release list
+        type: choice
+        options: [master, dev, releases]
+        default: master
 
 permissions:
   contents: read
+  actions: read
+  deployments: read
   pages: write
   id-token: write
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  queue: max
 
 jobs:
-  build:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+  publish:
+    name: Publish playground site
+    if: >-
+      github.ref == 'refs/heads/master' &&
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_repository.id == github.event.repository.id &&
+        (github.event.workflow_run.name == 'Release' ||
+         github.event.workflow_run.event == 'push')))
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: pnpm/action-setup@v4
         with:
           version: 12.4.2
@@ -37,39 +54,31 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
-      - name: Generate compiler diagnostics
-        run: pnpm --filter ts-plus-plus exec hereby generate-diagnostics
-      - name: Build plugin runtime
-        run: |
-          pnpm build:plugin-sdk
-          pnpm build:plugins
-      - name: Build playground
-        run: pnpm build:playground
-      # A failure here keeps the last working playground deployed.
-      - name: Run every Playground source file in a browser
-        run: pnpm test:playground
+      - uses: actions/configure-pages@v5
+        id: pages
+      - name: Restore the published previews and select the tested update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGES_URL: ${{ steps.pages.outputs.base_url }}
+        run: node packages/playground/scripts/prepare-previews.mjs previews
       - name: Download the playground of every release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           mkdir -p releases
-          for tag in $(gh release list --limit 1000 --json tagName --jq '.[].tagName'); do
-            # Releases from before the playground was released carry none.
-            gh release download "$tag" --pattern 'tspp-playground-*.zip' --dir releases || echo "$tag has no playground."
-          done
+          tags=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases" --jq '.[] | select(.draft == false and any(.assets[]; .name | test("^tspp-playground-.*[.]zip$"))) | .tag_name')
+          while IFS= read -r tag; do
+            if [[ -n "$tag" ]]; then
+              gh release download --repo "$GITHUB_REPOSITORY" --pattern 'tspp-playground-*.zip' --dir releases -- "$tag"
+            fi
+          done <<< "$tags"
       - name: Assemble the site
-        run: node packages/playground/scripts/assemble-site.mjs --next packages/playground/dist --releases releases --out site
-      - uses: actions/configure-pages@v5
+        run: node packages/playground/scripts/assemble-site.mjs --previews previews --deployment "$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" --releases releases --out site
       - uses: actions/upload-pages-artifact@v3
         with:
+          name: github-pages-${{ github.run_attempt }}
           path: site
-
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}

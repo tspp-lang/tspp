@@ -7,7 +7,7 @@ export async function setupVersionSelector(select: HTMLSelectElement, hasUnsaved
   if (!versions) return;
   const option = (value: string, label: string) => Object.assign(document.createElement("option"), { value, textContent: label });
   select.replaceChildren(
-    option("next", "Next (master)"),
+    ...versions.branches.map(branch => option(branch, branch === "dev" ? "Dev" : "Master")),
     ...versions.releases.map(release => option(release, release === versions.latest ? `${release} (latest)` : release)),
   );
   select.value = currentVersion;
@@ -18,6 +18,6 @@ export async function setupVersionSelector(select: HTMLSelectElement, hasUnsaved
       return;
     }
     // The hash carries the saved project.
-    location.href = versionPage(deployment, select.value).href + location.hash;
+    location.href = versionPage(deployment, select.value).href + location.search + location.hash;
   };
 }
