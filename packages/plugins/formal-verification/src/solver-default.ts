@@ -51,7 +51,7 @@ main().then(
 );
 `;
 
-export function solveWithDefaultZ3(queries: readonly Z3Query[]): Promise<readonly Z3Answer[]> {
+export function solveWithDefaultZ3(queries: readonly Z3Query[], budgetMs = 30_000): Promise<readonly Z3Answer[]> {
     return new Promise((resolve, reject) => {
         const worker = new Worker(workerSource, {
             eval: true,
@@ -60,8 +60,8 @@ export function solveWithDefaultZ3(queries: readonly Z3Query[]): Promise<readonl
         });
         const timer = setTimeout(() => {
             void worker.terminate();
-            reject(new Error("The Z3 worker exceeded its 30 second budget."));
-        }, 30_000);
+            reject(new Error(`The Z3 worker exceeded its ${budgetMs / 1000} second budget.`));
+        }, budgetMs);
         worker.once("message", (message: { ok: boolean; answers?: readonly Z3Answer[]; message?: string; }) => {
             clearTimeout(timer);
             void worker.terminate();
