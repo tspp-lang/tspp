@@ -2,11 +2,11 @@ import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisLocation } from "@tspp/plugin-sdk/compiler";
-import { expressionToSmtTerm, type Sort, type Term } from "./expression";
+import { expressionToSmtTerm, isNumericSort, smtSort, type Sort, type Term } from "./expression";
 import type { PendingProof } from "./contracts";
-import type { RefinementModel } from "./refinements";
+import { refinementTerm, type RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
-import type { Clause, DataConstructor, FunctionModel } from "./models";
+import type { Clause, DataConstructor, FunctionModel, RecordFields } from "./models";
 import type { ClassModel, MemberModel } from "./classes";
 import type { DeclaredTarget } from "./program-index";
 
@@ -31,7 +31,7 @@ export interface Context {
     readonly sourceText: string;
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly refinements: ReadonlyMap<string, RefinementModel>;
-    readonly records: ReadonlyMap<string, ReadonlyMap<string, Sort>>;
+    readonly records: ReadonlyMap<string, RecordFields>;
     readonly constructors: ReadonlyMap<string, DataConstructor>;
     readonly nominalTypes: NominalTypesADTAPI | undefined;
     readonly logic: LogicLibrary;
@@ -131,7 +131,7 @@ export function havoc(state: State, name: string, context: Context): void {
     const sort = state.values[name]?.sort ?? state.variables[name];
     if (!sort) return;
     const symbol = `tspp.havoc.${name}.${context.nextTemporary++}`;
-    state.declarations.add(`(declare-const |${symbol}| ${sort})`);
+    state.declarations.add(`(declare-const |${symbol}| ${smtSort(sort)})`);
     state.values[name] = { smt: `|${symbol}|`, sort };
 }
 
@@ -149,13 +149,20 @@ export function isIncrementOrDecrement(node: TS.Node): node is TS.PrefixUnaryExp
         && (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken);
 }
 
+export function writeTarget(node: TS.Node): TS.Expression | undefined {
+    if (ts.isBinaryExpression(node) && assignmentOperators().has(node.operatorToken.kind)) return node.left;
+    if (isIncrementOrDecrement(node)) return node.operand;
+    if (ts.isVariableDeclaration(node) && node.initializer && ts.isIdentifier(node.name)
+        && ts.isVariableDeclarationList(node.parent) && !(node.parent.flags & ts.NodeFlags.BlockScoped)) return node.name;
+    return undefined;
+}
+
 /** Every state key the node may write, ignoring nested functions, which the executor never inlines. */
 export function assignedKeys(node: TS.Node): Set<string> {
     const keys = new Set<string>();
     const visit = (child: TS.Node): void => {
         if (ts.isFunctionLike(child)) return;
-        const target = ts.isBinaryExpression(child) && assignmentOperators().has(child.operatorToken.kind) ? child.left
-            : isIncrementOrDecrement(child) ? child.operand : undefined;
+        const target = writeTarget(child);
         const key = target && assignmentKey(target);
         if (key) keys.add(key);
         ts.forEachChild(child, visit);
@@ -172,6 +179,15 @@ export function lexicalNames(statements: readonly TS.Statement[]): string[] {
 
 export const isBound = (state: State, name: string) => name in state.values || name in state.variables;
 
+/** A loop can forget the value of a binding at its head, so writes must preserve its modeled numeric type. */
+export function writeValue(state: State, key: string, value: Term): void {
+    const previous = state.values[key]?.sort ?? state.variables[key];
+    if (previous && previous !== value.sort && (isNumericSort(previous) || isNumericSort(value.sort))) {
+        throw new Error(`Cannot change the proof sort of '${key}' from ${previous} to ${value.sort}.`);
+    }
+    state.values[key] = value;
+}
+
 export function innermostLoop(context: Context): JumpTarget | undefined {
     for (let index = context.jumpTargets.length - 1; index >= 0; index--) {
         if (context.jumpTargets[index].kind === "loop") return context.jumpTargets[index];
@@ -181,26 +197,23 @@ export function innermostLoop(context: Context): JumpTarget | undefined {
 
 export function initialState(model: FunctionModel, logic: LogicLibrary): State {
     const declarations = new Set<string>(logic.declarations);
-    for (const [name, sort] of Object.entries(model.variables)) declarations.add(`(declare-const |${name}| ${sort})`);
+    for (const [name, sort] of Object.entries(model.variables)) declarations.add(`(declare-const |${name}| ${smtSort(sort)})`);
     const state: State = { variables: { ...model.variables }, values: {}, declarations, facts: [] };
     for (const requirement of model.requires) {
         const fact = expressionToSmtTerm(requirement.value, {
             variables: state.variables,
             functions: logic.functions,
-            defaultNumberSort: model.numberModel === "mathematical-real" ? "Real" : "Int",
+            defaultNumberSort: model.numberModel === "mathematical-real" ? "Real" : "NumberInt",
         });
         if (fact.sort === "Bool") state.facts.push(fact.smt);
     }
     if (model.numberModel === "safe-integer") {
         for (const [name, sort] of Object.entries(model.variables)) {
-            if (sort === "Int") state.facts.push(`(and (>= |${name}| (- 9007199254740991)) (<= |${name}| 9007199254740991))`);
+            if (sort === "NumberInt") state.facts.push(safeIntegerRange(`|${name}|`));
         }
     }
     for (const [name, refinement] of Object.entries(model.parameterRefinements ?? {})) {
-        const fact = expressionToSmtTerm(refinement.predicate, {
-            substitutions: { value: { smt: `|${name}|`, sort: refinement.sort } },
-            functions: logic.functions,
-        });
+        const fact = refinementTerm(refinement, { smt: `|${name}|`, sort: refinement.sort }, logic.functions);
         if (fact.sort === "Bool") state.facts.push(fact.smt);
     }
     return state;

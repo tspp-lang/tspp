@@ -2,7 +2,8 @@ import { maskNonCode } from "@tspp/plugin-sdk";
 import type { TSPPAnalysisDiagnostic, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import type { Sort } from "./expression";
+import { expressionToSmtTerm, termForSort, type ExpressionEnvironment, type Sort, type Term } from "./expression";
+import { parseProperties } from "./contracts";
 import { ts } from "./host-api";
 
 function matchingBrace(code: string, open: number): number {
@@ -19,6 +20,13 @@ export interface RefinementModel {
     readonly sort: Sort;
     readonly predicate: string;
     readonly start: number;
+}
+
+export function refinementTerm(refinement: RefinementModel, value: Term, functions?: ExpressionEnvironment["functions"]): Term {
+    return expressionToSmtTerm(refinement.predicate, {
+        substitutions: { value: termForSort(value, refinement.sort, `Value of '${refinement.name}'`) },
+        functions, defaultNumberSort: refinement.sort === "Real" ? "Real" : "NumberInt",
+    });
 }
 
 interface RefinementClause {
@@ -74,12 +82,17 @@ export function collectRefinements(sourceFile: TS.SourceFile, sourceText: string
     forEachNode(sourceFile, node => {
         const clause = ts.isTypeAliasDeclaration(node) ? refinementClauses.get(node.type) : undefined;
         if (!clause || !ts.isTypeAliasDeclaration(node)) return;
-        const property = /\bpredicate\s*:\s*([^;]+);/.exec(sourceText.slice(clause.open + 1, clause.close));
+        const properties = sourceText.slice(clause.open + 1, clause.close);
+        const property = /\bpredicate\s*:\s*([^;]+);/.exec(properties);
         if (!property) return;
         const predicate = property[1].trim();
         const start = clause.open + 1 + property.index + property[0].indexOf(property[1]) + property[1].indexOf(predicate);
         const name = ts.idText(node.name);
-        refinements.set(name, { name, sort: clause.base.kind === ts.SyntaxKind.BooleanKeyword ? "Bool" : "Int", predicate, start });
+        const numberModel = parseProperties(properties, clause.open + 1).find(item => item.name === "numberModel")?.value.replace(/["']/g, "");
+        const sort = clause.base.kind === ts.SyntaxKind.BooleanKeyword ? "Bool"
+            : clause.base.kind === ts.SyntaxKind.BigIntKeyword ? "Int"
+            : numberModel === "mathematical-real" ? "Real" : "NumberInt";
+        refinements.set(name, { name, sort, predicate, start });
     });
     return refinements;
 }

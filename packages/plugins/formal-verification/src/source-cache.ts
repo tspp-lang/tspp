@@ -4,16 +4,15 @@ import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { TSPPAnalysisSourceFile } from "@tspp/plugin-sdk/compiler";
 import { keepingProofDirectives } from "./contracts";
 import {
-    collectDataTypes, collectRecordTypes, parseFunctionModels, type DataConstructor, type FunctionModel,
+    collectDataTypes, collectRecordTypes, parseFunctionModels, type DataConstructor, type FunctionModel, type RecordFields,
 } from "./models";
 import { collectRefinements, type RefinementModel } from "./refinements";
-import type { Sort } from "./expression";
 
 export interface PreparedVerificationSource {
     readonly sourceFile: TS.SourceFile;
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly refinements: ReadonlyMap<string, RefinementModel>;
-    readonly records: ReadonlyMap<string, ReadonlyMap<string, Sort>>;
+    readonly records: ReadonlyMap<string, RecordFields>;
     readonly constructors: ReadonlyMap<string, DataConstructor>;
 }
 

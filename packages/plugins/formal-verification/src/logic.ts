@@ -1,6 +1,6 @@
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, ts } from "./host-api";
-import type { Sort, Term } from "./expression";
+import { isNumericSort, smtSort, strictEquality, stringTerm, type Sort, type Term } from "./expression";
 
 export interface LogicSignature {
     readonly parameters: readonly Sort[];
@@ -65,15 +65,15 @@ function lower(node: TS.Expression, context: LoweringContext): Term {
         return { smt: `|${nameText(node)}|`, sort };
     }
     if (ts.isBigIntLiteral(node)) return { smt: nameText(node).replace(/n$/, ""), sort: "Int" };
-    if (ts.isNumericLiteral(node)) return { smt: nameText(node), sort: nameText(node).includes(".") ? "Real" : "Int" };
-    if (ts.isStringLiteral(node)) return { smt: `"${nameText(node).replace(/"/g, '""')}"`, sort: "String" };
+    if (ts.isNumericLiteral(node)) return { smt: nameText(node), sort: nameText(node).includes(".") ? "Real" : "NumberInt" };
+    if (ts.isStringLiteral(node)) return stringTerm(nameText(node));
     if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
         return { smt: node.kind === ts.SyntaxKind.TrueKeyword ? "true" : "false", sort: "Bool" };
     }
     if (ts.isPrefixUnaryExpression(node)) {
         const value = lower(node.operand, context);
         if (node.operator === ts.SyntaxKind.ExclamationToken && value.sort === "Bool") return { smt: `(not ${value.smt})`, sort: "Bool" };
-        if (node.operator === ts.SyntaxKind.MinusToken && (value.sort === "Int" || value.sort === "Real")) return { smt: `(- ${value.smt})`, sort: value.sort };
+        if (node.operator === ts.SyntaxKind.MinusToken && isNumericSort(value.sort)) return { smt: `(- ${value.smt})`, sort: value.sort };
         throw new Error("Unsupported SMT unary expression.");
     }
     if (ts.isConditionalExpression(node)) {
@@ -93,6 +93,10 @@ function lowerBinary(node: TS.BinaryExpression, context: LoweringContext): Term 
     const left = lower(node.left, context);
     const right = lower(node.right, context);
     const kind = node.operatorToken.kind;
+    if (kind === ts.SyntaxKind.EqualsEqualsEqualsToken || kind === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
+        const equal = strictEquality(left, right);
+        return { smt: kind === ts.SyntaxKind.EqualsEqualsEqualsToken ? equal : `(not ${equal})`, sort: "Bool" };
+    }
     const arithmetic = new Map<number, string>([
         [ts.SyntaxKind.PlusToken, "+"], [ts.SyntaxKind.MinusToken, "-"], [ts.SyntaxKind.AsteriskToken, "*"],
         [ts.SyntaxKind.SlashToken, left.sort === "Real" ? "/" : "tspp.js.trunc.div"],
@@ -102,15 +106,15 @@ function lowerBinary(node: TS.BinaryExpression, context: LoweringContext): Term 
         [ts.SyntaxKind.LessThanToken, "<"], [ts.SyntaxKind.LessThanEqualsToken, "<="],
         [ts.SyntaxKind.GreaterThanToken, ">"], [ts.SyntaxKind.GreaterThanEqualsToken, ">="],
     ]);
-    sameSort(left, right);
-    if (arithmetic.has(kind) && (left.sort === "Int" || left.sort === "Real")) {
-        return { smt: `(${arithmetic.get(kind)} ${left.smt} ${right.smt})`, sort: left.sort };
-    }
-    if (comparison.has(kind) && (left.sort === "Int" || left.sort === "Real")) {
+    if (comparison.has(kind) && isNumericSort(left.sort) && isNumericSort(right.sort)) {
         return { smt: `(${comparison.get(kind)} ${left.smt} ${right.smt})`, sort: "Bool" };
     }
-    if (kind === ts.SyntaxKind.EqualsEqualsEqualsToken || kind === ts.SyntaxKind.EqualsEqualsToken) return { smt: `(= ${left.smt} ${right.smt})`, sort: "Bool" };
-    if (kind === ts.SyntaxKind.ExclamationEqualsEqualsToken || kind === ts.SyntaxKind.ExclamationEqualsToken) return { smt: `(not (= ${left.smt} ${right.smt}))`, sort: "Bool" };
+    sameSort(left, right);
+    if (arithmetic.has(kind) && isNumericSort(left.sort)) {
+        return { smt: `(${arithmetic.get(kind)} ${left.smt} ${right.smt})`, sort: left.sort };
+    }
+    if (kind === ts.SyntaxKind.EqualsEqualsToken) return { smt: `(= ${left.smt} ${right.smt})`, sort: "Bool" };
+    if (kind === ts.SyntaxKind.ExclamationEqualsToken) return { smt: `(not (= ${left.smt} ${right.smt}))`, sort: "Bool" };
     if (kind === ts.SyntaxKind.AmpersandAmpersandToken && left.sort === "Bool") return { smt: `(and ${left.smt} ${right.smt})`, sort: "Bool" };
     if (kind === ts.SyntaxKind.BarBarToken && left.sort === "Bool") return { smt: `(or ${left.smt} ${right.smt})`, sort: "Bool" };
     throw new Error("Unsupported SMT binary expression.");
@@ -140,7 +144,9 @@ function lowerCall(node: TS.CallExpression, context: LoweringContext): Term {
     const known = directName && context.functions.get(directName);
     if (known) {
         if (known.parameters.length !== arguments_.length) throw new Error(`SMT function '${directName}' has the wrong arity.`);
-        known.parameters.forEach((sort, index) => { if (sort !== arguments_[index].sort) throw new Error(`SMT argument ${index + 1} has the wrong sort.`); });
+        known.parameters.forEach((sort, index) => {
+            if (smtSort(sort) !== smtSort(arguments_[index].sort)) throw new Error(`SMT argument ${index + 1} has the wrong sort.`);
+        });
         return { smt: `(|${directName}|${arguments_.length ? ` ${arguments_.map(value => value.smt).join(" ")}` : ""})`, sort: known.result };
     }
     const operation = helper.get(name);
@@ -201,7 +207,7 @@ export function collectLogicLibrary(sourceTexts: readonly string[]): LogicLibrar
         const bodyNode = arrowBody(item.call.arguments[item.kind === "definePredicate" ? 1 : 2]);
         const variables = new Map(parameters.map(parameter => [parameter.name, parameter.sort] as const));
         const term = lower(bodyNode, { sourceFile: item.sourceFile, variables, functions });
-        if (term.sort !== signature.result) throw new Error(`SMT function '${item.name}' body has the wrong sort.`);
+        if (smtSort(term.sort) !== smtSort(signature.result)) throw new Error(`SMT function '${item.name}' body has the wrong sort.`);
         const command = item.kind === "defineRecursiveFunction" ? "define-fun-rec" : "define-fun";
         declarations.push(`(${command} |${item.name}| (${parameters.map(parameter => `(|${parameter.name}| ${parameter.sort})`).join(" ")}) ${signature.result} ${term.smt})`);
     }

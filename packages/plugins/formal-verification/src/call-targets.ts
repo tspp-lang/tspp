@@ -18,8 +18,10 @@ export interface CallResolver {
  * The one modeled declaration every declaration the checker found for a call stands for. Several, or any that is not
  * modeled (an interface's method, an unmodeled class, a variable), mean the code that runs is not known.
  */
-function checkedTarget(call: TS.CallExpression | TS.NewExpression, resolver: CallResolver): DeclaredTarget | undefined {
-    const located = resolver.callTargets!.get(rangeKey(nodeStart(call, resolver.sourceFile), call.end));
+const checkerLocations = (call: TS.CallExpression | TS.NewExpression, resolver: CallResolver) =>
+    resolver.callTargets?.get(rangeKey(nodeStart(call, resolver.sourceFile), call.end));
+
+function checkedTarget(located: readonly TSPPAnalysisLocation[] | undefined, resolver: CallResolver): DeclaredTarget | undefined {
     const found = located?.map(location => resolver.declarations.get(declarationKey(location.fileName, location.start)));
     if (!found?.length || found.some(target => !target)) return undefined;
     const [first] = found as DeclaredTarget[];
@@ -34,7 +36,7 @@ const usesChecker = (call: TS.Node, resolver: CallResolver) => !!resolver.callTa
 /** The modeled method or constructor a call runs, or undefined when that is unknown or unmodeled. */
 export function resolveCallTarget(call: TS.CallExpression | TS.NewExpression, resolver: CallResolver): MethodTarget | undefined {
     if (!usesChecker(call, resolver)) return resolveCallTargetBySyntax(call, resolver.classes);
-    const target = checkedTarget(call, resolver);
+    const target = checkedTarget(checkerLocations(call, resolver), resolver);
     if (target?.kind !== "member") return undefined;
     let callee: TS.Expression = call.expression;
     while (ts.isParenthesizedExpression(callee) || ts.isNonNullExpression(callee)) callee = callee.expression;
@@ -52,9 +54,16 @@ export function resolveCallTarget(call: TS.CallExpression | TS.NewExpression, re
  */
 export function resolveFunction(call: TS.CallExpression, resolver: CallResolver): FunctionModel | undefined {
     if (!ts.isIdentifier(call.expression)) return undefined;
-    if (usesChecker(call, resolver)) {
-        const target = checkedTarget(call, resolver);
-        if (target?.kind === "function") return target.model;
+    const located = usesChecker(call, resolver) ? checkerLocations(call, resolver) : undefined;
+    if (located) {
+        const target = checkedTarget(located, resolver);
+        return target?.kind === "function" ? target.model : undefined;
     }
-    return resolver.functions.get(nameText(call.expression));
+    const name = nameText(call.expression);
+    // The standalone analyzer has no checker. A local declaration can shadow a modeled top-level function.
+    for (let scope = call.parent; scope && !ts.isSourceFile(scope); scope = scope.parent) {
+        if (ts.isBlock(scope) && scope.statements.some(statement =>
+            ts.isFunctionDeclaration(statement) && statement.name && nameText(statement.name) === name)) return undefined;
+    }
+    return resolver.functions.get(name);
 }

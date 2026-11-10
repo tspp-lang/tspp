@@ -4,7 +4,7 @@ import type * as TS from "typescript-upstream";
 import { clauseOwner, matchingBrace, parseProperties } from "./contracts";
 import { identifierSource, type Sort } from "./expression";
 import { nodeStart, nodeWidth, ts } from "./host-api";
-import { modelSignature, refinementFromType, sortFromType, type Clause, type ContractClause, type FunctionModel } from "./models";
+import { modelSignature, numberSortFromModel, refinementFromType, sortFromType, type Clause, type ContractClause, type FunctionModel, type RecordFields } from "./models";
 import type { RefinementModel } from "./refinements";
 
 // Classes are modeled from their syntax alone: a field's sort comes from its annotation or literal initializer, and a
@@ -102,7 +102,7 @@ function literalSort(initializer: TS.Expression | undefined, numberModel: Functi
     if (ts.isStringLiteral(initializer) || ts.isNoSubstitutionTemplateLiteral(initializer)) return "String";
     if (initializer.kind === ts.SyntaxKind.TrueKeyword || initializer.kind === ts.SyntaxKind.FalseKeyword) return "Bool";
     if (ts.isNumericLiteral(initializer) || ts.isPrefixUnaryExpression(initializer) && ts.isNumericLiteral(initializer.operand)) {
-        return numberModel === "mathematical-real" ? "Real" : numberModel === "safe-integer" ? "Int" : undefined;
+        return numberSortFromModel(numberModel);
     }
     return undefined;
 }
@@ -118,7 +118,7 @@ function mentionedNames(text: string): string[] {
  */
 export function collectClassModels(
     sourceFile: TS.SourceFile, sourceText: string,
-    refinements: ReadonlyMap<string, RefinementModel>, records: ReadonlyMap<string, ReadonlyMap<string, Sort>>,
+    refinements: ReadonlyMap<string, RefinementModel>, records: ReadonlyMap<string, RecordFields>,
     diagnostics: TSPPAnalysisDiagnostic[],
 ): Map<string, ClassModel> {
     const report = reporter(sourceFile.fileName, diagnostics);
