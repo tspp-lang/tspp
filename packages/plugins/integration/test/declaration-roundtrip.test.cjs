@@ -90,9 +90,11 @@ test("compatibility declarations are plain TypeScript that upstream TypeScript c
       const result: Result<number> = Ok(1);
       void [id, result];`,
   };
+  const directories = new Set(Object.keys(sources).map(fileName => path.posix.dirname(fileName)));
   const options = { noLib: true, strict: true, noEmit: true };
   const host = upstream.createCompilerHost(options);
   Object.assign(host, {
+    directoryExists: directory => directories.has(directory),
     fileExists: fileName => fileName in sources,
     readFile: fileName => sources[fileName],
     getSourceFile: (fileName, languageVersion) =>

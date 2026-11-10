@@ -218,7 +218,9 @@ export function createOperatorSectionSyntax(ts: TSPPTypeScript): { extensions: r
     const argument: TSPPSyntaxExtension = {
         position: "argument",
         keywords: ["_"],
-        startTokens: Object.values(kinds).filter((kind): kind is TS.SyntaxKind => typeof kind === "number" && kind !== kinds.DotDotDotToken && kind !== kinds.CommaToken),
+        startTokens: Object.values(kinds)
+            .filter(typeof _ === "number")
+            .filter(kind => kind !== kinds.DotDotDotToken && kind !== kinds.CommaToken),
         isStart: cursor => !probing && !isPlaceholderBound(cursor) && mayContainPlaceholder(cursor, /*parenthesized*/ false) && probe(cursor, () => cursor.parseAssignmentExpression()),
         parse: cursor => {
             const pos = cursor.getNodePos();
