@@ -29,60 +29,60 @@ export const modernSyntaxPlugin = definePlugin({
             },
         },
         languageService: {
-            activate(context) {
-                return context.languageService.registerQuickInfoProvider(request => {
-                    const token = request.token;
-                    if (!token) return undefined;
-                    if (request.owned && ["let", "in", "do", "use", "def"].includes(token.text)) {
+            activate(context) do {
+                use request <- context.languageService.registerQuickInfoProvider();
+                const token = request.token;
+                if (!token) return undefined;
+                const keyword = request.owned && modernKeywords.find(entry => entry.text === token.text);
+                if (keyword) {
+                    return {
+                        start: token.start,
+                        length: token.length,
+                        display: `(TS++ keyword) ${token.text}`,
+                        documentation: keyword.documentation,
+                    };
+                }
+                const defNames = defBindingNames(request.sourceText);
+                if (defNames.has(token.text)) {
+                    const upstream = request.upstream?.display;
+                    if (upstream && /(?:^|\b)const\s+/.test(upstream)) {
                         return {
                             start: token.start,
                             length: token.length,
-                            display: `(TS++ keyword) ${token.text}`,
-                            documentation: modernKeywordDocumentation[token.text],
+                            display: upstream.replace(/^(?:\(alias\)\s+)?(?:\(const\)|const)\b/, match => match.replace("const", "def")),
                         };
                     }
-                    const defNames = defBindingNames(request.sourceText);
-                    if (defNames.has(token.text)) {
-                        const upstream = request.upstream?.display;
-                        if (upstream && /(?:^|\b)const\s+/.test(upstream)) {
-                            return {
-                                start: token.start,
-                                length: token.length,
-                                display: upstream.replace(/^(?:\(alias\)\s+)?(?:\(const\)|const)\b/, match => match.replace("const", "def")),
-                            };
-                        }
-                        if (request.owned && /\bdef\s+$/.test(request.sourceText.slice(0, token.start))) {
-                            return {
-                                start: token.start,
-                                length: token.length,
-                                display: `def ${token.text}`,
-                            };
-                        }
-                    }
-                    const statement = trailingClosureStatementAt(request.sourceText, token.start);
-                    if (!statement) return undefined;
-                    const match = /\buse\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^<;]+?))?\s*<-\s*([A-Za-z_$][\w$]*)/.exec(statement);
-                    if (!match) return undefined;
-                    const [, binding, annotation, callee] = match;
-                    if (token.text === binding) {
-                        const inferred = annotation?.trim()
-                            ?? usefulType(request.semanticType)
-                            ?? inferContinuationParameter(request.sourceText, callee);
+                    if (request.owned && /\bdef\s+$/.test(request.sourceText.slice(0, token.start))) {
                         return {
                             start: token.start,
                             length: token.length,
-                            display: `(const) ${binding}: ${inferred ?? "unknown"}`,
-                            documentation: "A value supplied by the trailing continuation parameter.",
+                            display: `def ${token.text}`,
                         };
                     }
-                    if (token.text === callee && !usefulDisplay(request.upstream?.display)) {
-                        const declaration = functionDeclaration(request.sourceText, callee);
-                        if (declaration) {
-                            return { start: token.start, length: token.length, display: declaration };
-                        }
+                }
+                const statement = trailingClosureStatementAt(request.sourceText, token.start);
+                if (!statement) return undefined;
+                const match = /\buse\s+([A-Za-z_$][\w$]*)\s*(?::\s*([^<;]+?))?\s*<-\s*([A-Za-z_$][\w$]*)/.exec(statement);
+                if (!match) return undefined;
+                const [, binding, annotation, callee] = match;
+                if (token.text === binding) {
+                    const inferred = annotation?.trim()
+                        ?? usefulType(request.semanticType)
+                        ?? inferContinuationParameter(request.sourceText, callee);
+                    return {
+                        start: token.start,
+                        length: token.length,
+                        display: `(const) ${binding}: ${inferred ?? "unknown"}`,
+                        documentation: "A value supplied by the trailing continuation parameter.",
+                    };
+                }
+                if (token.text === callee && !usefulDisplay(request.upstream?.display)) {
+                    const declaration = functionDeclaration(request.sourceText, callee);
+                    if (declaration) {
+                        return { start: token.start, length: token.length, display: declaration };
                     }
-                    return undefined;
-                });
+                }
+                return undefined;
             },
         },
         editor: {
@@ -94,13 +94,13 @@ export const modernSyntaxPlugin = definePlugin({
 
 export default modernSyntaxPlugin;
 
-const modernKeywordDocumentation: Readonly<Record<string, string>> = {
-    let: "Introduces a lexical binding inside an expression.",
-    in: "Separates expression-local bindings from their result expression.",
-    do: "Starts a completion-valued block whose final expression is returned.",
-    use: "Binds the value supplied to a trailing continuation.",
-    def: "Declares a deeply readonly binding with const-context inference.",
-};
+def modernKeywords = [
+    { text: "let", documentation: "Introduces a lexical binding inside an expression." },
+    { text: "in", documentation: "Separates expression-local bindings from their result expression." },
+    { text: "do", documentation: "Starts a completion-valued block whose final expression is returned." },
+    { text: "use", documentation: "Binds the value supplied to a trailing continuation." },
+    { text: "def", documentation: "Declares a deeply readonly binding with const-context inference." },
+];
 
 function defBindingNames(sourceText: string): Set<string> {
     const names = new Set<string>();
