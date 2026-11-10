@@ -118,10 +118,13 @@ interface SourceVariant {
     readonly fields: readonly { readonly name: string; readonly type: string; }[];
 }
 
+newtype SourcePosition = number;
+newtype RelativeOffset = number;
+
 interface SourceTypeParameter {
     readonly name: string;
     readonly constraint?: string;
-    readonly start: number;
+    readonly start: SourcePosition;
     readonly length: number;
 }
 
@@ -238,19 +241,24 @@ function findDeclarationTypeParameter(sourceText: string, token: SourceToken): S
     return undefined;
 }
 
+function advancePosition(position: SourcePosition, offset: RelativeOffset): SourcePosition {
+    return SourcePosition(position + offset);
+}
+
 function parseTypeParameters(match: RegExpExecArray, captureIndex: number): readonly SourceTypeParameter[] {
     const source = match[captureIndex];
     if (!source) return [];
     const sourceOffset = match[0].indexOf(source);
     if (sourceOffset < 0) return [];
+    const captureStart = advancePosition(SourcePosition(match.index), RelativeOffset(sourceOffset));
     return splitTopLevelWithOffsets(source, ",").flatMap(part => {
         const parsed = /^\s*([A-Za-z_$][\w$]*)(?:\s*:\s*([\s\S]+))?\s*$/.exec(part.text);
         if (!parsed) return [];
-        const nameOffset = part.text.indexOf(parsed[1]);
+        const nameOffset = RelativeOffset(part.text.indexOf(parsed[1]));
         return [{
             name: parsed[1],
             constraint: parsed[2]?.trim(),
-            start: match.index + sourceOffset + part.start + nameOffset,
+            start: advancePosition(advancePosition(captureStart, part.offset), nameOffset),
             length: parsed[1].length,
         }];
     });
@@ -307,8 +315,8 @@ function splitTopLevel(source: string, separator: string): string[] {
     return splitTopLevelWithOffsets(source, separator).map(part => part.text);
 }
 
-function splitTopLevelWithOffsets(source: string, separator: string): { readonly text: string; readonly start: number; }[] {
-    const parts: { readonly text: string; readonly start: number; }[] = [];
+function splitTopLevelWithOffsets(source: string, separator: string): { readonly text: string; readonly offset: RelativeOffset; }[] {
+    const parts: { readonly text: string; readonly offset: RelativeOffset; }[] = [];
     let start = 0;
     let depth = 0;
     for (let index = 0; index < source.length; index++) {
@@ -316,11 +324,11 @@ function splitTopLevelWithOffsets(source: string, separator: string): { readonly
         if ("(<[{".includes(character)) depth++;
         else if (")>]}".includes(character)) depth--;
         else if (character === separator && depth === 0) {
-            parts.push({ text: source.slice(start, index), start });
+            parts.push({ text: source.slice(start, index), offset: RelativeOffset(start) });
             start = index + 1;
         }
     }
-    parts.push({ text: source.slice(start), start });
+    parts.push({ text: source.slice(start), offset: RelativeOffset(start) });
     return parts;
 }
 

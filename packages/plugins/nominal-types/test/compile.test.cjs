@@ -383,6 +383,30 @@ test("newtype constructors can only be called directly", () => {
   assert.match(diagnosticMessages(program)[0], /The extension value 'UserId' can only be used as the target of a direct call/);
 });
 
+test("hover preserves the source spans of type parameters in nominal declarations", () => {
+  const source = [
+    "// Prefix keeps declaration offsets nonzero.",
+    "data Box<   Item,  Meta: Type> = Wrap(value: Item, info: Meta);",
+    "newtype Ref<  Value> = Value;",
+    'const box: Box<number, string> = Wrap(1, "ok");',
+  ].join("\r\n");
+  const file = "/main.tspp";
+  const service = createLanguageService(file, source);
+  for (const [marker, length, display] of [
+    ["Item,", 4, "(type parameter) Item"],
+    ["Meta:", 4, "(type parameter) Meta: Type"],
+    ["Value>", 5, "(type parameter) Value"],
+    ["Item, info", 4, "(type parameter) Item"],
+    ["Wrap(1", 4, "(data constructor) Wrap(value: number, info: string): Box<number, string>"],
+  ]) {
+    const start = source.indexOf(marker);
+    const info = service.getQuickInfoAtPosition(file, start + 1);
+    assert.ok(info, marker);
+    assert.deepEqual(info.textSpan, { start, length }, marker);
+    assert.equal(ts.displayPartsToString(info.displayParts), display, marker);
+  }
+});
+
 test("hover on imported nominal declarations names the brand instead of (Missing)", () => {
   // The checker prints a symbol by its declaration's source text; a brand class without source text printed as
   // `(Missing)` whenever a type was rebuilt from symbols, as in hover on an imported alias or a declaration file's constant.
