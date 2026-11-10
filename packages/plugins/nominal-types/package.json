@@ -33,12 +33,12 @@
     "editor"
   ],
   "scripts": {
-    "build": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json",
+    "build": "node ../../../scripts/bootstrap-tspp.mjs -p tsconfig.json",
     "clean": "rimraf dist",
     "lint": "eslint src",
     "test": "pnpm build && pnpm test:run",
     "test:run": "node --test --test-concurrency=1 test/*.test.cjs",
-    "typecheck": "node ../../../node_modules/typescript/bin/tsc -p tsconfig.json --noEmit"
+    "typecheck": "node ../../../scripts/bootstrap-tspp.mjs -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*"
