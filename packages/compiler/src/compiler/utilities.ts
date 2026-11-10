@@ -607,7 +607,7 @@ import {
     WriteFileCallbackData,
     YieldExpression,
 } from "./_namespaces/ts.js";
-import { isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(interface-member-binding)
+import { isTSPPParameterOf, isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension) TSPP-SLOT(interface-member-binding)
 
 /** @internal */
 export const resolvingEmptyArray: never[] = [];
@@ -11918,6 +11918,7 @@ export function createNameResolver({
             && result.valueDeclaration
             && result.valueDeclaration.pos >= functionLocation.body.pos
             && result.valueDeclaration.end <= functionLocation.body.end
+            && !isTSPPParameterOf(result.valueDeclaration, functionLocation) // TSPP-SLOT(syntax-extension)
         ) {
             // check for several cases where we introduce temporaries that require moving the name/initializer of the parameter to the body
             // - static field in a class expression

@@ -30,8 +30,10 @@ import type {
 import * as ts from "../_namespaces/ts.js";
 import { version } from "../corePublic.js";
 import type {
+    Declaration,
     Diagnostic,
     DiagnosticMessage,
+    FunctionLikeDeclaration,
     Node,
     Program,
     SourceFile,
@@ -260,6 +262,11 @@ function nestSyntaxListRange(list: ts.NodeArray<Node>): void {
     const pos = Math.min(...positioned.map(element => element.pos), list.pos < 0 ? Infinity : list.pos);
     const end = Math.max(...positioned.map(element => element.end), list.end);
     ts.setTextRangePosEnd(list, pos, end);
+}
+
+/** A lowered parameter can borrow a range from the body while still belonging to the parameter list. @internal */
+export function isTSPPParameterOf(declaration: Declaration, fn: FunctionLikeDeclaration): boolean {
+    return declaration.parent === fn && ts.isParameter(declaration) && isTSPPSyntaxAllowedAt(fn);
 }
 
 /** Lets plugin syntax registered for `position` parse at the current token of a TS++ file, if one starts there. @internal */

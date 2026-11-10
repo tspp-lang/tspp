@@ -4,7 +4,7 @@
 // carries the language server and the SDK it runs. packages/compiler/lib is the bootstrap compiler the repository tracks
 // and knows nothing of TS++, so ts-plus-plus is staged with a lib produced from the fresh build instead. Its own version
 // stays the TypeScript version it implements, which the release records as `typescriptVersion` for editors to read.
-// Usage: node scripts/pack-release.mjs [--skip-build]
+// Usage: node scripts/pack-release.mjs [--skip-build] [--compiler-only]
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -16,6 +16,8 @@ import { shippedPluginPackages } from "./plugin-entries.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const release = path.join(root, "release");
+const compilerOnly = process.argv.includes("--compiler-only");
+const outputDirectory = compilerOnly ? path.join(root, ".bootstrap", "compiler-package") : release;
 const compiler = path.join(root, "packages", "compiler");
 const extension = path.join(root, "packages", "vscode-extension");
 const playground = path.join(root, "packages", "playground");
@@ -132,8 +134,8 @@ function packCompiler(tarballs, gitHead) {
         manifest.bundleDependencies = bundled;
         manifest.gitHead = gitHead;
         writeManifest(stage, manifest);
-        run("npm", ["pack", "--ignore-scripts", "--pack-destination", release], stage);
-        return path.join(release, `${manifest.name}-${version}.tgz`);
+        run("npm", ["pack", "--ignore-scripts", "--pack-destination", outputDirectory], stage);
+        return path.join(outputDirectory, `${manifest.name}-${version}.tgz`);
     });
 }
 
@@ -178,16 +180,25 @@ function packPlayground() {
 }
 
 const gitHead = git("rev-parse", "HEAD");
-if (!process.argv.includes("--skip-build")) run("pnpm", ["build:vscode:dev"], root);
-// Always rebuilt, even with --skip-build: a build for the playground site is of master, and a release's must say it is one.
-run("pnpm", ["build:playground"], root, { env: { ...process.env, TSPP_PLAYGROUND_CHANNEL: "release" } });
-fs.rmSync(release, { recursive: true, force: true });
-fs.mkdirSync(release);
+if (!process.argv.includes("--skip-build")) {
+    if (compilerOnly) {
+        for (const script of ["build:plugin-sdk", "build:plugins", "build:compiler"]) run("pnpm", [script], root);
+    }
+    else run("pnpm", ["build:vscode:dev"], root);
+}
+if (!compilerOnly) {
+    // A release playground always identifies its channel as release, even with --skip-build.
+    run("pnpm", ["build:playground"], root, { env: { ...process.env, TSPP_PLAYGROUND_CHANNEL: "release" } });
+    fs.rmSync(release, { recursive: true, force: true });
+}
+fs.mkdirSync(outputDirectory, { recursive: true });
 withStage("tspp-release-internal-", internal => {
     const compilerTarball = packCompiler(packInternal(internalClosure(workspaceDependencies(readManifest(compiler))), internal), gitHead);
+    if (compilerOnly) return;
     const extensionInternal = workspaceDependencies(readManifest(extension)).filter(name => name !== "ts-plus-plus" && !shippedPluginPackages().includes(name));
     packExtension(compilerTarball, packInternal(internalClosure(extensionInternal), internal));
 });
+if (compilerOnly) process.exit(0);
 packPlayground();
 console.log(`\nAssembled ${version} from ${gitHead} in ${path.relative(root, release)}:`);
 for (const file of fs.readdirSync(release).sort()) console.log(`  ${file}`);
