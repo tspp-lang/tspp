@@ -6,7 +6,7 @@ import { describeTimeout, macroDiagnosticCodes, type MacroTimeoutBudget, readMac
 import {
     asyncEvaluations,
     type AsyncEvaluation,
-    createMacroFactory,
+    createMacroTypeScript,
     evaluateMacroModuleInNode,
     type Invocation,
     isPromiseLike,
@@ -59,13 +59,12 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
 export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsync: false): MacroExpansionResult;
 export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsync: boolean): MacroExpansionResult | Promise<MacroExpansionResult> {
     const { ts, program, host } = options;
-    const kinds = ts.SyntaxKind;
     const checker = program.getTypeChecker();
     const compilerOptions = program.getCompilerOptions();
     const diagnostics: TS.Diagnostic[] = [];
-    const printer = ts.createPrinter();
+    let printer = ts.createPrinter();
     const moduleCache = new Map<string, Record<string, unknown>>();
-    const factory = createMacroFactory(ts);
+    const macroTypeScript = createMacroTypeScript(ts);
     let macroProgram: TS.Program | undefined;
     let macroHost: MacroCompilerHost | undefined;
     let inputKey: string | undefined;
@@ -344,11 +343,11 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
             const result = (macro as (targets: readonly unknown[], context: Record<string, unknown>) => unknown)(targets, {
                 program,
                 checker,
-                factory,
+                factory: macroTypeScript.factory,
                 typescript: {
-                    factory,
-                    SyntaxKind: { FunctionDeclaration: kinds.FunctionDeclaration, ExportKeyword: kinds.ExportKeyword },
-                    NodeFlags: { Const: ts.NodeFlags.Const },
+                    ...macroTypeScript,
+                    SyntaxKind: { ...macroTypeScript.SyntaxKind },
+                    NodeFlags: { ...macroTypeScript.NodeFlags },
                 },
                 sourceFile: invocationSource,
                 macroInvocation: invocation.statement,
@@ -475,13 +474,26 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     }
 
     function expandedInvocation(sourceFile: TS.SourceFile, syntax: MacroInvocationSyntax, statements: readonly TS.Statement[]): ExpandedMacroInvocation {
+        let text: string;
+        try {
+            text = statements.map(statement => printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile)).join("\n");
+        }
+        catch (error) {
+            // The printer may have stopped partway through a statement. Discard both the
+            // invalid expansion and the printer's partial state before processing the next call.
+            printer = ts.createPrinter();
+            const reason = error instanceof Error ? error.message : String(error);
+            report(sourceFile, syntax.start, syntax.end - syntax.start, `Macro '${syntax.macro.text}' returned an invalid syntax tree: ${reason}`);
+            statements = [];
+            text = "";
+        }
         return {
             fileName: sourceFile.fileName,
             start: syntax.start,
             end: syntax.end,
             macroName: syntax.macro.text,
             statements,
-            text: statements.map(statement => printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile)).join("\n"),
+            text,
         };
     }
 
@@ -524,18 +536,4 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
         expandedInvocation(sourceFile, syntax, executeInvocation(invocation, { sourceFile, start: syntax.start, end: syntax.end, node }) as readonly TS.Statement[])
     );
     return { invocations: expanded, diagnostics };
-}
-
-/** Reports invalid `macro(...)` options of every macro function in the program, invoked or not. */
-export function reportMacroOptionDiagnostics(ts: TSPPTypeScript, program: TS.Program, getSyntax: (sourceFile: TS.SourceFile) => MacroSourceSyntax | undefined): TS.Diagnostic[] {
-    const diagnostics: TS.Diagnostic[] = [];
-    for (const sourceFile of program.getSourceFiles()) {
-        if (sourceFile.isDeclarationFile) continue;
-        for (const declaration of getSyntax(sourceFile)?.declarations ?? []) {
-            for (const item of readMacroOptions(ts, declaration).diagnostics) {
-                diagnostics.push({ category: ts.DiagnosticCategory.Error, code: item.code, file: sourceFile, start: item.start, length: item.length, messageText: item.message });
-            }
-        }
-    }
-    return diagnostics;
 }

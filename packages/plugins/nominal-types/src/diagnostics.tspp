@@ -2,7 +2,7 @@ import type { TSPPDiagnosticProvider, TSPPTypeScript } from "@tspp/plugin-sdk/co
 import type * as TS from "typescript-upstream";
 
 import type { NominalDeclarations } from "./declarations";
-import type { LoweredMatch, MatchPattern, ValueMatches } from "./match";
+import { getNestedPattern, type LoweredMatch, type MatchPattern, type ValueMatches } from "./match";
 
 interface VariantInfo {
     readonly fieldNames: readonly string[];
@@ -73,8 +73,8 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
             let irrefutable = true;
             const count = Math.min(pattern.elements.length, info.fieldTypes.length);
             for (let index = 0; index < count; index++) {
-                const element = pattern.elements[index];
-                if (element.kind !== "constructor") continue;
+                const element = getNestedPattern(pattern.elements[index]);
+                if (!element) continue;
                 irrefutable = false;
                 const nested = variantsOf(info.fieldTypes[index]).get(element.variant);
                 if (!nested) {
@@ -88,14 +88,15 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
         };
         const isCovered = (patterns: readonly MatchPattern[], info: VariantInfo): boolean => {
             if (patterns.length === 0) return false;
-            if (patterns.some(pattern => !pattern.elements.some(element => element.kind === "constructor"))) return true;
+            if (patterns.some(pattern => !pattern.elements.some(getNestedPattern))) return true;
             for (let fieldIndex = 0; fieldIndex < info.fieldTypes.length; fieldIndex++) {
                 const nestedPatterns: MatchPattern[] = [];
                 let onlyThisFieldIsRefutable = true;
                 for (const pattern of patterns) {
                     pattern.elements.forEach((element, index) => {
-                        if (element.kind !== "constructor") return;
-                        if (index === fieldIndex) nestedPatterns.push(element);
+                        const nested = getNestedPattern(element);
+                        if (!nested) return;
+                        if (index === fieldIndex) nestedPatterns.push(nested);
                         else onlyThisFieldIsRefutable = false;
                     });
                 }

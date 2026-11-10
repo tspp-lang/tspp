@@ -40,6 +40,15 @@ test("supports placeholders directly in call arguments", () => {
   assert.match(javascript, new RegExp(String.raw`mapNumbers\(\(?\(?${parameter}\)?\s*=>\s*\1\s*\*\s*2\)?\)`));
 });
 
+test("infers type predicates for sections passed to filter", () => {
+  const { program } = createProgram(`
+    const numbers = [1, "text"].filter(typeof _ === "number");
+    const narrowed: number[] = numbers;
+    [1, 2].filter((_ !== 1));
+  `, { noLib: false, types: [] });
+  assert.deepEqual(diagnosticMessages(program), []);
+});
+
 test("leaves parentheses without placeholders intact", () => {
   const { messages, javascript } = compile(`const x = (1 + 2);`);
   assert.deepEqual(messages, []);

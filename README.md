@@ -41,6 +41,10 @@ pnpm test
 pnpm playground:dev
 ```
 
+Plugins written in `.tspp` build with the commit in [scripts/bootstrap-pin.json](scripts/bootstrap-pin.json). On a cache miss, `pnpm bootstrap:install` builds a compiler package from that commit in an isolated checkout. CI caches the package by commit, and local builds reuse it from the Git-ignored `.bootstrap/` directory. Keep the seed commit reachable when updating the pin.
+
+For local experiments, build the workspace compiler with `pnpm build:compiler`, then set `TSPP_BOOTSTRAP=dev` when building the plugin. This mode uses the workspace's built compiler and plugin outputs. In PowerShell, set it with `$env:TSPP_BOOTSTRAP = 'dev'` and clear it with `Remove-Item Env:TSPP_BOOTSTRAP`.
+
 ## Commands
 
 The compiler package exposes two commands:

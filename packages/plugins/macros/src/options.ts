@@ -2,7 +2,7 @@ import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import type { MacroTimeout } from "./sdk";
-import type { MacroDeclarationSyntax } from "./syntax";
+import type { MacroDeclarationSyntax, MacroSourceSyntax } from "./syntax";
 
 export const macroDiagnosticCodes = {
     notAMacro: 18079,
@@ -15,6 +15,20 @@ export const macroDiagnosticCodes = {
 } as const;
 
 export const maximumMacroTimeoutMs = 2_147_483_647;
+
+/** Reports invalid `macro(...)` options of every macro function in the program, invoked or not. */
+export function reportMacroOptionDiagnostics(ts: TSPPTypeScript, program: TS.Program, getSyntax: (sourceFile: TS.SourceFile) => MacroSourceSyntax | undefined): TS.Diagnostic[] {
+    const diagnostics: TS.Diagnostic[] = [];
+    for (const sourceFile of program.getSourceFiles()) {
+        if (sourceFile.isDeclarationFile) continue;
+        for (const declaration of getSyntax(sourceFile)?.declarations ?? []) {
+            for (const item of readMacroOptions(ts, declaration).diagnostics) {
+                diagnostics.push({ category: ts.DiagnosticCategory.Error, code: item.code, file: sourceFile, start: item.start, length: item.length, messageText: item.message });
+            }
+        }
+    }
+    return diagnostics;
+}
 
 export interface MacroOptionDiagnostic {
     readonly start: number;

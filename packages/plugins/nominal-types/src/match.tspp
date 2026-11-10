@@ -3,17 +3,20 @@ import type * as TS from "typescript-upstream";
 
 import { createLoweredArrowToken, markGenerated } from "@tspp/plugin-sdk";
 
-export interface MatchBinding {
-    readonly kind: "binding";
-    readonly name: TS.Identifier;
-}
+data PatternElement = Binding(name: TS.Identifier) | NestedPattern(pattern: MatchPattern);
 
 export interface MatchPattern {
-    readonly kind: "constructor";
     readonly variant: string;
     readonly start: number;
     readonly end: number;
-    readonly elements: readonly (MatchBinding | MatchPattern)[];
+    readonly elements: readonly PatternElement[];
+}
+
+export function getNestedPattern(element: PatternElement): MatchPattern | undefined {
+    return match element {
+        Binding(_name) => undefined,
+        NestedPattern(pattern) => pattern,
+    };
 }
 
 export interface MatchArm {
@@ -69,19 +72,19 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
     function parsePattern(cursor: TSPPSyntaxCursor): MatchPattern {
         const start = cursor.getTokenStart();
         const variant = cursor.parseIdentifier();
-        const elements: (MatchBinding | MatchPattern)[] = [];
+        const elements: PatternElement[] = [];
         if (cursor.parseOptional(kinds.OpenParenToken)) {
             while (cursor.token() !== kinds.CloseParenToken && cursor.token() !== kinds.EndOfFileToken) {
                 const nested = cursor.lookAhead(() => {
                     cursor.parseIdentifier();
                     return cursor.token() === kinds.OpenParenToken;
                 });
-                elements.push(nested ? parsePattern(cursor) : { kind: "binding", name: cursor.parseIdentifier() });
+                elements.push(nested ? NestedPattern(parsePattern(cursor)) : Binding(cursor.parseIdentifier()));
                 if (!cursor.parseOptional(kinds.CommaToken)) break;
             }
             cursor.parseExpected(kinds.CloseParenToken);
         }
-        return { kind: "constructor", variant: ts.idText(variant), start, end: cursor.getNodePos(), elements };
+        return { variant: ts.idText(variant), start, end: cursor.getNodePos(), elements };
     }
 
     function parse(cursor: TSPPSyntaxCursor): TS.Expression {
@@ -152,7 +155,8 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         const condition = (pattern: MatchPattern, read: () => TS.Expression): TS.Expression => {
             let test = tagTest(read(), pattern);
             pattern.elements.forEach((element, index) => {
-                if (element.kind === "constructor") test = and(test, condition(element, () => fieldOf(read(), index)));
+                const nested = getNestedPattern(element);
+                if (nested) test = and(test, condition(nested, () => fieldOf(read(), index)));
             });
             return test;
         };
@@ -160,7 +164,10 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         const bindings = (pattern: MatchPattern, read: () => TS.Expression): { name: TS.Identifier; read: () => TS.Expression; }[] =>
             pattern.elements.flatMap((element, index) => {
                 const field = () => fieldOf(read(), index);
-                return element.kind === "binding" ? [{ name: element.name, read: field }] : bindings(element, field);
+                return match element {
+                    Binding(name) => [{ name, read: field }],
+                    NestedPattern(nested) => bindings(nested, field),
+                };
             });
         /** `((a, b) => body)(field0, field1)`, or `body` when nothing is bound. */
         const bind = (bound: readonly { name: TS.Identifier; read: () => TS.Expression; }[], names: readonly TS.Identifier[], body: TS.Expression): TS.Expression => {

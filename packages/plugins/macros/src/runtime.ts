@@ -1,7 +1,7 @@
 import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import type { MacroDiagnostic } from "./sdk";
+import type { MacroContext, MacroDiagnostic } from "./sdk";
 
 /** CompilerHost members a host may provide to run macros outside Node.js or to tune them; none is required. */
 export interface MacroCompilerHost extends TS.CompilerHost {
@@ -72,8 +72,8 @@ export function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
     return !!value && typeof value === "object" && typeof (value as PromiseLike<unknown>).then === "function";
 }
 
-/** `ts.factory` plus `createMacroInvocationStatement`, for macros that expand into further macro invocations. */
-export function createMacroFactory(ts: TSPPTypeScript) {
+/** Exposes the host factory, including the helper for macros that return further macro invocations. */
+export function createMacroTypeScript(ts: TSPPTypeScript) {
     const factory = Object.create(ts.factory) as TS.NodeFactory & {
         createMacroInvocationStatement(macro: TS.EntityName, targets: readonly TS.EntityName[]): TS.Statement;
     };
@@ -82,7 +82,27 @@ export function createMacroFactory(ts: TSPPTypeScript) {
         nestedInvocations.set(statement, { macro, targets });
         return statement;
     };
-    return factory;
+    const kinds = ts.SyntaxKind;
+    return {
+        factory,
+        SyntaxKind: {
+            FunctionDeclaration: kinds.FunctionDeclaration,
+            ExportKeyword: kinds.ExportKeyword,
+            AnyKeyword: kinds.AnyKeyword,
+            BigIntKeyword: kinds.BigIntKeyword,
+            BooleanKeyword: kinds.BooleanKeyword,
+            IntrinsicKeyword: kinds.IntrinsicKeyword,
+            NeverKeyword: kinds.NeverKeyword,
+            NumberKeyword: kinds.NumberKeyword,
+            ObjectKeyword: kinds.ObjectKeyword,
+            StringKeyword: kinds.StringKeyword,
+            SymbolKeyword: kinds.SymbolKeyword,
+            UndefinedKeyword: kinds.UndefinedKeyword,
+            UnknownKeyword: kinds.UnknownKeyword,
+            VoidKeyword: kinds.VoidKeyword,
+        } satisfies MacroContext["typescript"]["SyntaxKind"],
+        NodeFlags: { Const: ts.NodeFlags.Const },
+    };
 }
 
 export function toInvocation(ts: TSPPTypeScript, nested: { readonly macro: TS.EntityName; readonly targets: readonly TS.EntityName[]; }): Invocation {

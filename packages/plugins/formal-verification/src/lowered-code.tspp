@@ -1,7 +1,7 @@
 import type * as TS from "typescript-upstream";
 import { mayCarryObligations } from "./coverage";
 import { assignmentKey, cloneState, isBound, lexicalNames, type Context, type State } from "./execution-state";
-import type { Sort, Term } from "./expression";
+import { stringTerm, termForSort, type Sort, type Term } from "./expression";
 import { nameText, ts } from "./host-api";
 import type { DataConstructor, FunctionModel } from "./models";
 
@@ -30,7 +30,11 @@ export function lowerCallArguments(
         try { lowerExpression(argument, state, context); }
         catch (error) { if (mayCarryObligations(argument, state, context)) throw error; }
     });
-    return positions.map(position => lowerExpression(callArguments[position], state, context));
+    return positions.map((position, index) => {
+        const sort = model.variables[model.parameters[index]];
+        const value = lowerExpression(callArguments[position], state, context);
+        return sort ? termForSort(value, sort, `Argument ${position + 1} of '${model.name}'`) : value;
+    });
 }
 
 /** The function an immediately invoked call runs, as in `(() => { ... })()` and `((x) => x + 1n)(y)`. */
@@ -156,7 +160,7 @@ export function lowerStructuredResult(node: TS.Expression, state: State, context
     if (ts.isParenthesizedExpression(node)) return lowerStructuredResult(node.expression, state, context, lowering);
     if (ts.isIdentifier(node)) {
         const constructor = context.constructors.get(nameText(node));
-        if (constructor) return { [`result.${constructor.tagProperty}`]: { smt: `"${constructor.tag}"`, sort: "String" } };
+        if (constructor) return { [`result.${constructor.tagProperty}`]: stringTerm(constructor.tag) };
         // Returning a record parameter returns each of its fields.
         const prefix = `${nameText(node)}.`;
         const fields = Object.keys({ ...state.variables, ...state.values }).filter(key => key.startsWith(prefix));
@@ -177,7 +181,7 @@ export function lowerStructuredResult(node: TS.Expression, state: State, context
     if (!ts.isCallExpression(node) || !ts.isIdentifier(node.expression)) return undefined;
     const constructor = context.constructors.get(nameText(node.expression));
     if (!constructor || constructor.fields.length !== node.arguments.length) return undefined;
-    const result: Record<string, Term> = { [`result.${constructor.tagProperty}`]: { smt: `"${constructor.tag}"`, sort: "String" } };
+    const result: Record<string, Term> = { [`result.${constructor.tagProperty}`]: stringTerm(constructor.tag) };
     constructor.fields.forEach((field, index) => {
         try { result[`result.${field}`] = lowerExpression(node.arguments[index], state, context); }
         catch { /* Recursive fields need no scalar SMT binding until selected. */ }

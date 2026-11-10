@@ -2,20 +2,22 @@ import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type { TSPPAnalysisDiagnostic } from "@tspp/plugin-sdk/compiler";
-import { expressionToSmtTerm, type Sort, type Term } from "./expression";
-import { matchingBrace, reportWithClauseIssues, parseProperties, type PendingProof } from "./contracts";
+import { expressionToSmtTerm, isNumericSort, smtSort, strictlyLessThan, stringLengthTerm, stringTerm, termForSort, type Term } from "./expression";
+import { reportWithClauseIssues, type PendingProof } from "./contracts";
 import { immediatelyInvoked, lowerCallArguments, lowerConditional, lowerImmediateCall, lowerPositionalField, lowerStructuredResult, type Lowering } from "./lowered-code";
-import { reportMisplacedRefinements } from "./refinements";
+import { refinementTerm, reportMisplacedRefinements } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import { collectTopLevelProofVariables } from "./proof-scope";
-import { guardsCalls, participatesInVerification, refinementFromType, sortFromType, type Clause } from "./models";
+import { guardsCalls, participatesInVerification, refinementFromType, sortFromType } from "./models";
 import {
     addProof, assignedKeys, assignmentKey, assignmentOperators, arithmeticOperators, cloneState, comparisonOperators,
-    diagnostic, havoc, innermostLoop, isBound, isIncrementOrDecrement, lexicalNames, safeIntegerRange, unsupported,
-    initialState, type Context, type JumpTarget, type State,
+    diagnostic, innermostLoop, isBound, isIncrementOrDecrement, lexicalNames, safeIntegerRange, unsupported,
+    initialState, writeValue, type Context, type JumpTarget, type State,
 } from "./execution-state";
 import { countTopLevelWrites, countWrites, mayCarryObligations, mayWriteValues, reportUnvisited } from "./coverage";
 import { reportEncapsulation } from "./classes";
+import { executeFor, executeWhile, loopInvariants } from "./loops";
+import { conditionPaths, isStrictEquality, lowerEquality } from "./conditions";
 import { resolveCallTarget, resolveFunction } from "./call-targets";
 import type { ModeledFile, ProgramIndex } from "./program-index";
 import {
@@ -23,7 +25,7 @@ import {
     returnFromMember, throwFromMember, verifyMember, writesField,
 } from "./class-execution";
 
-function lowerCall(node: TS.CallExpression, state: State, context: Context): Term {
+function lowerCall(node: TS.CallExpression, state: State, context: Context): Term | undefined {
     const invoked = immediatelyInvoked(node);
     if (invoked) return lowerImmediateCall(node, invoked, state, context, lowering);
     const math = lowerMathCall(node, state, context);
@@ -33,7 +35,7 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
         // A call the verifier cannot follow is reported here; coverage must not report it a second time.
         context.visited.add(node);
         if (!target) throw new Error("Only direct calls, and calls that resolve to one method of a class in a TS++ file, can participate in formal verification.");
-        return lowerMemberCall(node, target, state, context)!;
+        return lowerMemberCall(node, target, state, context);
     }
     context.visited.add(node);
     const functionName = nameText(node.expression);
@@ -59,21 +61,22 @@ function lowerCall(node: TS.CallExpression, state: State, context: Context): Ter
     for (const [parameter, refinement] of Object.entries(model.parameterRefinements ?? {})) {
         const index = model.parameters.indexOf(parameter);
         if (index < 0) continue;
-        const goal = expressionToSmtTerm(refinement.predicate, { substitutions: { value: arguments_[index] }, functions: context.logic.functions });
+        const goal = refinementTerm(refinement, arguments_[index], context.logic.functions);
         addProof(context, state, goal.smt, node.arguments[model.parameterPositions?.[index] ?? index], `${refinement.name} argument refinement`);
     }
     leaveObject(state, node, model.name, context);
-    const sort: Sort = model.returnSort ?? "Int";
+    const sort = model.returnSort;
     const name = `tspp.call.${model.name}.${context.nextTemporary++}`;
-    const result = { smt: `|${name}|`, sort } as const;
-    state.declarations.add(`(declare-const |${name}| ${sort})`);
+    const result: Term | undefined = sort && { smt: `|${name}|`, sort };
+    if (sort) state.declarations.add(`(declare-const |${name}| ${smtSort(sort)})`);
     if (model !== context.currentFunction) {
         for (const ensure of model.ensures) {
+            if (!result && /\bresult\b/.test(ensure.value)) continue;
             const fact = instantiate(ensure.value, model.parameters, arguments_, context.logic, result, model.numberModel);
             if (fact.sort === "Bool") state.facts.push(fact.smt);
         }
-        if (model.returnRefinement) {
-            const fact = expressionToSmtTerm(model.returnRefinement.predicate, { substitutions: { value: result }, functions: context.logic.functions });
+        if (model.returnRefinement && result) {
+            const fact = refinementTerm(model.returnRefinement, result, context.logic.functions);
             if (fact.sort === "Bool") state.facts.push(fact.smt);
         }
     }
@@ -92,26 +95,29 @@ function lowerExpression(node: TS.Expression, state: State, context: Context): T
     }
     const object = lowerObjectExpression(node, state, context);
     if (object) return object;
-    if (ts.isPropertyAccessExpression(node) && ts.isIdentifier(node.expression)) {
-        const name = `${nameText(node.expression)}.${nameText(node.name)}`;
-        const value = state.values[name];
-        if (value) return value;
-        const sort = state.variables[name];
-        if (!sort) throw new Error(`Unknown proof field '${name}'.`);
-        return { smt: `|${name}|`, sort };
+    if (ts.isPropertyAccessExpression(node) && !node.questionDotToken) {
+        const name = ts.isIdentifier(node.expression) && assignmentKey(node);
+        if (name && state.values[name]) return state.values[name];
+        if (name && state.variables[name]) return { smt: `|${name}|`, sort: state.variables[name] };
+        if (nameText(node.name) === "length") {
+            const receiver = lowerExpression(node.expression, state, context);
+            return stringLengthTerm(receiver, context.currentFunction?.numberModel === "mathematical-real" ? "Real" : "NumberInt");
+        }
+        if (name) throw new Error(`Unknown proof field '${name}'.`);
     }
     if (ts.isBigIntLiteral(node)) return { smt: nameText(node).replace(/n$/, ""), sort: "Int" };
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-        return { smt: `"${nameText(node).replace(/"/g, '""')}"`, sort: "String" };
+        return stringTerm(nameText(node));
     }
     if (ts.isNumericLiteral(node)) {
         const model = context.currentFunction?.numberModel;
-        if (!context.currentFunction) return { smt: nameText(node), sort: "Int" };
-        if (!model) throw new Error("A number proof requires numberModel: 'mathematical-real' or 'safe-integer'.");
+        if (context.currentFunction && !model) throw new Error("A number proof requires numberModel: 'mathematical-real' or 'safe-integer'.");
         if (model === "safe-integer" && !(/^\d+$/.test(nameText(node)) && Number(nameText(node)) <= Number.MAX_SAFE_INTEGER)) {
             throw new Error(`Numeric literal '${nameText(node)}' is not a safe integer.`);
         }
-        return { smt: nameText(node), sort: model === "mathematical-real" ? "Real" : "Int" };
+        const literal = nameText(node);
+        const sort = model === "mathematical-real" || (!model && !Number.isSafeInteger(Number(literal))) ? "Real" : "NumberInt";
+        return { smt: literal, sort };
     }
     if (node.kind === ts.SyntaxKind.TrueKeyword || node.kind === ts.SyntaxKind.FalseKeyword) {
         return { smt: node.kind === ts.SyntaxKind.TrueKeyword ? "true" : "false", sort: "Bool" };
@@ -119,27 +125,31 @@ function lowerExpression(node: TS.Expression, state: State, context: Context): T
     if (ts.isPrefixUnaryExpression(node)) {
         const operand = lowerExpression(node.operand, state, context);
         if (node.operator === ts.SyntaxKind.ExclamationToken && operand.sort === "Bool") return { smt: `(not ${operand.smt})`, sort: "Bool" };
-        if (node.operator === ts.SyntaxKind.MinusToken && (operand.sort === "Int" || operand.sort === "Real")) return { smt: `(- ${operand.smt})`, sort: operand.sort };
+        if (node.operator === ts.SyntaxKind.MinusToken && isNumericSort(operand.sort)) return { smt: `(- ${operand.smt})`, sort: operand.sort };
         throw new Error("Unsupported unary proof expression.");
     }
-    if (ts.isCallExpression(node)) return lowerCall(node, state, context);
+    if (ts.isCallExpression(node)) {
+        const result = lowerCall(node, state, context);
+        if (!result) throw new Error("A call used as a proof value needs a modeled return type.");
+        return result;
+    }
     if (ts.isConditionalExpression(node)) return lowerConditional(node, state, context, lowering);
     if (ts.isElementAccessExpression(node)) {
         const field = lowerPositionalField(node, state);
         if (field) return field;
     }
     if (ts.isBinaryExpression(node)) {
+        const operator = node.operatorToken.kind;
+        if (isStrictEquality(operator)) return lowerEquality(node, state, context, lowerExpression);
         const left = lowerExpression(node.left, state, context);
         const right = lowerExpression(node.right, state, context);
-        const operator = node.operatorToken.kind;
-        if (arithmeticOperators().has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) {
+        if (arithmeticOperators().has(operator) && left.sort === right.sort && isNumericSort(left.sort)) {
             return lowerArithmetic(operator, left, right, node, node.right, state, context);
         }
-        if (comparisonOperators().has(operator) && left.sort === right.sort && (left.sort === "Int" || left.sort === "Real")) return { smt: `(${comparisonOperators().get(operator)} ${left.smt} ${right.smt})`, sort: "Bool" };
-        if (operator === ts.SyntaxKind.EqualsEqualsEqualsToken || operator === ts.SyntaxKind.ExclamationEqualsEqualsToken) {
-            if (left.sort !== right.sort) throw new Error("Both sides of equality must have the same proof sort.");
-            const equal = `(= ${left.smt} ${right.smt})`;
-            return { smt: operator === ts.SyntaxKind.EqualsEqualsEqualsToken ? equal : `(not ${equal})`, sort: "Bool" };
+        if (comparisonOperators().has(operator) && isNumericSort(left.sort) && isNumericSort(right.sort)) {
+            const smt = operator === ts.SyntaxKind.LessThanToken ? strictlyLessThan(left, right)
+                : `(${comparisonOperators().get(operator)} ${left.smt} ${right.smt})`;
+            return { smt, sort: "Bool" };
         }
         if (operator === ts.SyntaxKind.AmpersandAmpersandToken && left.sort === "Bool" && right.sort === "Bool") return { smt: `(and ${left.smt} ${right.smt})`, sort: "Bool" };
         if (operator === ts.SyntaxKind.BarBarToken && left.sort === "Bool" && right.sort === "Bool") return { smt: `(or ${left.smt} ${right.smt})`, sort: "Bool" };
@@ -151,13 +161,13 @@ function lowerExpression(node: TS.Expression, state: State, context: Context): T
 function lowerArithmetic(
     operator: TS.SyntaxKind, left: Term, right: Term, node: TS.Node, rightNode: TS.Node, state: State, context: Context,
 ): Term {
-    if (left.sort !== right.sort || (left.sort !== "Int" && left.sort !== "Real")) throw new Error("Arithmetic operands must have the same numeric sort.");
-    if (operator === ts.SyntaxKind.PercentToken && left.sort !== "Int") throw new Error("Remainder requires the safe-integer model.");
+    if (left.sort !== right.sort || !isNumericSort(left.sort)) throw new Error("Arithmetic operands must have the same numeric sort.");
+    if (operator === ts.SyntaxKind.PercentToken && left.sort === "Real") throw new Error("Remainder requires the safe-integer model.");
     if (operator === ts.SyntaxKind.SlashToken || operator === ts.SyntaxKind.PercentToken) {
         addProof(context, state, `(not (= ${right.smt} 0))`, rightNode, "division definedness");
     }
     if (operator === ts.SyntaxKind.SlashToken && left.sort === "Real") return { smt: `(/ ${left.smt} ${right.smt})`, sort: "Real" };
-    const safeInteger = context.currentFunction?.numberModel === "safe-integer";
+    const safeInteger = left.sort === "NumberInt";
     // JavaScript number division is exact, so the truncating integer model only matches when nothing is truncated.
     if (operator === ts.SyntaxKind.SlashToken && safeInteger) {
         addProof(context, state, `(= (tspp.js.trunc.rem ${left.smt} ${right.smt}) 0)`, node, "safe-integer exact division");
@@ -169,24 +179,35 @@ function lowerArithmetic(
     return result;
 }
 
+function writableKey(node: TS.Expression, state: State, context: Context): string | undefined {
+    const key = assignmentKey(node);
+    const receiver = key?.includes(".") ? key.slice(0, key.lastIndexOf(".")) : undefined;
+    if (receiver && (state.values[receiver]?.sort ?? state.variables[receiver]) === "String") {
+        throw new Error("String properties are read-only in verification.");
+    }
+    return key && writesField(key, context) ? key : undefined;
+}
+
 function updateAssignment(node: TS.BinaryExpression, state: State, context: Context): boolean {
-    const key = assignmentKey(node.left);
-    if (!key || !assignmentOperators().has(node.operatorToken.kind) || !writesField(key, context)) return false;
+    const key = writableKey(node.left, state, context);
+    if (!key || !assignmentOperators().has(node.operatorToken.kind)) return false;
     const operator = assignmentOperators().get(node.operatorToken.kind);
     const right = lowerExpression(node.right, state, context);
-    state.values[key] = operator === undefined ? right
+    const value = operator === undefined ? right
         : lowerArithmetic(operator, lowerExpression(node.left, state, context), right, node, node.right, state, context);
+    writeValue(state, key, value);
     return true;
 }
 
-function updateIncrement(node: TS.PrefixUnaryExpression | TS.PostfixUnaryExpression, state: State, context: Context): boolean {
-    const key = assignmentKey(node.operand);
-    if (!key) return false;
+function updateIncrement(node: TS.PrefixUnaryExpression | TS.PostfixUnaryExpression, state: State, context: Context): Term | undefined {
+    const key = writableKey(node.operand, state, context);
+    if (!key) return undefined;
     const current = lowerExpression(node.operand, state, context);
     const one: Term = { smt: current.sort === "Real" ? "1.0" : "1", sort: current.sort };
     const operator = node.operator === ts.SyntaxKind.PlusPlusToken ? ts.SyntaxKind.PlusToken : ts.SyntaxKind.MinusToken;
-    state.values[key] = lowerArithmetic(operator, current, one, node, node, state, context);
-    return true;
+    const next = lowerArithmetic(operator, current, one, node, node, state, context);
+    writeValue(state, key, next);
+    return ts.isPrefixUnaryExpression(node) ? next : current;
 }
 
 function executeStatement(node: TS.Statement, state: State, context: Context): State[] {
@@ -203,16 +224,18 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
             const lexical = (node.declarationList.flags & ts.NodeFlags.BlockScoped) !== 0;
             for (const declaration of node.declarationList.declarations) {
                 if (!ts.isIdentifier(declaration.name)) return unsupported(state, declaration, context);
+                const name = nameText(declaration.name);
                 if (declaration.initializer && ts.isCallExpression(declaration.initializer)
                     && ts.isPropertyAccessExpression(declaration.initializer.expression)
                     && ["definePredicate", "defineFunction", "defineRecursiveFunction", "declareFunction"]
                         .includes(nameText(declaration.initializer.expression.name))) continue;
                 // A shadowing binding would overwrite the outer value that later code still reads.
-                if (lexical && isBound(state, nameText(declaration.name))) unsupported(state, declaration, context);
+                if (lexical && isBound(state, name)) unsupported(state, declaration, context);
                 // An object holds no value proofs read; its constructor still owes its preconditions.
                 if (declaration.initializer && lowerObjectCreation(declaration.initializer, state, context)) {
-                    delete state.values[nameText(declaration.name)];
-                    delete state.variables[nameText(declaration.name)];
+                    if (isBound(state, name)) return unsupported(state, declaration, context);
+                    delete state.values[name];
+                    delete state.variables[name];
                     continue;
                 }
                 const refinement = refinementFromType(declaration.type, context.refinements);
@@ -221,16 +244,16 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
                 // unless a refinement reads it now, or it hides an obligation or a write the verifier would then never see.
                 try { value = declaration.initializer && lowerExpression(declaration.initializer, state, context); }
                 catch (error) {
-                    if (refinement || mayCarryObligations(declaration.initializer!, state, context) || mayWriteValues(declaration.initializer!)) throw error;
-                    delete state.values[nameText(declaration.name)];
+                    if (isBound(state, name) || refinement || mayCarryObligations(declaration.initializer!, state, context)
+                        || mayWriteValues(declaration.initializer!)) throw error;
                 }
                 const sort = refinement?.sort
                     ?? sortFromType(declaration.type, context.refinements, context.currentFunction?.numberModel)
                     ?? value?.sort;
-                if (sort) state.variables[nameText(declaration.name)] = sort;
-                if (value) state.values[nameText(declaration.name)] = value;
+                if (value) writeValue(state, name, value);
+                if (sort) state.variables[name] = sort;
                 if (value && refinement) {
-                    const goal = expressionToSmtTerm(refinement.predicate, { substitutions: { value } });
+                    const goal = refinementTerm(refinement, value, context.logic.functions);
                     addProof(context, state, goal.smt, declaration.initializer ?? declaration, `${refinement.name} refinement introduction`);
                 }
             }
@@ -289,42 +312,44 @@ function executeStatement(node: TS.Statement, state: State, context: Context): S
                 // Lowering still records the obligations of the returned expression (divisors, overflow). Only a
                 // postcondition or return refinement reads the value itself, so a value outside the model is fine
                 // unless it hides an obligation the verifier would then never check.
-                try { lowerExpression(node.expression, state, context); }
+                let result: Term | undefined;
+                try { result = lowerExpression(node.expression, state, context); }
                 catch (error) { if (mayCarryObligations(node.expression, state, context)) throw error; }
+                if (result && context.currentFunction?.returnSort) termForSort(result, context.currentFunction.returnSort, "Return value");
                 return [];
             }
             const structured = lowerStructuredResult(node.expression, state, context, lowering);
-            const result = structured ? undefined : lowerExpression(node.expression, state, context);
+            let result = structured ? undefined : lowerExpression(node.expression, state, context);
+            if (result && context.currentFunction?.returnSort) result = termForSort(result, context.currentFunction.returnSort, "Return value");
             for (const ensure of context.currentFunction?.ensures ?? []) {
                 const substitutions = { ...state.values, ...structured, ...(result ? { result } : {}) };
                 const goal = expressionToSmtTerm(ensure.value, {
                     variables: state.variables, substitutions,
                     functions: context.logic.functions,
-                    defaultNumberSort: context.currentFunction?.numberModel === "mathematical-real" ? "Real" : "Int",
+                    defaultNumberSort: context.currentFunction?.numberModel === "mathematical-real" ? "Real" : "NumberInt",
                 });
                 if (goal.sort !== "Bool") throw new Error("A postcondition must be Boolean.");
                 addProof(context, state, goal.smt, node.expression, `${context.currentFunction?.name} postcondition`, ensure);
             }
             const refinement = context.currentFunction?.returnRefinement;
             if (refinement && result) {
-                const goal = expressionToSmtTerm(refinement.predicate, { substitutions: { value: result }, functions: context.logic.functions });
+                const goal = refinementTerm(refinement, result, context.logic.functions);
                 addProof(context, state, goal.smt, node.expression, `${refinement.name} return refinement`);
             }
             return [];
         }
         if (ts.isThrowStatement(node)) return throwFromMember(node, state, context);
         if (ts.isIfStatement(node)) {
-            const condition = lowerExpression(node.expression, state, context);
-            if (condition.sort !== "Bool") throw new Error("An if condition must be Boolean.");
-            const whenTrue = cloneState(state); whenTrue.facts.push(condition.smt);
-            const whenFalse = cloneState(state); whenFalse.facts.push(`(not ${condition.smt})`);
+            const { truthy, falsy } = conditionPaths(node.expression, state, context, loopExecutor);
+            const otherwise = node.elseStatement;
             return [
-                ...executeStatement(node.thenStatement, whenTrue, context),
-                ...(node.elseStatement ? executeStatement(node.elseStatement, whenFalse, context) : [whenFalse]),
+                ...truthy.flatMap(next => executeStatement(node.thenStatement, next, context)),
+                ...(otherwise ? falsy.flatMap(next => executeStatement(otherwise, next, context)) : falsy),
             ];
         }
         if (ts.isSwitchStatement(node)) return executeSwitch(node, state, context);
-        if (ts.isWhileStatement(node)) return executeWhile(node, state, context);
+        if (ts.isWhileStatement(node)) return executeWhile(node, state, context, loopExecutor);
+        if (ts.isForStatement(node)) return executeFor(node, state, context, loopExecutor);
         if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) {
             const target = node.label ? undefined : ts.isBreakStatement(node)
                 ? context.jumpTargets[context.jumpTargets.length - 1]
@@ -383,51 +408,7 @@ function executeStatements(nodes: readonly TS.Statement[], states: State[], cont
     return states;
 }
 
-function loopInvariants(node: TS.WhileStatement, context: Context): Clause[] {
-    const between = context.sourceText.slice(node.expression.end, nodeStart(node.statement, context.sourceFile));
-    const withOffset = between.indexOf("with");
-    if (withOffset < 0) return [];
-    const open = context.sourceText.indexOf("{", node.expression.end + withOffset);
-    const close = matchingBrace(context.sourceText, open);
-    return parseProperties(context.sourceText.slice(open + 1, close), open + 1).filter(item => item.name === "invariant");
-}
-
-/**
- * Checks the invariant on entry, proves the body preserves it from an arbitrary iteration, and leaves the loop
- * with only the invariant and the negated condition known. A loop without `with` uses the invariant `true`.
- */
-function executeWhile(node: TS.WhileStatement, state: State, context: Context): State[] {
-    const invariants = loopInvariants(node, context);
-    const invariantTerm = (clause: Clause, current: State) => expressionToSmtTerm(clause.value, {
-        variables: current.variables, substitutions: current.values, functions: context.logic.functions,
-    });
-    for (const invariant of invariants) {
-        addProof(context, state, invariantTerm(invariant, state).smt, node, "loop invariant initialization", invariant);
-    }
-    const iteration = cloneState(state);
-    for (const key of assignedKeys(node)) havoc(iteration, key, context);
-    for (const invariant of invariants) iteration.facts.push(invariantTerm(invariant, iteration).smt);
-
-    const body = cloneState(iteration);
-    body.facts.push(lowerExpression(node.expression, body, context).smt);
-    const target: JumpTarget = { kind: "loop", breaks: [], continues: [] };
-    let afterBody: State[];
-    context.jumpTargets.push(target);
-    try { afterBody = executeStatement(node.statement, body, context); }
-    finally { context.jumpTargets.pop(); }
-    for (const next of [...afterBody, ...target.continues]) {
-        for (const invariant of invariants) {
-            addProof(context, next, invariantTerm(invariant, next).smt, node, "loop invariant preservation", invariant);
-        }
-    }
-
-    const exit = cloneState(iteration);
-    exit.facts.push(`(not ${lowerExpression(node.expression, exit, context).smt})`);
-    // The havoc only covers what the body assigns syntactically; an unmodeled body may have changed more.
-    exit.unsupported ??= [...afterBody, ...target.continues, ...target.breaks].find(next => next.unsupported)?.unsupported;
-    return [exit, ...target.breaks];
-}
-
+const loopExecutor = { lowerExpression, executeStatement, updateIncrement };
 const lowering: Lowering = { lowerExpression, executeStatements };
 connectExecutor({ lowerExpression, executeStatements, owesProof });
 
@@ -506,10 +487,10 @@ export function collectProgramProofs(
         const isProofLabel = ts.isLabeledStatement(statement) && (nameText(statement.label) === "assert" || nameText(statement.label) === "assume");
         if (!declaresProofVariable && !isProofLabel && !writesProofVariable(statement)) continue;
         executeStatement(statement, topLevelState, base as Context);
-        if (ts.isVariableStatement(statement)) {
-            for (const declaration of statement.declarationList.declarations) {
-                if (ts.isIdentifier(declaration.name) && unstable.has(nameText(declaration.name))) havoc(topLevelState, nameText(declaration.name), base as Context);
-            }
+        for (const name of unstable) {
+            // A write we did not execute can change the type as well as the value.
+            delete topLevelState.values[name];
+            delete topLevelState.variables[name];
         }
     }
     const participants = new Set(sourceFile.statements.filter(ts.isFunctionDeclaration).flatMap(statement => {

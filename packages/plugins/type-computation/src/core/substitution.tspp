@@ -173,7 +173,15 @@ export function shiftMlttTerm(term: MlttTerm, amount: number, cutoff = 0): MlttT
   }
 }
 
-function substituteMltt(term: MlttTerm, variableIndex: number, replacement: MlttTerm, binderDepth = 0): MlttTerm {
+newtype VariableIndex = number;
+newtype BinderDepth = number;
+
+function substituteMltt(
+  term: MlttTerm,
+  variableIndex: VariableIndex,
+  replacement: MlttTerm,
+  binderDepth: BinderDepth = BinderDepth(0),
+): MlttTerm {
   switch (term.kind) {
     case "universe":
     case "bool-type":
@@ -193,16 +201,16 @@ function substituteMltt(term: MlttTerm, variableIndex: number, replacement: Mltt
       return mlttTypeMatch(
         substituteMltt(term.scrutinee, variableIndex, replacement, binderDepth),
         term.cases.map(matchCase => {
-          const captureCount = matchCase.captures?.length ?? 0;
+          const captureDepth = BinderDepth(binderDepth + (matchCase.captures?.length ?? 0));
           return {
-            pattern: substituteMltt(matchCase.pattern, variableIndex, replacement, binderDepth + captureCount),
+            pattern: substituteMltt(matchCase.pattern, variableIndex, replacement, captureDepth),
             ...(matchCase.captures ? {
               captures: matchCase.captures.map(capture => ({
                 ...capture,
                 type: substituteMltt(capture.type, variableIndex, replacement, binderDepth),
               })),
             } : {}),
-            result: substituteMltt(matchCase.result, variableIndex, replacement, binderDepth + captureCount),
+            result: substituteMltt(matchCase.result, variableIndex, replacement, captureDepth),
           };
         }),
         substituteMltt(term.defaultCase, variableIndex, replacement, binderDepth),
@@ -245,7 +253,7 @@ function substituteMltt(term: MlttTerm, variableIndex: number, replacement: Mltt
       return mlttSigma(
         term.parameterName,
         substituteMltt(term.domain, variableIndex, replacement, binderDepth),
-        substituteMltt(term.codomain, variableIndex, replacement, binderDepth + 1),
+        substituteMltt(term.codomain, variableIndex, replacement, BinderDepth(binderDepth + 1)),
       );
     case "pair":
       return mlttPair(
@@ -263,12 +271,12 @@ function substituteMltt(term: MlttTerm, variableIndex: number, replacement: Mltt
       return mlttPi(
         term.parameterName,
         substituteMltt(term.domain, variableIndex, replacement, binderDepth),
-        substituteMltt(term.codomain, variableIndex, replacement, binderDepth + 1),
+        substituteMltt(term.codomain, variableIndex, replacement, BinderDepth(binderDepth + 1)),
       );
     case "lambda":
       return mlttLambda(
         term.parameterName,
-        substituteMltt(term.body, variableIndex, replacement, binderDepth + 1),
+        substituteMltt(term.body, variableIndex, replacement, BinderDepth(binderDepth + 1)),
         term.parameterType && substituteMltt(term.parameterType, variableIndex, replacement, binderDepth),
       );
     case "application":
@@ -293,7 +301,7 @@ function substituteMltt(term: MlttTerm, variableIndex: number, replacement: Mltt
 }
 
 export function substituteMlttTop(replacement: MlttTerm, body: MlttTerm): MlttTerm {
-  return shiftMlttTerm(substituteMltt(body, 0, shiftMlttTerm(replacement, 1)), -1);
+  return shiftMlttTerm(substituteMltt(body, VariableIndex(0), shiftMlttTerm(replacement, 1)), -1);
 }
 
 

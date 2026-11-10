@@ -115,7 +115,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
     }
 
     /** `target(args, (name) => { rest })`, for a `use` binding followed by `rest`. */
-    function createTrailingClosureCall(cursor: TSPPSyntaxCursor, head: ReturnType<typeof parseUseHead>, rest: TS.Statement[]): TS.CallExpression {
+    function createTrailingClosureCall(cursor: TSPPSyntaxCursor, head: ReturnType<typeof parseUseHead>, rest: TS.Statement[]): TS.CallExpression do {
         const f = cursor.factory;
         const end = cursor.getNodePos();
         const parameter = range(
@@ -136,9 +136,14 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             body,
         ), head.pos, end);
         const target = head.target;
-        return ts.isCallExpression(target)
-            ? range(f.createCallExpression(target.expression, target.typeArguments, range(f.createNodeArray([...target.arguments, closure]), target.arguments.pos, end)), target.pos, end)
-            : range(f.createCallExpression(target, /*typeArguments*/ undefined, range(f.createNodeArray([closure]), target.end, end)), target.pos, end);
+        if (ts.isCallExpression(target)) {
+            const args = range(f.createNodeArray([...target.arguments, closure]), target.arguments.pos, end);
+            range(f.createCallExpression(target.expression, target.typeArguments, args), target.pos, end);
+        }
+        else {
+            const args = range(f.createNodeArray([closure]), target.end, end);
+            range(f.createCallExpression(target, /*typeArguments*/ undefined, args), target.pos, end);
+        }
     }
 
     /** `parseStatement` reports a token no statement can start with but leaves it there, where a loop would never end. */
@@ -338,9 +343,10 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
                 return true;
             case kinds.ParenthesizedExpression:
                 return canTakeConstAssertion((node as TS.ParenthesizedExpression).expression);
-            case kinds.PrefixUnaryExpression:
-                return (node as TS.PrefixUnaryExpression).operator === kinds.MinusToken
-                    && ts.isNumericLiteral((node as TS.PrefixUnaryExpression).operand);
+            case kinds.PrefixUnaryExpression: {
+                const unary = node as TS.PrefixUnaryExpression;
+                return unary.operator === kinds.MinusToken && ts.isNumericLiteral(unary.operand);
+            }
             default:
                 return false;
         }

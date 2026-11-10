@@ -1,6 +1,6 @@
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, ts } from "./host-api";
-import { expressionToSmtTerm, type Sort, type Term } from "./expression";
+import { expressionToSmtTerm, smtSort, termForSort, type Term } from "./expression";
 import { lowerCallArguments, type Lowering } from "./lowered-code";
 import type { LogicLibrary } from "./logic";
 import { participatesInVerification, type Clause, type FunctionModel } from "./models";
@@ -8,6 +8,7 @@ import { addProof, diagnostic, havoc, initialState, isBound, type Context, type 
 import { mayCarryObligations } from "./coverage";
 import type { ClassModel, MemberModel, MethodTarget } from "./classes";
 import { resolveCallTarget } from "./call-targets";
+import { refinementTerm } from "./refinements";
 
 // Class members run on the same symbolic executor as functions. What is particular to them: the fields of `this`, the
 // class invariant at every entry and exit, and calls that may come back into the object.
@@ -33,7 +34,7 @@ export function instantiate(
     if (result) substitutions.result = result;
     return expressionToSmtTerm(clause, {
         substitutions, functions: logic.functions,
-        defaultNumberSort: numberModel === "mathematical-real" ? "Real" : "Int",
+        defaultNumberSort: numberModel === "mathematical-real" ? "Real" : "NumberInt",
     });
 }
 
@@ -47,7 +48,7 @@ export function lowerMathCall(node: TS.CallExpression, state: State, context: Co
     const arguments_ = node.arguments.map(argument => hooks.lowerExpression(argument, state, context));
     const sort = arguments_[0]?.sort;
     if (!sort || (name === "abs" && arguments_.length !== 1)) throw new Error(`Math.${name} needs ${name === "abs" ? "one argument" : "arguments"} to be modeled.`);
-    if ((sort !== "Int" && sort !== "Real") || arguments_.some(argument => argument.sort !== sort)) throw new Error(`The arguments of Math.${name} must have the same numeric sort.`);
+    if ((sort !== "NumberInt" && sort !== "Real") || arguments_.some(argument => argument.sort !== sort)) throw new Error(`The arguments of Math.${name} must have the same numeric sort.`);
     if (name === "abs") {
         const [value] = arguments_;
         return { smt: `(ite (>= ${value.smt} ${sort === "Real" ? "0.0" : "0"}) ${value.smt} (- ${value.smt}))`, sort };
@@ -74,7 +75,7 @@ function invariantTerm(owner: ClassModel, invariant: Clause, state: State, conte
     try {
         term = expressionToSmtTerm(invariant.value, {
             substitutions: fieldTerms(owner, state, true), functions: context.logic.functions,
-            defaultNumberSort: owner.numberModel === "mathematical-real" ? "Real" : "Int",
+            defaultNumberSort: owner.numberModel === "mathematical-real" ? "Real" : "NumberInt",
         });
     }
     catch (error) {
@@ -135,15 +136,15 @@ export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, targ
     for (const [parameter, refinement] of Object.entries(model.parameterRefinements ?? {})) {
         const index = model.parameters.indexOf(parameter);
         if (index < 0) continue;
-        const goal = expressionToSmtTerm(refinement.predicate, { substitutions: { value: arguments_[index] }, functions: context.logic.functions });
+        const goal = refinementTerm(refinement, arguments_[index], context.logic.functions);
         addProof(context, state, goal.smt, node.arguments?.[model.parameterPositions?.[index] ?? index] ?? node, `${refinement.name} argument refinement`);
     }
     leaveObject(state, node, model.name, context);
     if (member.kind === "constructor") return undefined;
-    const sort: Sort = model.returnSort ?? "Int";
+    const sort = model.returnSort;
     const name = `tspp.call.${model.name}.${context.nextTemporary++}`;
-    const result = { smt: `|${name}|`, sort } as const;
-    state.declarations.add(`(declare-const |${name}| ${sort})`);
+    const result: Term | undefined = sort && { smt: `|${name}|`, sort };
+    if (sort) state.declarations.add(`(declare-const |${name}| ${smtSort(sort)})`);
     if (model !== context.currentFunction) {
         const after = ownFields ? fieldTerms(owner, state, false) : {};
         for (const ensure of model.ensures) {
@@ -153,8 +154,8 @@ export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, targ
             }
             catch { /* A postcondition about another object's fields says nothing the caller can name. */ }
         }
-        if (model.returnRefinement) {
-            const fact = expressionToSmtTerm(model.returnRefinement.predicate, { substitutions: { value: result }, functions: context.logic.functions });
+        if (model.returnRefinement && result) {
+            const fact = refinementTerm(model.returnRefinement, result, context.logic.functions);
             if (fact.sort === "Bool") state.facts.push(fact.smt);
         }
     }
@@ -181,13 +182,13 @@ export function proveMemberExit(state: State, node: TS.Node, context: Context, r
         }
         const goal = expressionToSmtTerm(ensure.value, {
             variables: state.variables, substitutions: { ...state.values, ...(result ? { result } : {}) },
-            functions: context.logic.functions, defaultNumberSort: model.numberModel === "mathematical-real" ? "Real" : "Int",
+            functions: context.logic.functions, defaultNumberSort: model.numberModel === "mathematical-real" ? "Real" : "NumberInt",
         });
         if (goal.sort !== "Bool") throw new Error("A postcondition must be Boolean.");
         addProof(context, state, goal.smt, node, `${model.name} postcondition`, ensure);
     }
     if (model.returnRefinement && result) {
-        const goal = expressionToSmtTerm(model.returnRefinement.predicate, { substitutions: { value: result }, functions: context.logic.functions });
+        const goal = refinementTerm(model.returnRefinement, result, context.logic.functions);
         addProof(context, state, goal.smt, node, `${model.returnRefinement.name} return refinement`);
     }
     if (!member.isStatic) {
@@ -282,6 +283,7 @@ export function returnFromMember(node: TS.ReturnStatement, state: State, context
             catch (error) { if (mayCarryObligations(node.expression, state, context)) throw error; }
         }
     }
+    if (result && model.returnSort) result = termForSort(result, model.returnSort, "Return value");
     proveMemberExit(state, node, context, result);
     return [];
 }

@@ -3,14 +3,19 @@ import { nameText, ts } from "./host-api";
 import { guardsCalls } from "./models";
 import { guardedMethodNames, memberName } from "./classes";
 import { resolveCallTarget, resolveFunction } from "./call-targets";
-import { assignmentKey, assignmentOperators, diagnostic, isIncrementOrDecrement, type Context, type State } from "./execution-state";
+import { assignmentKey, assignmentOperators, diagnostic, isIncrementOrDecrement, writeTarget, type Context, type State } from "./execution-state";
 
 export function countWrites(node: TS.Node, name: string): number {
     let count = 0;
+    const mentionsName = (node: TS.Node): boolean => (ts.isIdentifier(node) && nameText(node) === name)
+        || !!ts.forEachChild(node, child => mentionsName(child) || undefined);
     const visit = (child: TS.Node): void => {
-        const target = ts.isBinaryExpression(child) && assignmentOperators().has(child.operatorToken.kind) ? child.left
-            : isIncrementOrDecrement(child) ? child.operand : undefined;
-        if (target && assignmentKey(target)?.split(".")[0] === name) count++;
+        const target = writeTarget(child);
+        if (target) {
+            const key = assignmentKey(target);
+            // For an unmodeled target, such as destructuring, a mentioned binding may be overwritten.
+            if (key ? key.split(".")[0] === name : mentionsName(target)) count++;
+        }
         ts.forEachChild(child, visit);
     };
     visit(node);
@@ -18,7 +23,17 @@ export function countWrites(node: TS.Node, name: string): number {
 }
 
 export function countTopLevelWrites(sourceFile: TS.SourceFile, name: string): number {
-    return sourceFile.statements.reduce((total, statement) => total + (ts.isExpressionStatement(statement) ? countWrites(statement, name) : 0), 0);
+    const writes = (node: TS.Node) => {
+        const target = writeTarget(node);
+        return !!target && assignmentKey(target)?.split(".")[0] === name;
+    };
+    return sourceFile.statements.reduce((total, statement) => {
+        if (ts.isVariableStatement(statement)) return total + statement.declarationList.declarations.filter(writes).length;
+        if (!ts.isExpressionStatement(statement)) return total;
+        let expression = statement.expression;
+        while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+        return total + Number(writes(expression));
+    }, 0);
 }
 
 /** Local names bound to the logic library module: namespace imports and individually imported builders. */

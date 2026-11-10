@@ -6,6 +6,9 @@ import { collectFunctionClauses, parseProperties } from "./contracts";
 import { refinedTypeEnd, type RefinementModel } from "./refinements";
 
 export interface Clause { readonly value: string; readonly start: number; }
+export type RecordFields = ReadonlyMap<string, Sort | undefined>;
+export const numberSortFromModel = (model: FunctionModel["numberModel"]) =>
+    model === "mathematical-real" ? "Real" : model === "safe-integer" ? "NumberInt" : undefined;
 export interface FunctionModel {
     readonly name: string;
     /** The parameters proofs can read, whose arguments `parameterPositions` finds among all `arity` of them. */
@@ -43,7 +46,7 @@ export function modelSignature(
     declaration: TS.SignatureDeclaration,
     contract: ContractClause | undefined,
     refinements: ReadonlyMap<string, RefinementModel>,
-    records: ReadonlyMap<string, ReadonlyMap<string, Sort>>,
+    records: ReadonlyMap<string, RecordFields>,
     bodyStart: number,
 ): FunctionModel {
     const numberModel = contract?.numberModel;
@@ -62,8 +65,9 @@ export function modelSignature(
             if (refinement) parameterRefinements[nameText(parameter.name)] = refinement;
         }
         else {
-            for (const [field, fieldSort] of fieldsFromType(parameter.type, records, numberModel) ?? []) {
-                variables[`${nameText(parameter.name)}.${field}`] = fieldSort;
+            for (const [field, typeSort] of fieldsFromType(parameter.type, records) ?? []) {
+                const sort = typeSort === "NumberInt" ? numberSortFromModel(numberModel) : typeSort;
+                if (sort) variables[`${nameText(parameter.name)}.${field}`] = sort;
             }
         }
     }
@@ -93,45 +97,42 @@ export function sortFromType(
     if (ts.isLiteralTypeNode(type) && ts.isStringLiteral(type.literal)) return "String";
     if (type.kind === ts.SyntaxKind.BigIntKeyword) return "Int";
     if (type.kind === ts.SyntaxKind.NumberKeyword) {
-        return numberModel === "mathematical-real" ? "Real" : numberModel === "safe-integer" ? "Int" : undefined;
+        return numberSortFromModel(numberModel);
     }
     return refinementFromType(type, refinements)?.sort;
 }
 
-export function fieldsFromType(
-    type: TS.TypeNode | undefined,
-    records: ReadonlyMap<string, ReadonlyMap<string, Sort>>,
-    numberModel?: FunctionModel["numberModel"],
-): ReadonlyMap<string, Sort> | undefined {
+function mergeField(fields: Map<string, Sort | undefined>, name: string, sort: Sort | undefined): void {
+    // Keep an ambiguous field in the map so a later variant cannot give it a type again.
+    fields.set(name, fields.has(name) && fields.get(name) !== sort ? undefined : sort);
+}
+
+function fieldsFromType(type: TS.TypeNode | undefined, records: ReadonlyMap<string, RecordFields>): RecordFields | undefined {
     if (!type) return undefined;
     if (ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName)) return records.get(nameText(type.typeName));
-    if (ts.isParenthesizedTypeNode(type)) return fieldsFromType(type.type, records, numberModel);
+    if (ts.isParenthesizedTypeNode(type)) return fieldsFromType(type.type, records);
     const members = ts.isTypeLiteralNode(type) ? type.members : undefined;
     if (members) {
-        const fields = new Map<string, Sort>();
+        const fields = new Map<string, Sort | undefined>();
         for (const member of members) {
             if (!ts.isPropertySignature(member) || !member.type || !member.name) continue;
             const name = ts.isIdentifier(member.name) || ts.isStringLiteral(member.name) ? nameText(member.name) : undefined;
-            const sort = sortFromType(member.type, new Map(), numberModel);
-            if (name && sort) fields.set(name, sort);
+            if (name) fields.set(name, sortFromType(member.type, undefined, "safe-integer"));
         }
         return fields;
     }
     if (ts.isUnionTypeNode(type)) {
-        const fields = new Map<string, Sort>();
+        const fields = new Map<string, Sort | undefined>();
         for (const part of type.types) {
-            for (const [name, sort] of fieldsFromType(part, records, numberModel) ?? []) {
-                const previous = fields.get(name);
-                if (!previous || previous === sort) fields.set(name, sort);
-            }
+            for (const [name, sort] of fieldsFromType(part, records) ?? []) mergeField(fields, name, sort);
         }
         return fields;
     }
     return undefined;
 }
 
-export function collectRecordTypes(sourceFile: TS.SourceFile): Map<string, ReadonlyMap<string, Sort>> {
-    const records = new Map<string, ReadonlyMap<string, Sort>>();
+export function collectRecordTypes(sourceFile: TS.SourceFile): Map<string, RecordFields> {
+    const records = new Map<string, RecordFields>();
     for (const statement of sourceFile.statements) {
         if (ts.isTypeAliasDeclaration(statement)) {
             const fields = fieldsFromType(statement.type, records);
@@ -158,7 +159,7 @@ export interface DataConstructor {
  * there is no `data` syntax, so there is nothing to model.
  */
 export function collectDataTypes(
-    nominalTypes: NominalTypesADTAPI | undefined, sourceText: string, records: Map<string, ReadonlyMap<string, Sort>>, sourceFile: TS.SourceFile,
+    nominalTypes: NominalTypesADTAPI | undefined, sourceText: string, records: Map<string, RecordFields>, sourceFile: TS.SourceFile,
 ): Map<string, DataConstructor> {
     const aliases = new Map(sourceFile.statements.filter(ts.isTypeAliasDeclaration).map(alias => [nameText(alias.name), sourceFile.text.slice(alias.type.pos, refinedTypeEnd(alias.type)).trim()]));
     /** The type a field wrote, through the file's aliases, whose names the API reports as written. */
@@ -170,13 +171,13 @@ export function collectDataTypes(
     };
     const constructors = new Map<string, DataConstructor>();
     for (const dataType of nominalTypes?.getDataTypes(sourceText) ?? []) {
-        const fields = new Map<string, Sort>([[nominalTypes!.tagProperty, "String"]]);
+        const fields = new Map<string, Sort | undefined>([[nominalTypes!.tagProperty, "String"]]);
         for (const variant of dataType.variants) {
             for (const field of variant.fields) {
                 const type = resolved(field.type);
-                const sort = type === "bigint" ? "Int" : type === "number" ? "Real"
+                const sort = type === "bigint" ? "Int" : type === "number" ? "NumberInt"
                     : type === "boolean" ? "Bool" : type === "string" ? "String" : undefined;
-                if (sort) fields.set(field.name, sort);
+                mergeField(fields, field.name, sort);
             }
             constructors.set(variant.name, {
                 tagProperty: nominalTypes!.tagProperty,
@@ -193,17 +194,18 @@ export function collectDataTypes(
 export function parseFunctionModels(sourceText: string): Map<string, FunctionModel> {
     const models = new Map<string, FunctionModel>();
     for (const clause of collectFunctionClauses(sourceText)) {
+        const properties = parseProperties(sourceText.slice(clause.open + 1, clause.close), clause.open + 1);
+        const numberModelValue = properties.find(item => item.name === "numberModel")?.value.replace(/["']/g, "");
+        const numberModel = numberModelValue === "mathematical-real" || numberModelValue === "safe-integer" ? numberModelValue : undefined;
         const variables: Record<string, Sort> = {};
         const parameters: string[] = [];
         const parameterPattern = new RegExp(String.raw`(${identifierSource})\s*:\s*(boolean|bigint|number)\b`, "gu");
         const parameterText = sourceText.slice(clause.parametersStart + 1, clause.parametersEnd);
         for (let parameter; (parameter = parameterPattern.exec(parameterText));) {
             parameters.push(parameter[1]);
-            variables[parameter[1]] = parameter[2] === "boolean" ? "Bool" : "Int";
+            variables[parameter[1]] = parameter[2] === "boolean" ? "Bool" : parameter[2] === "bigint" ? "Int"
+                : numberModel === "mathematical-real" ? "Real" : "NumberInt";
         }
-        const properties = parseProperties(sourceText.slice(clause.open + 1, clause.close), clause.open + 1);
-        const numberModelValue = properties.find(item => item.name === "numberModel")?.value.replace(/["']/g, "");
-        const numberModel = numberModelValue === "mathematical-real" || numberModelValue === "safe-integer" ? numberModelValue : undefined;
         models.set(clause.name, {
             name: clause.name, parameters, variables,
             requires: properties.filter(item => item.name === "requires"),

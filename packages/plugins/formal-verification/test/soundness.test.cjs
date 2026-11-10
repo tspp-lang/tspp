@@ -127,7 +127,7 @@ function caller(): bigint { return widen(-1n); }`,
 function bump(): void { g = 2n; }
 bump();
 assert: g === 1n;`,
-    rejects: /local assertion could not be proved\./,
+    rejects: /Unknown proof variable 'g'/,
   },
   {
     name: "call in arrow function",

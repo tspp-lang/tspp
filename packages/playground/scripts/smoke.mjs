@@ -40,6 +40,8 @@ try {
     if (result.reasons.length) failures.push(`${example}:\n  ${result.reasons.join("\n  ")}`);
   }
   console.log(`Checked ${fileCount} source files across ${examples.length} Playground projects.`);
+  await checkInvalidMacroEditing(page);
+  await checkEditorRecovery(browser);
 }
 finally {
   await browser.close();
@@ -85,6 +87,113 @@ async function checkUnsavedDiagnostics(page) {
   await save();
   await runAndCheck("draft-output");
   console.log("ok   unsaved diagnostics and saved outputs");
+}
+
+async function checkInvalidMacroEditing(page) {
+  await page.selectOption("#examples", "13-macros");
+  await page.locator('#project-tree [data-path="/src/02-transform.tspp"]').click();
+  const editor = page.locator("#editor .monaco-editor");
+  await editor.locator(".view-lines").click();
+  await page.keyboard.press("Control+a");
+  await page.keyboard.insertText(`import type { MacroContext } from "ts-plus-plus/plugins/macros/sdk";
+interface Box {}
+macro function exposeTypeName([], { factory }: MacroContext) {
+  const declaration = factory
+    .createVariableDeclaration(
+      "BoxTypeName", undefined, undefined,
+      "aaa",
+    );
+  return factory.createVariableStatement(undefined, factory.createVariableDeclarationList([declaration]));
+}
+macro exposeTypeName(Box);`);
+
+  const problem = page.locator("#problems .problem").filter({ hasText: "TS2345" });
+  await problem.locator(".problem-location").filter({ hasText: "src/02-transform.tspp:7:" }).waitFor();
+  await problem.locator(".problem-message").filter({ hasText: "MacroNode" }).waitFor();
+  await page.locator("#problems .problem").filter({ hasText: "Macro 'exposeTypeName' returned an invalid syntax tree" }).waitFor();
+  await editor.locator(".squiggly-error").first().waitFor();
+  await problem.click();
+  await page.keyboard.press("Control+Shift+Space");
+  await page.locator(".parameter-hints-widget").filter({ hasText: "initializer?: MacroNode" }).waitFor();
+  await page.keyboard.press("Escape");
+  // The fifth line ends in the method name and its opening parenthesis.
+  await page.keyboard.press("Control+Home");
+  for (let line = 1; line < 5; line++) await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("End");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("Control+k");
+  await page.keyboard.press("Control+i");
+  await page.locator(".monaco-hover").filter({ hasText: "initializer?: MacroNode" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Control+Space");
+  await page.locator(".suggest-widget").getByText("createVariableDeclaration", { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  console.log("ok   macro argument diagnostics, hover, signature help, and completions");
+}
+
+async function checkEditorRecovery(browser) {
+  const page = await browser.newPage();
+  try {
+    // Inject the RPC errors produced by a crashing compiler hook, only in the worker with that plugin enabled.
+    await page.addInitScript(() => {
+      const NativeWorker = window.Worker;
+      window.Worker = class extends NativeWorker {
+        #hasOperatorSections = false;
+        #broken = false;
+
+        postMessage(message, ...options) {
+          if (message.method === "setProject") {
+            this.#hasOperatorSections = message.args[1].includes("operator-sections");
+            this.#broken = Object.values(message.args[0]).some(text => text.includes("/* crash */"));
+          }
+          if (message.method === "editFile") this.#broken = message.args[1].includes("/* crash */");
+          if (this.#hasOperatorSections && this.#broken && ["diagnostics", "quickInfo", "completions", "completionDetails", "signatureHelp"].includes(message.method)) {
+            queueMicrotask(() => this.dispatchEvent(new MessageEvent("message", {
+              data: { id: message.id, error: "Simulated operator-sections compiler failure" },
+            })));
+            return;
+          }
+          super.postMessage(message, ...options);
+        }
+      };
+    });
+    await page.goto(server.resolvedUrls.local[0], { waitUntil: "load" });
+    await page.selectOption("#examples", "02-operator-sections");
+    await page.locator("#editor .view-lines").click();
+    const write = async source => {
+      await page.keyboard.press("Control+a");
+      await page.keyboard.insertText(source);
+    };
+    const showHover = async expected => {
+      await page.keyboard.press("ArrowLeft");
+      await page.keyboard.press("Control+k");
+      await page.keyboard.press("Control+i");
+      await page.locator(".monaco-hover").filter({ hasText: expected }).waitFor();
+      await page.keyboard.press("Escape");
+    };
+    await write("/* crash */\nconst sample = { alpha: 1 };\nsample.alpha");
+    const problem = page.locator("#problems .problem-message").filter({ hasText: "Type checking failed: Simulated operator-sections compiler failure" });
+    await problem.waitFor();
+    await showHover("(property) alpha: number");
+    await page.keyboard.press("Control+Space");
+    await page.locator(".suggest-widget").getByText("alpha", { exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+
+    await write('/* crash */\nconst sample = { alpha: "latest draft" };\nsample.alpha');
+    await showHover("(property) alpha: string");
+    await write("/* crash */\nfunction format(value: number) { return String(value); }\nformat(");
+    await page.keyboard.press("Control+Shift+Space");
+    await page.locator(".parameter-hints-widget").filter({ hasText: "value: number" }).waitFor();
+    await page.keyboard.press("Escape");
+    await write("const isPositive = (_ > 0);\nisPositive");
+    await problem.waitFor({ state: "hidden" });
+    await showHover(/const isPositive: \(.*\) => boolean/);
+    console.log("ok   editor recovery after a plugin compiler exception and after fixing the draft");
+  }
+  finally {
+    await page.close();
+  }
 }
 
 /** Selects an example project and runs all its source files. */
