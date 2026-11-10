@@ -19,5 +19,12 @@ runs:
       with:
         path: .bootstrap/${{ steps.bootstrap-pin.outputs.commit }}
         key: tspp-bootstrap-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.bootstrap-pin.outputs.commit }}
-    - run: pnpm bootstrap:install
+    - if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        # Git Bash's GNU tar treats drive letters in archive paths as remote hosts.
+        $env:Path = (Join-Path $env:SystemRoot 'System32') + ';' + $env:Path
+        pnpm bootstrap:install
+    - if: runner.os != 'Windows'
+      run: pnpm bootstrap:install
       shell: bash
