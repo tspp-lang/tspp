@@ -21,6 +21,7 @@ function canceled(): Error {
   return error;
 }
 
+// Formatting is not among them: a compiler without the project's capsules would format their syntax away.
 const editorRequests = new Set<keyof WorkerApi>(["quickInfo", "completions", "completionDetails", "signatureHelp", "definition"]);
 
 /** A stable RPC facade. Changing the capsule set starts a fresh compiler worker. */

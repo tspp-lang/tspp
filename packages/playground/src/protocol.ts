@@ -71,6 +71,16 @@ export interface SignatureHelp {
   readonly activeParameter: number;
 }
 
+export interface TextEdit {
+  readonly span: Span;
+  readonly newText: string;
+}
+
+export interface FormattingOptions {
+  readonly tabSize: number;
+  readonly insertSpaces: boolean;
+}
+
 export interface Location {
   readonly fileName: string;
   readonly span: Span;
@@ -128,6 +138,8 @@ export interface WorkerApi {
   completionDetails(fileName: string, offset: number, name: string, source: string | undefined, data: unknown): CompletionDetails | undefined;
   signatureHelp(fileName: string, offset: number, triggerCharacter: string | undefined, isRetrigger: boolean): SignatureHelp | undefined;
   definition(fileName: string, offset: number): Location[];
+  /** Edits that format `fileName`, or only `range` of it, as the language server does. */
+  format(fileName: string, options: FormattingOptions, range?: Span): TextEdit[];
 }
 
 /** Notifications the worker sends on its own. */

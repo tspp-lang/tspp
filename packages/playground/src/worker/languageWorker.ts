@@ -474,6 +474,21 @@ const api: WorkerApi = {
       .filter(definition => files.has(definition.fileName))
       .map((definition): Location => ({ fileName: definition.fileName, span: definition.textSpan }));
   },
+
+  format(fileName, { tabSize, insertSpaces }, range) {
+    const settings: ts.FormatCodeSettings = {
+      ...ts.getDefaultFormatCodeSettings("\n"),
+      indentSize: tabSize,
+      tabSize,
+      convertTabsToSpaces: insertSpaces,
+      // The examples write `export {};`; TypeScript would otherwise put a space between empty braces.
+      insertSpaceAfterOpeningAndBeforeClosingEmptyBraces: false,
+    };
+    const edits = range
+      ? languageService().getFormattingEditsForRange(fileName, range.start, range.start + range.length, settings)
+      : languageService().getFormattingEditsForDocument(fileName, settings);
+    return edits.map(edit => ({ span: edit.span, newText: edit.newText }));
+  },
 };
 
 /** Resolves after any messages already posted to the worker, such as cancellations, are delivered. */

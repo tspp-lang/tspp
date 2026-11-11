@@ -66,6 +66,7 @@ export function createOutputController(
     scrollBeyondLastLine: false,
     folding: true,
     renderValidationDecorations: "off",
+    useShadowDOM: false,
   });
 
   const categoryButtons = new Map<OutputCategory, HTMLButtonElement>();

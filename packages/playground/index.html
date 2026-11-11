@@ -22,6 +22,13 @@
       <select id="examples" aria-label="Examples">
         <option value="">Examples…</option>
       </select>
+      <div class="settings">
+        <button id="settings" class="icon-button" type="button" aria-label="Settings" title="Settings" aria-haspopup="true" aria-expanded="false" aria-controls="settings-panel"><span class="codicon codicon-settings-gear"></span></button>
+        <div id="settings-panel" role="group" aria-label="Settings" hidden>
+          <label><input id="format-on-save" type="checkbox" /> Format on save</label>
+          <p>Formats changed source files when Ctrl+S saves them.</p>
+        </div>
+      </div>
       <input id="share-link" type="text" readonly hidden aria-label="Share link" />
       <button id="share" type="button">Share</button>
     </header>

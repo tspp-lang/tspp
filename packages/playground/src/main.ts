@@ -9,11 +9,12 @@ import { createOutputController } from "./outputs";
 import { createProblemChecker } from "./problems";
 import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, replacePathPrefix, validItemName } from "./projectTree";
 import type { ProjectFiles } from "./protocol";
-import { registerProviders, setDiagnosticMarkers } from "./providers";
+import { formatModel, registerProviders, setDiagnosticMarkers } from "./providers";
+import { setupSettings } from "./settings";
 import { decodeShared, encodeExample, encodeState, onSharedStateChange, type SharedState } from "./share";
 import { renderSolverStatus } from "./solverStatus";
 import { setupVersionSelector } from "./versionSelector";
-import { renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
+import { createSourceEditor, renderEditorTabs, setupHorizontalResizer, setupProjectSelector, setupSaveShortcut, setupShareButton } from "./workspaceUi";
 
 self.MonacoEnvironment = {
   getWorker: () => new Worker(new URL("./editorWorker.ts", import.meta.url), { type: "module" }),
@@ -57,18 +58,8 @@ const languageClient = () => draftClient ?? client;
 registerEditorLanguages();
 registerProviders(languageClient);
 
-const dark = matchMedia("(prefers-color-scheme: dark)");
-const editor = monaco.editor.create(element("editor"), {
-  model: null,
-  theme: dark.matches ? "vs-dark" : "vs",
-  automaticLayout: true,
-  minimap: { enabled: false },
-  fontSize: 14,
-  scrollBeyondLastLine: false,
-  fixedOverflowWidgets: true,
-});
+const editor = createSourceEditor(element("editor"));
 const outputs = createOutputController(client, () => currentFeatures(), path => models.get(path), path => openFile(path));
-dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
 
 let initialization: Awaited<ReturnType<typeof client.init>>;
 let solverLocation: Awaited<ReturnType<typeof z3Location>>;
@@ -291,6 +282,7 @@ function syncProjectChange(nextActive = active): void {
 }
 
 async function saveProject(): Promise<void> {
+  if (settings.formatOnSave) await formatChangedSources();
   const dirty = dirtyFiles();
   for (const path of dirty) savedContents.set(path, models.get(path)!.getValue());
   disposeDraft();
@@ -301,6 +293,8 @@ async function saveProject(): Promise<void> {
   scheduleCheck();
 }
 
+const settings = setupSettings(element<HTMLButtonElement>("settings"), element("settings-panel"));
+const formatChangedSources = () => Promise.all([...dirtyFiles()].filter(isSourceFile).map(path => formatModel(languageClient(), models.get(path)!, editor).catch(reportDraftError)));
 setupSaveShortcut(() => void saveProject());
 
 function createFile(): void {

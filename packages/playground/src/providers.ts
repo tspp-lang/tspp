@@ -2,7 +2,7 @@
 import { getCodeDecorationSpans } from "@tspp/plugin-sdk/editor";
 import type { LanguageClient } from "./client";
 import * as monaco from "./monaco";
-import type { CompletionEntry, DiagnosticInfo, Span } from "./protocol";
+import type { CompletionEntry, DiagnosticInfo, FormattingOptions, Span } from "./protocol";
 import { languageId } from "./tsppLanguage";
 
 const { CompletionItemKind } = monaco.languages;
@@ -44,6 +44,38 @@ function toRange(model: monaco.editor.ITextModel, span: Span): monaco.IRange {
 const codeBlock = (code: string) => "```" + languageId + "\n" + code + "\n```";
 
 type TsppCompletionItem = monaco.languages.CompletionItem & { entry: CompletionEntry; fileName: string; offset: number };
+
+/** The edits that format `model`, or `range` of it, in Monaco's form. */
+export async function formattingEdits(
+  languageClient: LanguageClient,
+  model: monaco.editor.ITextModel,
+  options: FormattingOptions,
+  range?: monaco.IRange,
+  token?: monaco.CancellationToken,
+): Promise<monaco.languages.TextEdit[]> {
+  const span = range && { start: model.getOffsetAt({ lineNumber: range.startLineNumber, column: range.startColumn }), length: 0 };
+  const request = span && { ...span, length: model.getOffsetAt({ lineNumber: range.endLineNumber, column: range.endColumn }) - span.start };
+  const { tabSize, insertSpaces } = options;
+  const edits = await languageClient.format(model.uri.path, { tabSize, insertSpaces }, request, token);
+  return edits.map(edit => ({ range: toRange(model, edit.span), text: edit.newText }));
+}
+
+/** Formats `model` as one undoable step, through `editor` when it shows the model so its cursor follows the edits. */
+export async function formatModel(languageClient: LanguageClient, model: monaco.editor.ITextModel, editor: monaco.editor.ICodeEditor): Promise<void> {
+  const edits = await formattingEdits(languageClient, model, model.getOptions());
+  if (!edits.length || model.isDisposed()) return;
+  const operations = edits.map(edit => ({ range: edit.range, text: edit.text }));
+  if (editor.getModel() === model) {
+    editor.pushUndoStop();
+    editor.executeEdits("format-on-save", operations);
+    editor.pushUndoStop();
+  }
+  else {
+    model.pushStackElement();
+    model.pushEditOperations(null, operations, () => null);
+    model.pushStackElement();
+  }
+}
 
 export function registerProviders(languageClient: () => LanguageClient) {
   monaco.languages.registerHoverProvider(languageId, {
@@ -125,6 +157,14 @@ export function registerProviders(languageClient: () => LanguageClient) {
         dispose() {},
       };
     },
+  });
+
+  monaco.languages.registerDocumentFormattingEditProvider(languageId, {
+    provideDocumentFormattingEdits: (model, options, token) => formattingEdits(languageClient(), model, options, undefined, token),
+  });
+
+  monaco.languages.registerDocumentRangeFormattingEditProvider(languageId, {
+    provideDocumentRangeFormattingEdits: (model, range, options, token) => formattingEdits(languageClient(), model, options, range, token),
   });
 
   monaco.languages.registerDefinitionProvider(languageId, {
