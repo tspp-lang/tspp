@@ -100,7 +100,8 @@ describe('TS++ plugins in a multi-project workspace', () => {
         diagnostics.clear();
         versions.clear();
         workspace = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tspp-isolation-')));
-        fs.ensureSymlinkSync(path.join(repoRoot, 'packages', 'compiler'), path.join(workspace, 'node_modules', 'ts-plus-plus'), 'dir');
+        // Directory junctions work on Windows without symlink privileges.
+        fs.ensureSymlinkSync(path.join(repoRoot, 'packages', 'compiler'), path.join(workspace, 'node_modules', 'ts-plus-plus'), 'junction');
     });
 
     afterEach(() => {
