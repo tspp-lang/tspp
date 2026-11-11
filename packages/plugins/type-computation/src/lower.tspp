@@ -2,7 +2,7 @@ import { markGenerated } from "@tspp/plugin-sdk";
 import type { TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { normalizeMlttTerm, type MlttTerm } from "./core";
+import { normalizeMlttTerm, type MlttApplication, type MlttExternal, type MlttTerm, type MlttTypeMatch } from "./core";
 import { termToKind, type TypeSyntaxModel } from "./kinds";
 import { getDependentBinderMode, indexedAccessKey, unionKeyPrefix, type IndexedAccessLocation } from "./term-parser";
 
@@ -11,6 +11,27 @@ interface Binder {
     readonly domain: MlttTerm;
     readonly mode: "explicit" | "implicit";
 }
+
+type LoweringTerm<Kind> = match Kind {
+    "application": MlttApplication,
+    "external": MlttExternal,
+    "type-match": MlttTypeMatch,
+    _: never,
+};
+
+type NaturalKind = "successor" | "nat-add";
+type ReducedKind = "nat-elim" | "identity-elim";
+
+type OperandKeys<Kind extends NaturalKind | ReducedKind> = match Kind {
+    "successor": readonly ["predecessor"],
+    "nat-add": readonly ["left", "right"],
+    "nat-elim": readonly ["scrutinee"],
+    "identity-elim": readonly ["equality"],
+    _: never,
+};
+
+type OperandSource<Kind extends NaturalKind | ReducedKind> =
+    MlttTerm & { readonly kind: Kind } & Readonly<Record<OperandKeys<Kind>[number], MlttTerm>>;
 
 export const keywordTypes: ReadonlySet<string> = new Set(["any", "bigint", "boolean", "never", "null", "number", "object", "string", "symbol", "undefined", "unknown", "void"]);
 
@@ -69,8 +90,8 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
             case "false": return factory.createLiteralTypeNode(factory.createFalse());
             case "nat-type": return keyword(kinds.NumberKeyword);
             case "zero": return numeric(0);
-            case "successor": return lowerNatural(current, [current.predecessor], scope);
-            case "nat-add": return lowerNatural(current, [current.left, current.right], scope);
+            case "successor": return lowerNatural(current, ["predecessor"], scope);
+            case "nat-add": return lowerNatural(current, ["left", "right"], scope);
             case "variable": return scope[current.index] ? reference(scope[current.index]) : unknownType();
             case "external": return lowerExternal(current, scope);
             case "pi": return lowerFunction(current, scope);
@@ -91,13 +112,13 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
             case "annotation": return lower(current.term, scope);
             case "lambda": return uncheckedType();
             case "application": return lowerApplication(current, scope);
-            case "nat-elim":
-            case "identity-elim": return lowerReduced(current, scope);
+            case "nat-elim": return lowerReduced(current, "scrutinee", scope);
+            case "identity-elim": return lowerReduced(current, "equality", scope);
         }
     }
 
     /** `P<a>` of a constructor parameter `P`, as the type extension reads it; anything else must reduce first. */
-    function lowerApplication(current: Extract<MlttTerm, { kind: "application"; }>, scope: readonly string[]): TS.TypeNode {
+    function lowerApplication(current: LoweringTerm<"application">, scope: readonly string[]): TS.TypeNode {
         const reduced = normalizeSafely(current);
         if (reduced.kind !== "application") return lower(reduced, scope);
         if (!isConstructorApplication(reduced, scope)) return uncheckedType();
@@ -121,7 +142,7 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         return factory.createPropertySignature(/*modifiers*/ undefined, name, /*questionToken*/ undefined, type);
     }
 
-    function lowerExternal(term: Extract<MlttTerm, { kind: "external"; }>, scope: readonly string[]): TS.TypeNode {
+    function lowerExternal(term: LoweringTerm<"external">, scope: readonly string[]): TS.TypeNode {
         if (term.key.startsWith(unionKeyPrefix)) return lowerUnion(term, scope);
         if (term.key === indexedAccessKey) {
             const node = factory.createIndexedAccessTypeNode(lower(term.arguments[0], scope), lower(term.arguments[1], scope));
@@ -168,7 +189,7 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
     }
 
     /** `A | B & C`, whose separators are in the key; intersections bind tighter, as they do in TypeScript. */
-    function lowerUnion(term: Extract<MlttTerm, { kind: "external"; }>, scope: readonly string[]): TS.TypeNode {
+    function lowerUnion(term: LoweringTerm<"external">, scope: readonly string[]): TS.TypeNode {
         const separators = term.key.slice(unionKeyPrefix.length);
         const groups: TS.TypeNode[][] = [[lower(term.arguments[0], scope)]];
         term.arguments.slice(1).forEach((argument, index) => {
@@ -223,7 +244,7 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         return factory.createFunctionTypeNode(typeParameterList, parameters, lower(result, scope));
     }
 
-    function lowerTypeMatch(term: Extract<MlttTerm, { kind: "type-match"; }>, scope: readonly string[]): TS.TypeNode {
+    function lowerTypeMatch(term: LoweringTerm<"type-match">, scope: readonly string[]): TS.TypeNode {
         let result = lower(term.defaultCase, scope);
         for (let index = term.cases.length - 1; index >= 0; index--) {
             const matchCase = term.cases[index];
@@ -254,7 +275,12 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         return current.kind === "zero" ? numeric(value) : undefined;
     }
 
-    function lowerNatural(term: MlttTerm, operands: readonly MlttTerm[], scope: readonly string[]): TS.TypeNode {
+    function lowerNatural<Kind extends NaturalKind>(
+        term: OperandSource<Kind>,
+        fields: NoInfer<OperandKeys<Kind>>,
+        scope: readonly string[],
+    ): TS.TypeNode {
+        const operands = fields.map((field: OperandKeys<Kind>[number]) => term[field]);
         const result = natural(term) ?? keyword(kinds.NumberKeyword);
         return preserveIndexedOperands(term, result, operands, scope);
     }
@@ -270,11 +296,15 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         return node;
     }
 
-    function lowerReduced(term: Extract<MlttTerm, { kind: "nat-elim" | "identity-elim"; }>, scope: readonly string[]): TS.TypeNode {
+    function lowerReduced<Kind extends ReducedKind>(
+        term: OperandSource<Kind>,
+        field: NoInfer<OperandKeys<Kind>[0]>,
+        scope: readonly string[],
+    ): TS.TypeNode {
         const normalized = normalizeSafely(term);
         // Still the same kind of term, so it is stuck on an open binder; TypeScript has no type for that.
         const result = normalized.kind === term.kind ? uncheckedType() : lower(normalized, scope);
-        return preserveIndexedOperands(term, result, [term.kind === "nat-elim" ? term.scrutinee : term.equality], scope);
+        return preserveIndexedOperands(term, result, [term[field]], scope);
     }
 }
 
