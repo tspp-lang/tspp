@@ -116,16 +116,15 @@ macro exposeTypeName(Box);`);
   await page.keyboard.press("Control+Shift+Space");
   await page.locator(".parameter-hints-widget").filter({ hasText: "initializer?: MacroNode" }).waitFor();
   await page.keyboard.press("Escape");
-  // The fifth line ends in the method name and its opening parenthesis.
-  await page.keyboard.press("Control+Home");
-  for (let line = 1; line < 5; line++) await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("End");
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("ArrowLeft");
-  await page.keyboard.press("Control+k");
-  await page.keyboard.press("Control+i");
-  await page.locator(".monaco-hover").filter({ hasText: "initializer?: MacroNode" }).waitFor();
+  // Target the rendered method itself: hover should not depend on the caret or keyboard-chord state left by signature help.
+  const method = editor.locator(".view-line span").filter({ hasText: /\bcreateVariableDeclaration\b/ }).last();
+  await method.hover();
+  await page.locator(".monaco-hover").filter({ hasText: "initializer?: MacroNode" }).waitFor().catch(async error => {
+    console.error("Macro method hover contents:", await page.locator(".monaco-hover").allTextContents());
+    throw error;
+  });
   await page.keyboard.press("Escape");
+  await method.click();
   await page.keyboard.press("Control+Space");
   await page.locator(".suggest-widget").getByText("createVariableDeclaration", { exact: true }).waitFor();
   await page.keyboard.press("Escape");
