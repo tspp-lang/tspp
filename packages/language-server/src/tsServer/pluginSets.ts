@@ -112,8 +112,10 @@ export class PluginSetResolver {
     private read(configPath: string): ParsedConfig {
         let config = this.configs.get(configPath);
         if (!config) {
-            const json = this.ts.readConfigFile(configPath, file => this.ts.sys.readFile(file)).config as object | undefined;
-            const parsed = this.ts.parseJsonConfigFileContent(json ?? {}, this.ts.sys, path.dirname(configPath), undefined, configPath);
+            // TypeScript diagnostics require normalized paths, including when the JSON is malformed.
+            const tsConfigPath = configPath.replaceAll('\\', '/');
+            const json = this.ts.readConfigFile(tsConfigPath, file => this.ts.sys.readFile(file)).config as object | undefined;
+            const parsed = this.ts.parseJsonConfigFileContent(json ?? {}, this.ts.sys, path.posix.dirname(tsConfigPath), undefined, tsConfigPath);
             // The same entries the command line loads: the `tspp` flag is what makes a plugin a feature plugin.
             const plugins = (parsed.options.plugins ?? []) as readonly { name?: unknown; tspp?: unknown; }[];
             config = {
