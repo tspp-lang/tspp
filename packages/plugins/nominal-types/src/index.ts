@@ -120,8 +120,10 @@ interface SourceVariant {
     readonly fields: readonly { readonly name: string; readonly type: string; }[];
 }
 
-newtype SourcePosition = number;
-newtype RelativeOffset = number;
+type SourcePosition = number & { readonly __brand: "SourcePosition"; };
+const SourcePosition = (value: number) => value as SourcePosition;
+type RelativeOffset = number & { readonly __brand: "RelativeOffset"; };
+const RelativeOffset = (value: number) => value as RelativeOffset;
 
 interface SourceTypeParameter {
     readonly name: string;

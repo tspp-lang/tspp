@@ -7,7 +7,7 @@ const { useAllPlugins } = require("./plugins.cjs");
 useAllPlugins();
 
 const project = path.resolve(__dirname, "..", "..", "formal-verification");
-const fixture = path.join(project, "src", "program-index-keys.test.tspp");
+const fixture = path.join(project, "src", "program-index-keys.test.ts");
 const config = ts.getParsedCommandLineOfConfigFile(path.join(project, "tsconfig.json"), { noEmit: true }, {
   ...ts.sys,
   onUnRecoverableConfigFileDiagnostic(diagnostic) {
@@ -26,7 +26,7 @@ declare const resolver: CallResolver;
 declare const context: Context;
 declare const state: State;
 const range: SourceRangeKey = rangeKey(1, 3);
-const declaration: DeclarationKey = declarationKey("file.tspp", 1);
+const declaration: DeclarationKey = declarationKey("file.ts", 1);
 const plain: string = "1:3";
 `;
 
@@ -62,7 +62,7 @@ function describe(diagnostics) {
 test("program index keys preserve their string values and look up their matching maps", () => {
   const { rangeKey, declarationKey } = require("../../formal-verification/dist/program-index");
   assert.equal(rangeKey(1, 3), "1:3");
-  assert.equal(declarationKey("file.tspp", 1), "file.tspp:1");
+  assert.equal(declarationKey("file.ts", 1), "file.ts:1");
   const diagnostics = diagnosticsFor(`${declarations}
 file.callTargets?.get(range);
 file.classAncestry?.get(range);
@@ -71,7 +71,7 @@ resolver.callTargets?.get(range);
 resolver.declarations.get(declaration);
 context.callTargets?.get(range);
 context.declarations.get(declaration);
-index.files.get("file.tspp");
+index.files.get("file.ts");
 file.functions.get("name");
 state.declarations.add(plain);
 `);

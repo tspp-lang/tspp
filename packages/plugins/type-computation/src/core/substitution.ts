@@ -173,8 +173,10 @@ export function shiftMlttTerm(term: MlttTerm, amount: number, cutoff = 0): MlttT
   }
 }
 
-newtype VariableIndex = number;
-newtype BinderDepth = number;
+type VariableIndex = number & { readonly __brand: "VariableIndex"; };
+const VariableIndex = (value: number) => value as VariableIndex;
+type BinderDepth = number & { readonly __brand: "BinderDepth"; };
+const BinderDepth = (value: number) => value as BinderDepth;
 
 function substituteMltt(
   term: MlttTerm,

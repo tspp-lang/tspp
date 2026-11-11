@@ -52,10 +52,7 @@ export function matchingBrace(text: string, open: number): number {
 }
 
 /** The closing bracket of the one at `open`, in text whose strings and comments are blank. */
-function matchingClose(code: string, open: number, opening: string, closing: string) with {
-    numberModel: "safe-integer";
-    ensures: result === -1 || (open <= result && result < code.length);
-}: number {
+function matchingClose(code: string, open: number, opening: string, closing: string): number {
     let depth = 0;
     for (let index = open; index < code.length; index++) {
         if (code[index] === opening) depth++;
@@ -64,10 +61,7 @@ function matchingClose(code: string, open: number, opening: string, closing: str
     return -1;
 }
 
-function matchingOpen(code: string, close: number, opening: string, closing: string) with {
-    numberModel: "safe-integer";
-    ensures: result === -1 || (0 <= result && result <= close);
-}: number {
+function matchingOpen(code: string, close: number, opening: string, closing: string): number {
     let depth = 0;
     for (let index = close; index >= 0; index--) {
         if (code[index] === closing) depth++;

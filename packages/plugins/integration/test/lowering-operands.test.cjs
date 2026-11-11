@@ -8,7 +8,7 @@ const { useAllPlugins } = require("./plugins.cjs");
 useAllPlugins();
 
 const project = path.resolve(__dirname, "..", "..", "type-computation");
-const lowerFile = path.join(project, "src", "lower.tspp");
+const lowerFile = path.join(project, "src", "lower.ts");
 const original = fs.readFileSync(lowerFile, "utf8");
 const config = ts.getParsedCommandLineOfConfigFile(path.join(project, "tsconfig.json"), { noEmit: true }, {
   ...ts.sys,

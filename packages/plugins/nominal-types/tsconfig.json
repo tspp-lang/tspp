@@ -11,8 +11,7 @@
     "sourceMap": true,
     "strict": true,
     "target": "ES2020",
-    "types": [],
-    "plugins": [{ "name": "ts-plus-plus/plugins/nominal-types", "tspp": true }]
+    "types": []
   },
-  "include": ["src/**/*.ts", "src/**/*.tspp"]
+  "include": ["src/**/*.ts"]
 }

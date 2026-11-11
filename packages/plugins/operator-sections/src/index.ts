@@ -21,7 +21,7 @@ export const operatorSectionsPlugin = definePlugin({
             activate(context) {
                 const { extensions, diagnostics } = createOperatorSectionSyntax(context.ts);
                 const disposers = [...extensions.map(extension => context.compiler.registerSyntaxExtension(extension)), context.compiler.registerDiagnosticProvider(diagnostics)];
-                return () => disposers.forEach(_());
+                return () => disposers.forEach(dispose => dispose());
             },
         },
         languageService: {
