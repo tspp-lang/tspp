@@ -431,6 +431,7 @@ import {
     getTSPPCompatibilityImportTypeArgument,
     getTSPPCompatibilityModuleSpecifier,
     getTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
+    isTSPPCommentOutsideContainer, // TSPP-SLOT(syntax-extension)
     isTSPPCompatibilityDeclarationBlocked,
 } from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
@@ -5953,7 +5954,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
         const { pos, end } = detachedRange;
         const emitFlags = getEmitFlags(node);
         const skipLeadingComments = pos < 0 || (emitFlags & EmitFlags.NoLeadingComments) !== 0;
-        const skipTrailingComments = commentsDisabled || end < 0 || (emitFlags & EmitFlags.NoTrailingComments) !== 0;
+        const skipTrailingComments = commentsDisabled || end < 0 || (emitFlags & EmitFlags.NoTrailingComments) !== 0 || isTSPPCommentOutsideContainer(currentSourceFile, end, containerEnd); // TSPP-SLOT(syntax-extension)
         if (!skipLeadingComments) {
             emitDetachedCommentsAndUpdateCommentsInfo(detachedRange);
         }
@@ -6066,7 +6067,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitLeadingCommentsOfPosition(pos: number) {
-        if (commentsDisabled || pos === -1) {
+        if (commentsDisabled || pos === -1 || isTSPPCommentOutsideContainer(currentSourceFile, pos, containerEnd)) { // TSPP-SLOT(syntax-extension)
             return;
         }
 
@@ -6094,7 +6095,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     }
 
     function emitTrailingCommentsOfPosition(pos: number, prefixSpace?: boolean, forceNoNewline?: boolean) {
-        if (commentsDisabled) {
+        if (commentsDisabled || isTSPPCommentOutsideContainer(currentSourceFile, pos, containerEnd)) { // TSPP-SLOT(syntax-extension)
             return;
         }
         enterComment();

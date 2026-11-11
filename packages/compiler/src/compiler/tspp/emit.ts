@@ -26,6 +26,7 @@ import {
     getPreprocessedFunctionClause,
     getPreprocessedFunctionPrefix,
     getTSPPRestoredFunctionClause,
+    isTSPPFileName,
     tsppDeclarationPluginsHeader,
 } from "./registry.js";
 
@@ -68,6 +69,16 @@ export function emitTSPPCompatibilityDeclaration(
         },
     );
     return print(compatibilityDeclarationFilePath, compatibilityPrinter) ? compatibilityDeclarationFilePath : undefined;
+}
+
+/**
+ * Whether the printer, writing a node of a TS++ file whose innermost positioned container ends at `containerEnd`, would
+ * read comments at `pos` beyond it. Source comments of a node lie before its end; what plugins lower to sits at the end
+ * of the syntax it replaces (see `nestSyntaxRanges` in registry.ts), and its tokens are not in the source, so a read there would take the
+ * comments of the next statement. @internal
+ */
+export function isTSPPCommentOutsideContainer(sourceFile: SourceFile | undefined, pos: number, containerEnd: number): boolean {
+    return !!sourceFile && containerEnd >= 0 && pos >= containerEnd && isTSPPFileName(sourceFile.fileName);
 }
 
 /** In the compatible `.d.ts`, a module specifier naming a `.tspp` file names its emitted `.js` file. @internal */
