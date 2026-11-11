@@ -1,7 +1,7 @@
 // End-to-end behavior ported from the legacy-monolith compiler tests (unittests/tspp/operatorSections.ts).
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
-const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService } = require("../../test-support/compile.cjs");
+const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService, formatDocument } = require("../../test-support/compile.cjs");
 const { operatorSectionsPlugin } = require("../dist");
 
 usePlugins(operatorSectionsPlugin);
@@ -92,31 +92,21 @@ test("placeholders inside functions and object literals are not holes", () => {
   assert.deepEqual(messages.filter(message => /Cannot find name '_'/.test(message)).length, 2, messages.join("\n"));
 });
 
-function format(source) {
-  const service = createLanguageService("/test.tspp", source);
-  const edits = service.getFormattingEditsForDocument("/test.tspp", ts.getDefaultFormatCodeSettings("\n"));
-  let text = source;
-  for (const edit of [...edits].sort((left, right) => right.span.start - left.span.start)) {
-    text = text.slice(0, edit.span.start) + edit.newText + text.slice(edit.span.start + edit.span.length);
-  }
-  return text;
-}
-
 test("formatting keeps sections and lays out their spaces", () => {
   assert.equal(
-    format(`const add1: (x: number) => number = (  _   +  1 );\nconst sub: (x: number) => number = (10-_);\n`),
+    formatDocument(`const add1: (x: number) => number = (  _   +  1 );\nconst sub: (x: number) => number = (10-_);\n`),
     `const add1: (x: number) => number = (_ + 1);\nconst sub: (x: number) => number = (10-_);\n`,
   );
 });
 
 test("formatting leaves spaces in a section's literals and comments", () => {
   const source = `const greet: (name: string) => string = (_ + "  hello  " /*  a  b  */);\n`;
-  assert.equal(format(source), source);
+  assert.equal(formatDocument(source), source);
 });
 
 test("formatting a section in a call argument lays out only the section", () => {
   assert.equal(
-    format(`declare function map(fn: (x: number) => number): void;\nmap( _  *  2 );\n`),
+    formatDocument(`declare function map(fn: (x: number) => number): void;\nmap( _  *  2 );\n`),
     `declare function map(fn: (x: number) => number): void;\nmap(_ * 2);\n`,
   );
 });

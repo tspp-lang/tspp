@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 
 import { createEffectChecks } from "./check";
 import { createEffectEmit } from "./emit";
@@ -38,6 +39,7 @@ export const algebraicEffectsPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
                 context.onDispose(context.languageService.registerSemanticTokensProvider(effectSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(effectQuickInfo);
             },

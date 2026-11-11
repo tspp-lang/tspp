@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 import { isTypeScriptKeyword, scanTSPPCode } from "@tspp/plugin-sdk/language-service";
 import type { TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
@@ -136,6 +137,7 @@ export const formalVerificationPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
                 context.onDispose(context.languageService.registerSemanticTokensProvider(verificationTermTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
                     const match = request.owned ? wordAt(request.sourceText, request.position) : undefined;

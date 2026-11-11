@@ -1,8 +1,12 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax, layoutTSPPCode } from "@tspp/plugin-sdk/language-service";
 
 import { createModernSyntax } from "./desugar";
 
 const pluginId = "modern-syntax";
+
+/** Whether text starts, past spaces and comments, with a `use` binding. */
+const startsWithUse = /^(?:\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/)*use(?![\w$])/;
 
 export const modernSyntaxPlugin = definePlugin({
     manifest: {
@@ -30,6 +34,12 @@ export const modernSyntaxPlugin = definePlugin({
         },
         languageService: {
             activate(context) do {
+                context.onDispose(context.languageService.registerFormattingProvider(request => [
+                    ...layoutTSPPCode(request, request.unformattedRanges(), { decisive: true, continuationWords: ["in"] }),
+                    // A `use` takes the rest of its block as its continuation, which the formatter does not lay out.
+                    ...layoutTSPPCode(request, request.ownedRanges().filter(range => startsWithUse.test(request.sourceText.slice(range.start, range.end))), { decisive: true, continuationWords: ["in"] }),
+                    ...formatTSPPSyntax(request),
+                ]));
                 use request <- context.languageService.registerQuickInfoProvider();
                 const token = request.token;
                 if (!token) return undefined;

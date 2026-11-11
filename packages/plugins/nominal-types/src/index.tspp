@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 import type { TSPPClearedSemanticToken, TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import { nominalTypesADTAPI, nominalTypesADTAPIName } from "./adt";
 import { createNominalDeclarations } from "./declarations";
@@ -38,6 +39,7 @@ export const nominalTypesPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
                 context.onDispose(context.languageService.registerSemanticTokensProvider(nominalSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
