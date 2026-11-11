@@ -37,6 +37,27 @@ function matchingClose(code: string, open: number, opening: string, closing: str
   assert.match(messages[0], /matchingClose postcondition could not be proved\. Counterexample:/);
 });
 
+test("verifies a descending string scan and finds a counterexample for close + 1", async () => {
+  const source = `
+function matchingOpen(code: string, close: number, opening: string, closing: string) with {
+  numberModel: "safe-integer";
+  ensures: result === -1 || (0 <= result && result <= close);
+}: number {
+  let depth = 0;
+  for (let index = close; index >= 0; index--) {
+    if (code[index] === closing) depth++;
+    else if (code[index] === opening && --depth === 0) return index;
+  }
+  return -1;
+}
+`;
+  await expectVerification({ source });
+  const messages = await analyzeSource(source.replace("return -1;", "return close + 1;"));
+  assert.equal(messages.length, 2, messages.join("\n"));
+  assert.match(messages[0], /safe-integer range could not be proved\. Counterexample:/);
+  assert.match(messages[1], /matchingOpen postcondition could not be proved\. Counterexample:/);
+});
+
 test("compares UTF-16 elements and keeps an out-of-bounds read distinct from the empty string", async () => {
   await expectVerification({ source: String.raw`
 function inspect() with { numberModel: "safe-integer"; ensures: result; }: boolean {

@@ -94,10 +94,11 @@ function checksIndex(node: TS.Expression, index: string, state: State): boolean 
 
 /**
  * A counter starting at zero, changed by at most one in each direction per iteration and only when a
- * string element matches, is bounded in magnitude by max(index, 0). String matches imply a nonnegative index.
+ * string element matches, is bounded by the number of valid indices the scan could have visited.
+ * String matches require an index between 0 and MAX_SAFE_INTEGER - 1.
  * These syntactic rules only select candidates. The solver still checks both obligations for each bound.
  */
-function stringScanInvariants(body: TS.Statement, index: string, state: State): Invariant[] {
+function stringScanInvariants(body: TS.Statement, index: string, state: State, descending: boolean): Invariant[] {
     const candidates = new Map([...assignedKeys(body)].filter(key =>
         (state.values[key]?.sort === "Int" || state.values[key]?.sort === "NumberInt")
         && state.values[key].smt === "0").map(key => [key, new Set<number>()]));
@@ -132,7 +133,8 @@ function stringScanInvariants(body: TS.Statement, index: string, state: State): 
         term: (current: State) => {
             const counter = current.values[index].smt;
             const value = current.values[key].smt;
-            const bound = `(ite (>= ${counter} 0) ${counter} 0)`;
+            const visited = descending ? `(- ${Number.MAX_SAFE_INTEGER - 1} ${counter})` : counter;
+            const bound = `(ite (>= ${visited} 0) ${visited} 0)`;
             return `(and (>= ${value} (- ${bound})) (<= ${value} ${bound}))`;
         },
     }));
@@ -142,10 +144,12 @@ export function executeFor(node: TS.ForStatement, state: State, context: Context
     const { initializer, condition, incrementor } = node;
     if (!initializer || !ts.isVariableDeclarationList(initializer) || !(initializer.flags & ts.NodeFlags.Let)
         || initializer.declarations.length !== 1 || !condition || !ts.isBinaryExpression(condition)
-        || condition.operatorToken.kind !== ts.SyntaxKind.LessThanToken
-        || !incrementor || !isIncrementOrDecrement(incrementor) || incrementor.operator !== ts.SyntaxKind.PlusPlusToken) {
+        || !incrementor || !isIncrementOrDecrement(incrementor)) {
         return unsupported(state, node, context);
     }
+    const descending = incrementor.operator === ts.SyntaxKind.MinusMinusToken;
+    const comparison = descending ? ts.SyntaxKind.GreaterThanEqualsToken : ts.SyntaxKind.LessThanToken;
+    if (condition.operatorToken.kind !== comparison) return unsupported(state, node, context);
     const [declaration] = initializer.declarations;
     if (!declaration.initializer || !ts.isIdentifier(declaration.name) || declaration.type) return unsupported(state, node, context);
     const index = nameText(declaration.name);
@@ -159,8 +163,8 @@ export function executeFor(node: TS.ForStatement, state: State, context: Context
     if (start.sort !== "Int" && start.sort !== "NumberInt") return unsupported(state, node, context);
     entry.values[index] = start;
     const invariants: Invariant[] = [
-        { term: current => `(>= ${current.values[index].smt} ${start.smt})` },
-        ...stringScanInvariants(node.statement, index, entry),
+        { term: current => `(${descending ? "<=" : ">="} ${current.values[index].smt} ${start.smt})` },
+        ...stringScanInvariants(node.statement, index, entry, descending),
     ];
     const exits = executeLoop(node, condition, entry, context, executor, invariants, incrementor);
     for (const exit of exits) delete exit.values[index];
