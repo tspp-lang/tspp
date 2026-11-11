@@ -16,6 +16,7 @@ import type {
     Printer,
     PrinterOptions,
     SourceFile,
+    TextRange,
     TransformationResult,
     TypeNode,
 } from "../_namespaces/ts.js";
@@ -79,6 +80,15 @@ export function emitTSPPCompatibilityDeclaration(
  */
 export function isTSPPCommentOutsideContainer(sourceFile: SourceFile | undefined, pos: number, containerEnd: number): boolean {
     return !!sourceFile && containerEnd >= 0 && pos >= containerEnd && isTSPPFileName(sourceFile.fileName);
+}
+
+/**
+ * Whether `range` of a TS++ file is what plugin syntax lowered to, which the printer treats as synthesized. It has no width
+ * where `nestSyntaxRanges` in registry.ts placed it, at the end of the syntax it replaces: it has no comments of its own
+ * there, and the source lines there say nothing about where it breaks. @internal
+ */
+export function isTSPPGeneratedForPrinting(sourceFile: SourceFile | undefined, range: TextRange): boolean {
+    return range.pos >= 0 && range.pos === range.end && !!sourceFile && isTSPPFileName(sourceFile.fileName);
 }
 
 /** In the compatible `.d.ts`, a module specifier naming a `.tspp` file names its emitted `.js` file. @internal */

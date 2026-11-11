@@ -316,7 +316,7 @@ import {
     Node,
     NodeArray,
     NodeFlags,
-    nodeIsSynthesized,
+    nodeIsSynthesized as upstreamNodeIsSynthesized, // TSPP-SLOT(syntax-extension)
     noEmitNotification,
     noEmitSubstitution,
     NonNullExpression,
@@ -433,6 +433,7 @@ import {
     getTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
     isTSPPCommentOutsideContainer, // TSPP-SLOT(syntax-extension)
     isTSPPCompatibilityDeclarationBlocked,
+    isTSPPGeneratedForPrinting, // TSPP-SLOT(syntax-extension)
 } from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPRestoredDeclaration } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
@@ -1289,6 +1290,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
     var containerPos = -1;
     var containerEnd = -1;
     var declarationListContainerEnd = -1;
+    var nodeIsSynthesized = (range: TextRange) => upstreamNodeIsSynthesized(range) || isTSPPGeneratedForPrinting(currentSourceFile, range); // TSPP-SLOT(syntax-extension)
     var currentLineMap: readonly number[] | undefined;
     var detachedCommentsInfo: { nodePos: number; detachedCommentEndPos: number; }[] | undefined;
     var hasWrittenComment = false;
@@ -3249,7 +3251,7 @@ export function createPrinter(printerOptions: PrinterOptions = {}, handlers: Pri
 
     function willEmitLeadingNewLine(node: Expression): boolean {
         if (!currentSourceFile) return false;
-        const leadingCommentRanges = getLeadingCommentRanges(currentSourceFile.text, node.pos);
+        const leadingCommentRanges = nodeIsSynthesized(node) ? undefined : getLeadingCommentRanges(currentSourceFile.text, node.pos); // TSPP-SLOT(syntax-extension)
         if (leadingCommentRanges) {
             const parseNode = getParseTreeNode(node);
             if (parseNode && isParenthesizedExpression(parseNode.parent)) {
