@@ -607,7 +607,7 @@ import {
     WriteFileCallbackData,
     YieldExpression,
 } from "./_namespaces/ts.js";
-import { getTSPPGeneratedDeclarationName, isTSPPParameterOf, isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension) TSPP-SLOT(interface-member-binding)
+import * as tsppRegistry from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension) TSPP-SLOT(interface-member-binding)
 
 /** @internal */
 export const resolvingEmptyArray: never[] = [];
@@ -2348,7 +2348,8 @@ export function forEachEnclosingBlockScopeContainer(node: Node, cb: (container: 
 // text of the expression in the computed property.
 /** @internal */
 export function declarationNameToString(name: DeclarationName | QualifiedName | undefined): string {
-    const generatedName = getTSPPGeneratedDeclarationName(name); if (generatedName !== undefined) return generatedName; // TSPP-SLOT(syntax-extension)
+    const generatedName = tsppRegistry.getTSPPGeneratedDeclarationName(name);
+    if (generatedName !== undefined) return generatedName; // TSPP-SLOT(syntax-extension)
     return !name || getFullWidth(name) === 0 ? "(Missing)" : getTextOfNode(name);
 }
 
@@ -11694,7 +11695,7 @@ export function createNameResolver({
                             result = undefined;
                             break;
                         }
-                        if (lastLocation && (isStatic(lastLocation) || isTSPPStaticSideMember(lastLocation))) { // TSPP-SLOT(interface-member-binding)
+                        if (lastLocation && (isStatic(lastLocation) || tsppRegistry.isTSPPStaticSideMember(lastLocation))) { // TSPP-SLOT(interface-member-binding)
                             // TypeScript 1.0 spec (April 2014): 3.4.1
                             // The scope of a type parameter extends over the entire declaration with which the type
                             // parameter list is associated, with the exception of static member declarations in classes.
@@ -11919,7 +11920,7 @@ export function createNameResolver({
             && result.valueDeclaration
             && result.valueDeclaration.pos >= functionLocation.body.pos
             && result.valueDeclaration.end <= functionLocation.body.end
-            && !isTSPPParameterOf(result.valueDeclaration, functionLocation) // TSPP-SLOT(syntax-extension)
+            && !tsppRegistry.isTSPPParameterOf(result.valueDeclaration, functionLocation) // TSPP-SLOT(syntax-extension)
         ) {
             // check for several cases where we introduce temporaries that require moving the name/initializer of the parameter to the body
             // - static field in a class expression
