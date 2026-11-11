@@ -78,7 +78,7 @@ export function weakHeadNormalizeMltt(
           }
           continue;
         }
-        const comparison = compareMlttTermsDefinitionally(scrutinee, matchCase.pattern, compareExternal);
+        const comparison = compareMlttTermsDefinitionally(scrutinee, matchCase.pattern, compareExternal, matchExternalPattern);
         if (comparison === "equal") {
           current = matchCase.result;
           matched = true;

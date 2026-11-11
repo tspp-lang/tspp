@@ -104,6 +104,35 @@ test("external terms keep host interoperability behind callbacks", () => {
   );
 });
 
+test("nested type-match patterns retain the external matcher during definitional comparison", () => {
+  const stringType = mltt.mlttExternal("string", "string", [], type0);
+  const inner = mltt.mlttTypeMatch(
+    mltt.mlttExternal("Array<string>", "Array<string>", [], type0),
+    [{
+      pattern: mltt.mlttExternal("Array<$0>", "Array<infer T>", [mltt.mlttVariable(0)], type0),
+      captures: [{ name: "T", type: type0 }],
+      result: mltt.mlttNatType(),
+    }],
+    mltt.mlttBoolType(),
+  );
+  const outer = mltt.mlttTypeMatch(
+    mltt.mlttNatType(),
+    [{ pattern: inner, result: mltt.mlttBoolType() }],
+    mltt.mlttNatType(),
+  );
+  const compare = (left, right) => left.key === right.key;
+  const match = (value, pattern, captures) => {
+    assert.equal(value.key, "Array<string>");
+    assert.equal(pattern.key, "Array<$0>");
+    assert.deepEqual(captures, [{ name: "T", type: type0 }]);
+    return { kind: "matched", captures: [stringType] };
+  };
+  mltt.checkMlttType(outer, type0);
+  assert.deepEqual(mltt.normalizeMlttTerm(inner, compare, match), mltt.mlttNatType());
+  assert.deepEqual(mltt.weakHeadNormalizeMltt(outer, compare, match), mltt.mlttBoolType());
+  assert.deepEqual(mltt.normalizeMlttTerm(outer, compare, match), mltt.mlttBoolType());
+});
+
 test("ill-typed terms fail inside the isolated kernel", () => {
   assert.throws(
     () => mltt.inferMlttType(mltt.mlttSuccessor(type0)),

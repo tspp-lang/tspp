@@ -8,6 +8,9 @@ import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import { modelSignature, type FunctionModel } from "./models";
 import { prepareVerificationSource, type PreparedVerificationSource } from "./source-cache";
 
+export newtype SourceRangeKey = string;
+export newtype DeclarationKey = string;
+
 /** What a declaration the checker resolved a call to means to proofs. */
 export type DeclaredTarget =
     | { readonly kind: "member"; readonly owner: ClassModel; readonly member: MemberModel; }
@@ -19,20 +22,20 @@ export interface ModeledFile {
     readonly functions: ReadonlyMap<string, FunctionModel>;
     readonly classes: ReadonlyMap<string, ClassModel>;
     /** The checker's resolution of the file's calls, by the call's range; absent when the host gave none. */
-    readonly callTargets: ReadonlyMap<string, readonly TSPPAnalysisLocation[]> | undefined;
+    readonly callTargets: ReadonlyMap<SourceRangeKey, readonly TSPPAnalysisLocation[]> | undefined;
     /** The checker's `extends` chain of each class of the file, by the class's range; absent when the host gave none. */
-    readonly classAncestry: ReadonlyMap<string, TSPPAnalysisClassAncestry> | undefined;
+    readonly classAncestry: ReadonlyMap<SourceRangeKey, TSPPAnalysisClassAncestry> | undefined;
 }
 
 /** The models of every TS++ file of a program, so that a call can be checked against a contract in another file. */
 export interface ProgramIndex {
     readonly files: ReadonlyMap<string, ModeledFile>;
     /** Every modeled declaration by `fileName:start`, overload signatures pointing to their implementation. */
-    readonly declarations: ReadonlyMap<string, DeclaredTarget>;
+    readonly declarations: ReadonlyMap<DeclarationKey, DeclaredTarget>;
 }
 
-export const rangeKey = (start: number, end: number) => `${start}:${end}`;
-export const declarationKey = (fileName: string, start: number) => `${fileName}:${start}`;
+export const rangeKey = (start: number, end: number) => SourceRangeKey(`${start}:${end}`);
+export const declarationKey = (fileName: string, start: number) => DeclarationKey(`${fileName}:${start}`);
 
 function modelFunctions(prepared: PreparedVerificationSource): Map<string, FunctionModel> {
     const { sourceFile, refinements, records } = prepared;
@@ -46,7 +49,7 @@ function modelFunctions(prepared: PreparedVerificationSource): Map<string, Funct
     return functions;
 }
 
-function indexDeclarations(file: ModeledFile, declarations: Map<string, DeclaredTarget>): void {
+function indexDeclarations(file: ModeledFile, declarations: Map<DeclarationKey, DeclaredTarget>): void {
     const { sourceFile } = file.prepared;
     const add = (node: TS.Node, target: DeclaredTarget | undefined) => {
         if (target && node.pos >= 0) declarations.set(declarationKey(sourceFile.fileName, nodeStart(node, sourceFile)), target);
@@ -78,7 +81,7 @@ export function indexProgram(
     sources: readonly TSPPAnalysisSourceFile[], nominalTypes: NominalTypesADTAPI | undefined, diagnostics: TSPPAnalysisDiagnostic[],
 ): ProgramIndex {
     const files = new Map<string, ModeledFile>();
-    const declarations = new Map<string, DeclaredTarget>();
+    const declarations = new Map<DeclarationKey, DeclaredTarget>();
     for (const source of sources) {
         if (!source.fileName.endsWith(".tspp")) continue;
         const prepared = prepareVerificationSource(source, nominalTypes);

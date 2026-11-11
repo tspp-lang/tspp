@@ -8,7 +8,7 @@ import { refinementTerm, type RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
 import type { Clause, DataConstructor, FunctionModel, RecordFields } from "./models";
 import type { ClassModel, MemberModel } from "./classes";
-import type { DeclaredTarget } from "./program-index";
+import type { DeclarationKey, DeclaredTarget, SourceRangeKey } from "./program-index";
 
 export interface State {
     readonly variables: Record<string, Sort>;
@@ -40,9 +40,9 @@ export interface Context {
     readonly currentFunction?: FunctionModel;
     readonly classes: ReadonlyMap<string, ClassModel>;
     /** The checker's resolution of this file's calls, by range; absent when the host gave none. */
-    readonly callTargets: ReadonlyMap<string, readonly TSPPAnalysisLocation[]> | undefined;
+    readonly callTargets: ReadonlyMap<SourceRangeKey, readonly TSPPAnalysisLocation[]> | undefined;
     /** Every modeled declaration of the program, for calls the checker resolved into other files. */
-    readonly declarations: ReadonlyMap<string, DeclaredTarget>;
+    readonly declarations: ReadonlyMap<DeclarationKey, DeclaredTarget>;
     /** The classes of every file, whose guarded methods an unresolved call may be reaching. */
     readonly allClasses: readonly ClassModel[];
     /** Set while verifying a class member, whose exits owe the class invariant. */

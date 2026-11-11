@@ -12,7 +12,10 @@
     "strict": true,
     "target": "ES2020",
     "types": ["node"],
-    "plugins": [{ "name": "ts-plus-plus/plugins/formal-verification", "tspp": true }]
+    "plugins": [
+      { "name": "ts-plus-plus/plugins/nominal-types", "tspp": true },
+      { "name": "ts-plus-plus/plugins/formal-verification", "tspp": true }
+    ]
   },
   "include": ["src/**/*.ts", "src/**/*.tspp"]
 }

@@ -3,15 +3,15 @@ import type { TSPPAnalysisLocation } from "@tspp/plugin-sdk/compiler";
 import { resolveCallTargetBySyntax, type ClassModel, type MethodTarget } from "./classes";
 import { nameText, nodeStart, ts } from "./host-api";
 import type { FunctionModel } from "./models";
-import { declarationKey, rangeKey, type DeclaredTarget } from "./program-index";
+import { declarationKey, rangeKey, type DeclarationKey, type DeclaredTarget, type SourceRangeKey } from "./program-index";
 
 /** What a call is resolved against: the checker's answer when the host gave one, and this file's models. */
 export interface CallResolver {
     readonly sourceFile: TS.SourceFile;
     readonly classes: ReadonlyMap<string, ClassModel>;
     readonly functions: ReadonlyMap<string, FunctionModel>;
-    readonly callTargets: ReadonlyMap<string, readonly TSPPAnalysisLocation[]> | undefined;
-    readonly declarations: ReadonlyMap<string, DeclaredTarget>;
+    readonly callTargets: ReadonlyMap<SourceRangeKey, readonly TSPPAnalysisLocation[]> | undefined;
+    readonly declarations: ReadonlyMap<DeclarationKey, DeclaredTarget>;
 }
 
 /**
