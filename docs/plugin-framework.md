@@ -333,7 +333,7 @@ as a new slot.
 ## Slot registry
 
 Feature slots are what plugins register with, through `context.compiler` (or
-`context.languageService` for Quick Info and semantic tokens). The host implementation
+`context.languageService` for Quick Info, semantic tokens, and formatting). The host implementation
 lives in `compiler/tspp/registry.ts` unless noted. Every call site carries its slot's
 marker, so searching for `TSPP-SLOT(<slot>)` lists them. `program-analysis` has none of
 its own: it runs from the `command-line` and `plugin-host` call sites.
@@ -350,6 +350,16 @@ its own: it runs from the `command-line` and `plugin-host` call sites.
 | `signature-constraint` | `registerSignatureConstraint` (`isOverloadApplicable`, `whyNotRelated`, `getMember`, `getMembers`) | `compiler/tspp/types.ts` |
 | `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` |
 | `semantic-tokens` | `languageService.registerSemanticTokensProvider` | `services/tspp/syntax.ts` |
+| `formatting` | `languageService.registerFormattingProvider` | `compiler/tspp/registry.ts`, `services/tspp/formatting.ts` |
+
+`formatting` wraps the language service's three formatting entry points. TypeScript's
+formatter reads the projected text and the lowered tree, where plugin syntax can look like
+whitespace, so the host keeps only its edits that change nothing but whitespace (and
+semicolons, when asked to add or remove them) in the authored text. Each plugin then lays
+out its own syntax: an edit is kept only inside the requested range and the plugin's
+syntax, outside comments and literals, and changing only whitespace, and it takes the
+place of any formatter edit it overlaps. `pnpm test:examples` formats every example
+through tsserver and fails when the emitted JavaScript changes in any byte.
 
 `interface-member-binding` is a controlled exception to rule 6: its one consumer's feature
 is what the slot does, so it cannot really be described without naming that feature. It

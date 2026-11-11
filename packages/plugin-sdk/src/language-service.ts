@@ -98,14 +98,53 @@ export interface TSPPClearedSemanticToken {
 /** The tokens of a file that plugin syntax decides. Each replaces a token at its start; the host keeps them in order. */
 export type TSPPSemanticTokensProvider = (request: TSPPSemanticTokensRequest) => readonly (TSPPSemanticToken | TSPPClearedSemanticToken)[];
 
+/** How the editor asked for code to be laid out, as TypeScript's formatter reads it. */
+export interface TSPPFormattingOptions {
+    readonly indentSize: number;
+    readonly tabSize: number;
+    readonly convertTabsToSpaces: boolean;
+    readonly newLineCharacter: string;
+}
+
+export interface TSPPFormattingRequest {
+    readonly fileName: string;
+    /** The authored text, which the edits apply to. */
+    readonly sourceText: string;
+    /** The range the editor asked to format: the whole file, a selection, or the lines around a keystroke. */
+    readonly start: number;
+    readonly end: number;
+    readonly options: TSPPFormattingOptions;
+    /** The key typed, when the editor formats on typing. */
+    readonly key?: string;
+    /** Whether the range is inside syntax this plugin parsed or projected, as `owned` says of Quick Info. */
+    isOwned(start: number, end: number): boolean;
+}
+
+/** Replaces `length` characters at `start` with `newText`, positions being those of the authored text. */
+export interface TSPPTextEdit {
+    readonly start: number;
+    readonly length: number;
+    readonly newText: string;
+}
+
+/**
+ * Lays out the plugin's own syntax. The host keeps an edit only when it is inside the requested range and the plugin's
+ * syntax, changes nothing but whitespace (and semicolons) outside comments and literals, and overlaps no edit kept
+ * before it; a kept edit takes the place of any edit of TypeScript's formatter it overlaps. Providers are asked in
+ * plugin id order.
+ */
+export type TSPPFormattingProvider = (request: TSPPFormattingRequest) => readonly TSPPTextEdit[];
+
 export interface TSPPLanguageServiceHostAPI {
     registerQuickInfoProvider(pluginId: string, provider: TSPPQuickInfoProvider): TSPPPluginDisposer;
     registerSemanticTokensProvider(pluginId: string, provider: TSPPSemanticTokensProvider): TSPPPluginDisposer;
+    registerFormattingProvider(pluginId: string, provider: TSPPFormattingProvider): TSPPPluginDisposer;
 }
 
 export interface TSPPLanguageServicePluginAPI {
     registerQuickInfoProvider(provider: TSPPQuickInfoProvider): TSPPPluginDisposer;
     registerSemanticTokensProvider(provider: TSPPSemanticTokensProvider): TSPPPluginDisposer;
+    registerFormattingProvider(provider: TSPPFormattingProvider): TSPPPluginDisposer;
 }
 
 /** Feature-owned semantic tooling that is transported through tsserver and LSP. */

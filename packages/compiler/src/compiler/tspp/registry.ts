@@ -1,4 +1,5 @@
 import {
+    maskNonCode,
     type TSPPPlugin,
     type TSPPPluginLogger,
 } from "@tspp/plugin-sdk";
@@ -20,11 +21,14 @@ import type {
 import { TSPPPluginHost } from "@tspp/plugin-sdk/host";
 import type {
     TSPPClearedSemanticToken,
+    TSPPFormattingOptions,
+    TSPPFormattingProvider,
     TSPPLanguageServiceHostAPI,
     TSPPQuickInfoProvider,
     TSPPSemanticToken,
     TSPPSemanticTokenImport,
     TSPPSemanticTokensProvider,
+    TSPPTextEdit,
 } from "@tspp/plugin-sdk/language-service";
 
 import * as ts from "../_namespaces/ts.js";
@@ -64,6 +68,7 @@ const syntaxClaims = new Map<string, { pluginId: string; keyword: string; positi
 const additionalListElements = new WeakMap<Node, readonly Node[]>();
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const semanticTokensProviders = new Map<string, TSPPSemanticTokensProvider>();
+const formattingProviders = new Map<string, TSPPFormattingProvider>();
 const projectedSources = new Map<string, ProjectedSource>();
 let pluginHost: TSPPPluginHost | undefined;
 
@@ -199,6 +204,13 @@ const languageServiceAPI: TSPPLanguageServiceHostAPI = {
         }
         semanticTokensProviders.set(pluginId, provider);
         return () => semanticTokensProviders.delete(pluginId);
+    },
+    registerFormattingProvider(pluginId, provider) {
+        if (formattingProviders.has(pluginId)) {
+            throw new Error(`TSPP plugin '${pluginId}' registered more than one formatting provider.`);
+        }
+        formattingProviders.set(pluginId, provider);
+        return () => formattingProviders.delete(pluginId);
     },
 };
 
@@ -704,6 +716,68 @@ export function getTSPPSemanticTokens(sourceFile: SourceFile, tokens: readonly T
             isOwned: (start, end) => getTSPPSyntaxOwners(sourceFile, start, end, /*includeEmptyNodes*/ false).includes(pluginId),
         })
     );
+}
+
+/**
+ * Whether replacing `replaced` with `newText` only lays code out: both are whitespace and semicolons, and the same
+ * semicolons when the formatter was not asked to add or remove them.
+ */
+function isLayoutEdit(replaced: string, newText: string, semicolons: boolean): boolean {
+    const code = (text: string) => text.replace(/\s+/g, "");
+    const replacedCode = code(replaced);
+    const newCode = code(newText);
+    if (replacedCode === newCode) return true;
+    return semicolons && /^;*$/.test(replacedCode) && /^;*$/.test(newCode);
+}
+
+/**
+ * The edits that format a TS++ file: those of TypeScript's formatter that only lay code out, since it reads the
+ * projected text, where plugin syntax may look like whitespace, and a lowered tree whose ranges plugin syntax decides;
+ * then the edits each plugin makes to its own syntax, which take the place of the formatter's where they overlap.
+ * A plugin's edit that leaves its syntax or the requested range, changes code, reaches into a comment or a literal, or
+ * overlaps an earlier plugin's edit is dropped. Files that are not TS++ get the formatter's edits as they are.
+ * @internal
+ */
+export function getTSPPFormattingEdits(
+    sourceFile: SourceFile,
+    upstream: readonly TSPPTextEdit[],
+    request: { readonly start: number; readonly end: number; readonly options: TSPPFormattingOptions; readonly semicolons: boolean; readonly key?: string; },
+): readonly TSPPTextEdit[] {
+    if (!isTSPPFileName(sourceFile.fileName)) return upstream;
+    const sourceText = getOriginalTSPPSource(sourceFile.fileName, sourceFile.text);
+    const isLayout = (edit: TSPPTextEdit) =>
+        edit.start >= 0 && edit.length >= 0 && edit.start + edit.length <= sourceText.length
+        && isLayoutEdit(sourceText.slice(edit.start, edit.start + edit.length), edit.newText, request.semicolons);
+    const kept = upstream.filter(isLayout);
+    if (!formattingProviders.size) return kept;
+    const overlaps = (left: TSPPTextEdit, right: TSPPTextEdit) =>
+        left.start < right.start + right.length && right.start < left.start + left.length
+        || left.start === right.start && (left.length === 0 || right.length === 0);
+    // Spaces and tabs of code read as no-break spaces in the mask, which JavaScript takes for whitespace as well, so a
+    // blank there is a comment, a string, template text, or a regular expression.
+    let mask: string | undefined;
+    const isCode = (index: number) => (mask ??= maskNonCode(sourceText.replace(/[ \t]/g, "\u00a0")))[index] !== " ";
+    /** Whether an edit stays outside comments and literals: none of what it replaces is in one, nor the place it inserts at. */
+    const isInCode = ({ start, length }: TSPPTextEdit) => {
+        let replacesCode = false;
+        for (let index = start; index < start + length; index++) {
+            if (!isCode(index)) return false;
+            if (sourceText[index] !== "\n" && sourceText[index] !== "\r") replacesCode = true;
+        }
+        return replacesCode || start === 0 || start + length >= sourceText.length || isCode(start - 1) || isCode(start + length);
+    };
+    const owned: TSPPTextEdit[] = [];
+    for (const pluginId of [...formattingProviders.keys()].sort()) {
+        const isOwned = (start: number, end: number) => getTSPPSyntaxOwners(sourceFile, start, end, /*includeEmptyNodes*/ false).includes(pluginId);
+        const edits = formattingProviders.get(pluginId)!({ fileName: sourceFile.fileName, sourceText, start: request.start, end: request.end, options: request.options, key: request.key, isOwned });
+        for (const edit of edits) {
+            const end = edit.start + edit.length;
+            if (edit.start < request.start || end > request.end || !isLayout(edit) || !isInCode(edit) || !isOwned(edit.start, end)) continue;
+            if (owned.some(other => overlaps(edit, other))) continue;
+            owned.push(edit);
+        }
+    }
+    return [...kept.filter(edit => !owned.some(other => overlaps(edit, other))), ...owned].sort((left, right) => left.start - right.start);
 }
 
 /** @internal */

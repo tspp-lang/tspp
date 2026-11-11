@@ -357,6 +357,7 @@ import {
 } from "./_namespaces/ts.refactor.js";
 import * as classifier from "./classifier.js";
 import * as classifier2020 from "./classifier2020.js";
+import { addTSPPFormatting } from "./tspp/formatting.js"; // TSPP-SLOT(formatting)
 import { addTSPPQuickInfo } from "./tspp/quickInfo.js"; // TSPP-SLOT(quick-info)
 import * as tsppSyntax from "./tspp/syntax.js"; // TSPP-SLOT(syntax-extension)
 
@@ -3431,9 +3432,9 @@ export function createLanguageService(
         getTodoComments,
         getBraceMatchingAtPosition,
         getIndentationAtPosition,
-        getFormattingEditsForRange,
-        getFormattingEditsForDocument,
-        getFormattingEditsAfterKeystroke,
+        getFormattingEditsForRange: (fileName: string, start: number, end: number, options: FormatCodeOptions | FormatCodeSettings) => addTSPPFormatting(getFormattingEditsForRange(fileName, start, end, options), syntaxTreeCache.getCurrentSourceFile(fileName), options, { start, end }), // TSPP-SLOT(formatting)
+        getFormattingEditsForDocument: (fileName: string, options: FormatCodeOptions | FormatCodeSettings) => addTSPPFormatting(getFormattingEditsForDocument(fileName, options), syntaxTreeCache.getCurrentSourceFile(fileName), options), // TSPP-SLOT(formatting)
+        getFormattingEditsAfterKeystroke: (fileName: string, position: number, key: string, options: FormatCodeOptions | FormatCodeSettings) => addTSPPFormatting(getFormattingEditsAfterKeystroke(fileName, position, key, options), syntaxTreeCache.getCurrentSourceFile(fileName), options, /*range*/ undefined, { position, key }), // TSPP-SLOT(formatting)
         getDocCommentTemplateAtPosition,
         isValidBraceCompletionAtPosition,
         getJsxClosingTagAtPosition,

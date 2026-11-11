@@ -34,7 +34,8 @@ const targets = {
         ],
         // Two syntax-extension call sites beyond the +344 baseline: recognize lowered parameters despite overlapping
         // ranges, and print synthesized private field names from plugin syntax without reading nonexistent source text.
-        budget: { upstreamFiles: 25, upstreamAdded: 346, upstreamRemoved: 53 },
+        // The formatting slot adds four: its import and the three formatting entry points of the language service.
+        budget: { upstreamFiles: 25, upstreamAdded: 350, upstreamRemoved: 56 },
         // The parser's cursor for plugin syntax reads the parser's closure, so it cannot move to a new file.
         longHunkExceptions: [{ file: `${coreDir}/compiler/parser.ts`, contains: "createTSPPSyntaxCursor", maxAdded: 70 }],
     },
