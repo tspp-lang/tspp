@@ -55,6 +55,8 @@
     "knip": "pnpm --filter ts-plus-plus knip",
     "core-diff": "node scripts/core-diff.mjs",
     "core-diff:check": "node scripts/core-diff.mjs --check",
+    "lsp-diff": "node scripts/core-diff.mjs --target lsp",
+    "lsp-diff:check": "node scripts/core-diff.mjs --target lsp --check",
     "format": "pnpm --filter ts-plus-plus format",
     "prepare": "node scripts/install-lefthook.mjs",
     "clean": "pnpm --filter @tspp/plugin-sdk clean && pnpm --filter \"./packages/plugins/**\" clean && pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"

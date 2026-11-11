@@ -17,6 +17,7 @@ import { CommandTypes, SemicolonPreference } from './ts-protocol.js';
 import { CodeActionKind } from './utils/types.js';
 import { ConsoleLogger, LogLevel } from './utils/logger.js';
 import { ExecutionTarget } from './tsServer/server.js';
+import { applyCodeActionCommand, applyFixAllCodeActionCommand } from './tspp/lspServer.js';
 
 const diagnostics: Map<string, lsp.PublishDiagnosticsParams> = new Map();
 
@@ -1392,7 +1393,7 @@ describe('code actions', () => {
             expect(commands).toEqual(expect.arrayContaining([
                 'tspp.configurePlugin', 'tspp.applyCodeActionCommand', 'tspp.applyFixAllCodeAction', 'tspp.tsserverRequest',
             ]));
-            for (const command of [Commands.CONFIGURE_PLUGIN, Commands.APPLY_CODE_ACTION, Commands.APPLY_FIX_ALL_CODE_ACTION, TSServerRequestCommand.ID]) {
+            for (const command of [Commands.CONFIGURE_PLUGIN, applyCodeActionCommand, applyFixAllCodeActionCommand, TSServerRequestCommand.ID]) {
                 expect(commands).not.toContain(command);
             }
 

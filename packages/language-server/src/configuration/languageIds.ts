@@ -16,20 +16,20 @@ export const typescriptreact = 'typescriptreact';
 export const javascript = 'javascript';
 export const javascriptreact = 'javascriptreact';
 export const jsxTags = 'jsx-tags';
-export const tspp = 'tspp';
+export const tspp = 'tspp'; // TSPP-SLOT(tspp-language)
 
 export const jsTsLanguageModes = [
     javascript,
     javascriptreact,
     typescript,
     typescriptreact,
-    tspp,
+    tspp, // TSPP-SLOT(tspp-language)
 ];
 
 export function isSupportedLanguageMode(doc: LspDocument): boolean {
-    return [typescript, typescriptreact, javascript, javascriptreact, tspp].includes(doc.languageId);
+    return [typescript, typescriptreact, javascript, javascriptreact, tspp].includes(doc.languageId); // TSPP-SLOT(tspp-language)
 }
 
 export function isTypeScriptDocument(doc: LspDocument): boolean {
-    return [typescript, typescriptreact, tspp].includes(doc.languageId);
+    return [typescript, typescriptreact, tspp].includes(doc.languageId); // TSPP-SLOT(tspp-language)
 }

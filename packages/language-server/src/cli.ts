@@ -13,10 +13,10 @@ import { createLspConnection } from './lsp-connection.js';
 const DEFAULT_LOG_LEVEL = lsp.MessageType.Info;
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), { encoding: 'utf8' })) as { version: string; };
 
-const program = new Command('tspp-language-server')
+const program = new Command('tspp-language-server') // TSPP-SLOT(branding)
     .version(version)
     .requiredOption('--stdio', 'use stdio')
-    .option('--clientProcessId <clientProcessId>', 'process id of the language client')
+    .option('--clientProcessId <clientProcessId>', 'process id of the language client') // TSPP-SLOT(branding): the VS Code language client passes it
     .option<number>('--log-level <logLevel>', 'A number indicating the log level (4 = log, 3 = info, 2 = warn, 1 = error). Defaults to `2`.', value => parseInt(value, 10), 2)
     .parse(process.argv);
 

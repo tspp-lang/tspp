@@ -17,6 +17,7 @@ import { packageUpSync } from 'package-up';
 import API from '../utils/api.js';
 import { findPathToModule } from '../utils/modules-resolver.js';
 import type { Logger } from '../utils/logger.js';
+import { typeScriptManifest } from '../tspp/version.js'; // TSPP-SLOT(branding)
 
 export enum TypeScriptVersionSource {
     Bundled = 'bundled',
@@ -83,34 +84,20 @@ export class TypeScriptVersion {
 
         this.logger.log(`Reading version from package.json at "${fileName}"`);
         const contents = fs.readFileSync(fileName).toString();
-        let desc: TypeScriptPackageManifest;
+        let desc: { version?: string; };
         try {
-            desc = JSON.parse(contents) as TypeScriptPackageManifest;
+            desc = typeScriptManifest(JSON.parse(contents)); // TSPP-SLOT(branding)
         } catch {
             this.logger.log('Failed parsing contents of package.json.');
             return null;
         }
-        const version = typeScriptVersionOf(desc);
-        if (!version) {
+        if (!desc?.version) {
             this.logger.log('Failed reading version number from package.json.');
             return null;
         }
-        this.logger.log(`Resolved TypeScript version to "${version}"`);
-        return API.fromVersionString(version);
+        this.logger.log(`Resolved TypeScript version to "${desc.version}"`);
+        return API.fromVersionString(desc.version);
     }
-}
-
-/**
- * A released ts-plus-plus package is versioned as TS++, so it names the TypeScript version it implements separately;
- * that is the version the features offered depend on.
- */
-interface TypeScriptPackageManifest {
-    version?: string;
-    typescriptVersion?: string;
-}
-
-function typeScriptVersionOf(manifest: TypeScriptPackageManifest | null | undefined): string | null {
-    return manifest?.typescriptVersion ?? manifest?.version ?? null;
 }
 
 export const MODULE_FOLDERS = ['node_modules/typescript/lib', '.vscode/pnpify/typescript/lib', '.yarn/sdks/typescript/lib', '.pnpm/sdks/typescript/lib'];
@@ -118,7 +105,8 @@ export const MODULE_FOLDERS = ['node_modules/typescript/lib', '.vscode/pnpify/ty
 function readPackageVersion(packageFolder: string, logger: Logger): string | null {
     try {
         const contents = fs.readFileSync(path.join(packageFolder, 'package.json')).toString();
-        return typeScriptVersionOf(JSON.parse(contents) as TypeScriptPackageManifest);
+        const desc = typeScriptManifest(JSON.parse(contents)); // TSPP-SLOT(branding)
+        return desc.version ?? null;
     } catch {
         logger.log(`Failed reading version from package.json in "${packageFolder}".`);
         return null;

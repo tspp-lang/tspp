@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { CommandTypes, EventName, type ts } from '../ts-protocol.js';
 import { PluginSetRoutingTsServer } from './pluginSetRouting.js';
 import { PluginSetResolver, pluginSetKey, pluginsOfKey } from './pluginSets.js';
-import type { ITypeScriptServer, TypeScriptServerExitEvent } from './server.js';
+import type { ITypeScriptServer, TypeScriptServerExitEvent } from '../tsServer/server.js';
 import { ServerResponse } from '../typescriptService.js';
 
 const noResponse = { isAsync: false, token: undefined, expectsResult: false };
