@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +42,7 @@ const packages = exampleNames.map(directory => {
     if (sources.length === 0) {
         throw new Error(`${directory} must contain at least one source file.`);
     }
-    return { directory, name: manifest.name, root: join(examplesRoot, directory), sourceRoot, entry: sources[0] };
+    return { directory, name: manifest.name, root: join(examplesRoot, directory), sourceRoot, sources, entry: sources[0] };
 });
 
 function listFiles(directory) {
@@ -67,28 +68,7 @@ for (const example of packages) {
     const runtimeDirectory = mkdtempSync(join(example.root, ".runtime-"));
     try {
         console.log(`[examples] emitting ${example.directory} for its runtime smoke test`);
-        run("pnpm", [
-            "--filter",
-            example.name,
-            "exec",
-            "tspp",
-            "-p",
-            "tsconfig.json",
-            "--noEmit",
-            "false",
-            "--outDir",
-            runtimeDirectory,
-            "--rootDir",
-            "src",
-            "--allowUnreachableCode",
-            "false",
-            "--declaration",
-            richDeclarationExamples.has(example.directory) ? "true" : "false",
-            "--declarationMap",
-            "false",
-            "--pretty",
-            "false",
-        ], repoRoot);
+        emit(example, runtimeDirectory);
 
         const emittedEntry = join(runtimeDirectory, relative(example.sourceRoot, example.entry)).replace(/\.(?:tspp|ts)$/, ".js");
         if (!existsSync(emittedEntry)) throw new Error(`${example.directory} did not emit its entry point: ${emittedEntry}`);
@@ -102,9 +82,86 @@ for (const example of packages) {
             console.log(`[examples] running ${example.directory}/${relative(runtimeDirectory, emittedModule)}`);
             run(process.execPath, [emittedModule], example.root);
         }
+        await checkFormattingKeepsJavaScript(example, runtimeDirectory);
     }
     finally {
         rmSync(runtimeDirectory, { recursive: true, force: true });
+    }
+}
+
+function emit(example, outDir) {
+    run("pnpm", [
+        "--filter",
+        example.name,
+        "exec",
+        "tspp",
+        "-p",
+        "tsconfig.json",
+        "--noEmit",
+        "false",
+        "--outDir",
+        outDir,
+        "--rootDir",
+        "src",
+        "--allowUnreachableCode",
+        "false",
+        "--declaration",
+        richDeclarationExamples.has(example.directory) ? "true" : "false",
+        "--declarationMap",
+        "false",
+        "--pretty",
+        "false",
+    ], repoRoot);
+}
+
+/**
+ * Formats every source of the example as an editor would, through tsserver with the project's plugins, and fails when
+ * the JavaScript emitted from the formatted sources differs from `emitted` in any byte: formatting may only lay code
+ * out. The sources are formatted in place and always restored.
+ */
+async function checkFormattingKeepsJavaScript(example, emitted) {
+    console.log(`[examples] formatting ${example.directory} and emitting it again`);
+    const { TsServer, locator } = createRequire(import.meta.url)("../packages/editor-conformance/src/tsserver.cjs");
+    const options = { indentSize: 4, tabSize: 4, convertTabsToSpaces: true, newLineCharacter: "\n" };
+    const formatted = new Map();
+    const server = new TsServer();
+    try {
+        for (const file of example.sources) {
+            const text = readFileSync(file, "utf8");
+            await server.open(file, text, example.root);
+            const { at, offsetOf } = locator(text);
+            const end = at(text.length);
+            const response = await server.request("format", { file, line: 1, offset: 1, endLine: end.line, endOffset: end.offset, options });
+            if (!response.success) throw new Error(`Formatting ${relative(examplesRoot, file)} failed: ${String(response.message).split("\n")[0]}`);
+            const edits = response.body.map(edit => ({ start: offsetOf(edit.start), end: offsetOf(edit.end), newText: edit.newText })).sort((left, right) => right.start - left.start);
+            let result = text;
+            for (const edit of edits) result = result.slice(0, edit.start) + edit.newText + result.slice(edit.end);
+            if (result !== text) formatted.set(file, { original: text, result });
+            await server.close(file);
+        }
+    }
+    finally {
+        server.stop();
+    }
+    if (!formatted.size) return;
+    const formattedDirectory = mkdtempSync(join(example.root, ".formatted-"));
+    try {
+        for (const [file, { result }] of formatted) writeFileSync(file, result);
+        try {
+            emit(example, formattedDirectory);
+        }
+        finally {
+            for (const [file, { original }] of formatted) writeFileSync(file, original);
+        }
+        const javascript = directory => listFiles(directory).filter(file => extname(file) === ".js").map(file => relative(directory, file));
+        const before = javascript(emitted);
+        const after = javascript(formattedDirectory);
+        if (before.join("\n") !== after.join("\n")) throw new Error(`Formatting ${example.directory} changed which JavaScript files it emits.`);
+        const changed = before.filter(file => readFileSync(join(emitted, file), "utf8") !== readFileSync(join(formattedDirectory, file), "utf8"));
+        if (changed.length) throw new Error(`Formatting ${example.directory} changed its JavaScript: ${changed.join(", ")}`);
+    }
+    finally {
+        rmSync(formattedDirectory, { recursive: true, force: true });
     }
 }
 
