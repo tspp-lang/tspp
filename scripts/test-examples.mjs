@@ -116,26 +116,44 @@ function emit(example, outDir) {
 
 /**
  * Formats every source of the example as an editor would, through tsserver with the project's plugins, and fails when
- * the JavaScript emitted from the formatted sources differs from `emitted` in any byte: formatting may only lay code
- * out. The sources are formatted in place and always restored.
+ * formatting is not stable or cannot restore indentation: formatting the result again must change nothing, and the
+ * source with every line's indentation removed must format to the same text. Then the JavaScript emitted from the
+ * formatted sources must equal `emitted` in every byte: formatting may only lay code out. The sources are formatted in
+ * place and always restored.
  */
 async function checkFormattingKeepsJavaScript(example, emitted) {
     console.log(`[examples] formatting ${example.directory} and emitting it again`);
-    const { TsServer, locator } = createRequire(import.meta.url)("../packages/editor-conformance/src/tsserver.cjs");
-    const options = { indentSize: 4, tabSize: 4, convertTabsToSpaces: true, newLineCharacter: "\n" };
+    const require = createRequire(import.meta.url);
+    const { TsServer, locator } = require("../packages/editor-conformance/src/tsserver.cjs");
+    const { nonCodeRanges } = require("../packages/plugin-sdk/dist/text.js");
     const formatted = new Map();
     const server = new TsServer();
     try {
+        // tsserver formats with the options configured for it, not those of a format request.
+        await server.request("configure", { formatOptions: { indentSize: 4, tabSize: 4, convertTabsToSpaces: true, newLineCharacter: "\n" } });
         for (const file of example.sources) {
+            const relativeFile = relative(examplesRoot, file);
             const text = readFileSync(file, "utf8");
+            let open = text;
             await server.open(file, text, example.root);
-            const { at, offsetOf } = locator(text);
-            const end = at(text.length);
-            const response = await server.request("format", { file, line: 1, offset: 1, endLine: end.line, endOffset: end.offset, options });
-            if (!response.success) throw new Error(`Formatting ${relative(examplesRoot, file)} failed: ${String(response.message).split("\n")[0]}`);
-            const edits = response.body.map(edit => ({ start: offsetOf(edit.start), end: offsetOf(edit.end), newText: edit.newText })).sort((left, right) => right.start - left.start);
-            let result = text;
-            for (const edit of edits) result = result.slice(0, edit.start) + edit.newText + result.slice(edit.end);
+            const format = async source => {
+                const { at } = locator(open);
+                await server.request("updateOpen", { openFiles: [], changedFiles: [{ fileName: file, textChanges: [{ start: { line: 1, offset: 1 }, end: at(open.length), newText: source }] }], closedFiles: [] });
+                open = source;
+                const { at: end, offsetOf } = locator(source);
+                const last = end(source.length);
+                const response = await server.request("format", { file, line: 1, offset: 1, endLine: last.line, endOffset: last.offset });
+                if (!response.success) throw new Error(`Formatting ${relativeFile} failed: ${String(response.message).split("\n")[0]}`);
+                const edits = response.body.map(edit => ({ start: offsetOf(edit.start), end: offsetOf(edit.end), newText: edit.newText })).sort((left, right) => right.start - left.start);
+                let result = source;
+                for (const edit of edits) result = result.slice(0, edit.start) + edit.newText + result.slice(edit.end);
+                return result;
+            };
+            const result = await format(text);
+            const again = await format(result);
+            if (again !== result) throw new Error(`Formatting ${relativeFile} again changes it at line ${firstDifferentLine(result, again)}.`);
+            const restored = await format(withoutIndentation(text, nonCodeRanges(text)));
+            if (restored !== result) throw new Error(`Formatting ${relativeFile} without its indentation gives other text at line ${firstDifferentLine(result, restored)}.`);
             if (result !== text) formatted.set(file, { original: text, result });
             await server.close(file);
         }
@@ -292,3 +310,23 @@ function verifyMacroDeclarations(outputDirectory) {
 
 console.log(`\n[examples] ${packages.length} example packages compiled and ran successfully.`);
 
+/** `text` with the indentation of every line removed, except lines inside a comment or literal. */
+function withoutIndentation(text, nonCode) {
+    const inside = new Uint8Array(text.length + 1);
+    for (const range of nonCode) inside.fill(1, range.start + 1, range.end);
+    let result = "";
+    for (let index = 0; index < text.length;) {
+        const lineEnd = text.indexOf("\n", index) < 0 ? text.length : text.indexOf("\n", index) + 1;
+        const line = text.slice(index, lineEnd);
+        result += inside[index] ? line : line.replace(/^[ \t]+/, "");
+        index = lineEnd;
+    }
+    return result;
+}
+
+function firstDifferentLine(left, right) {
+    const leftLines = left.split("\n");
+    const rightLines = right.split("\n");
+    const index = leftLines.findIndex((line, lineIndex) => line !== rightLines[lineIndex]);
+    return (index < 0 ? leftLines.length : index) + 1;
+}
