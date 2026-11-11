@@ -64,7 +64,10 @@ function matchingClose(code: string, open: number, opening: string, closing: str
     return -1;
 }
 
-function matchingOpen(code: string, close: number, opening: string, closing: string): number {
+function matchingOpen(code: string, close: number, opening: string, closing: string) with {
+    numberModel: "safe-integer";
+    ensures: result === -1 || (0 <= result && result <= close);
+}: number {
     let depth = 0;
     for (let index = close; index >= 0; index--) {
         if (code[index] === closing) depth++;
