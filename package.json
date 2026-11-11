@@ -19,7 +19,6 @@
     "tspp-language-server": "workspace:*"
   },
   "scripts": {
-    "bootstrap:install": "node scripts/bootstrap-tspp.mjs",
     "build": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode && pnpm build:playground && pnpm build:tests",
     "build:plugin-sdk": "pnpm --filter @tspp/plugin-sdk build",
     "build:plugins": "pnpm --workspace-concurrency=1 --filter \"./packages/plugins/**\" build",

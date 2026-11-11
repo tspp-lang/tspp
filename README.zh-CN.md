@@ -35,10 +35,6 @@ pnpm test
 pnpm playground:dev
 ```
 
-用 `.tspp` 编写的插件使用 [scripts/bootstrap-pin.json](scripts/bootstrap-pin.json) 指定的提交构建。缓存缺失时，`pnpm bootstrap:install` 会在独立检出中从该提交构建编译器包。CI 按提交缓存工具链，本地复用 Git 忽略的 `.bootstrap/` 目录。更新固定版本时，要确保 CI 仍能检出被引用的提交。
-
-本地试写时，可以先用 `pnpm build:compiler` 构建工作区编译器，再设置 `TSPP_BOOTSTRAP=dev` 来构建插件。这个模式使用工作区现有的编译器和插件产物。PowerShell 里用 `$env:TSPP_BOOTSTRAP = 'dev'` 设置，用 `Remove-Item Env:TSPP_BOOTSTRAP` 切回固定版本。
-
 ## 命令与架构说明
 
 `compiler` 包暴露了两个命令：
