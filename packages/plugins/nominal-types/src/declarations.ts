@@ -60,6 +60,17 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
      */
     let rootAt = -1;
     const root = <T extends TS.Node>(node: T): T => ts.setTextRange(node, { pos: rootAt, end: rootAt });
+    /**
+     * A companion statement. The host moves its generated nodes to the end of the declaration, where the trivia before
+     * the next statement begins, so the printer would write that statement's comments into the companion's body. A
+     * companion has no comments of its own, so it prints none. `ts.setEmitFlags` cannot be used while parsing: it
+     * looks for the node's source file through parents that are not set yet.
+     */
+    const companion = <T extends TS.Statement>(statement: T, after: number, name: TS.Identifier): T => {
+        markGenerated(ts, statement, after, name);
+        (statement as { emitNode?: { flags?: number; }; }).emitNode = { flags: ts.EmitFlags.NoComments | ts.EmitFlags.NoNestedComments };
+        return statement;
+    };
 
     function isStartOf(keyword: "newtype" | "data") {
         return (cursor: TSPPSyntaxCursor) => cursor.tokenText() === keyword && cursor.lookAhead(() => {
@@ -194,7 +205,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         newtypeConstructors.add(constructor);
         // Companions follow the alias in the statement list, so their nodes sit at the next token.
         const after = cursor.getTokenStart();
-        return [markGenerated(ts, alias, keywordStart), ...[constructor, namespace].map(statement => markGenerated(ts, statement, after, name))];
+        return [markGenerated(ts, alias, keywordStart), ...[constructor, namespace].map(statement => companion(statement, after, name))];
     }
 
     function parseVariants(cursor: TSPPSyntaxCursor): ParsedVariant[] {
@@ -346,7 +357,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         });
         // Companions follow the alias in the statement list, so their nodes sit at the next token.
         const after = cursor.getTokenStart();
-        return [markGenerated(ts, alias, keywordStart), ...statements.slice(1).map(statement => markGenerated(ts, statement, after, name))];
+        return [markGenerated(ts, alias, keywordStart), ...statements.slice(1).map(statement => companion(statement, after, name))];
 
     }
 
