@@ -162,6 +162,45 @@ for (const [name, count, source, pattern = /not assignable/] of typeChecks) {
   });
 }
 
+test("distinct newtype diagnostics name the generated private brand at the authored error", () => {
+  const source = `newtype SourcePosition = number;
+newtype RelativeOffset = number;
+declare const offset: RelativeOffset;
+const position: SourcePosition = offset;
+declare function at(position: SourcePosition): void;
+at(offset);`;
+  const { program } = createProgram(source);
+  const diagnostics = program.getSemanticDiagnostics();
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [2322, 2345]);
+  assert.deepEqual(diagnostics.map(diagnostic => source.slice(diagnostic.start, diagnostic.start + diagnostic.length)), ["position", "offset"]);
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1), [4, 6]);
+  for (const diagnostic of diagnostics) {
+    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+    assert.match(message, /RelativeOffset/);
+    assert.match(message, /SourcePosition/);
+    assert.match(message, /separate declarations of a private property '__tsppNominal'/);
+    assert.doesNotMatch(message, /\(Missing\)/);
+  }
+});
+
+test("missing authored names still print as missing", () => {
+  const file = ts.createSourceFile("/missing.ts", "function () {}", ts.ScriptTarget.ESNext, true);
+  const name = file.statements[0].name;
+  assert.equal(name.pos, name.end);
+  assert.equal(ts.declarationNameToString(name), "(Missing)");
+  assert.equal(ts.declarationNameToString(undefined), "(Missing)");
+  assert.equal(ts.declarationNameToString(ts.factory.createIdentifier("unowned")), "(Missing)");
+});
+
+test("ordinary TypeScript private-property diagnostics keep their authored names", () => {
+  const messages = messagesOf(`class A { private secret!: number; }
+class B { private secret!: number; }
+declare const a: A;
+const b: B = a;`);
+  assert.equal(messages.length, 1, messages.join("\n"));
+  assert.match(messages[0], /separate declarations of a private property 'secret'/);
+});
+
 test("a newtype constructor returns the newtype", () => {
   const { program } = createProgram(`
     newtype UserId = number;

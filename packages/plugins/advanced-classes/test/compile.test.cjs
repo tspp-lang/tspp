@@ -182,17 +182,79 @@ test("field property declaration: field count: number = 0 { get() { return field
   );
 });
 
-test("field: reports diagnostic when used outside getter/setter", () => {
+test("field: preserves parameters, arrow bindings, and local variables outside accessors", () => {
   const result = compile(`
-    function test() {
-      return field;
+    function read(term: { left: number; right: number }, field: "left" | "right"): number {
+      return term[field];
+    }
+    const select = (field: "right") => read({ left: 1, right: 2 }, field);
+    const field = 3;
+    let total = field + select("right");
+    {
+      const field = (value: number) => value * 2;
+      total += field(4);
     }
   `);
 
-  assert(
-    result.messages.some(m => m.includes("'field' is only allowed inside a getter or setter")),
-    result.messages.join("\n"),
-  );
+  assert.deepEqual(result.messages, []);
+  const javascript = result.javascript();
+  assert.doesNotMatch(javascript, /__field_/);
+  assert.equal(new Function(javascript + "\nreturn total;")(), 13);
+});
+
+test("field: preserves imported value bindings", () => {
+  const result = compile({
+    "/values.tspp": "export const field = 3;",
+    "/main.tspp": `import { field } from "./values"; export const total: number = field + 1;`,
+  });
+  assert.deepEqual(result.messages, []);
+  assert.match(result.javascript(), /values_1\.field \+ 1/);
+  assert.doesNotMatch(result.javascript(), /__field_/);
+});
+
+test("field: keeps ordinary type errors on bound variables", () => {
+  for (const [source, code] of [
+    ['const field = "text"; const value: number = field;', 2322],
+    ["function multiply(field: string) { return field * 2; }", 2362],
+    ["function read(term: { left: number }, field: boolean) { return term[field]; }", 2538],
+    ['const field = (value: number) => value; field("text");', 2345],
+  ]) {
+    const result = compile(source);
+    assert.deepEqual(result.program.getSemanticDiagnostics().map(diagnostic => diagnostic.code), [code], result.messages.join("\n"));
+  }
+});
+
+test("field: accessors keep their backing storage even when an outer field binding exists", () => {
+  const result = compile(`
+    const field = 99;
+    class Counter {
+      field count: number = 1 {
+        get() { return field; }
+        set(value) { field = value; }
+      }
+    }
+    const counter = new Counter();
+    counter.count = 7;
+  `);
+  assert.deepEqual(result.messages, []);
+  assert.match(result.javascript(), /this\.__field_count/);
+  assert.deepEqual(new Function(result.javascript() + "\nreturn [counter.count, field];")(), [7, 99]);
+});
+
+test("field: reports one precisely located diagnostic for an unbound reference outside accessors", () => {
+  for (const source of [
+    "function outside() { return /* before */ field; }",
+    "const fields = 1; const value = field;",
+  ]) {
+    const result = compile(source);
+    const diagnostics = result.program.getSemanticDiagnostics();
+    assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [19104], result.messages.join("\n"));
+    assert.equal(diagnostics[0].start, source.lastIndexOf("field"));
+    assert.equal(diagnostics[0].length, 5);
+    assert.equal(diagnostics[0].messageText, "'field' is only allowed inside a getter or setter.");
+    assert.equal(diagnostics[0].relatedInformation, undefined);
+    assert.equal(diagnostics[0].canonicalHead, undefined);
+  }
 });
 
 test("data class: synthesizes constructor, copy, equals, and toString", () => {

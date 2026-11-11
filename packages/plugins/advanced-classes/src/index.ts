@@ -203,6 +203,8 @@ export const advancedClassesPlugin = definePlugin({
                                 documentation: `Implicit backing storage property for '${accessor}'.`,
                             };
                         }
+                        // Outside accessors, a resolved symbol is an ordinary binding; field declarations have no symbol here.
+                        if (request.upstream) return undefined;
                         // Followed by a name, it declares a property; anywhere else it is the backing storage, out of place.
                         if (!/^\s+[A-Za-z_$]/.test(request.sourceText.slice(token.start + token.length))) {
                             return {

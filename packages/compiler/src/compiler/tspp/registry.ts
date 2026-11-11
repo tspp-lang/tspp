@@ -360,6 +360,16 @@ export function isTSPPSyntaxNode(node: Node): boolean {
     return syntaxOwners.has(node);
 }
 
+/** A generated private field's name inside plugin syntax, which has no authored range to print. @internal */
+export function getTSPPGeneratedDeclarationName(node: Node | undefined): string | undefined {
+    if (!node || !ts.isIdentifier(node) || !ts.nodeIsSynthesized(node)) return undefined;
+    if (!node.parent || !ts.isPropertyDeclaration(node.parent) || !(ts.getCombinedModifierFlags(node.parent) & ts.ModifierFlags.Private)) return undefined;
+    for (let ancestor: Node | undefined = node; ancestor; ancestor = ancestor.parent) {
+        if (isTSPPSyntaxNode(ancestor)) return ts.idText(node);
+    }
+    return undefined;
+}
+
 /**
  * The plugins whose syntax contains a range of a TS++ file, innermost first: syntax they parsed, and text they rewrote
  * before parsing. Nothing else can say which plugin a piece of source belongs to, and it does not depend on the order

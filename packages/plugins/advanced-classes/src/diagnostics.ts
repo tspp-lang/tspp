@@ -154,18 +154,6 @@ export function createAdvancedClassDiagnostics(
                     }
                 }
 
-                // 4. Check field outside accessor
-                if (fieldSyntax.invalidFieldNodes.has(node)) {
-                    diagnostics.push({
-                        file: sourceFile,
-                        start: node.pos,
-                        length: Math.max(1, node.end - node.pos),
-                        messageText: "'field' is only allowed inside a getter or setter.",
-                        category: ts.DiagnosticCategory.Error,
-                        code: DIAGNOSTIC_FIELD_OUTSIDE_ACCESSOR,
-                    });
-                }
-
                 ts.forEachChild(node, visit);
             }
 
@@ -174,6 +162,25 @@ export function createAdvancedClassDiagnostics(
         },
 
         filterDiagnostic(diagnostic) {
+            if ((diagnostic.code === 2304 || diagnostic.code === 2552) && diagnostic.file && diagnostic.start !== undefined) {
+                const start = diagnostic.start;
+                const end = start + (diagnostic.length ?? 0);
+                const isOutsideAccessorField = (node: TS.Node): boolean => {
+                    if (node.pos > start || node.end < end) return false;
+                    if (ts.isIdentifier(node) && node.end === end && fieldSyntax.outsideAccessorIdentifiers.has(ts.getOriginalNode(node))) return true;
+                    return !!ts.forEachChild(node, isOutsideAccessorField);
+                };
+                if (isOutsideAccessorField(diagnostic.file)) {
+                    return {
+                        file: diagnostic.file,
+                        start: diagnostic.start,
+                        length: diagnostic.length,
+                        category: diagnostic.category,
+                        code: DIAGNOSTIC_FIELD_OUTSIDE_ACCESSOR,
+                        messageText: "'field' is only allowed inside a getter or setter.",
+                    };
+                }
+            }
             // Filter constructor cannot have return type or async modifier errors
             if (diagnostic.code === 1089 || diagnostic.code === 1038) {
                 return false;

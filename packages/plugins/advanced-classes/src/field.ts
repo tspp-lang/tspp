@@ -45,11 +45,11 @@ export function findEnclosingAccessorName(sourceText: string, pos: number): stri
 
 export function createFieldSyntax(ts: TSPPTypeScript): {
     extension: TSPPSyntaxExtension;
-    invalidFieldNodes: WeakSet<TS.Node>;
+    outsideAccessorIdentifiers: WeakSet<TS.Node>;
     getFieldPropertyName: (sourceText: string, pos: number) => string | undefined;
 } {
     const kinds = ts.SyntaxKind;
-    const invalidFieldNodes = new WeakSet<TS.Node>();
+    const outsideAccessorIdentifiers = new WeakSet<TS.Node>();
 
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end: number): T =>
         ts.setTextRange(node, { pos, end });
@@ -63,11 +63,16 @@ export function createFieldSyntax(ts: TSPPTypeScript): {
         const f = cursor.factory;
         const sourceText = cursor.getSourceText();
         const accessorName = findEnclosingAccessorName(sourceText, startPos);
+        if (!accessorName) {
+            const identifier = cursor.parseIdentifier();
+            outsideAccessorIdentifiers.add(identifier);
+            return identifier;
+        }
 
         cursor.nextToken(); // consume 'field'
         const endPos = cursor.getNodePos();
 
-        const backingPropName = accessorName ? `__field_${accessorName}` : "__field_unknown";
+        const backingPropName = `__field_${accessorName}`;
 
         // Lower directly to: this.__field_name (without 'as any', preserving strict types)
         const thisExpr = range(f.createThis(), startPos, endPos);
@@ -80,10 +85,6 @@ export function createFieldSyntax(ts: TSPPTypeScript): {
             startPos,
             endPos,
         );
-
-        if (!accessorName) {
-            invalidFieldNodes.add(fieldAccess);
-        }
 
         return markGenerated(ts, fieldAccess, startPos);
     }
@@ -98,7 +99,7 @@ export function createFieldSyntax(ts: TSPPTypeScript): {
 
     return {
         extension,
-        invalidFieldNodes,
+        outsideAccessorIdentifiers,
         getFieldPropertyName: (sourceText, pos) => findEnclosingAccessorName(sourceText, pos),
     };
 }

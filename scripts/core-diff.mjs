@@ -21,9 +21,9 @@ const featureTerms = [
     "typeMatch", "operatorSection", "staticInterface", "trailingClosure", "completionBlock", "withClause", "tspp",
 ];
 
-// One syntax-extension call site beyond the +344 baseline: name resolution must recognize a lowered parameter
-// even when its source range overlaps the body. Keeping that range preserves diagnostics and hover on the authored token.
-const budget = { upstreamFiles: 25, upstreamAdded: 345, upstreamRemoved: 53 };
+// Two syntax-extension call sites beyond the +344 baseline: recognize lowered parameters despite overlapping ranges,
+// and print synthesized private field names from plugin syntax without reading nonexistent source text.
+const budget = { upstreamFiles: 25, upstreamAdded: 346, upstreamRemoved: 53 };
 
 // A call site forwards in a few lines. A longer hunk must be a known exception: the parser's cursor for plugin syntax
 // reads the parser's closure, so it cannot move to a new file.

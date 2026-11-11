@@ -31,6 +31,8 @@ function usePlugins(...plugins) {
 if (process.env.TSPP_TEST_ALL_PLUGINS === "1") {
   const pluginsDirectory = path.resolve(__dirname, "..");
   for (const directory of fs.readdirSync(pluginsDirectory)) {
+    // A removed package can leave ignored dist files behind in an existing checkout.
+    if (!fs.existsSync(path.join(pluginsDirectory, directory, "package.json"))) continue;
     const distribution = path.join(pluginsDirectory, directory, "dist", "index.js");
     if (!fs.existsSync(distribution)) continue;
     const exports = require(distribution);

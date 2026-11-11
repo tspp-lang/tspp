@@ -607,7 +607,7 @@ import {
     WriteFileCallbackData,
     YieldExpression,
 } from "./_namespaces/ts.js";
-import { isTSPPParameterOf, isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension) TSPP-SLOT(interface-member-binding)
+import { getTSPPGeneratedDeclarationName, isTSPPParameterOf, isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension) TSPP-SLOT(interface-member-binding)
 
 /** @internal */
 export const resolvingEmptyArray: never[] = [];
@@ -2348,6 +2348,7 @@ export function forEachEnclosingBlockScopeContainer(node: Node, cb: (container: 
 // text of the expression in the computed property.
 /** @internal */
 export function declarationNameToString(name: DeclarationName | QualifiedName | undefined): string {
+    const generatedName = getTSPPGeneratedDeclarationName(name); if (generatedName !== undefined) return generatedName; // TSPP-SLOT(syntax-extension)
     return !name || getFullWidth(name) === 0 ? "(Missing)" : getTextOfNode(name);
 }
 
