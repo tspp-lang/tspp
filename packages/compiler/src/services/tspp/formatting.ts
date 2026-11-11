@@ -1,4 +1,5 @@
 import {
+    formatting,
     getLineStartPositionForPosition,
     getTSPPFormattingEdits,
     SemicolonPreference,
@@ -10,6 +11,7 @@ import type {
     SourceFile,
     TextChange,
 } from "../_namespaces/ts.js";
+import { hasUnformattableTSPPChildren } from "./syntax.js";
 
 /**
  * The formatter's edits of a TS++ file, made safe for its plugin syntax and joined by the edits plugins make to their
@@ -36,6 +38,9 @@ export function addTSPPFormatting(
         },
         semicolons: settings.semicolons === SemicolonPreference.Insert || settings.semicolons === SemicolonPreference.Remove,
         key: keystroke?.key,
+        isUnformatted: hasUnformattableTSPPChildren,
+        // From the structure alone: the lines around plugin syntax may not be laid out yet.
+        nodeIndentation: node => formatting.SmartIndenter.getIndentationForNode(node, { pos: 0, end: sourceFile.text.length }, sourceFile, settings),
     });
     return edits.map(edit => ({ span: { start: edit.start, length: edit.length }, newText: edit.newText }));
 }

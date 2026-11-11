@@ -355,11 +355,28 @@ its own: it runs from the `command-line` and `plugin-host` call sites.
 `formatting` wraps the language service's three formatting entry points. TypeScript's
 formatter reads the projected text and the lowered tree, where plugin syntax can look like
 whitespace, so the host keeps only its edits that change nothing but whitespace (and
-semicolons, when asked to add or remove them) in the authored text. Each plugin then lays
-out its own syntax: an edit is kept only inside the requested range and the plugin's
-syntax, outside comments and literals, and changing only whitespace, and it takes the
-place of any formatter edit it overlaps. `pnpm test:examples` formats every example
-through tsserver and fails when the emitted JavaScript changes in any byte.
+semicolons, when asked to add or remove them) in the authored text. It also drops the ones
+that touch projected characters, split a token of plugin syntax such as `=>>`, or leave
+spaces at the end of a line.
+
+Each plugin then lays out its own syntax. The request tells a provider which ranges are its
+syntax (`ownedRanges`), which of them the formatter does not lay out at all
+(`unformattedRanges`: projected text, nodes it leaves as written, and the statement around
+an expression of plugin syntax), and what indentation a line has once laid out
+(`indentationAt`). A plugin edit is kept only inside the requested range and the plugin's
+syntax, outside comments and literals, and changing only whitespace. Inside
+`unformattedRanges`, or when it is `decisive`, it takes the place of any formatter edit it
+overlaps; elsewhere it gives way to one, so that the two never take turns.
+
+Most plugins register the SDK's `formatTSPPSyntax`, which lays out `unformattedRanges` with
+`layoutTSPPCode` (indentation by brackets and continuation lines, spaces between code) and
+tidies the spaces of the rest. A plugin adds to it where it knows more: advanced classes
+lay out whole classes with fields, since the formatter indents their accessors wrongly, and
+modern syntax lays out `use` continuations and continues lines at `in`.
+
+`pnpm test:examples` formats every example through tsserver and fails when formatting it
+again changes it, when the example without indentation formats to other text, or when the
+JavaScript emitted from the formatted sources changes in any byte.
 
 `interface-member-binding` is a controlled exception to rule 6: its one consumer's feature
 is what the slot does, so it cannot really be described without naming that feature. It

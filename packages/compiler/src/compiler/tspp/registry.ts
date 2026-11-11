@@ -731,9 +731,90 @@ function isLayoutEdit(replaced: string, newText: string, semicolons: boolean): b
 }
 
 /**
+ * The ranges of the authored text each plugin's syntax takes: the nodes it parsed, the text it projected, and the
+ * nodes the formatter leaves as they are (`isUnformatted`) for the plugins whose syntax is inside them, since only those
+ * plugins can lay them out. `unformatted` holds the part the formatter does not lay out at all: projected text and those
+ * nodes. Each plugin's ranges are sorted and merged.
+ */
+function getTSPPSyntaxRanges(sourceFile: SourceFile, sourceText: string, isUnformatted: (node: Node) => boolean): {
+    readonly owned: ReadonlyMap<string, readonly { start: number; end: number; }[]>;
+    readonly unformatted: ReadonlyMap<string, readonly { start: number; end: number; }[]>;
+    /** The outermost node of a range that starts on a line, by the line's start. */
+    readonly lineNodes: ReadonlyMap<number, Node>;
+} {
+    const lineNodes = new Map<number, Node>();
+    const noteLine = (start: number, node: Node) => {
+        const lineStart = sourceText.lastIndexOf("\n", start - 1) + 1;
+        const known = lineNodes.get(lineStart);
+        if (!known || node.pos <= known.pos && known.end <= node.end) lineNodes.set(lineStart, node);
+    };
+    const owned = new Map<string, { start: number; end: number; }[]>();
+    const unformatted = new Map<string, { start: number; end: number; }[]>();
+    // The spaces beside plugin syntax on its lines belong to it too, since the formatter may not see where it begins.
+    const isSpace = (index: number) => sourceText[index] === " " || sourceText[index] === "\t";
+    const addTo = (ranges: Map<string, { start: number; end: number; }[]>, pluginId: string, start: number, end: number) => {
+        if (start >= end) return;
+        while (start > 0 && isSpace(start - 1)) start--;
+        while (end < sourceText.length && isSpace(end)) end++;
+        ranges.set(pluginId, [...ranges.get(pluginId) ?? [], { start, end }]);
+    };
+    const add = (pluginId: string, start: number, end: number, laidOut: boolean) => {
+        addTo(owned, pluginId, start, end);
+        if (!laidOut) addTo(unformatted, pluginId, start, end);
+    };
+    for (const span of projectedSources.get(sourceFile.fileName)?.spans ?? []) add(span.pluginId, span.start, span.end, /*laidOut*/ false);
+    const hasRange = (node: Node) => node.pos >= 0 && node.end <= sourceText.length && node.pos < node.end;
+    /** `statement` is the innermost statement around `node` with a range of its own. */
+    const visit = (node: Node, statement: Node | undefined): ReadonlySet<string> => {
+        const owners = new Set<string>();
+        const owner = syntaxOwners.get(node);
+        if (owner) owners.add(owner);
+        const inner = ts.isStatement(node) && hasRange(node) ? node : statement;
+        ts.forEachChild(node, child => {
+            for (const id of visit(child, inner)) owners.add(id);
+        }, children => {
+            for (const child of children) for (const id of visit(child, inner)) owners.add(id);
+        });
+        if (hasRange(node)) {
+            // Comments before plugin syntax go with it.
+            const start = ts.skipTrivia(sourceText, node.pos, /*stopAfterLineBreak*/ false, /*stopAtComments*/ true);
+            if (owner) {
+                add(owner, start, node.end, /*laidOut*/ true);
+                noteLine(start, node);
+            }
+            if (owners.size && isUnformatted(node)) {
+                for (const id of owners) add(id, start, node.end, /*laidOut*/ false);
+                noteLine(start, node);
+            }
+            // The formatter does not lay out a statement around an expression of plugin syntax.
+            if (owner && statement && inner !== node) {
+                const statementStart = ts.skipTrivia(sourceText, statement.pos, /*stopAfterLineBreak*/ false, /*stopAtComments*/ true);
+                add(owner, statementStart, statement.end, /*laidOut*/ false);
+                noteLine(statementStart, statement);
+            }
+        }
+        return owners;
+    };
+    visit(sourceFile, /*statement*/ undefined);
+    for (const ranges of [owned, unformatted]) {
+        for (const [pluginId, list] of ranges) {
+            const merged: { start: number; end: number; }[] = [];
+            for (const range of [...list].sort((left, right) => left.start - right.start)) {
+                const last = merged[merged.length - 1];
+                if (last && range.start <= last.end) last.end = Math.max(last.end, range.end);
+                else merged.push({ ...range });
+            }
+            ranges.set(pluginId, merged);
+        }
+    }
+    return { owned, unformatted, lineNodes };
+}
+
+/**
  * The edits that format a TS++ file: those of TypeScript's formatter that only lay code out, since it reads the
  * projected text, where plugin syntax may look like whitespace, and a lowered tree whose ranges plugin syntax decides;
- * then the edits each plugin makes to its own syntax, which take the place of the formatter's where they overlap.
+ * then the edits each plugin makes to its own syntax. Where the formatter does not lay code out at all, a plugin's edit
+ * takes the place of the formatter's it overlaps; elsewhere it gives way to it.
  * A plugin's edit that leaves its syntax or the requested range, changes code, reaches into a comment or a literal, or
  * overlaps an earlier plugin's edit is dropped. Files that are not TS++ get the formatter's edits as they are.
  * @internal
@@ -741,14 +822,39 @@ function isLayoutEdit(replaced: string, newText: string, semicolons: boolean): b
 export function getTSPPFormattingEdits(
     sourceFile: SourceFile,
     upstream: readonly TSPPTextEdit[],
-    request: { readonly start: number; readonly end: number; readonly options: TSPPFormattingOptions; readonly semicolons: boolean; readonly key?: string; },
+    request: {
+        readonly start: number;
+        readonly end: number;
+        readonly options: TSPPFormattingOptions;
+        readonly semicolons: boolean;
+        readonly key?: string;
+        /** Whether the formatter leaves a node as it is written. */
+        readonly isUnformatted: (node: Node) => boolean;
+        /** The indentation the formatter gives the line a node starts on, in columns. */
+        readonly nodeIndentation: (node: Node) => number;
+    },
 ): readonly TSPPTextEdit[] {
     if (!isTSPPFileName(sourceFile.fileName)) return upstream;
     const sourceText = getOriginalTSPPSource(sourceFile.fileName, sourceFile.text);
     const isLayout = (edit: TSPPTextEdit) =>
         edit.start >= 0 && edit.length >= 0 && edit.start + edit.length <= sourceText.length
         && isLayoutEdit(sourceText.slice(edit.start, edit.start + edit.length), edit.newText, request.semicolons);
-    const kept = upstream.filter(isLayout);
+    let syntaxRanges: ReturnType<typeof getTSPPSyntaxRanges> | undefined;
+    const getRanges = () => syntaxRanges ??= getTSPPSyntaxRanges(sourceFile, sourceText, request.isUnformatted);
+    const inPluginSyntax = (position: number) => [...getRanges().owned.values()].some(ranges => ranges.some(range => range.start < position && position < range.end));
+    // Plugin syntax has tokens of its own, such as `=>>`, which the formatter may take for two and split.
+    const splitsToken = (edit: TSPPTextEdit) =>
+        !sourceText.slice(edit.start, edit.start + edit.length).trim() && edit.newText.trim() === "" && edit.newText !== ""
+        && /\S/.test(sourceText[edit.start - 1] ?? "") && /\S/.test(sourceText[edit.start + edit.length] ?? "") && edit.length === 0 && inPluginSyntax(edit.start);
+    // Where a plugin projected other characters than the author wrote, the formatter laid out characters that are not there.
+    const isProjected = (index: number) => index >= 0 && index < sourceText.length && sourceFile.text[index] !== sourceText[index];
+    const touchesProjection = (edit: TSPPTextEdit) => {
+        for (let index = edit.start - 1; index <= edit.start + edit.length; index++) if (isProjected(index)) return true;
+        return false;
+    };
+    // Nor does it mean to leave spaces at the end of a line; it does where it reads projected text.
+    const addsTrailingSpace = (edit: TSPPTextEdit) => /^[ \t]+$/.test(edit.newText) && /^[\r\n]?$/.test(sourceText[edit.start + edit.length] ?? "");
+    const kept = upstream.filter(edit => isLayout(edit) && !splitsToken(edit) && !touchesProjection(edit) && !addsTrailingSpace(edit));
     if (!formattingProviders.size) return kept;
     const overlaps = (left: TSPPTextEdit, right: TSPPTextEdit) =>
         left.start < right.start + right.length && right.start < left.start + left.length
@@ -766,18 +872,56 @@ export function getTSPPFormattingEdits(
         }
         return replacesCode || start === 0 || start + length >= sourceText.length || isCode(start - 1) || isCode(start + length);
     };
+    const rangesOf = (pluginId: string) => getRanges().owned.get(pluginId) ?? [];
+    const unformattedOf = (pluginId: string) => getRanges().unformatted.get(pluginId) ?? [];
+    const indentationAt = (position: number) => {
+        // The indentation of the position's line once the formatter's edits apply, in columns.
+        const lineStart = sourceText.lastIndexOf("\n", Math.max(0, position - 1)) + 1;
+        let indentEnd = lineStart;
+        while (sourceText[indentEnd] === " " || sourceText[indentEnd] === "\t") indentEnd++;
+        // A formatter edit that ends in the indentation and starts on the line or before it decides what precedes the rest.
+        const edit = kept.find(edit => edit.start <= lineStart && lineStart <= edit.start + edit.length && edit.start + edit.length <= indentEnd);
+        const replaced = edit && (edit.start === lineStart ? edit.newText : edit.newText.slice(edit.newText.lastIndexOf("\n") + 1));
+        // Where plugin syntax starts a line, the formatter may leave it as it is, so it gets the indentation its node would.
+        const node = !edit && getRanges().lineNodes.get(lineStart);
+        if (node) return request.nodeIndentation(node);
+        const indentation = edit ? replaced + sourceText.slice(edit.start + edit.length, indentEnd) : sourceText.slice(lineStart, indentEnd);
+        let columns = 0;
+        for (const character of indentation) columns = character === "\t" ? columns + request.options.tabSize - columns % request.options.tabSize : columns + 1;
+        return columns;
+    };
     const owned: TSPPTextEdit[] = [];
     for (const pluginId of [...formattingProviders.keys()].sort()) {
-        const isOwned = (start: number, end: number) => getTSPPSyntaxOwners(sourceFile, start, end, /*includeEmptyNodes*/ false).includes(pluginId);
-        const edits = formattingProviders.get(pluginId)!({ fileName: sourceFile.fileName, sourceText, start: request.start, end: request.end, options: request.options, key: request.key, isOwned });
+        const isOwned = (start: number, end: number) =>
+            rangesOf(pluginId).some(range => range.start <= start && end <= range.end)
+            || getTSPPSyntaxOwners(sourceFile, start, end, /*includeEmptyNodes*/ false).includes(pluginId);
+        const edits = formattingProviders.get(pluginId)!({
+            fileName: sourceFile.fileName,
+            sourceText,
+            start: request.start,
+            end: request.end,
+            options: request.options,
+            key: request.key,
+            isOwned,
+            ownedRanges: () => rangesOf(pluginId),
+            unformattedRanges: () => unformattedOf(pluginId),
+            indentationAt,
+        });
         for (const edit of edits) {
             const end = edit.start + edit.length;
             if (edit.start < request.start || end > request.end || !isLayout(edit) || !isInCode(edit) || !isOwned(edit.start, end)) continue;
             if (owned.some(other => overlaps(edit, other))) continue;
-            owned.push(edit);
+            // Where the formatter lays code out, it decides; a plugin decides only what the formatter leaves alone, unless
+            // its edit is decisive.
+            const decides = edit.decisive || unformattedOf(pluginId).some(range => range.start <= edit.start && end <= range.end);
+            if (!decides && kept.some(other => overlaps(edit, other))) continue;
+            owned.push({ start: edit.start, length: edit.length, newText: edit.newText });
         }
     }
-    return [...kept.filter(edit => !owned.some(other => overlaps(edit, other))), ...owned].sort((left, right) => left.start - right.start);
+    // Edits that change nothing only made the formatter's give way.
+    return [...kept.filter(edit => !owned.some(other => overlaps(edit, other))), ...owned]
+        .filter(edit => sourceText.slice(edit.start, edit.start + edit.length) !== edit.newText)
+        .sort((left, right) => left.start - right.start);
 }
 
 /** @internal */
