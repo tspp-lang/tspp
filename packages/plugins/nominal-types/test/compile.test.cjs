@@ -487,3 +487,24 @@ test("a match over a property sees every variant, however the property was writt
     ["Non-exhaustive match. Missing patterns: B."],
   );
 });
+
+test("companions of newtype and data leave the next declaration's comments where they are", () => {
+  const { program, outputs } = createProgram(`
+/** Doc of A. */
+export newtype A = string;
+/** Doc of f. */
+export function f() {}
+/** Doc of D. */
+export data D = X | Y(value: number);
+/** Doc of g. */
+export function g() {}
+`, { declaration: true });
+  program.emit();
+  for (const file of ["/main.js", "/main.d.ts"]) {
+    const text = outputs.get(file) ?? "";
+    for (const comment of ["/** Doc of f. */", "/** Doc of g. */"]) {
+      assert.equal(text.split(comment).length - 1, 1, `${file} should hold ${comment} once, before its declaration:\n${text}`);
+      assert.match(text, new RegExp(`${comment.replace(/[.*/]/g, "\\$&")}\\s*(?:export )?(?:declare )?function`), text);
+    }
+  }
+});

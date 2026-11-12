@@ -8,8 +8,10 @@ import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import { modelSignature, type FunctionModel } from "./models";
 import { prepareVerificationSource, type PreparedVerificationSource } from "./source-cache";
 
-export newtype SourceRangeKey = string;
-export newtype DeclarationKey = string;
+export type SourceRangeKey = string & { readonly __brand: "SourceRangeKey"; };
+export const SourceRangeKey = (value: string) => value as SourceRangeKey;
+export type DeclarationKey = string & { readonly __brand: "DeclarationKey"; };
+export const DeclarationKey = (value: string) => value as DeclarationKey;
 
 /** What a declaration the checker resolved a call to means to proofs. */
 export type DeclaredTarget =

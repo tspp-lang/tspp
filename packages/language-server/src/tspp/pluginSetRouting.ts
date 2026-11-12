@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { ServerResponse, type ExecuteInfo, type TypeScriptRequestTypes } from '../typescriptService.js';
 import { CommandTypes, EventName, type ts } from '../ts-protocol.js';
-import type { ITypeScriptServer, TypeScriptServerExitEvent } from './server.js';
+import type { ITypeScriptServer, TypeScriptServerExitEvent } from '../tsServer/server.js';
 
 type Responses = Array<Promise<ServerResponse.Response<ts.server.protocol.Response>> | undefined>;
 

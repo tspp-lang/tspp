@@ -13,7 +13,6 @@
 import * as lsp from 'vscode-languageserver';
 import type { URI } from 'vscode-uri';
 import { type ts, CommandTypes, type SupportedFeatures } from '../../ts-protocol.js';
-import { Commands } from '../../commands.js';
 import type { Command, CommandManager } from '../../commands/commandManager.js';
 import * as fixNames from '../../utils/fixNames.js';
 import * as typeConverters from '../../utils/typeConverters.js';
@@ -36,7 +35,8 @@ type ApplyCodeActionCommand_args = {
 };
 
 class ApplyCodeActionCommand implements Command {
-    public readonly id = Commands.APPLY_CODE_ACTION;
+    public static readonly ID = '_typescript.applyCodeActionCommand';
+    public readonly id = ApplyCodeActionCommand.ID;
 
     constructor(
         private readonly client: ITypeScriptServiceClient,
@@ -56,7 +56,8 @@ type ApplyFixAllCodeAction_args = {
 };
 
 class ApplyFixAllCodeAction implements Command {
-    public readonly id = Commands.APPLY_FIX_ALL_CODE_ACTION;
+    public static readonly ID = '_typescript.applyFixAllCodeAction';
+    public readonly id = ApplyFixAllCodeAction.ID;
 
     constructor(
         private readonly client: ITypeScriptServiceClient,
@@ -334,7 +335,7 @@ export class TypeScriptQuickFixProvider implements CodeActionProvider<TsQuickFix
         codeAction.edit = getEditForCodeAction(this.client, action);
         codeAction.diagnostics = [diagnostic];
         codeAction.command = {
-            command: Commands.APPLY_CODE_ACTION,
+            command: ApplyCodeActionCommand.ID,
             arguments: [{ action, diagnostic, documentUri: document.uri.toString() } satisfies ApplyCodeActionCommand_args],
             title: '',
         };
@@ -372,7 +373,7 @@ export class TypeScriptQuickFixProvider implements CodeActionProvider<TsQuickFix
 
         action.diagnostics = [diagnostic];
         action.command = {
-            command: Commands.APPLY_FIX_ALL_CODE_ACTION,
+            command: ApplyFixAllCodeAction.ID,
             arguments: [{ tsActionId: tsAction.fixName } satisfies ApplyFixAllCodeAction_args],
             title: '',
         };

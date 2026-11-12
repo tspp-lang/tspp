@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 
 import { createMacroPreprocessor, createMacroRebuilder, getMacroExpansions } from "./rebuilder";
 
@@ -18,6 +19,7 @@ export const macrosPlugin = definePlugin({
   facets: {
     languageService: {
       activate(context) {
+        context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
         // The preprocessor blanks all of this for the parser, so only the authored text can tell what is under the cursor.
         return context.languageService.registerQuickInfoProvider(({ sourceText, position }) => {
           for (const { index, 0: head } of sourceText.matchAll(/^[ \t]*(?:(?:export|default|declare|async)\s+)*macro\b(?:\s*\((?:[^()]|\([^()]*\))*\))?/gm)) {

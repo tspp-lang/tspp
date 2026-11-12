@@ -16,6 +16,7 @@ import type {
     Printer,
     PrinterOptions,
     SourceFile,
+    TextRange,
     TransformationResult,
     TypeNode,
 } from "../_namespaces/ts.js";
@@ -26,6 +27,7 @@ import {
     getPreprocessedFunctionClause,
     getPreprocessedFunctionPrefix,
     getTSPPRestoredFunctionClause,
+    isTSPPFileName,
     tsppDeclarationPluginsHeader,
 } from "./registry.js";
 
@@ -68,6 +70,25 @@ export function emitTSPPCompatibilityDeclaration(
         },
     );
     return print(compatibilityDeclarationFilePath, compatibilityPrinter) ? compatibilityDeclarationFilePath : undefined;
+}
+
+/**
+ * Whether the printer, writing a node of a TS++ file whose innermost positioned container ends at `containerEnd`, would
+ * read comments at `pos` beyond it. Source comments of a node lie before its end; what plugins lower to sits at the end
+ * of the syntax it replaces (see `nestSyntaxRanges` in registry.ts), and its tokens are not in the source, so a read there would take the
+ * comments of the next statement. @internal
+ */
+export function isTSPPCommentOutsideContainer(sourceFile: SourceFile | undefined, pos: number, containerEnd: number): boolean {
+    return !!sourceFile && containerEnd >= 0 && pos >= containerEnd && isTSPPFileName(sourceFile.fileName);
+}
+
+/**
+ * Whether `range` of a TS++ file is what plugin syntax lowered to, which the printer treats as synthesized. It has no width
+ * where `nestSyntaxRanges` in registry.ts placed it, at the end of the syntax it replaces: it has no comments of its own
+ * there, and the source lines there say nothing about where it breaks. @internal
+ */
+export function isTSPPGeneratedForPrinting(sourceFile: SourceFile | undefined, range: TextRange): boolean {
+    return range.pos >= 0 && range.pos === range.end && !!sourceFile && isTSPPFileName(sourceFile.fileName);
 }
 
 /** In the compatible `.d.ts`, a module specifier naming a `.tspp` file names its emitted `.js` file. @internal */

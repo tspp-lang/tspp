@@ -115,7 +115,7 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
     }
 
     /** `target(args, (name) => { rest })`, for a `use` binding followed by `rest`. */
-    function createTrailingClosureCall(cursor: TSPPSyntaxCursor, head: ReturnType<typeof parseUseHead>, rest: TS.Statement[]): TS.CallExpression do {
+    function createTrailingClosureCall(cursor: TSPPSyntaxCursor, head: ReturnType<typeof parseUseHead>, rest: TS.Statement[]): TS.CallExpression {
         const f = cursor.factory;
         const end = cursor.getNodePos();
         const parameter = range(
@@ -136,14 +136,9 @@ export function createModernSyntax(ts: TSPPTypeScript): { extensions: TSPPSyntax
             body,
         ), head.pos, end);
         const target = head.target;
-        if (ts.isCallExpression(target)) {
-            const args = range(f.createNodeArray([...target.arguments, closure]), target.arguments.pos, end);
-            range(f.createCallExpression(target.expression, target.typeArguments, args), target.pos, end);
-        }
-        else {
-            const args = range(f.createNodeArray([closure]), target.end, end);
-            range(f.createCallExpression(target, /*typeArguments*/ undefined, args), target.pos, end);
-        }
+        return ts.isCallExpression(target)
+            ? range(f.createCallExpression(target.expression, target.typeArguments, range(f.createNodeArray([...target.arguments, closure]), target.arguments.pos, end)), target.pos, end)
+            : range(f.createCallExpression(target, /*typeArguments*/ undefined, range(f.createNodeArray([closure]), target.end, end)), target.pos, end);
     }
 
     /** `parseStatement` reports a token no statement can start with but leaves it there, where a loop would never end. */

@@ -10,3 +10,7 @@ This package is derived from
 
 The unmodified import is preserved in the parent commit. Keep upstream copyright
 headers and the bundled `LICENSE` file when syncing future changes.
+
+The import is tagged `tspp-lsp-baseline`. Changes to upstream files follow
+"Language server modification rules" in `docs/plugin-framework.md`, which CI checks
+with `node scripts/core-diff.mjs --target lsp --check`.

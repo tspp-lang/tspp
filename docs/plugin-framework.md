@@ -333,7 +333,7 @@ as a new slot.
 ## Slot registry
 
 Feature slots are what plugins register with, through `context.compiler` (or
-`context.languageService` for Quick Info and semantic tokens). The host implementation
+`context.languageService` for Quick Info, semantic tokens, and formatting). The host implementation
 lives in `compiler/tspp/registry.ts` unless noted. Every call site carries its slot's
 marker, so searching for `TSPP-SLOT(<slot>)` lists them. `program-analysis` has none of
 its own: it runs from the `command-line` and `plugin-host` call sites.
@@ -350,6 +350,33 @@ its own: it runs from the `command-line` and `plugin-host` call sites.
 | `signature-constraint` | `registerSignatureConstraint` (`isOverloadApplicable`, `whyNotRelated`, `getMember`, `getMembers`) | `compiler/tspp/types.ts` |
 | `quick-info` | `languageService.registerQuickInfoProvider` | `services/tspp/quickInfo.ts` |
 | `semantic-tokens` | `languageService.registerSemanticTokensProvider` | `services/tspp/syntax.ts` |
+| `formatting` | `languageService.registerFormattingProvider` | `compiler/tspp/registry.ts`, `services/tspp/formatting.ts` |
+
+`formatting` wraps the language service's three formatting entry points. TypeScript's
+formatter reads the projected text and the lowered tree, where plugin syntax can look like
+whitespace, so the host keeps only its edits that change nothing but whitespace (and
+semicolons, when asked to add or remove them) in the authored text. It also drops the ones
+that touch projected characters, split a token of plugin syntax such as `=>>`, or leave
+spaces at the end of a line.
+
+Each plugin then lays out its own syntax. The request tells a provider which ranges are its
+syntax (`ownedRanges`), which of them the formatter does not lay out at all
+(`unformattedRanges`: projected text, nodes it leaves as written, and the statement around
+an expression of plugin syntax), and what indentation a line has once laid out
+(`indentationAt`). A plugin edit is kept only inside the requested range and the plugin's
+syntax, outside comments and literals, and changing only whitespace. Inside
+`unformattedRanges`, or when it is `decisive`, it takes the place of any formatter edit it
+overlaps; elsewhere it gives way to one, so that the two never take turns.
+
+Most plugins register the SDK's `formatTSPPSyntax`, which lays out `unformattedRanges` with
+`layoutTSPPCode` (indentation by brackets and continuation lines, spaces between code) and
+tidies the spaces of the rest. A plugin adds to it where it knows more: advanced classes
+lay out whole classes with fields, since the formatter indents their accessors wrongly, and
+modern syntax lays out `use` continuations and continues lines at `in`.
+
+`pnpm test:examples` formats every example through tsserver and fails when formatting it
+again changes it, when the example without indentation formats to other text, or when the
+JavaScript emitted from the formatted sources changes in any byte.
 
 `interface-member-binding` is a controlled exception to rule 6: its one consumer's feature
 is what the slot does, so it cannot really be described without naming that feature. It
@@ -366,6 +393,29 @@ Product-layer slots belong to the host; no plugin registers with them:
 | `command-line` (branding, plugins from tsconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` |
 | `plugin-host` (the registry, plugin activation in tsserver) | `compiler/tspp/registry.ts`, `server/tspp/project.ts` |
 
+## Language server modification rules
+
+`packages/language-server` is derived from typescript-language-server 6.0.1 and follows
+the core's rules against its own baseline, the `tspp-lsp-baseline` tag: every change to
+an upstream file under `src/` is a call site marked `// TSPP-SLOT(<slot>)`, the logic
+lives in `src/tspp/`, and upstream code keeps its structure. Extra data goes in side
+tables there, as the plugin set of a spawn does beside its options. Tests are not
+counted.
+
+`node scripts/core-diff.mjs --target lsp` (`pnpm lsp-diff`) reports the drift and CI runs
+it with `--check` (`pnpm lsp-diff:check`), with the same failures as the core's and its
+own budget in the script. The language server's slots belong to the host:
+
+| Slot | What it does | Implementation |
+|---|---|---|
+| `tspp-language` | The `tspp` language id, the `.tspp` extension, hover code blocks, and watched files | in place |
+| `plugin-set-routing` | One tsserver per plugin set, and the arguments that confine each to its set | `src/tspp/tsServer.ts`, `src/tspp/pluginSetRouting.ts`, `src/tspp/pluginSets.ts` |
+| `client-commands` | Command ids that do not collide with VS Code's built-in TypeScript commands | `src/tspp/lspServer.ts` |
+| `project-init-guard` | Code actions and semantic tokens answer nothing while a project initializes | `src/tspp/lspServer.ts` |
+| `process-lifetime` | Process handlers removed again on shutdown | `src/tspp/lspServer.ts` |
+| `branding` | The command name, the temporary directory, `--clientProcessId`, and the TypeScript version of a ts-plus-plus package | `src/tspp/version.ts` and in place |
+| `diagnostic-tags` | TS7027 is not tagged unnecessary, since its span covers comments | in place |
+
 ## Current process boundary
 
 Compiler syntax registration is process-wide because the upstream TypeScript
@@ -377,7 +427,7 @@ not work around this with globals.
   project's plugins the active ones when it creates the project's program, and again
   when analyzers run on that program after the build.
 - **Language server.** `PluginSetRoutingTsServer`
-  (`packages/language-server/src/tsServer/pluginSetRouting.ts`) looks like one tsserver
+  (`packages/language-server/src/tspp/pluginSetRouting.ts`) looks like one tsserver
   to the client and runs one per plugin set behind it. A file goes to the server of the
   project tsserver would choose for it, read with the compiler's own config parsing
   (`pluginSets.ts`); only `"tspp": true` entries count. A server starts when a file of

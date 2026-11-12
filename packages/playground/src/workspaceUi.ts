@@ -1,3 +1,22 @@
+import * as monaco from "./monaco";
+
+/** The source editor, in the light or dark theme the system asks for. */
+export function createSourceEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
+  const dark = matchMedia("(prefers-color-scheme: dark)");
+  dark.addEventListener("change", () => monaco.editor.setTheme(dark.matches ? "vs-dark" : "vs"));
+  return monaco.editor.create(container, {
+    model: null,
+    theme: dark.matches ? "vs-dark" : "vs",
+    automaticLayout: true,
+    minimap: { enabled: false },
+    fontSize: 14,
+    scrollBeyondLastLine: false,
+    fixedOverflowWidgets: true,
+    // The theme's colours are page CSS variables, which do not reach menus rendered in a shadow root.
+    useShadowDOM: false,
+  });
+}
+
 export function renderEditorTabs(
   tabBar: HTMLElement,
   paths: readonly string[],

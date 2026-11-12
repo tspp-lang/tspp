@@ -8,8 +8,19 @@ const regexPrecedingKeywords = new Set([
  * a string or a comment are never taken for syntax; the offsets it gives apply to `text`.
  */
 export function maskNonCode(text: string): string {
+    return scanNonCode(text).masked;
+}
+
+/** The ranges of `text` that `maskNonCode` blanks: comments, string literals, template text, and regular expressions. */
+export function nonCodeRanges(text: string): readonly { readonly start: number; readonly end: number; }[] {
+    return scanNonCode(text).ranges;
+}
+
+function scanNonCode(text: string): { masked: string; ranges: { start: number; end: number; }[]; } {
     const characters = text.split("");
+    const ranges: { start: number; end: number; }[] = [];
     const blank = (start: number, end: number) => {
+        if (start < end) ranges.push({ start, end: Math.min(end, text.length) });
         for (let index = start; index < end && index < characters.length; index++) {
             if (characters[index] !== "\n" && characters[index] !== "\r") characters[index] = " ";
         }
@@ -113,5 +124,5 @@ export function maskNonCode(text: string): string {
             index++;
         }
     }
-    return characters.join("");
+    return { masked: characters.join(""), ranges };
 }

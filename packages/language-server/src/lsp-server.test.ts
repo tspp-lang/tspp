@@ -17,6 +17,7 @@ import { CommandTypes, SemicolonPreference } from './ts-protocol.js';
 import { CodeActionKind } from './utils/types.js';
 import { ConsoleLogger, LogLevel } from './utils/logger.js';
 import { ExecutionTarget } from './tsServer/server.js';
+import { applyCodeActionCommand, applyFixAllCodeActionCommand } from './tspp/lspServer.js';
 
 const diagnostics: Map<string, lsp.PublishDiagnosticsParams> = new Map();
 
@@ -1364,6 +1365,22 @@ describe('signatureHelp', () => {
     });
 });
 
+/**
+ * Asks for an auto-fix kind (`source.fixAll.ts` and its parts). Auto fixes need up-to-date diagnostics: while the server
+ * still waits for some, it offers none, and quick fixes may answer in their place for the client to filter out. So this
+ * asks again until the requested kind is there.
+ */
+async function requestAutoFixes(server: TestLspServer, params: lsp.CodeActionParams): Promise<(lsp.Command | lsp.CodeAction)[]> {
+    const kind = params.context.only![0];
+    for (let attempt = 1; ; attempt++) {
+        const result = await server.codeAction(params);
+        if (attempt === 50 || result.some(action => lsp.CodeAction.is(action) && action.kind === kind)) {
+            return result;
+        }
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+}
+
 describe('code actions', () => {
     const doc = {
         uri: uri('bar.ts'),
@@ -1392,7 +1409,7 @@ describe('code actions', () => {
             expect(commands).toEqual(expect.arrayContaining([
                 'tspp.configurePlugin', 'tspp.applyCodeActionCommand', 'tspp.applyFixAllCodeAction', 'tspp.tsserverRequest',
             ]));
-            for (const command of [Commands.CONFIGURE_PLUGIN, Commands.APPLY_CODE_ACTION, Commands.APPLY_FIX_ALL_CODE_ACTION, TSServerRequestCommand.ID]) {
+            for (const command of [Commands.CONFIGURE_PLUGIN, applyCodeActionCommand, applyFixAllCodeActionCommand, TSServerRequestCommand.ID]) {
                 expect(commands).not.toContain(command);
             }
 
@@ -1728,7 +1745,7 @@ accessSync('t');`,
             text: 'existsSync(\'t\');',
         };
         await openDocumentAndWaitForDiagnostics(server, doc);
-        const result = await server.codeAction({
+        const result = await requestAutoFixes(server, {
             textDocument: doc,
             range: {
                 start: { line: 1, character: 29 },
@@ -1785,7 +1802,7 @@ accessSync('t');`,
 }`,
         };
         await openDocumentAndWaitForDiagnostics(server, doc);
-        const result = await server.codeAction({
+        const result = await requestAutoFixes(server, {
             textDocument: doc,
             range: {
                 start: { line: 0, character: 0 },
@@ -1838,7 +1855,7 @@ accessSync('t');`,
             text: 'import { existsSync } from \'fs\';',
         };
         await openDocumentAndWaitForDiagnostics(server, doc);
-        const result = await server.codeAction({
+        const result = await requestAutoFixes(server, {
             textDocument: doc,
             range: {
                 start: position(doc, 'existsSync'),
@@ -1897,7 +1914,7 @@ accessSync('t');`,
             `,
         };
         await openDocumentAndWaitForDiagnostics(server, doc);
-        const result = await server.codeAction({
+        const result = await requestAutoFixes(server, {
             textDocument: doc,
             range: {
                 start: { line: 0, character: 0 },

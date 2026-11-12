@@ -78,7 +78,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # The report diffs against the tspp-core-baseline tag.
+          # The reports diff against the tspp-core-baseline and tspp-lsp-baseline tags.
           fetch-depth: 0
       - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
@@ -86,6 +86,8 @@ jobs:
       # Fails on upstream changes without a TSPP-SLOT marker and on changed lines over the budget
       # (docs/plugin-framework.md, "Core modification rules").
       - run: node scripts/core-diff.mjs --check
+      # The same rules for the language server against tspp-lsp-baseline ("Language server modification rules").
+      - run: node scripts/core-diff.mjs --target lsp --check
       # A version below one already released would never be released, so it fails here, before it reaches master.
       - name: Check the release version
         run: node scripts/release-version.mjs

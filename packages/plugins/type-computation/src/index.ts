@@ -1,4 +1,5 @@
 import { definePlugin, maskNonCode, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 import { isTypeScriptKeyword, scanTSPPCode } from "@tspp/plugin-sdk/language-service";
 import type { TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import type * as TS from "typescript-upstream";
@@ -76,6 +77,7 @@ export const typeComputationPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
                 context.onDispose(context.languageService.registerSemanticTokensProvider(typeLevelSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
                     // `auto` is blanked before parsing, so it is no token of the tree.

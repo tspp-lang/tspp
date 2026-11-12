@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 import type { TSPPClearedSemanticToken, TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
 import { nominalTypesADTAPI, nominalTypesADTAPIName } from "./adt";
 import { createNominalDeclarations } from "./declarations";
@@ -38,6 +39,7 @@ export const nominalTypesPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
                 context.onDispose(context.languageService.registerSemanticTokensProvider(nominalSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
@@ -118,8 +120,10 @@ interface SourceVariant {
     readonly fields: readonly { readonly name: string; readonly type: string; }[];
 }
 
-newtype SourcePosition = number;
-newtype RelativeOffset = number;
+type SourcePosition = number & { readonly __brand: "SourcePosition"; };
+const SourcePosition = (value: number) => value as SourcePosition;
+type RelativeOffset = number & { readonly __brand: "RelativeOffset"; };
+const RelativeOffset = (value: number) => value as RelativeOffset;
 
 interface SourceTypeParameter {
     readonly name: string;

@@ -103,4 +103,30 @@ function createLanguageService(fileName, source, options = {}) {
   });
 }
 
-module.exports = { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService };
+/**
+ * Formats a TS++ source as an editor would, through the language service of the plugins in use, with four-space
+ * indentation unless `settings` say otherwise, and returns the formatted text.
+ */
+function formatDocument(source, settings = {}) {
+  const fileName = "/test.tspp";
+  const edits = createLanguageService(fileName, source).getFormattingEditsForDocument(fileName, { ...ts.getDefaultFormatCodeSettings("\n"), ...settings });
+  let text = source;
+  for (const edit of [...edits].sort((left, right) => right.span.start - left.span.start)) {
+    text = text.slice(0, edit.span.start) + edit.newText + text.slice(edit.span.start + edit.span.length);
+  }
+  return text;
+}
+
+/** `source` with the indentation of every line removed, for checking that formatting restores it. */
+function withoutIndentation(source) {
+  return source.replace(/^[ \t]+/gm, "");
+}
+
+/** `source` with every single space between code doubled, outside comments and literals. */
+function withDoubledSpaces(source) {
+  const { maskNonCode } = require("@tspp/plugin-sdk");
+  const code = maskNonCode(source.replace(/ /g, "\u00a0"));
+  return source.replace(/(?<=\S) (?=\S)/g, (space, index) => code[index] === "\u00a0" ? "  " : space);
+}
+
+module.exports = { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService, formatDocument, withoutIndentation, withDoubledSpaces };

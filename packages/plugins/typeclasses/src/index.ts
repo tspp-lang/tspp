@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 
 import { createTypeclassEmit } from "./emit";
 import { createTypeclassEvidence } from "./evidence";
@@ -39,6 +40,7 @@ export const typeclassesPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(formatTSPPSyntax));
                 context.onDispose(context.languageService.registerSemanticTokensProvider(typeclassSemanticTokens));
                 return context.languageService.registerQuickInfoProvider(typeclassQuickInfo);
             },

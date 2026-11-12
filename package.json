@@ -19,7 +19,6 @@
     "tspp-language-server": "workspace:*"
   },
   "scripts": {
-    "bootstrap:install": "node scripts/bootstrap-tspp.mjs",
     "build": "pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler && pnpm build:language-server && pnpm build:vscode && pnpm build:playground && pnpm build:tests",
     "build:plugin-sdk": "pnpm --filter @tspp/plugin-sdk build",
     "build:plugins": "pnpm --workspace-concurrency=1 --filter \"./packages/plugins/**\" build",
@@ -55,6 +54,8 @@
     "knip": "pnpm --filter ts-plus-plus knip",
     "core-diff": "node scripts/core-diff.mjs",
     "core-diff:check": "node scripts/core-diff.mjs --check",
+    "lsp-diff": "node scripts/core-diff.mjs --target lsp",
+    "lsp-diff:check": "node scripts/core-diff.mjs --target lsp --check",
     "format": "pnpm --filter ts-plus-plus format",
     "prepare": "node scripts/install-lefthook.mjs",
     "clean": "pnpm --filter @tspp/plugin-sdk clean && pnpm --filter \"./packages/plugins/**\" clean && pnpm --filter ts-plus-plus clean && pnpm --filter tspp-language-server clean"

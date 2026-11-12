@@ -202,6 +202,7 @@ export class TSPPPluginHost {
             languageService: {
                 registerQuickInfoProvider: provider => host.registerQuickInfoProvider(pluginId, provider),
                 registerSemanticTokensProvider: provider => host.registerSemanticTokensProvider(pluginId, provider),
+                registerFormattingProvider: provider => host.registerFormattingProvider(pluginId, provider),
             },
             onDispose: disposer => registration.disposers.push(disposer),
         };

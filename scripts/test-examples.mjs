@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, extname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -41,7 +42,7 @@ const packages = exampleNames.map(directory => {
     if (sources.length === 0) {
         throw new Error(`${directory} must contain at least one source file.`);
     }
-    return { directory, name: manifest.name, root: join(examplesRoot, directory), sourceRoot, entry: sources[0] };
+    return { directory, name: manifest.name, root: join(examplesRoot, directory), sourceRoot, sources, entry: sources[0] };
 });
 
 function listFiles(directory) {
@@ -67,28 +68,7 @@ for (const example of packages) {
     const runtimeDirectory = mkdtempSync(join(example.root, ".runtime-"));
     try {
         console.log(`[examples] emitting ${example.directory} for its runtime smoke test`);
-        run("pnpm", [
-            "--filter",
-            example.name,
-            "exec",
-            "tspp",
-            "-p",
-            "tsconfig.json",
-            "--noEmit",
-            "false",
-            "--outDir",
-            runtimeDirectory,
-            "--rootDir",
-            "src",
-            "--allowUnreachableCode",
-            "false",
-            "--declaration",
-            richDeclarationExamples.has(example.directory) ? "true" : "false",
-            "--declarationMap",
-            "false",
-            "--pretty",
-            "false",
-        ], repoRoot);
+        emit(example, runtimeDirectory);
 
         const emittedEntry = join(runtimeDirectory, relative(example.sourceRoot, example.entry)).replace(/\.(?:tspp|ts)$/, ".js");
         if (!existsSync(emittedEntry)) throw new Error(`${example.directory} did not emit its entry point: ${emittedEntry}`);
@@ -102,9 +82,104 @@ for (const example of packages) {
             console.log(`[examples] running ${example.directory}/${relative(runtimeDirectory, emittedModule)}`);
             run(process.execPath, [emittedModule], example.root);
         }
+        await checkFormattingKeepsJavaScript(example, runtimeDirectory);
     }
     finally {
         rmSync(runtimeDirectory, { recursive: true, force: true });
+    }
+}
+
+function emit(example, outDir) {
+    run("pnpm", [
+        "--filter",
+        example.name,
+        "exec",
+        "tspp",
+        "-p",
+        "tsconfig.json",
+        "--noEmit",
+        "false",
+        "--outDir",
+        outDir,
+        "--rootDir",
+        "src",
+        "--allowUnreachableCode",
+        "false",
+        "--declaration",
+        richDeclarationExamples.has(example.directory) ? "true" : "false",
+        "--declarationMap",
+        "false",
+        "--pretty",
+        "false",
+    ], repoRoot);
+}
+
+/**
+ * Formats every source of the example as an editor would, through tsserver with the project's plugins, and fails when
+ * formatting is not stable or cannot restore indentation: formatting the result again must change nothing, and the
+ * source with every line's indentation removed must format to the same text. Then the JavaScript emitted from the
+ * formatted sources must equal `emitted` in every byte: formatting may only lay code out. The sources are formatted in
+ * place and always restored.
+ */
+async function checkFormattingKeepsJavaScript(example, emitted) {
+    console.log(`[examples] formatting ${example.directory} and emitting it again`);
+    const require = createRequire(import.meta.url);
+    const { TsServer, locator } = require("../packages/editor-conformance/src/tsserver.cjs");
+    const { nonCodeRanges } = require("../packages/plugin-sdk/dist/text.js");
+    const formatted = new Map();
+    const server = new TsServer();
+    try {
+        // tsserver formats with the options configured for it, not those of a format request.
+        await server.request("configure", { formatOptions: { indentSize: 4, tabSize: 4, convertTabsToSpaces: true, newLineCharacter: "\n" } });
+        for (const file of example.sources) {
+            const relativeFile = relative(examplesRoot, file);
+            const text = readFileSync(file, "utf8");
+            let open = text;
+            await server.open(file, text, example.root);
+            const format = async source => {
+                const { at } = locator(open);
+                await server.request("updateOpen", { openFiles: [], changedFiles: [{ fileName: file, textChanges: [{ start: { line: 1, offset: 1 }, end: at(open.length), newText: source }] }], closedFiles: [] });
+                open = source;
+                const { at: end, offsetOf } = locator(source);
+                const last = end(source.length);
+                const response = await server.request("format", { file, line: 1, offset: 1, endLine: last.line, endOffset: last.offset });
+                if (!response.success) throw new Error(`Formatting ${relativeFile} failed: ${String(response.message).split("\n")[0]}`);
+                const edits = response.body.map(edit => ({ start: offsetOf(edit.start), end: offsetOf(edit.end), newText: edit.newText })).sort((left, right) => right.start - left.start);
+                let result = source;
+                for (const edit of edits) result = result.slice(0, edit.start) + edit.newText + result.slice(edit.end);
+                return result;
+            };
+            const result = await format(text);
+            const again = await format(result);
+            if (again !== result) throw new Error(`Formatting ${relativeFile} again changes it at line ${firstDifferentLine(result, again)}.`);
+            const restored = await format(withoutIndentation(text, nonCodeRanges(text)));
+            if (restored !== result) throw new Error(`Formatting ${relativeFile} without its indentation gives other text at line ${firstDifferentLine(result, restored)}.`);
+            if (result !== text) formatted.set(file, { original: text, result });
+            await server.close(file);
+        }
+    }
+    finally {
+        server.stop();
+    }
+    if (!formatted.size) return;
+    const formattedDirectory = mkdtempSync(join(example.root, ".formatted-"));
+    try {
+        for (const [file, { result }] of formatted) writeFileSync(file, result);
+        try {
+            emit(example, formattedDirectory);
+        }
+        finally {
+            for (const [file, { original }] of formatted) writeFileSync(file, original);
+        }
+        const javascript = directory => listFiles(directory).filter(file => extname(file) === ".js").map(file => relative(directory, file));
+        const before = javascript(emitted);
+        const after = javascript(formattedDirectory);
+        if (before.join("\n") !== after.join("\n")) throw new Error(`Formatting ${example.directory} changed which JavaScript files it emits.`);
+        const changed = before.filter(file => readFileSync(join(emitted, file), "utf8") !== readFileSync(join(formattedDirectory, file), "utf8"));
+        if (changed.length) throw new Error(`Formatting ${example.directory} changed its JavaScript: ${changed.join(", ")}`);
+    }
+    finally {
+        rmSync(formattedDirectory, { recursive: true, force: true });
     }
 }
 
@@ -235,3 +310,23 @@ function verifyMacroDeclarations(outputDirectory) {
 
 console.log(`\n[examples] ${packages.length} example packages compiled and ran successfully.`);
 
+/** `text` with the indentation of every line removed, except lines inside a comment or literal. */
+function withoutIndentation(text, nonCode) {
+    const inside = new Uint8Array(text.length + 1);
+    for (const range of nonCode) inside.fill(1, range.start + 1, range.end);
+    let result = "";
+    for (let index = 0; index < text.length;) {
+        const lineEnd = text.indexOf("\n", index) < 0 ? text.length : text.indexOf("\n", index) + 1;
+        const line = text.slice(index, lineEnd);
+        result += inside[index] ? line : line.replace(/^[ \t]+/, "");
+        index = lineEnd;
+    }
+    return result;
+}
+
+function firstDifferentLine(left, right) {
+    const leftLines = left.split("\n");
+    const rightLines = right.split("\n");
+    const index = leftLines.findIndex((line, lineIndex) => line !== rightLines[lineIndex]);
+    return (index < 0 ? leftLines.length : index) + 1;
+}

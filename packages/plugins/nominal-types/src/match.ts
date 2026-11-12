@@ -3,7 +3,12 @@ import type * as TS from "typescript-upstream";
 
 import { createLoweredArrowToken, markGenerated } from "@tspp/plugin-sdk";
 
-data PatternElement = Binding(name: TS.Identifier) | NestedPattern(pattern: MatchPattern);
+type PatternElement =
+    | { readonly kind: "binding"; readonly name: TS.Identifier; }
+    | { readonly kind: "nested"; readonly pattern: MatchPattern; };
+
+const Binding = (name: TS.Identifier): PatternElement => ({ kind: "binding", name });
+const NestedPattern = (pattern: MatchPattern): PatternElement => ({ kind: "nested", pattern });
 
 export interface MatchPattern {
     readonly variant: string;
@@ -13,10 +18,7 @@ export interface MatchPattern {
 }
 
 export function getNestedPattern(element: PatternElement): MatchPattern | undefined {
-    return match element {
-        Binding(_name) => undefined,
-        NestedPattern(pattern) => pattern,
-    };
+    return element.kind === "nested" ? element.pattern : undefined;
 }
 
 export interface MatchArm {
@@ -164,10 +166,10 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         const bindings = (pattern: MatchPattern, read: () => TS.Expression): { name: TS.Identifier; read: () => TS.Expression; }[] =>
             pattern.elements.flatMap((element, index) => {
                 const field = () => fieldOf(read(), index);
-                return match element {
-                    Binding(name) => [{ name, read: field }],
-                    NestedPattern(nested) => bindings(nested, field),
-                };
+                switch (element.kind) {
+                    case "binding": return [{ name: element.name, read: field }];
+                    case "nested": return bindings(element.pattern, field);
+                }
             });
         /** `((a, b) => body)(field0, field1)`, or `body` when nothing is bound. */
         const bind = (bound: readonly { name: TS.Identifier; read: () => TS.Expression; }[], names: readonly TS.Identifier[], body: TS.Expression): TS.Expression => {

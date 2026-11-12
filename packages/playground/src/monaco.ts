@@ -18,6 +18,7 @@ import "monaco-editor/editor/contrib/cursorUndo/browser/cursorUndo.js";
 import "monaco-editor/editor/contrib/find/browser/findController.js";
 import "monaco-editor/features/find/register.js";
 import "monaco-editor/editor/contrib/folding/browser/folding.js";
+import "monaco-editor/editor/contrib/format/browser/formatActions.js";
 import "monaco-editor/editor/contrib/gotoError/browser/gotoError.js";
 import "monaco-editor/editor/contrib/gotoError/browser/markerSelectionStatus.js";
 import "monaco-editor/editor/contrib/gotoSymbol/browser/goToCommands.js";

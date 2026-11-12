@@ -12,23 +12,21 @@ interface Binder {
     readonly mode: "explicit" | "implicit";
 }
 
-type LoweringTerm<Kind> = match Kind {
-    "application": MlttApplication,
-    "external": MlttExternal,
-    "type-match": MlttTypeMatch,
-    _: never,
-};
+type LoweringTerm<Kind> =
+    Kind extends "application" ? MlttApplication
+    : Kind extends "external" ? MlttExternal
+    : Kind extends "type-match" ? MlttTypeMatch
+    : never;
 
 type NaturalKind = "successor" | "nat-add";
 type ReducedKind = "nat-elim" | "identity-elim";
 
-type OperandKeys<Kind extends NaturalKind | ReducedKind> = match Kind {
-    "successor": readonly ["predecessor"],
-    "nat-add": readonly ["left", "right"],
-    "nat-elim": readonly ["scrutinee"],
-    "identity-elim": readonly ["equality"],
-    _: never,
-};
+type OperandKeys<Kind extends NaturalKind | ReducedKind> =
+    Kind extends "successor" ? readonly ["predecessor"]
+    : Kind extends "nat-add" ? readonly ["left", "right"]
+    : Kind extends "nat-elim" ? readonly ["scrutinee"]
+    : Kind extends "identity-elim" ? readonly ["equality"]
+    : never;
 
 type OperandSource<Kind extends NaturalKind | ReducedKind> =
     MlttTerm & { readonly kind: Kind } & Readonly<Record<OperandKeys<Kind>[number], MlttTerm>>;

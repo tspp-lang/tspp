@@ -45,6 +45,7 @@ import { CodeActionKind } from './utils/types.js';
 import { CommandManager } from './commands/commandManager.js';
 import { CodeActionManager } from './features/codeActions/codeActionManager.js';
 import { WatchEventManager } from './watchEventManager.js';
+import { ClientCommands, ProcessHandlers, guardProjectInitialization, guardRequest } from './tspp/lspServer.js'; // TSPP-SLOT(client-commands)
 
 interface FindTypescriptVersionResult {
     version: TypeScriptVersion | null;
@@ -57,22 +58,6 @@ function describeUnusableWorkspaceVersions(unusable: UnusableTypeScriptInstallat
     return `The TypeScript of the workspace (${descriptions.join(', ')}) provides no tsserver.js.`;
 }
 
-function isProjectInitializationError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes('TypeScript Server Error')
-        && message.includes('Cannot read properties of undefined')
-        && message.includes('getSourceFile');
-}
-
-// VS Code registers LSP commands globally, alongside its built-in TypeScript commands.
-const vscodeCommandAliases = new Map([
-    [Commands.CONFIGURE_PLUGIN, 'tspp.configurePlugin'],
-    [Commands.APPLY_CODE_ACTION, 'tspp.applyCodeActionCommand'],
-    [Commands.APPLY_FIX_ALL_CODE_ACTION, 'tspp.applyFixAllCodeAction'],
-    [TSServerRequestCommand.ID, 'tspp.tsserverRequest'],
-]);
-const vscodeServerCommands = new Map(Array.from(vscodeCommandAliases, ([command, alias]) => [alias, command]));
-
 export class LspServer {
     private tsClient: TsClient;
     private fileConfigurationManager: FileConfigurationManager;
@@ -82,7 +67,6 @@ export class LspServer {
     private logger: Logger;
     private codeActionsManager: CodeActionManager;
     private commandManager: CommandManager;
-    private useVscodeCommandAliases = false;
     private workspaceRoot: string | undefined;
     private features: SupportedFeatures = {};
     // Caching for navTree response shared by multiple requests.
@@ -90,9 +74,8 @@ export class LspServer {
     private implementationsCodeLensProvider: TypeScriptImplementationsCodeLensProvider | null = null;
     private referencesCodeLensProvider: TypeScriptReferencesCodeLensProvider | null = null;
     private watchEventManager: WatchEventManager | null = null;
-    private processHandlersInstalled = false;
-    private readonly processExitHandler = () => this.shutdown();
-    private readonly processSigintHandler = () => process.exit();
+    private readonly clientCommands = new ClientCommands(); // TSPP-SLOT(client-commands)
+    private readonly processHandlers = new ProcessHandlers(() => this.shutdown()); // TSPP-SLOT(process-lifetime)
 
     constructor(private options: LspServerConfiguration) {
         this.logger = new PrefixingLogger(options.logger, '[lspserver]');
@@ -124,11 +107,7 @@ export class LspServer {
     }
 
     shutdown(): void {
-        if (this.processHandlersInstalled) {
-            process.off('exit', this.processExitHandler);
-            process.off('SIGINT', this.processSigintHandler);
-            this.processHandlersInstalled = false;
-        }
+        this.processHandlers.uninstall(); // TSPP-SLOT(process-lifetime)
         this.watchEventManager?.dispose();
         this.watchEventManager = null;
         this.tsClient.shutdown();
@@ -141,7 +120,7 @@ export class LspServer {
 
         const userInitializationOptions = (this.initializeParams.initializationOptions || {}) as TypeScriptInitializationOptions;
         const { disableAutomaticTypingAcquisition, hostInfo, maxTsServerMemory, npmLocation, locale, plugins, tsserver } = userInitializationOptions;
-        this.useVscodeCommandAliases = hostInfo === 'vscode-tspp';
+        this.clientCommands.configure(hostInfo); // TSPP-SLOT(client-commands)
 
         const { version: typescriptVersion, unusableWorkspaceVersions } = this.findTypescriptVersion(tsserver?.path, tsserver?.fallbackPath);
         if (typescriptVersion) {
@@ -259,9 +238,7 @@ export class LspServer {
         if (!started) {
             throw new Error('tsserver process has failed to start.');
         }
-        process.on('exit', this.processExitHandler);
-        process.on('SIGINT', this.processSigintHandler);
-        this.processHandlersInstalled = true;
+        this.processHandlers.install(); // TSPP-SLOT(process-lifetime)
 
         if (canUseWatchEvents) {
             this.watchEventManager = new WatchEventManager({
@@ -315,7 +292,7 @@ export class LspServer {
                         Commands.APPLY_RENAME_FILE,
                         Commands.SOURCE_DEFINITION,
                         ...this.commandManager.registeredIds,
-                    ].map(command => this.clientCommandId(command)),
+                    ].map(command => this.clientCommands.toClient(command)), // TSPP-SLOT(client-commands)
                 },
                 hoverProvider: true,
                 inlayHintProvider: true,
@@ -369,7 +346,7 @@ export class LspServer {
                                 {
                                     scheme: 'file',
                                     pattern: {
-                                        glob: '**/*.{ts,tspp,js,jsx,tsx,mjs,mts,cjs,cts}',
+                                        glob: '**/*.{ts,tspp,js,jsx,tsx,mjs,mts,cjs,cts}', // TSPP-SLOT(tspp-language)
                                         matches: 'file',
                                     },
                                 },
@@ -747,8 +724,7 @@ export class LspServer {
         const contents = new MarkdownString();
         const { displayString, documentation, tags } = result;
         if (displayString) {
-            const lang = document.filepath.endsWith('.tspp') ? 'tspp' : 'typescript';
-            contents.appendCodeblock(lang, displayString);
+            contents.appendCodeblock(document.filepath.endsWith('.tspp') ? 'tspp' : 'typescript', displayString); // TSPP-SLOT(tspp-language)
         }
         Previewer.addMarkdownDocumentation(contents, documentation, tags, this.tsClient);
         return {
@@ -915,18 +891,7 @@ export class LspServer {
     }
 
     async codeAction(params: lsp.CodeActionParams, token?: lsp.CancellationToken): Promise<(lsp.CodeAction | lsp.Command)[]> {
-        try {
-            const actions = await this.codeActionWorker(params, token);
-            for (const action of actions) {
-                this.aliasCodeActionCommand(lsp.Command.is(action) ? action : action.command);
-            }
-            return actions;
-        } catch (error) {
-            if (isProjectInitializationError(error)) {
-                return [];
-            }
-            throw error;
-        }
+        return this.clientCommands.aliasActions(await guardProjectInitialization(this.codeActionWorker(params, token), [])); // TSPP-SLOT(project-init-guard)
     }
 
     private async codeActionWorker(params: lsp.CodeActionParams, token?: lsp.CancellationToken): Promise<(lsp.CodeAction | lsp.Command)[]> {
@@ -998,27 +963,15 @@ export class LspServer {
     }
 
     async codeActionResolve(params: lsp.CodeAction, _token?: lsp.CancellationToken): Promise<lsp.CodeAction> {
-        const action = await this.codeActionsManager.resolveCodeAction(params);
-        this.aliasCodeActionCommand(action.command);
-        return action;
-    }
-
-    private clientCommandId(command: string): string {
-        return this.useVscodeCommandAliases ? vscodeCommandAliases.get(command) ?? command : command;
-    }
-
-    private aliasCodeActionCommand(command: lsp.Command | undefined): void {
-        if (command) {
-            command.command = this.clientCommandId(command.command);
-        }
+        return this.clientCommands.aliasAction(await this.codeActionsManager.resolveCodeAction(params)); // TSPP-SLOT(client-commands)
     }
 
     async executeCommand(params: lsp.ExecuteCommandParams, token?: lsp.CancellationToken, workDoneProgress?: lsp.WorkDoneProgressReporter): Promise<unknown> {
-        const command = this.useVscodeCommandAliases ? vscodeServerCommands.get(params.command) ?? params.command : params.command;
-        if (this.commandManager.handlesCommand(command)) {
+        params = this.clientCommands.toServer(params); // TSPP-SLOT(client-commands)
+        if (this.commandManager.handlesCommand(params.command)) {
             // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-            return await this.commandManager.handle(command, ...params.arguments || []);
-        } else if (command === Commands.APPLY_REFACTORING && params.arguments) {
+            return await this.commandManager.handle(params.command, ...params.arguments || []);
+        } else if (params.command === Commands.APPLY_REFACTORING && params.arguments) {
             const args = params.arguments[0] as ts.server.protocol.GetEditsForRefactorRequestArgs;
             const response = await this.tsClient.execute(CommandTypes.GetEditsForRefactor, args, token);
             if (response.type !== 'response' || !response.body) {
@@ -1046,10 +999,10 @@ export class LspServer {
                     position: Position.fromLocation(renameLocation),
                 });
             }
-        } else if (command === Commands.CONFIGURE_PLUGIN && params.arguments) {
+        } else if (params.command === Commands.CONFIGURE_PLUGIN && params.arguments) {
             const [pluginName, configuration] = params.arguments as [string, unknown];
             this.tsClient.configurePlugin(pluginName, configuration);
-        } else if (command === Commands.ORGANIZE_IMPORTS && params.arguments) {
+        } else if (params.command === Commands.ORGANIZE_IMPORTS && params.arguments) {
             const file = params.arguments[0] as string;
             const uri = this.tsClient.toResourceUri(file);
             const document = this.tsClient.toOpenDocument(uri);
@@ -1085,14 +1038,14 @@ export class LspServer {
             }
 
             await this.applyFileCodeEdits(body);
-        } else if (command === Commands.APPLY_RENAME_FILE && params.arguments) {
+        } else if (params.command === Commands.APPLY_RENAME_FILE && params.arguments) {
             const { sourceUri, targetUri } = params.arguments[0] as {
                 sourceUri: string;
                 targetUri: string;
             };
             // eslint-disable-next-line @typescript-eslint/no-floating-promises
             this.applyRenameFile(sourceUri, targetUri, token);
-        } else if (command === Commands.APPLY_COMPLETION_CODE_ACTION && params.arguments) {
+        } else if (params.command === Commands.APPLY_COMPLETION_CODE_ACTION && params.arguments) {
             const [_, codeActions] = params.arguments as [string, ts.server.protocol.CodeAction[]];
             for (const codeAction of codeActions) {
                 await this.applyFileCodeEdits(codeAction.changes);
@@ -1104,7 +1057,7 @@ export class LspServer {
                 // Execute only the first code action.
                 break;
             }
-        } else if (command === Commands.SOURCE_DEFINITION) {
+        } else if (params.command === Commands.SOURCE_DEFINITION) {
             const [uri, position] = (params.arguments || []) as [lsp.DocumentUri?, lsp.Position?];
             const reporter = await this.options.lspClient.createProgressReporter(token, workDoneProgress);
             return SourceDefinitionCommand.execute(uri, position, this.tsClient, this.options.lspClient, reporter, token);
@@ -1418,27 +1371,19 @@ export class LspServer {
     }
 
     async getSemanticTokens(doc: LspDocument, file: string, startOffset: number, endOffset: number, token?: lsp.CancellationToken): Promise<lsp.SemanticTokens> {
-        let response;
-        try {
-            response = await this.tsClient.execute(
-                CommandTypes.EncodedSemanticClassificationsFull,
-                {
-                    file,
-                    start: startOffset,
-                    length: endOffset - startOffset,
-                    format: '2020',
-                },
-                token,
-                {
-                    cancelOnResourceChange: doc.uri.toString(),
-                },
-            );
-        } catch (error) {
-            if (isProjectInitializationError(error)) {
-                return { data: [] };
-            }
-            throw error;
-        }
+        const response = await guardRequest(this.tsClient.execute( // TSPP-SLOT(project-init-guard)
+            CommandTypes.EncodedSemanticClassificationsFull,
+            {
+                file,
+                start: startOffset,
+                length: endOffset - startOffset,
+                format: '2020',
+            },
+            token,
+            {
+                cancelOnResourceChange: doc.uri.toString(),
+            },
+        )); // TSPP-SLOT(project-init-guard)
 
         if (response.type !== 'response' || !response.body?.spans) {
             return { data: [] };

@@ -1,4 +1,5 @@
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
+import { formatTSPPSyntax, layoutTSPPCode } from "@tspp/plugin-sdk/language-service";
 
 import { createAdvancedClassDeclarations } from "./class-decl";
 import { createAdvancedClassDiagnostics } from "./diagnostics";
@@ -179,6 +180,7 @@ export const advancedClassesPlugin = definePlugin({
         },
         languageService: {
             activate(context) {
+                context.onDispose(context.languageService.registerFormattingProvider(request => [...layoutTSPPCode(request, request.ownedRanges(), { decisive: true }), ...formatTSPPSyntax(request)]));
                 return context.languageService.registerQuickInfoProvider(request => {
                     const token = request.token;
                     if (!token) return undefined;
