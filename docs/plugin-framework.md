@@ -108,7 +108,11 @@ VS Code extension a generic client; neither has a branch for any plugin.
 
 Syntax plugins desugar while parsing: the parser hands them a cursor with its own
 factory, and they return ordinary TypeScript nodes that the upstream binder, checker,
-and emitter process unchanged.
+and emitter process unchanged. The one thing the printer does differently in a `.tspp`
+file is where those nodes sit: they have no width and lie at the end of the syntax they
+replace, right before the next statement's comments. It lays them out as code it
+generated rather than by source lines, and leaves those comments to the next statement
+(`compiler/tspp/emit.ts`).
 
 ```text
 use value <- acquire(arg); rest(value)
@@ -341,7 +345,7 @@ its own: it runs from the `command-line` and `plugin-host` call sites.
 | Slot | Registration | Host |
 |---|---|---|
 | `source-projection` | `registerSourcePreprocessor` (`preprocess`, `restoreFunctionPrefix`, `restoreFunctionClause`, `getBoundChild`) | `registry.ts`, `compiler/tspp/emit.ts` |
-| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`, `function-clause`, `header-clause`; `restoreDeclaration`, `restoreCompatibilityDeclaration`, `restoreFunctionClause`, `getBoundChild`, `isSourceCopy`) | `registry.ts`, `services/tspp/syntax.ts` |
+| `syntax-extension` | `registerSyntaxExtension` (positions `expression`, `primary-expression`, `argument`, `statement`, `function-body`, `declaration`, `type`, `postfix-type`, `type-parameter-annotation`, `type-alias-annotation`, `function-clause`, `header-clause`; `restoreDeclaration`, `restoreCompatibilityDeclaration`, `restoreFunctionClause`, `getBoundChild`, `isSourceCopy`) | `registry.ts`, `emit.ts`, `services/tspp/syntax.ts` |
 | `diagnostics` | `registerDiagnosticProvider` (`getSemanticDiagnostics`, which also receives the checker's `TSPPTypeOperations`, and `filterDiagnostic`) | `registry.ts`, `compiler/tspp/types.ts` |
 | `interface-member-binding` | `registerInterfaceMemberBinding` (`isStaticMember`) | `registry.ts` |
 | `program-rebuild` | `registerProgramRebuilder` | `compiler/tspp/rebuild.ts` |
