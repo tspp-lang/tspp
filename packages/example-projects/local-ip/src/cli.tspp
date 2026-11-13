@@ -1,0 +1,5 @@
+#!/usr/bin/env node
+import { networkInterfaces } from "node:os";
+import { runApplication } from "./application.js";
+
+process.exitCode = runApplication({ readInterfaces: networkInterfaces });

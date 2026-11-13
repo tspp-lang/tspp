@@ -1,0 +1,52 @@
+export type AddressFamily = "all" | "ipv4" | "ipv6";
+
+export interface InterfaceAddress {
+  readonly family: string;
+  readonly address: string;
+  readonly internal: boolean;
+}
+
+export type Interfaces = Readonly<Record<string, readonly InterfaceAddress[] | undefined>>;
+
+export interface AddressFilters {
+  readonly interface?: string;
+  readonly family?: AddressFamily;
+  readonly internal?: boolean;
+}
+
+export interface LocalAddress {
+  readonly interface: string;
+  readonly family: "IPv4" | "IPv6";
+  readonly address: string;
+  readonly internal: boolean;
+}
+
+function compare(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+/** Select addresses from supplied interface data without accessing the operating system. */
+export function selectAddresses(interfaces: Interfaces, filters: AddressFilters = {}): LocalAddress[] {
+  if (filters.interface !== undefined && !Object.prototype.hasOwnProperty.call(interfaces, filters.interface)) {
+    throw new Error(`Interface not found: ${filters.interface}`);
+  }
+  const result: LocalAddress[] = [];
+  for (const [name, addresses] of Object.entries(interfaces)) {
+    if (filters.interface !== undefined && name !== filters.interface) continue;
+    for (const address of addresses ?? []) {
+      if (address.family !== "IPv4" && address.family !== "IPv6") continue;
+      if (!filters.internal && address.internal) continue;
+      if (filters.family === "ipv4" && address.family !== "IPv4") continue;
+      if (filters.family === "ipv6" && address.family !== "IPv6") continue;
+      result.push({ interface: name, family: address.family, address: address.address, internal: address.internal });
+    }
+  }
+  return result.sort((a, b) => compare(a.interface, b.interface)
+    || compare(a.family, b.family) || compare(a.address, b.address));
+}
+
+export function formatAddresses(addresses: readonly LocalAddress[], json = false): string {
+  if (json) return JSON.stringify(addresses, null, 2);
+  if (!addresses.length) return "No matching addresses.";
+  return addresses.map(address => `${address.interface}\t${address.family}\t${address.address}\t${address.internal ? "internal" : "external"}`).join("\n");
+}

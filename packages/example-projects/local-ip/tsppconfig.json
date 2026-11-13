@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "declaration": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmitOnError": true,
+    "types": ["node"],
+    "plugins": [
+      { "name": "ts-plus-plus/plugins/nominal-types", "tspp": true },
+      { "name": "ts-plus-plus/plugins/advanced-classes", "tspp": true },
+      { "name": "ts-plus-plus/plugins/modern-syntax", "tspp": true },
+      { "name": "ts-plus-plus/plugins/typeclasses", "tspp": true },
+      { "name": "ts-plus-plus/plugins/algebraic-effects", "tspp": true }
+    ]
+  },
+  "include": ["src/**/*.tspp"]
+}

@@ -1,0 +1,32 @@
+import { Command, choice, flag, option, optionalArgument, text } from "@tspp/command-kit";
+import { CommandOutput } from "@tspp/command-kit/runtime";
+import { runNode } from "@tspp/command-kit/node";
+import { formatAddresses, selectAddresses, type Interfaces } from "./addresses.js";
+
+const interfaceName = optionalArgument("interface", text(), { description: "Exact interface name" });
+const family = option("family", choice(["all", "ipv4", "ipv6"]), { short: "f", description: "Address family" }).withDefault("all");
+const internal = flag("internal", { short: "i", description: "Include internal addresses" });
+const json = flag("json", { short: "j", description: "Output JSON" });
+const command = new Command("local-ip", "List local network interface addresses.")
+  .version("0.0.0").argument(interfaceName).option(family).option(internal).option(json);
+
+export interface ApplicationOptions {
+  readonly readInterfaces: () => Interfaces;
+  readonly argv?: readonly string[];
+  readonly env?: Readonly<Record<string, string | undefined>>;
+  readonly stdout?: (text: string) => void;
+  readonly stderr?: (text: string) => void;
+}
+
+export function runApplication(options: ApplicationOptions): number {
+  return runNode(command, invocation => {
+    try {
+      const addresses = selectAddresses(options.readInterfaces(), {
+        interface: invocation.get(interfaceName), family: invocation.get(family), internal: invocation.get(internal),
+      });
+      return new CommandOutput(0, formatAddresses(addresses, invocation.get(json)));
+    } catch (error) {
+      return new CommandOutput(1, "", error instanceof Error ? error.message : String(error));
+    }
+  }, { argv: options.argv, env: options.env, stdout: options.stdout, stderr: options.stderr });
+}

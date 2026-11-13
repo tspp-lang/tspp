@@ -405,6 +405,19 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
+  packages/example-projects/local-ip:
+    dependencies:
+      '@tspp/command-kit':
+        specifier: workspace:*
+        version: link:../command-kit
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/examples/00-hello-world:
     dependencies:
       ts-plus-plus:

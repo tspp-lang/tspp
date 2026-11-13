@@ -2,13 +2,10 @@
   "name": "@tspp/command-kit",
   "version": "0.0.0",
   "private": true,
-  "description": "A CLI development library and workspace inspection tool written in TS++.",
+  "description": "A typed command-line application library written in TS++.",
   "license": "Apache-2.0",
   "type": "commonjs",
   "main": "./dist/index.js",
-  "bin": {
-    "command-kit": "./dist/cli.js"
-  },
   "types": "./dist/index.d.ts",
   "tsppTypes": "./dist/index.d.tspp",
   "exports": {
@@ -32,8 +29,7 @@
     "build": "tspp -p tsppconfig.json --pretty false",
     "check": "tspp -p tsppconfig.json --noEmit --pretty false",
     "test": "pnpm build && pnpm test:run",
-    "test:run": "node --test test/*.test.cjs",
-    "cli": "node dist/cli.js"
+    "test:run": "node --test test/*.test.cjs"
   },
   "devDependencies": {
     "ts-plus-plus": "workspace:*",
