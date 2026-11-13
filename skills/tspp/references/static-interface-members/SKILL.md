@@ -19,4 +19,4 @@ class Box implements Serializable {
 }
 ```
 
-Check missing or incompatible static members, return types, and static requirements inherited from other interfaces. Do not treat instance objects as static constructor contracts. Consult the [plugin documentation](https://github.com/tspp-lang/tspp/blob/v0.1.1/packages/plugins/static-interface-members/README.md) and [examples](https://github.com/tspp-lang/tspp/blob/v0.1.1/packages/examples/04-static-interface-members/src/01-basics.tspp), and verify with a TS++ build.
+Check missing or incompatible static members, return types, and static requirements inherited from other interfaces. Do not treat instance objects as static constructor contracts. Consult the [plugin documentation](https://github.com/tspp-lang/tspp/blob/v0.1.2/packages/plugins/static-interface-members/README.md) and [examples](https://github.com/tspp-lang/tspp/blob/v0.1.2/packages/examples/04-static-interface-members/src/01-basics.tspp), and verify with a TS++ build.

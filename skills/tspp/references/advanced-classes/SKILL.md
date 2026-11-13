@@ -12,4 +12,4 @@ Use in `.tspp` files. Enable `{ "name": "ts-plus-plus/plugins/advanced-classes",
 - `field count: number = 0 { get() { return field; } set(v) { field = v; } }` uses implicit backing storage inside its accessors. `field` is available only within the corresponding accessors.
 - A `sealed` class allows subclasses only in the same source file. `final class` prohibits inheritance, and a `final` method prohibits overriding.
 
-For inheritance, declaration emit, and generated-method details, consult the [plugin tests](https://github.com/tspp-lang/tspp/tree/v0.1.1/packages/plugins/advanced-classes/test) and [complete examples](https://github.com/tspp-lang/tspp/tree/v0.1.1/packages/examples/03-advanced-classes).
+For inheritance, declaration emit, and generated-method details, consult the [plugin tests](https://github.com/tspp-lang/tspp/tree/v0.1.2/packages/plugins/advanced-classes/test) and [complete examples](https://github.com/tspp-lang/tspp/tree/v0.1.2/packages/examples/03-advanced-classes).

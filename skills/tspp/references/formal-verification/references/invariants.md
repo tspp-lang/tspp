@@ -13,7 +13,7 @@ function count(limit: bigint) with {
 }
 ```
 
-Loop invariants generate separate initialization and one-step preservation obligations. On exit, combine the invariant with the negated loop condition to derive the result. Preserve the specification when changing invariants; do not remove obligations merely to suppress errors. See the [loop examples](https://github.com/tspp-lang/tspp/blob/v0.1.1/packages/examples/12-formal-verification/src/03-loop-invariants.tspp).
+Loop invariants generate separate initialization and one-step preservation obligations. On exit, combine the invariant with the negated loop condition to derive the result. Preserve the specification when changing invariants; do not remove obligations merely to suppress errors. See the [loop examples](https://github.com/tspp-lang/tspp/blob/v0.1.2/packages/examples/12-formal-verification/src/03-loop-invariants.tspp).
 
 ```ts
 class Account with { invariant: balance >= 0n; } {
@@ -24,4 +24,4 @@ class Account with { invariant: balance >= 0n; } {
 }
 ```
 
-Class invariants apply to private or readonly fields. Construction must establish them; instance methods must preserve them on returns, fallthrough, throws, and before calling out. Classes with invariants cannot let `this` escape, mutate invariant fields from closures or through other instances, or declare async or generator members. Invariants on derived classes, refinement types on fields, and overriding methods with contracts are currently unsupported. See the [class examples](https://github.com/tspp-lang/tspp/blob/v0.1.1/packages/examples/12-formal-verification/src/11-class-invariants.tspp).
+Class invariants apply to private or readonly fields. Construction must establish them; instance methods must preserve them on returns, fallthrough, throws, and before calling out. Classes with invariants cannot let `this` escape, mutate invariant fields from closures or through other instances, or declare async or generator members. Invariants on derived classes, refinement types on fields, and overriding methods with contracts are currently unsupported. See the [class examples](https://github.com/tspp-lang/tspp/blob/v0.1.2/packages/examples/12-formal-verification/src/11-class-invariants.tspp).
