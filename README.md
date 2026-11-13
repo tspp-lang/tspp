@@ -20,6 +20,7 @@ feature branches in the TypeScript-derived core.
 .
 └─ packages/
    ├─ compiler/          # TypeScript-derived TS++ compiler and tsserver
+   ├─ example-projects/  # Complete software built and maintained with TS++
    ├─ examples/          # One independently configured project per plugin set
    ├─ language-server/   # LSP adapter around the TSPP server protocol
    ├─ playground/        # Browser compiler with worker-isolated capsule sets
@@ -27,6 +28,9 @@ feature branches in the TypeScript-derived core.
    ├─ plugins/           # One package per complete feature capsule
    └─ vscode-extension/  # VSCode client for the TSPP language server
 ```
+
+See [example projects](packages/example-projects/README.md) for complete software;
+short syntax tutorials remain in `packages/examples/`.
 
 ## Development
 

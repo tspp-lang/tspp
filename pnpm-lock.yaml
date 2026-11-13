@@ -396,6 +396,15 @@ importers:
         specifier: 9.3.2
         version: 9.3.2
 
+  packages/example-projects/command-kit:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/examples/00-hello-world:
     dependencies:
       ts-plus-plus:

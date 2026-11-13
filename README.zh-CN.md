@@ -14,6 +14,7 @@ TS++（`ts-plus-plus`，简称 TSPP）是一门衍生自 TypeScript 的实验性
 .
 └─ packages/
    ├─ compiler/          # 衍生自 TypeScript 的 TS++ 编译器与 tsserver
+   ├─ example-projects/  # 用 TS++ 开发的完整软件，独立实现、测试与维护
    ├─ examples/          # 按插件集划分、各自独立配置的示例项目
    ├─ language-server/   # 围绕 TSPP 服务器协议封装的 LSP 适配器
    ├─ playground/        # 基于 Worker 隔离特性胶囊集的浏览器端编译器与演练场
@@ -21,6 +22,8 @@ TS++（`ts-plus-plus`，简称 TSPP）是一门衍生自 TypeScript 的实验性
    ├─ plugins/           # 每个完整特性胶囊对应一个独立包
    └─ vscode-extension/  # TSPP 语言服务器的 VS Code 客户端扩展
 ```
+
+完整软件项目见 [示例项目目录](packages/example-projects/README.md)，简短的语法教学仍位于 `packages/examples/`。
 
 ## 开发指南
 

@@ -1,0 +1,200 @@
+import { Decoded, DecodeFailed, type DecodeResult } from "./codec.js";
+import { type Argument, type Binding, type Option } from "./definitions.js";
+import type { Command } from "./command.js";
+import {
+  Diagnostic, Invocation, Parsed, HelpRequested, VersionRequested, ParseFailed,
+  type DiagnosticCode, type ParseResult, type ParseSettings,
+} from "./result.js";
+
+data Token = EndOfOptions | LongOption(name: string, value: string | undefined)
+  | ShortOptions(flags: string) | Operand(value: string);
+
+function tokenize(value: string): Token {
+  if (value === "--") return EndOfOptions;
+  if (value.startsWith("--")) {
+    const equals = value.indexOf("=");
+    return equals < 0 ? LongOption(value.slice(2), undefined)
+      : LongOption(value.slice(2, equals), value.slice(equals + 1));
+  }
+  if (value.startsWith("-") && value !== "-" && !isNegativeNumber(value)) return ShortOptions(value.slice(1));
+  return Operand(value);
+}
+
+function isNegativeNumber(value: string): boolean { return /^-(?:\d|\.\d)/.test(value); }
+
+/** Mutable state is confined to a single parse call. Command definitions are never modified. */
+class Parser {
+  private current: Command;
+  private readonly path: string[];
+  private readonly values = new Map<symbol, unknown>();
+  private readonly supplied = new Set<symbol>();
+  private readonly operands: string[] = [];
+  private index = 0;
+  private optionsEnabled = true;
+
+  constructor(command: Command, private readonly argv: readonly string[], private readonly settings: ParseSettings) {
+    this.current = command;
+    this.path = command.ancestors().map(parent => parent.name);
+  }
+
+  run(): ParseResult {
+    while (this.index < this.argv.length) {
+      const raw = this.argv[this.index++];
+      const outcome: ParseResult | undefined = this.optionsEnabled
+        ? match tokenize(raw) {
+          EndOfOptions => do { this.optionsEnabled = false; undefined; },
+          LongOption(name, value) => this.long(name, value),
+          ShortOptions(flags) => this.short(flags),
+          Operand(value) => this.operand(value),
+        }
+        : this.operand(raw, false);
+      if (outcome !== undefined) return outcome;
+    }
+    return this.finish();
+  }
+
+  private availableOptions(): readonly Option<unknown>[] {
+    return this.current.ancestors().flatMap(command => command.options);
+  }
+
+  private fail(code: DiagnosticCode, message: string, subject?: string): ParseResult {
+    return ParseFailed(new Diagnostic(code, message, subject));
+  }
+
+  private long(name: string, attached: string | undefined): ParseResult | undefined {
+    if (name === "help" && attached === undefined) return HelpRequested(this.current.help());
+    if (name === "version" && attached === undefined && this.current.versionText !== undefined) {
+      return VersionRequested(this.current.versionText);
+    }
+    const negated = name.startsWith("no-");
+    const baseName = negated ? name.slice(3) : name;
+    const option = this.availableOptions().find(candidate => candidate.name === baseName);
+    if (!option || (negated && option.mode !== "flag")) {
+      return this.fail("unknown-option", `Unknown option '--${name}'`, `--${name}`);
+    }
+    if (option.mode === "flag") {
+      if (attached !== undefined) return this.fail("invalid-value", `Boolean flag '--${name}' does not take a value`, `--${name}`);
+      this.values.set(option.key, !negated);
+      this.supplied.add(option.key);
+      return undefined;
+    }
+    return this.valueOption(option, attached);
+  }
+
+  private short(flags: string): ParseResult | undefined {
+    for (let cursor = 0; cursor < flags.length; cursor++) {
+      const flag = flags[cursor];
+      if (flag === "h") return HelpRequested(this.current.help());
+      if (flag === "V" && this.current.versionText !== undefined) return VersionRequested(this.current.versionText);
+      const option = this.availableOptions().find(candidate => candidate.short === flag);
+      if (!option) return this.fail("unknown-option", `Unknown option '-${flag}'`, `-${flag}`);
+      if (option.mode === "flag") {
+        this.values.set(option.key, true);
+        this.supplied.add(option.key);
+      } else {
+        const remainder = flags.slice(cursor + 1);
+        return this.valueOption(option, remainder ? remainder.replace(/^=/, "") : undefined);
+      }
+    }
+    return undefined;
+  }
+
+  private valueOption(option: Option<unknown>, attached: string | undefined): ParseResult | undefined {
+    let raw = attached;
+    if (raw === undefined) {
+      const next = this.argv[this.index];
+      if (next === undefined || (next.startsWith("-") && next !== "-" && !isNegativeNumber(next))) {
+        return this.fail("missing-value", `Option '--${option.name}' needs a value`, `--${option.name}`);
+      }
+      raw = next;
+      this.index++;
+    }
+    return this.store(option, option.decode(raw), `--${option.name}`);
+  }
+
+  private store(binding: Binding<unknown>, result: DecodeResult<unknown>, subject: string): ParseResult | undefined {
+    return match result {
+      Decoded(value) => do {
+        this.values.set(binding.key, value);
+        this.supplied.add(binding.key);
+        undefined;
+      },
+      DecodeFailed(message) => this.fail("invalid-value", `${subject}: ${message}`, subject),
+    };
+  }
+
+  private operand(value: string, allowCommand = true): ParseResult | undefined {
+    if (allowCommand && !this.operands.length) {
+      const child = this.current.commands.find(command => command.name === value);
+      if (child) { this.current = child; this.path.push(child.name); return undefined; }
+      if (this.current.commands.length && !this.current.arguments.length) {
+        return this.fail("unknown-command", `Unknown command '${value}'`, value);
+      }
+    }
+    this.operands.push(value);
+    return undefined;
+  }
+
+  private finish(): ParseResult {
+    for (const option of this.availableOptions()) {
+      if (this.supplied.has(option.key)) continue;
+      const envValue = option.env === undefined ? undefined : this.settings.env?.[option.env];
+      if (envValue !== undefined) {
+        const error = this.store(option, option.decode(envValue), `environment ${option.env}`);
+        if (error) return error;
+      } else if (option.initial !== undefined || !option.requiredValue) {
+        this.values.set(option.key, option.initial);
+      } else {
+        return this.fail("missing-option", `Required option '--${option.name}' is missing`, `--${option.name}`);
+      }
+    }
+    const error = this.finishArguments();
+    if (error) return error;
+    return Parsed(new Invocation(this.current, this.path, this.values));
+  }
+
+  private finishArguments(): ParseResult | undefined {
+    let cursor = 0;
+    for (const argument of this.current.arguments) {
+      if (argument.mode === "many") {
+        const remaining = this.operands.slice(cursor);
+        if (remaining.length < argument.minCount) {
+          return this.fail("missing-argument", `Argument '${argument.name}' needs at least ${argument.minCount} values`, argument.name);
+        }
+        const collected: unknown[] = [];
+        for (const raw of remaining) {
+          const decoded = argument.decode(raw);
+          const error = match decoded {
+            Decoded(value) => do {
+              if (!Array.isArray(value)) throw new Error("A variadic decoder must return an array");
+              collected.push(...value);
+              undefined;
+            },
+            DecodeFailed(message) => this.fail("invalid-value", `${argument.name}: ${message}`, argument.name),
+          };
+          if (error) return error;
+        }
+        this.values.set(argument.key, Object.freeze(collected));
+        cursor = this.operands.length;
+      } else {
+        const raw = this.operands[cursor];
+        if (raw === undefined) {
+          if (argument.requiredValue) return this.fail("missing-argument", `Required argument '${argument.name}' is missing`, argument.name);
+          this.values.set(argument.key, argument.initial);
+        } else {
+          const error = this.store(argument, argument.decode(raw), argument.name);
+          if (error) return error;
+          cursor++;
+        }
+      }
+    }
+    if (cursor < this.operands.length) {
+      return this.fail("unexpected-argument", `Unexpected argument '${this.operands[cursor]}'`, this.operands[cursor]);
+    }
+    return undefined;
+  }
+}
+
+export function parseCommand(command: Command, argv: readonly string[], settings: ParseSettings): ParseResult {
+  return new Parser(command, [...argv], settings).run();
+}

@@ -1,0 +1,132 @@
+import { type Argument, type Option, validateName } from "./definitions.js";
+import { parseCommand } from "./parser.js";
+import type { ParseResult, ParseSettings } from "./result.js";
+
+export class Command {
+  readonly name: string;
+  readonly description: string;
+  private readonly ownOptions: Option<unknown>[] = [];
+  private readonly ownArguments: Argument<unknown>[] = [];
+  private readonly children: Command[] = [];
+  private owner: Command | undefined;
+  private release: string | undefined;
+
+  constructor(name: string, description = "") {
+    validateName(name, "command");
+    this.name = name;
+    this.description = description;
+  }
+
+  get options(): readonly Option<unknown>[] { return [...this.ownOptions]; }
+  get arguments(): readonly Argument<unknown>[] { return [...this.ownArguments]; }
+  get commands(): readonly Command[] { return [...this.children]; }
+  get parent(): Command | undefined { return this.owner; }
+  get versionText(): string | undefined { return this.release; }
+
+  option<T>(handle: Option<T>): this {
+    this.ownOptions.push(handle);
+    try { this.root().validateTree(); }
+    catch (error) { this.ownOptions.pop(); throw error; }
+    return this;
+  }
+
+  argument<T>(handle: Argument<T>): this {
+    if (this.children.length) throw new Error("A command with subcommands cannot declare positional arguments");
+    if (this.ownArguments.some(arg => arg.name === handle.name || arg.key === handle.key)) {
+      throw new Error(`Duplicate argument: ${handle.name}`);
+    }
+    if (this.ownArguments.some(arg => arg.mode === "many")) {
+      throw new Error("A variadic argument must be last");
+    }
+    if (handle.requiredValue && this.ownArguments.some(arg => !arg.requiredValue)) {
+      throw new Error("A required argument cannot follow an optional argument");
+    }
+    this.ownArguments.push(handle);
+    return this;
+  }
+
+  command(child: Command): this {
+    if (this.ownArguments.length) throw new Error("A command with positional arguments cannot declare subcommands");
+    if (child === this || child.owner || child.contains(this)) {
+      throw new Error("A command must belong to exactly one acyclic command tree");
+    }
+    if (this.children.some(command => command.name === child.name)) {
+      throw new Error(`Duplicate command: ${child.name}`);
+    }
+    child.owner = this;
+    this.children.push(child);
+    try { this.root().validateTree(); }
+    catch (error) { this.children.pop(); child.owner = undefined; throw error; }
+    return this;
+  }
+
+  version(text: string): this {
+    if (!text.trim()) throw new Error("Version text must not be empty");
+    this.release = text;
+    return this;
+  }
+
+  parse(argv: readonly string[], settings: ParseSettings = {}): ParseResult {
+    return parseCommand(this, argv, settings);
+  }
+
+  help(): string {
+    const ancestry = this.ancestors();
+    const usage = [ancestry.map(command => command.name).join(" "), "[options]"];
+    if (this.children.length) usage.push("[command]");
+    for (const arg of this.ownArguments) {
+      const name = arg.name + (arg.mode === "many" ? "..." : "");
+      usage.push(arg.requiredValue || arg.minCount > 0 ? `<${name}>` : `[${name}]`);
+    }
+    const lines = [`Usage: ${usage.join(" ")}`];
+    if (this.description) lines.push("", this.description);
+    lines.push("", "Options:");
+    const rows: [string, string][] = ancestry.flatMap(command => command.ownOptions.map((option): [string, string] => {
+      const flags = [option.short ? `-${option.short}` : "", `--${option.name}`].filter(Boolean).join(", ");
+      const suffix = option.mode === "value" ? ` <${option.codec.label}>` : "";
+      const details = [option.description,
+        option.requiredValue ? "(required)" : "",
+        option.env ? `[env: ${option.env}]` : "",
+        option.initial !== undefined ? `[default: ${String(option.initial)}]` : "",
+      ].filter(Boolean).join(" ");
+      return [flags + suffix, details];
+    }));
+    rows.push(["-h, --help", "Show help"]);
+    if (this.release !== undefined) rows.push(["-V, --version", "Show version"]);
+    const width = Math.max(...rows.map(([label]) => label.length));
+    lines.push(...rows.map(([label, description]) => `  ${label.padEnd(width)}  ${description}`.trimEnd()));
+    if (this.ownArguments.length) {
+      lines.push("", "Arguments:", ...this.ownArguments.map(arg => `  ${arg.name}  ${arg.description}`.trimEnd()));
+    }
+    if (this.children.length) {
+      lines.push("", "Commands:", ...this.children.map(child => `  ${child.name}  ${child.description}`.trimEnd()));
+    }
+    return lines.join("\n") + "\n";
+  }
+
+  ancestors(): readonly Command[] {
+    const result: Command[] = [];
+    for (let current: Command | undefined = this; current; current = current.owner) result.unshift(current);
+    return result;
+  }
+
+  private root(): Command { return this.owner ? this.owner.root() : this; }
+  private contains(target: Command): boolean {
+    return this === target || this.children.some(child => child.contains(target));
+  }
+
+  private validateTree(inherited: readonly Option<unknown>[] = []): void {
+    const options = [...inherited, ...this.ownOptions];
+    const names = new Set<string>();
+    const shorts = new Set<string>();
+    const keys = new Set<symbol>();
+    for (const option of options) {
+      if (names.has(option.name) || keys.has(option.key)) throw new Error(`Duplicate option: ${option.name}`);
+      if (option.short && shorts.has(option.short)) throw new Error(`Duplicate short option: ${option.short}`);
+      names.add(option.name);
+      keys.add(option.key);
+      if (option.short) shorts.add(option.short);
+    }
+    for (const child of this.children) child.validateTree(options);
+  }
+}

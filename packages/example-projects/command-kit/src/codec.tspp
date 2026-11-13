@@ -1,0 +1,67 @@
+/** A decoder reports expected input failures without throwing or performing I/O. */
+export data DecodeResult<T = never> = Decoded(value: T) | DecodeFailed(message: string);
+
+export typeclass ValueCodec<T> {
+  decode(input: string): DecodeResult<T>;
+}
+
+export impl TextValueCodec = ValueCodec<string> {
+  decode(input) { return Decoded(input); }
+}
+
+export impl IntegerValueCodec = ValueCodec<number> {
+  decode(input) {
+    if (!/^[+-]?\d+$/.test(input)) return DecodeFailed("expected an integer");
+    const value = Number(input);
+    return Number.isSafeInteger(value)
+      ? Decoded(value)
+      : DecodeFailed("expected a safe integer");
+  }
+}
+
+export impl BooleanValueCodec = ValueCodec<boolean> {
+  decode(input) {
+    if (input === "true" || input === "1") return Decoded(true);
+    if (input === "false" || input === "0") return Decoded(false);
+    return DecodeFailed("expected true, false, 1, or 0");
+  }
+}
+
+export interface Codec<T> {
+  readonly label: string;
+  decode(input: string): DecodeResult<T>;
+}
+
+/** Capture a typeclass dictionary once, at the boundary of a command definition. */
+export function valueCodec<T>(label: string) where <ValueCodec<T>>: Codec<T> {
+  return { label, decode(input: string) { return ValueCodec.decode(input); } };
+}
+
+export function text(): Codec<string> { return valueCodec<string>("text"); }
+export function integer(): Codec<number> { return valueCodec<number>("integer"); }
+export function boolean(): Codec<boolean> { return valueCodec<boolean>("boolean"); }
+
+export function customCodec<T>(label: string, decode: (input: string) => DecodeResult<T>): Codec<T> {
+  if (!label.trim()) throw new Error("A codec label must not be empty");
+  return { label, decode };
+}
+
+export function choice<const T extends string>(values: readonly T[]): Codec<T> {
+  if (!values.length || new Set(values).size !== values.length) {
+    throw new Error("Choices must be nonempty and unique");
+  }
+  const allowed = [...values];
+  return customCodec(allowed.join("|"), input => {
+    const value = allowed.find(candidate => candidate === input);
+    return value === undefined
+      ? DecodeFailed(`expected one of ${allowed.join(", ")}`)
+      : Decoded(value);
+  });
+}
+
+export function mapDecoded<T, U>(result: DecodeResult<T>, map: (value: T) => U): DecodeResult<U> {
+  return match result {
+    Decoded(value) => Decoded(map(value)),
+    DecodeFailed(message) => DecodeFailed(message),
+  };
+}

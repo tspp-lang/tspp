@@ -1,6 +1,7 @@
 packages:
   - packages/*
   - packages/examples/*
+  - packages/example-projects/*
   - packages/plugins/*
 
 allowBuilds:

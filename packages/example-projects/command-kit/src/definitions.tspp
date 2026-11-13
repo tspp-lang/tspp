@@ -1,0 +1,147 @@
+import { boolean, mapDecoded, type Codec, type DecodeResult } from "./codec.js";
+
+export newtype OptionName = string;
+export newtype ArgumentName = string;
+
+def reservedOptionNames = ["help", "version"];
+const bindingConstruction = Symbol("command-kit binding construction");
+
+export interface OptionSettings {
+  readonly short?: string;
+  readonly description?: string;
+  readonly env?: string;
+}
+
+export interface ArgumentSettings {
+  readonly description?: string;
+}
+
+export interface VariadicSettings extends ArgumentSettings {
+  readonly minCount?: number;
+}
+
+/** A typed handle carries the decoder and a unique identity, independent of spelling. */
+export abstract class Binding<T> {
+  readonly key = Symbol();
+  abstract readonly name: string;
+  abstract readonly description: string;
+  abstract readonly initial: T | undefined;
+  abstract readonly requiredValue: boolean;
+  abstract decode(input: string): DecodeResult<T>;
+}
+
+export class Option<T> extends Binding<T> {
+  readonly name: OptionName;
+  readonly short: string | undefined;
+  readonly description: string;
+  readonly env: string | undefined;
+
+  constructor(
+    token: typeof bindingConstruction,
+    name: string,
+    readonly codec: Codec<T>,
+    settings: OptionSettings,
+    readonly mode: "flag" | "value",
+    readonly initial: T | undefined,
+    readonly requiredValue: boolean,
+  ) {
+    super();
+    if (token !== bindingConstruction) throw new Error("Use flag() or option() to create an option");
+    validateName(name, "option");
+    if (reservedOptionNames.some(reserved => reserved === name) || name.startsWith("no-")) {
+      throw new Error(`Reserved option name: ${name}`);
+    }
+    if (settings.short !== undefined && !/^[A-Za-z]$/.test(settings.short)) {
+      throw new Error("A short option must be one ASCII letter");
+    }
+    if (settings.short === "h" || settings.short === "V") {
+      throw new Error(`Reserved short option: ${settings.short}`);
+    }
+    if (settings.env !== undefined && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(settings.env)) {
+      throw new Error(`Invalid environment variable name: ${settings.env}`);
+    }
+    this.name = OptionName(name);
+    this.short = settings.short;
+    this.description = settings.description ?? "";
+    this.env = settings.env;
+  }
+
+  decode(input: string): DecodeResult<T> { return this.codec.decode(input); }
+
+  withDefault(value: Exclude<T, undefined>): Option<Exclude<T, undefined>> {
+    return new Option(bindingConstruction, this.name, withoutUndefined(this.codec), this, this.mode, value, false);
+  }
+
+  required(): Option<Exclude<T, undefined>> {
+    return new Option(bindingConstruction, this.name, withoutUndefined(this.codec), this, this.mode, undefined, true);
+  }
+}
+
+function withoutUndefined<T>(codec: Codec<T>): Codec<Exclude<T, undefined>> {
+  return {
+    label: codec.label,
+    decode(input) {
+      return mapDecoded(codec.decode(input), value => {
+        if (value === undefined) throw new Error("A required codec returned undefined");
+        // The runtime check establishes the narrowed generic invariant.
+        return value as Exclude<T, undefined>;
+      });
+    },
+  };
+}
+
+export function flag(name: string, settings: OptionSettings & { readonly default?: boolean } = {}): Option<boolean> {
+  return new Option(bindingConstruction, name, boolean(), settings, "flag", settings.default ?? false, false);
+}
+
+export function option<T>(name: string, codec: Codec<T>, settings: OptionSettings = {}): Option<T | undefined> {
+  return new Option<T | undefined>(bindingConstruction, name, codec, settings, "value", undefined, false);
+}
+
+export class Argument<T> extends Binding<T> {
+  readonly name: ArgumentName;
+  readonly description: string;
+
+  constructor(
+    token: typeof bindingConstruction,
+    name: string,
+    readonly codec: Codec<T>,
+    settings: ArgumentSettings,
+    readonly mode: "one" | "many",
+    readonly initial: T | undefined,
+    readonly requiredValue: boolean,
+    readonly minCount: number = 0,
+  ) {
+    super();
+    if (token !== bindingConstruction) throw new Error("Use argument factories to create an argument");
+    validateName(name, "argument");
+    if (!Number.isSafeInteger(minCount) || minCount < 0) {
+      throw new Error("Variadic minCount must be a nonnegative safe integer");
+    }
+    this.name = ArgumentName(name);
+    this.description = settings.description ?? "";
+  }
+
+  decode(input: string): DecodeResult<T> { return this.codec.decode(input); }
+}
+
+export function argument<T>(name: string, codec: Codec<T>, settings: ArgumentSettings = {}): Argument<T> {
+  return new Argument(bindingConstruction, name, codec, settings, "one", undefined, true);
+}
+
+export function optionalArgument<T>(name: string, codec: Codec<T>, settings: ArgumentSettings = {}): Argument<T | undefined> {
+  return new Argument<T | undefined>(bindingConstruction, name, codec, settings, "one", undefined, false);
+}
+
+export function variadicArgument<T>(name: string, codec: Codec<T>, settings: VariadicSettings = {}): Argument<readonly T[]> {
+  return new Argument(bindingConstruction, name, {
+    label: codec.label,
+    decode(input) { return mapDecoded(codec.decode(input), value => [value]); },
+  }, settings, "many", [], false, settings.minCount ?? 0);
+}
+
+export function validateName(name: string, kind: string): void {
+  if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(name)) {
+    throw new Error(`Invalid ${kind} name: ${name}`);
+  }
+}

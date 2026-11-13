@@ -1,0 +1,21 @@
+import { Command } from "./index.js";
+import { Action, Terminal, run } from "./runtime.js";
+
+export interface NodeOptions {
+  argv?: readonly string[];
+  env?: Readonly<Record<string, string | undefined>>;
+  stdout?: (text: string) => void;
+  stderr?: (text: string) => void;
+}
+
+/** Returns an exit status; applications decide when to assign process.exitCode. */
+export function runNode(command: Command, action: Action, options: NodeOptions = {}): number {
+  const output = options.stdout ?? (text => { process.stdout.write(`${text}\n`); });
+  const error = options.stderr ?? (text => { process.stderr.write(`${text}\n`); });
+  return handle Terminal {
+    output: text => output(text),
+    error: text => error(text),
+  } in {
+    run(command, options.argv ?? process.argv.slice(2), action, options.env ?? process.env);
+  };
+}

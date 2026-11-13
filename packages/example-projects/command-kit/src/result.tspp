@@ -1,0 +1,38 @@
+import type { Binding } from "./definitions.js";
+import type { Command } from "./command.js";
+
+export type DiagnosticCode = "missing-value" | "invalid-value" | "unknown-option"
+  | "unknown-command" | "missing-argument" | "unexpected-argument" | "missing-option";
+
+export data class Diagnostic(code: DiagnosticCode, message: string, subject: string | undefined)
+
+export function formatDiagnostic(error: Diagnostic): string do {
+  `error [${error.code}]: ${error.message}`;
+}
+
+export class Invocation {
+  readonly path: readonly string[];
+  private readonly values: ReadonlyMap<symbol, unknown>;
+
+  constructor(readonly command: Command, path: readonly string[], values: ReadonlyMap<symbol, unknown>) {
+    this.path = Object.freeze([...path]);
+    this.values = new Map(values);
+  }
+
+  get<T>(binding: Binding<T>): T {
+    if (!this.values.has(binding.key)) {
+      throw new Error(`Binding '${binding.name}' does not belong to this invocation`);
+    }
+    // The parser stores values using the decoder carried by this exact binding.
+    return this.values.get(binding.key) as T;
+  }
+}
+
+export data ParseResult = Parsed(invocation: Invocation)
+  | HelpRequested(text: string)
+  | VersionRequested(text: string)
+  | ParseFailed(diagnostic: Diagnostic);
+
+export interface ParseSettings {
+  readonly env?: Readonly<Record<string, string | undefined>>;
+}

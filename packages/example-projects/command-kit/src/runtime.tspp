@@ -1,0 +1,44 @@
+import {
+  Command, Invocation, Parsed, HelpRequested, VersionRequested, ParseFailed,
+  formatDiagnostic,
+} from "./index.js";
+
+/** Output is data until the boundary decides how to present it. */
+export data class CommandOutput(exitCode: number, stdout: string = "", stderr: string = "");
+
+export effect Terminal {
+  output(text: string): void;
+  error(text: string): void;
+}
+
+export type Action = (invocation: Invocation) => CommandOutput;
+
+/** Parsing and command actions never call process.exit or select a global terminal. */
+export function run(
+  command: Command,
+  argv: readonly string[],
+  action: Action,
+  env: Readonly<Record<string, string | undefined>> = {},
+) / Terminal: number {
+  const result = command.parse(argv, { env });
+  return match result {
+    Parsed(invocation) => do {
+      const output = action(invocation);
+      if (output.stdout) perform Terminal.output(output.stdout);
+      if (output.stderr) perform Terminal.error(output.stderr);
+      output.exitCode;
+    },
+    HelpRequested(text) => do {
+      perform Terminal.output(text);
+      0;
+    },
+    VersionRequested(text) => do {
+      perform Terminal.output(text);
+      0;
+    },
+    ParseFailed(diagnostic) => do {
+      perform Terminal.error(formatDiagnostic(diagnostic));
+      2;
+    },
+  };
+}

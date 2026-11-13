@@ -38,6 +38,7 @@ jobs:
       - run: pnpm build:plugin-sdk && pnpm build:plugins && pnpm build:compiler
       - run: pnpm test:plugins:together
       - run: pnpm test:examples
+      - run: pnpm test:example-projects
 
   products:
     name: Build and test products
