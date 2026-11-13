@@ -25,6 +25,18 @@ TS++（`ts-plus-plus`，简称 TSPP）是一门衍生自 TypeScript 的实验性
 
 完整软件项目见 [示例项目目录](packages/example-projects/README.md)，简短的语法教学仍位于 `packages/examples/`。
 
+## AI 编程技能
+
+在项目根目录安装与 TS++ 版本一致的[官方技能](docs/ai-skills.md)：
+
+```sh
+npx skills add tspp-lang/tspp@vX.Y.Z --skill tspp --agent universal --copy --yes
+```
+
+将 `vX.Y.Z` 替换为已包含技能目录的发布标签。技能内容在每个特性胶囊的
+`skills/` 目录中维护，统一生成到仓库的 `skills/tspp/`，安装后位于
+`.agents/skills/tspp/`。
+
 ## 开发指南
 
 请使用 Node.js 22 和 pnpm 12.4.2。

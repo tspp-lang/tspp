@@ -1,9 +1,9 @@
 # Releasing TS++
 
-A TS++ release is the `version` of the root `package.json`. Setting it is all a
-maintainer does by hand: when the change reaches master and the checks pass, CI
-assembles the release, tests it, tags the commit and publishes it on GitHub
-Releases.
+A TS++ release is the `version` of the root `package.json`. Set it and regenerate
+the versioned AI skill with `pnpm build:skills`: when the change reaches master
+and the checks pass, CI assembles the release, tests it, tags the commit and
+publishes it on GitHub Releases.
 
 ## What a release contains
 
@@ -22,6 +22,10 @@ Each release attaches three files, all at the root version:
 
 Nothing is published to npm or the VS Code Marketplace.
 
+The release tag also contains the generated `skills/tspp/` directory. The
+[AI skill installation command](ai-skills.md) installs it directly from that tag;
+it does not need a separate release attachment.
+
 Only the root version changes between releases. Leave the other versions in the
 repository as they are:
 
@@ -36,8 +40,9 @@ repository as they are:
 
 ## Steps
 
-1. **Set the version on dev.** Change only `version` in the root
-   `package.json`, for example to `0.2.0`, and commit it, for example as
+1. **Set the version on dev.** Change `version` in the root
+   `package.json`, for example to `0.2.0`, run `pnpm build:skills`, and commit
+   the version and regenerated `skills/tspp/` together, for example as
    `chore(release): 0.2.0`. Do not create the tag yourself; the release creates
    it.
 

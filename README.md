@@ -56,6 +56,17 @@ The separate LSP package exposes `tspp-language-server`, which adapts that
 protocol to LSP. The VSCode extension starts the LSP with the workspace
 `ts-plus-plus` SDK and associates `.tspp` files with the `tspp` language mode.
 
+## AI coding skill
+
+Install the version-matched [TS++ AI coding skill](docs/ai-skills.md) into a project:
+
+```sh
+npx skills add tspp-lang/tspp@vX.Y.Z --skill tspp --agent universal --copy --yes
+```
+
+Replace `vX.Y.Z` with a release containing the skill. The generated skill is
+maintained from each feature capsule's `skills/` directory.
+
 ## Releases
 
 A release publishes three things, all at the version of the root `package.json`:
@@ -77,7 +88,8 @@ pnpm pack:release   # builds, then assembles release/
 pnpm test:release   # installs release/ into an empty project and exercises it
 ```
 
-Releasing is setting the version: when the TSPP checks pass on a commit pushed
+To release, set the root version and run `pnpm build:skills`, committing both
+changes together. When the TSPP checks pass on a commit pushed
 to master whose root version has no `vX.Y.Z` tag, `.github/workflows/release.yml`
 runs both commands above on that commit and publishes the result on GitHub
 Releases, which tags it. A
