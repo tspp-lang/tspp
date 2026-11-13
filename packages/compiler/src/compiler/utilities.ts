@@ -10282,7 +10282,7 @@ export function positionIsSynthesized(pos: number): boolean {
  * @internal
  */
 export function extensionIsTS(ext: string): boolean {
-    return ext === Extension.Tspp || ext === Extension.Ts || ext === Extension.Tsx || ext === Extension.Dts || ext === Extension.Cts || ext === Extension.Mts || ext === Extension.Dmts || ext === Extension.Dcts || (startsWith(ext, ".d.") && endsWith(ext, ".ts")); // TSPP-SLOT(tspp-extension)
+    return ext === Extension.Tspp || ext === ".d.tspp" || ext === Extension.Ts || ext === Extension.Tsx || ext === Extension.Dts || ext === Extension.Cts || ext === Extension.Mts || ext === Extension.Dmts || ext === Extension.Dcts || (startsWith(ext, ".d.") && endsWith(ext, ".ts")); // TSPP-SLOT(tspp-extension)
 }
 
 /** @internal */

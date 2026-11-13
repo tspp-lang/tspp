@@ -47,6 +47,17 @@ import {
     toTSPPAnalysisDiagnostic,
 } from "./analysis.js";
 import { createProgramAsync } from "./rebuild.js";
+import { getTSPPConfigFileProjectName, inheritTSPPConfigHost, rejectTSPPLegacyProject } from "./configuration.js";
+
+/** Resolve a TS++ project directory without changing TypeScript's configuration defaults. */
+export function resolveTSPPConfigFileProjectName(project: string): string {
+    return getTSPPConfigFileProjectName(project);
+}
+
+/** Create an isolated product configuration host, including explicitly selected custom JSON configurations. */
+export function createTSPPConfigHost<T extends object>(host: T): T {
+    return inheritTSPPConfigHost<T>(Object.create(host));
+}
 import {
     getActiveTSPPPlugins,
     getOriginalTSPPSource,
@@ -68,12 +79,12 @@ export const tsppHelpIcon = "TS++ ";
 
 /** Help examples invoke `tspp`. @internal */
 export function getTSPPHelpExample(example: string): string {
-    return example.replace(/^tsc\b/, "tspp");
+    return example.replace(/^tsc\b/, "tspp").replace(/tsconfig\.json/g, "tsppconfig.json");
 }
 
 /** Help prose refers to `tspp`; links such as `aka.ms/tsc-composite-builds` keep their spelling. @internal */
 export function getTSPPHelpText(text: string): string {
-    return text.replace(/\btsc\b(?!-)/g, "tspp");
+    return text.replace(/\btsc\b(?!-)/g, "tspp").replace(/tsconfig\.json/g, "tsppconfig.json");
 }
 
 /** The feature plugins a tsconfig declares with `"tspp": true`; undefined after reporting a failure. */
@@ -298,12 +309,15 @@ export function executeTSPPCommandLine(system: System, cb: ExecuteCommandLineCal
 }
 
 function executeCommandLineAsync(system: System, cb: ExecuteCommandLineCallbacks, commandLineArgs: readonly string[]): unknown {
+    system = inheritTSPPConfigHost(Object.create(system));
     if (isBuildCommand(commandLineArgs)) {
+        if (rejectTSPPLegacyProject(system, parseBuildCommand(commandLineArgs).projects)) return system.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
         const builders = analyzeBuilderPrograms(system, cb, parseBuildCommand(commandLineArgs).buildOptions);
         const result = executeCommandLine(builders.system, builders.cb, commandLineArgs);
         return builders.pending() ?? result;
     }
     const commandLine = parseCommandLine(commandLineArgs, path => system.readFile(path));
+    if (rejectTSPPLegacyProject(system, commandLine.options.project ? [commandLine.options.project] : [])) return system.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
     const builders = analyzeBuilderPrograms(system, cb, commandLine.options);
     if (commandLine.options.generateCpuProfile && system.enableCPUProfiler) {
         const result = executeCommandLine(builders.system, builders.cb, commandLineArgs);

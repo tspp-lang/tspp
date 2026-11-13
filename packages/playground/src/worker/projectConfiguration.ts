@@ -30,12 +30,12 @@ export function configureProject(
   fallbackOptions: () => ts.CompilerOptions,
   toDiagnostic: (diagnostic: ts.Diagnostic) => DiagnosticInfo,
 ): ParsedProjectConfiguration {
-  const configText = files.get("/tsconfig.json")?.text;
+  const configText = files.get("/tsppconfig.json")?.text;
   if (configText === undefined) {
     return { options: fallbackOptions(), rootFileNames: [...files.keys()].filter(isSourceFile), diagnostics: [] };
   }
   const compatibility = parseProjectConfiguration(configText, definitions);
-  const parsedText = ts.parseConfigFileTextToJson("/tsconfig.json", configText);
+  const parsedText = ts.parseConfigFileTextToJson("/tsppconfig.json", configText);
   if (parsedText.error) {
     return {
       options: fallbackOptions(),
@@ -51,7 +51,7 @@ export function configureProject(
       rootDir, extensions, excludes, includes, true, "/", depth,
       directory => fileSystemEntries(files, directory), path => path,
     ),
-  }, "/", { allowNonTsExtensions: true, noEmitOnError: false }, "/tsconfig.json", undefined, [{
+  }, "/", { allowNonTsExtensions: true, noEmitOnError: false }, "/tsppconfig.json", undefined, [{
     extension: ".tspp",
     isMixedContent: false,
     scriptKind: ts.ScriptKind.TS,
@@ -69,7 +69,7 @@ export function configureProject(
     rootFileNames: parsed.fileNames.filter(isSourceFile),
     diagnostics: [
       ...compatibility.diagnostics,
-      ...parsed.errors.map(error => ({ ...toDiagnostic(error), fileName: "/tsconfig.json" })),
+      ...parsed.errors.map(error => ({ ...toDiagnostic(error), fileName: "/tsppconfig.json" })),
     ],
   };
 }

@@ -95,7 +95,7 @@ const currentFeatures = () => effectiveFeatures(definitions, selected);
 const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...savedContents]);
 const isDirty = (path: string) => models.get(path)?.getValue() !== savedContents.get(path);
 const dirtyFiles = () => new Set([...models.keys()].filter(isDirty));
-const isLiveFile = (path: string) => path !== "/tsconfig.json" && !path.endsWith(".md");
+const isLiveFile = (path: string) => path !== "/tsppconfig.json" && !path.endsWith(".md");
 const { requestCheck, cancelCheck } = createProblemChecker(editor, models, () => active, openFile, languageClient, definitions, isDirty);
 
 function disposeDraft(): void {
@@ -146,7 +146,7 @@ function createProjectModel(path: string, text: string): monaco.editor.ITextMode
 }
 
 async function applyConfiguration(): Promise<void> {
-  const text = savedContents.get("/tsconfig.json");
+  const text = savedContents.get("/tsppconfig.json");
   if (text === undefined) return;
   const configuration = parseProjectConfiguration(text, definitions);
   selected.clear();
@@ -168,9 +168,9 @@ function loadProject(state: SharedState) {
   openFiles = [];
   directories.clear();
   expandedDirectories.clear();
-  const stateFiles = state.files["/tsconfig.json"]
+  const stateFiles = state.files["/tsppconfig.json"]
     ? state.files
-    : { ...state.files, "/tsconfig.json": defaultConfiguration(state.features, definitions) };
+    : { ...state.files, "/tsppconfig.json": defaultConfiguration(state.features, definitions) };
   for (const [path, text] of Object.entries(stateFiles)) {
     addParentDirectories(path, directories);
     if (!isEditorFile(path)) {
@@ -336,8 +336,8 @@ function createFolder(): void {
 function renameSelectedItem(): void {
   const oldPath = selectedProjectItem;
   if (!projectPathExists(oldPath)) return;
-  if (oldPath === "/tsconfig.json") {
-    alert("tsconfig.json is the Playground project's configuration source and cannot be renamed.");
+  if (oldPath === "/tsppconfig.json") {
+    alert("tsppconfig.json is the Playground project's configuration source and cannot be renamed.");
     return;
   }
   const directory = directories.has(oldPath);
@@ -409,8 +409,8 @@ function renameSelectedItem(): void {
 function deleteSelectedProjectItem(): void {
   const path = selectedProjectItem;
   if (!projectPathExists(path)) return;
-  if (path === "/tsconfig.json") {
-    alert("tsconfig.json is required because it is the Playground project's configuration source.");
+  if (path === "/tsppconfig.json") {
+    alert("tsppconfig.json is required because it is the Playground project's configuration source.");
     return;
   }
   const directory = directories.has(path);
@@ -498,15 +498,15 @@ setupProjectSelector(exampleSelect, () => exampleState(exampleSelect.value), loa
 // ---- features ------------------------------------------------------------------------
 const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selected, (name, checked) => {
   const definition = definitions.find(candidate => candidate.id === name);
-  const configModel = models.get("/tsconfig.json");
+  const configModel = models.get("/tsppconfig.json");
   if (!definition || !configModel) return;
   const text = setFeatureInConfiguration(configModel.getValue(), definition, checked);
   if (text === undefined) {
-    alert("Fix the errors in tsconfig.json before changing Features from the shortcut panel.");
+    alert("Fix the errors in tsppconfig.json before changing Features from the shortcut panel.");
     return;
   }
   configModel.setValue(text);
-  if (!openFiles.includes("/tsconfig.json")) openFiles.push("/tsconfig.json");
+  if (!openFiles.includes("/tsppconfig.json")) openFiles.push("/tsppconfig.json");
   renderTabs();
 });
 

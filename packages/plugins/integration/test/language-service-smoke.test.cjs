@@ -28,7 +28,7 @@ const preferences = {
 
 /** A language service over files on disk, with every other file read through `ts.sys`. */
 function createService(directory, fileNames, overrides = new Map()) {
-  const configPath = path.join(directory, "tsconfig.json");
+  const configPath = path.join(directory, "tsppconfig.json");
   const config = fs.existsSync(configPath)
     ? ts.parseJsonConfigFileContent(ts.readConfigFile(configPath, ts.sys.readFile).config, ts.sys, directory).options
     : { strict: true, target: ts.ScriptTarget.ES2022 };

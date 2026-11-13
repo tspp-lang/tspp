@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "tspp -p tsconfig.json --noEmit --pretty false",
+    "check": "tspp -p tsppconfig.json --noEmit --pretty false",
     "lint": "eslint src"
   },
   "dependencies": {

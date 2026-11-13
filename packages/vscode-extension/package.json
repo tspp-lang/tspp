@@ -18,13 +18,16 @@
     "Programming Languages"
   ],
   "activationEvents": [
-    "onLanguage:tspp"
+    "onLanguage:tspp",
+    "onLanguage:jsonc",
+    "onLanguage:json",
+    "workspaceContains:**/tsppconfig.json"
   ],
   "main": "./extension.js",
   "scripts": {
-    "build": "node scripts/build-plugin-grammar.mjs && node --check extension.js",
-    "lint": "eslint extension.js scripts",
-    "test": "node --check extension.js && node scripts/build-plugin-grammar.mjs --check"
+    "build": "node scripts/build-plugin-grammar.mjs && node scripts/build-config-schema.mjs && node --check extension.js",
+    "lint": "eslint extension.js configuration.js configuration-sync.js scripts test",
+    "test": "node --test test/*.test.cjs && node scripts/build-plugin-grammar.mjs --check && node scripts/build-config-schema.mjs --check"
   },
   "dependencies": {
     "@tspp/plugin-sdk": "workspace:*",
@@ -47,7 +50,15 @@
     "globals": "^17.12.0"
   },
   "contributes": {
+    "jsonValidation": [
+      { "fileMatch": ["tsppconfig.json", "tsppconfig.*.json"], "url": "./schemas/tsppconfig.schema.json" }
+    ],
     "languages": [
+      {
+        "id": "jsonc",
+        "filenames": ["tsppconfig.json"],
+        "filenamePatterns": ["tsppconfig.*.json"]
+      },
       {
         "id": "tspp",
         "aliases": [

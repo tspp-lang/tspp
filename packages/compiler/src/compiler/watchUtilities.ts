@@ -1,3 +1,4 @@
+import { deleteTSPPExtendedConfigEntry, getTSPPExtendedConfigFilePath } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 import {
     arrayToMap,
     binarySearch,
@@ -465,7 +466,8 @@ export function cleanExtendedConfigCache(
     extendedConfigFilePath: Path,
     toPath: (fileName: string) => Path,
 ): void {
-    if (!extendedConfigCache.delete(extendedConfigFilePath)) return;
+    extendedConfigFilePath = getTSPPExtendedConfigFilePath(extendedConfigFilePath); // TSPP-SLOT(project-configuration)
+    if (!deleteTSPPExtendedConfigEntry(extendedConfigCache, extendedConfigFilePath)) return; // TSPP-SLOT(project-configuration)
     extendedConfigCache.forEach(({ extendedResult }, key) => {
         if (extendedResult.extendedSourceFiles?.some(extendedFile => toPath(extendedFile) === extendedConfigFilePath)) {
             cleanExtendedConfigCache(extendedConfigCache, key as Path, toPath);

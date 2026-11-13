@@ -194,6 +194,7 @@ import {
     WatchTypingLocations,
 } from "./_namespaces/ts.server.js";
 import * as protocol from "./protocol.js";
+import { forEachTSPPConfigFileLocation, getTSPPProjectConfigHost, isTSPPProjectFile, refreshTSPPReferencedConfig } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 
 export const maxProgramSizeForNonTsFiles: number = 20 * 1024 * 1024;
 /** @internal */
@@ -2590,6 +2591,7 @@ export class ProjectService {
         const projectRootPath = this.openFiles.get(info.path);
         const scriptInfo = Debug.checkDefined(this.getScriptInfo(info.path));
         if (scriptInfo.isDynamic) return undefined;
+        if (isTSPPProjectFile(info.fileName)) return forEachTSPPConfigFileLocation(info.fileName, projectRootPath, this.currentDirectory, this.host.useCaseSensitiveFileNames, this.toCanonicalFileName, action, isAncestorConfigFileInfo(info)); // TSPP-SLOT(project-configuration)
 
         let searchPath = asNormalizedPath(getDirectoryPath(info.fileName));
         const isSearchPathInProjectRoot = () => containsPath(projectRootPath!, searchPath, this.currentDirectory, !this.host.useCaseSensitiveFileNames);
@@ -2952,6 +2954,7 @@ export class ProjectService {
         configFileExistenceInfo: ConfigFileExistenceInfo,
         forProject: ConfiguredProject,
     ): ConfigFileExistenceInfo {
+        refreshTSPPReferencedConfig(configFileExistenceInfo, forProject.getCompilerOptions(), forProject.getProjectName(), configFilename); // TSPP-SLOT(project-configuration)
         if (configFileExistenceInfo.config) {
             if (configFileExistenceInfo.config.updateLevel === ProgramUpdateLevel.RootNamesAndUpdate) {
                 this.reloadFileNamesOfParsedConfig(configFilename, configFileExistenceInfo.config);
@@ -2970,8 +2973,8 @@ export class ProjectService {
         }
 
         // Parse the config file and ensure its cached
-        const cachedDirectoryStructureHost = configFileExistenceInfo.config?.cachedDirectoryStructureHost ||
-            createCachedDirectoryStructureHost(this.host, this.host.getCurrentDirectory(), this.host.useCaseSensitiveFileNames)!;
+        const cachedDirectoryStructureHost = getTSPPProjectConfigHost(configFileExistenceInfo.config?.cachedDirectoryStructureHost || // TSPP-SLOT(project-configuration)
+            createCachedDirectoryStructureHost(this.host, this.host.getCurrentDirectory(), this.host.useCaseSensitiveFileNames)!, forProject.getCompilerOptions(), forProject.getProjectName(), configFilename); // TSPP-SLOT(project-configuration)
 
         // Read updated contents from disk
         const configFileContent = tryReadFile(configFilename, fileName => this.host.readFile(fileName));

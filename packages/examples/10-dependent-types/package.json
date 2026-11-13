@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "tspp --project tsconfig.json",
+    "check": "tspp --project tsppconfig.json",
     "lint": "eslint src"
   },
   "devDependencies": {

@@ -2,7 +2,7 @@
 
 TS++ extends TypeScript with modern language features through **isolated feature capsules** powered by [`@tspp/plugin-sdk`](file:///e:/Repos/ts-plus-plus/packages/plugin-sdk). Rather than accumulating intrusive modifications in the upstream TypeScript-derived core, every feature is encapsulated as an independent plugin owning its syntax, type checking, AST lowering, editor diagnostics, and language-service contributions.
 
-Features are opt-in and composable via `tsconfig.json` (`compilerOptions.plugins`).
+Features are opt-in and composable via `tsppconfig.json` (`compilerOptions.plugins`).
 
 ---
 
@@ -254,7 +254,7 @@ See the [package README](file:///e:/Repos/ts-plus-plus/packages/plugins/algebrai
 
 ## Enabling Feature Plugins
 
-To enable any feature in a TS++ project, declare it under `compilerOptions.plugins` in `tsconfig.json`:
+To enable any feature in a TS++ project, declare it under `compilerOptions.plugins` in `tsppconfig.json`:
 
 ```json
 {

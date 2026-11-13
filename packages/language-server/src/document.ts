@@ -279,7 +279,7 @@ export class LspDocuments {
     }
 
     public openTextDocument(textDocument: lsp.TextDocumentItem): boolean {
-        if (!this.modeIds.has(textDocument.languageId)) {
+        if (!this.modeIds.has(textDocument.languageId) && !languageModeIds.isTsppConfigDocument({ languageId: textDocument.languageId, filepath: URI.parse(textDocument.uri).fsPath })) { // TSPP-SLOT(tspp-config-jsonc)
             const detectedLanguageId = getModeFromFileUri(textDocument.uri);
             if (detectedLanguageId) {
                 this.lspClient.logMessage({
@@ -433,7 +433,11 @@ export class LspDocuments {
     }
 
     public getErr(resources: readonly URI[]): void {
-        const handledResources = resources.filter(resource => this.handles(resource));
+        const handledResources = resources.filter(resource => {
+            const file = this.client.toTsFilePath(resource.toString());
+            const document = file ? this.documents.get(file) : undefined;
+            return document !== undefined && !languageModeIds.isTsppConfigDocument(document); // TSPP-SLOT(tspp-config-jsonc)
+        });
         if (!handledResources.length) {
             return;
         }
@@ -482,7 +486,9 @@ export class LspDocuments {
 
         // Add all open TS buffers to the geterr request. They might be visible
         for (const buffer of this.documents.values()) {
-            orderedFileSet.set(buffer.uri, undefined);
+            if (!languageModeIds.isTsppConfigDocument(buffer)) { // TSPP-SLOT(tspp-config-jsonc)
+                orderedFileSet.set(buffer.uri, undefined);
+            }
         }
 
         if (orderedFileSet.size) {
@@ -497,6 +503,10 @@ export class LspDocuments {
     }
 
     private shouldValidate(buffer: LspDocument): boolean {
+        // TSPP-SLOT(tspp-config-jsonc): Config diagnostics come from compiler config parsing, not source-file geterr.
+        if (languageModeIds.isTsppConfigDocument(buffer)) {
+            return false;
+        }
         switch (buffer.languageId) {
             case 'javascript':
             case 'javascriptreact':

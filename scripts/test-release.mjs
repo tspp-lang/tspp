@@ -85,7 +85,7 @@ function writeProject(consumer) {
         'export const wrong: Choice = "text";',
         "",
     ].join("\n"));
-    fs.writeFileSync(path.join(project, "tsconfig.json"), JSON.stringify({
+    fs.writeFileSync(path.join(project, "tsppconfig.json"), JSON.stringify({
         compilerOptions: {
             target: "es2022",
             module: "nodenext",

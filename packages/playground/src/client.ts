@@ -99,7 +99,7 @@ export function startLanguageWorker(onEvent: (event: WorkerEvent) => void, initi
     recovery = undefined;
   }
 
-  /** Reuse the current source and tsconfig in a separate compiler with no active capsules. */
+  /** Reuse the current source and tsppconfig in a separate compiler with no active capsules. */
   async function recoverEditorRequest(method: keyof WorkerApi, args: unknown[], version: number, cancellation?: Cancellation): Promise<unknown> {
     if (disposed || cancellation?.isCancellationRequested || version !== projectVersion) throw canceled();
     if (recovery?.version !== version) {

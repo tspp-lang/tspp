@@ -91,4 +91,56 @@ describe("unittests:: tspp:: TypeScript interoperability", () => {
         });
         assert.deepEqual(messages(program), []);
     });
+
+    it("classifies TS++ declarations behind JavaScript paths as typed modules", () => {
+        const { program } = createProgram({
+            "/library.d.tspp": `export declare const answer: 42;`,
+            "/consumer.tspp": `import { answer } from "./library.js"; export const checked: 42 = answer;`,
+        }, ["/consumer.tspp"]);
+        assert.deepEqual(messages(program), []);
+        const consumer = program.getSourceFile("/consumer.tspp")!;
+        const specifier = (consumer.statements[0] as ts.ImportDeclaration).moduleSpecifier as ts.StringLiteral;
+        const resolved = program.getResolvedModuleFromModuleSpecifier(specifier)?.resolvedModule;
+        assert.equal(resolved?.resolvedFileName, "/library.d.tspp");
+        assert.isTrue(ts.extensionIsTS(resolved!.extension));
+    });
+
+    it("resolves compatible declaration barrels before recording module identities", () => {
+        const files = {
+            "/node_modules/dual-package/package.json": JSON.stringify({
+                name: "dual-package",
+                version: "1.0.0",
+                types: "index.d.ts",
+                tsppTypes: "index.d.tspp",
+                exports: {
+                    ".": {
+                        "tspp-types": "./index.d.tspp",
+                        "types": "./index.d.ts",
+                    },
+                },
+            }),
+            "/node_modules/dual-package/index.d.tspp": `// @tspp-plugins unavailable-feature\nexport * from "./leaf.js";`,
+            "/node_modules/dual-package/index.d.ts": `export * from "./leaf.js";`,
+            "/node_modules/dual-package/leaf.d.tspp": `// @tspp-plugins unavailable-feature\nexport declare const flavor: "rich";`,
+            "/node_modules/dual-package/leaf.d.ts": `export declare const flavor: "compatible";`,
+            "/first.tspp": `import { flavor } from "dual-package"; export const checked: "compatible" = flavor;`,
+            "/second.tspp": `import { flavor } from "dual-package"; export const checked: "compatible" = flavor;`,
+            "/plain.ts": `import { flavor } from "dual-package"; export const checked: "compatible" = flavor;`,
+        };
+        for (const moduleResolution of [ts.ModuleResolutionKind.Node10, ts.ModuleResolutionKind.Node16]) {
+            const { program } = createProgram(files, ["/first.tspp", "/second.tspp", "/plain.ts"], {
+                module: moduleResolution === ts.ModuleResolutionKind.Node10 ? ts.ModuleKind.CommonJS : ts.ModuleKind.Node16,
+                moduleResolution,
+            });
+            assert.deepEqual(messages(program), []);
+            const first = program.getSourceFile("/first.tspp")!;
+            const specifier = (first.statements[0] as ts.ImportDeclaration).moduleSpecifier as ts.StringLiteral;
+            const resolved = program.getResolvedModuleFromModuleSpecifier(specifier)?.resolvedModule;
+            assert.equal(resolved?.resolvedFileName, "/node_modules/dual-package/index.d.ts");
+            assert.equal(resolved?.extension, ts.Extension.Dts);
+            assert.equal(resolved?.packageId?.subModuleName, "index.d.ts");
+            assert.isUndefined(program.getSourceFile("/node_modules/dual-package/index.d.tspp"));
+            assert.isUndefined(program.getSourceFile("/node_modules/dual-package/leaf.d.tspp"));
+        }
+    });
 });

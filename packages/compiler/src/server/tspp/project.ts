@@ -2,6 +2,8 @@ import {
     emptyArray,
     getTSPPPluginFromModule,
     hasTSPPProgramAnalyzers,
+    isTSPPConfigFile,
+    isTSPPConfigOptions,
     registerTSPPCompilerPlugin,
     runTSPPProgramAnalyzers,
     toTSPPAnalysisDiagnostic,
@@ -47,6 +49,10 @@ export function enableTSPPPlugin(
 ): boolean {
     const tsppPlugin = getTSPPPluginFromModule(pluginModuleFactory);
     if (!tsppPlugin) return false;
+    if (!isTSPPConfigFile(project.getProjectName()) && !isTSPPConfigOptions(project.getCompilerOptions())) {
+        project.projectService.logger.info("TSPP feature plugins require a TS++ project configuration");
+        return true;
+    }
     if (!isTSPPPluginAllowed(project, configEntry.name)) {
         project.projectService.logger.info(`TSPP feature plugin '${tsppPlugin.manifest.id}' is outside this server's plugin set`);
         return true;

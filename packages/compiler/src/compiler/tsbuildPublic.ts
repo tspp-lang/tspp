@@ -130,6 +130,7 @@ import {
     WriteFileCallback,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import { resolveTSPPHostProjectName } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 
 const minimumDate = new Date(-8640000000000000);
 
@@ -602,7 +603,7 @@ function parseConfigFile<T extends BuilderProgram>(state: SolutionBuilderState<T
 }
 
 function resolveProjectName<T extends BuilderProgram>(state: SolutionBuilderState<T>, name: string): ResolvedConfigFileName {
-    return resolveConfigFileProjectName(resolvePath(state.compilerHost.getCurrentDirectory(), name));
+    return resolveTSPPHostProjectName(resolvePath(state.compilerHost.getCurrentDirectory(), name), state.host, resolveConfigFileProjectName); // TSPP-SLOT(project-configuration)
 }
 
 function createBuildOrder<T extends BuilderProgram>(state: SolutionBuilderState<T>, roots: readonly ResolvedConfigFileName[]): AnyBuildOrder {

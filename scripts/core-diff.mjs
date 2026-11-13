@@ -32,13 +32,9 @@ const targets = {
             "macro", "taggedUnion", "nominal", "newtype", "higherKinded", "typeConstructor", "universe", "reified", "mltt",
             "typeMatch", "operatorSection", "staticInterface", "trailingClosure", "completionBlock", "withClause", "tspp",
         ],
-        // Two syntax-extension call sites beyond the +344 baseline: recognize lowered parameters despite overlapping
-        // ranges, and print synthesized private field names from plugin syntax without reading nonexistent source text.
-        // The formatting slot adds four: its import and the three formatting entry points of the language service. One more
-        // keeps a syntax-extension call site in utilities.ts on its own line, as dprint requires. The rest let the printer
-        // treat what plugin syntax lowers to as generated: it reads no source comments past the node it writes or at a
-        // generated node, and it lays generated nodes out without the source lines of the place they were moved to.
-        budget: { upstreamFiles: 25, upstreamAdded: 359, upstreamRemoved: 61 },
+        // Project configuration call sites carry product identity through discovery, parsing, source membership,
+        // builds, caches and reconstructed hosts; the implementation stays in tspp/ (docs/plugin-framework.md).
+        budget: { upstreamFiles: 30, upstreamAdded: 402, upstreamRemoved: 84 },
         // The parser's cursor for plugin syntax reads the parser's closure, so it cannot move to a new file.
         longHunkExceptions: [{ file: `${coreDir}/compiler/parser.ts`, contains: "createTSPPSyntaxCursor", maxAdded: 70 }],
     },
@@ -52,7 +48,8 @@ const targets = {
         featureTerms: ["tspp", "pluginSet", "vscode"],
         // The import of typescript-language-server 6.0.1 plus the call sites in docs/plugin-framework.md, "Language server
         // modification rules".
-        budget: { upstreamFiles: 9, upstreamAdded: 36, upstreamRemoved: 21 },
+        // TS++ configuration JSONC is synchronized without entering TypeScript source diagnostic requests.
+        budget: { upstreamFiles: 9, upstreamAdded: 54, upstreamRemoved: 24 },
         longHunkExceptions: [],
     },
 };

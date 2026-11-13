@@ -25,7 +25,7 @@ export function defaultConfiguration(features: readonly string[], definitions: r
 }
 
 const diagnostic = (message: string, node?: Node, category: DiagnosticInfo["category"] = "error"): DiagnosticInfo => ({
-  fileName: "/tsconfig.json",
+  fileName: "/tsppconfig.json",
   span: node && { start: node.offset, length: node.length },
   message,
   code: 18000,
@@ -38,21 +38,21 @@ function propertyNode(root: Node, path: string[]): Node | undefined {
   return findNodeAtLocation(root, path)?.parent;
 }
 
-/** Reads the browser-supported portion of tsconfig and produces user-facing compatibility diagnostics. */
+/** Reads the browser-supported portion of tsppconfig and produces user-facing compatibility diagnostics. */
 export function parseProjectConfiguration(text: string, definitions: readonly FeatureDefinition[]): ProjectConfiguration {
   const errors: ParseError[] = [];
   const root = parseTree(text, errors, { allowTrailingComma: true, disallowComments: false });
   const diagnostics = errors.map(error => diagnostic(
-    `Invalid tsconfig.json: ${printParseErrorCode(error.error)}.`,
+    `Invalid tsppconfig.json: ${printParseErrorCode(error.error)}.`,
     { offset: error.offset, length: error.length } as Node,
   ));
   if (!root || root.type !== "object") {
-    if (!errors.length) diagnostics.push(diagnostic("tsconfig.json must contain a JSON object.", root));
+    if (!errors.length) diagnostics.push(diagnostic("tsppconfig.json must contain a JSON object.", root));
     return { features: [], diagnostics };
   }
 
   const unsupportedTopLevel: Record<string, string> = {
-    extends: "The Playground cannot load an external 'extends' configuration. Copy those options into this tsconfig.json.",
+    extends: "The Playground cannot load an external 'extends' configuration. Copy those options into this tsppconfig.json.",
     references: "TypeScript project references are not supported in the Playground.",
   };
   for (const [name, message] of Object.entries(unsupportedTopLevel)) {
@@ -81,7 +81,7 @@ export function parseProjectConfiguration(text: string, definitions: readonly Fe
   const moduleKind = typeof moduleValue === "string" ? moduleValue.toLowerCase() : undefined;
   const runnableModules = new Set(["commonjs", "node16", "nodenext", "es6", "es2015", "es2020", "es2022", "esnext", "preserve"]);
   const runBlockReason = moduleKind && !runnableModules.has(moduleKind)
-    ? `Run is unavailable because tsconfig.json uses module '${moduleValue}'. The browser runner supports CommonJS, Node16, NodeNext, ES2015, ES2020, ES2022, ESNext, and Preserve modules.`
+    ? `Run is unavailable because tsppconfig.json uses module '${moduleValue}'. The browser runner supports CommonJS, Node16, NodeNext, ES2015, ES2020, ES2022, ESNext, and Preserve modules.`
     : undefined;
   if (runBlockReason) diagnostics.push(diagnostic(runBlockReason, moduleNode, "warning"));
 

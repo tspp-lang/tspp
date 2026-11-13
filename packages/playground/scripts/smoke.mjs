@@ -208,13 +208,13 @@ async function runExample(page, example, errors) {
   await page.selectOption("#examples", example);
   const reasons = [];
   // Macros expand in the background: every built-in output must catch up with them. Declaration views are an
-  // explicit Playground request even when the example's real tsconfig disables emit or does not enable declarations.
+  // explicit Playground request even when the example's real tsppconfig disables emit or does not enable declarations.
   for (const category of ["javascript", "dts", "dtspp"]) {
     await page.click(`#output-tabs [data-category="${category}"]`);
     await page.waitForFunction(() => document.getElementById("outputs-status").textContent === "Up to date", undefined, { timeout: 10_000 })
       .catch(async () => reasons.push(`${category} output stayed at: ${await page.textContent("#outputs-status")}`));
   }
-  // Loading a project expands every directory. The example tree includes resources such as tsconfig.json.
+  // Loading a project expands every directory. The example tree includes resources such as tsppconfig.json.
   const sourceFiles = await page.locator("#project-tree .tree-row:not([aria-expanded])").filter({
     has: page.locator(".file-name", { hasText: /\.(?:tspp|ts)$/ }),
   }).all();

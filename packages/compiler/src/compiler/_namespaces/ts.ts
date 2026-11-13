@@ -81,3 +81,4 @@ export { performance };
 export * from "../tspp/analysis.js"; // TSPP-SLOT(plugin-host)
 export * from "../tspp/rebuild.js"; // TSPP-SLOT(plugin-host)
 export * from "../tspp/commandLine.js"; // TSPP-SLOT(command-line)
+export * from "../tspp/configuration.js"; // TSPP-SLOT(project-configuration)

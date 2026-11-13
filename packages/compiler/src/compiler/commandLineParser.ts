@@ -1,3 +1,4 @@
+import { getTSPPConfigExtensions, getTSPPConfigFileNames, getTSPPExtendedConfigKey, getTSPPExtendsPath, getTSPPParseConfigHost, getTSPPReferencePath, registerTSPPConfigOptions, validateTSPPConfigFileNames } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 import {
     addToSeen,
     AlternateModeDiagnostics,
@@ -3011,6 +3012,7 @@ function convertToOptionValueWithAbsolutePaths(option: CommandLineOption | undef
  *    file to. e.g. outDir
  */
 export function parseJsonConfigFileContent(json: any, host: ParseConfigHost, basePath: string, existingOptions?: CompilerOptions, configFileName?: string, resolutionStack?: Path[], extraFileExtensions?: readonly FileExtensionInfo[], extendedConfigCache?: Map<string, ExtendedConfigCacheEntry>, existingWatchOptions?: WatchOptions): ParsedCommandLine {
+    host = getTSPPParseConfigHost(host, configFileName); // TSPP-SLOT(project-configuration)
     return parseJsonConfigFileContentWorker(json, /*sourceFile*/ undefined, host, basePath, existingOptions, existingWatchOptions, configFileName, resolutionStack, extraFileExtensions, extendedConfigCache);
 }
 
@@ -3022,6 +3024,7 @@ export function parseJsonConfigFileContent(json: any, host: ParseConfigHost, bas
  *    file to. e.g. outDir
  */
 export function parseJsonSourceFileConfigFileContent(sourceFile: TsConfigSourceFile, host: ParseConfigHost, basePath: string, existingOptions?: CompilerOptions, configFileName?: string, resolutionStack?: Path[], extraFileExtensions?: readonly FileExtensionInfo[], extendedConfigCache?: Map<string, ExtendedConfigCacheEntry>, existingWatchOptions?: WatchOptions): ParsedCommandLine {
+    host = getTSPPParseConfigHost(host, configFileName ?? sourceFile.fileName); // TSPP-SLOT(project-configuration)
     tracing?.push(tracing.Phase.Parse, "parseJsonSourceFileConfigFileContent", { path: sourceFile.fileName });
     const result = parseJsonConfigFileContentWorker(/*json*/ undefined, sourceFile, host, basePath, existingOptions, existingWatchOptions, configFileName, resolutionStack, extraFileExtensions, extendedConfigCache);
     tracing?.pop();
@@ -3085,8 +3088,10 @@ function parseJsonConfigFileContentWorker(
         basePath,
     );
     options.configFilePath = configFileName && normalizeSlashes(configFileName);
+    registerTSPPConfigOptions(options, host); // TSPP-SLOT(project-configuration)
     const basePathForFileNames = normalizePath(configFileName ? directoryOfCombinedPath(configFileName, basePath) : basePath);
     const configFileSpecs = getConfigFileSpecs();
+    validateTSPPConfigFileNames(configFileSpecs.validatedFilesSpec, host, configFileName, extraFileExtensions, options, errors); // TSPP-SLOT(project-configuration)
     if (sourceFile) sourceFile.configFileSpecs = configFileSpecs;
     setConfigFileInOptions(options, sourceFile);
 
@@ -3205,7 +3210,7 @@ function parseJsonConfigFileContentWorker(
                 }
                 else {
                     (projectReferences || (projectReferences = [])).push({
-                        path: getNormalizedAbsolutePath(ref.path, basePath),
+                        path: getTSPPReferencePath(ref.path, basePath, host, configFileName, errors), // TSPP-SLOT(project-configuration)
                         originalPath: ref.path,
                         prepend: ref.prepend,
                         circular: ref.circular,
@@ -3528,7 +3533,7 @@ function getExtendsConfigPathOrArray(
     const newBase = configFileName ? directoryOfCombinedPath(configFileName, basePath) : basePath;
     if (isString(value)) {
         extendedConfigPath = getExtendsConfigPath(
-            value,
+            getTSPPExtendsPath(value, newBase, host, configFileName), // TSPP-SLOT(project-configuration)
             host,
             newBase,
             errors,
@@ -3544,7 +3549,7 @@ function getExtendsConfigPathOrArray(
                 extendedConfigPath = append(
                     extendedConfigPath,
                     getExtendsConfigPath(
-                        fileName,
+                        getTSPPExtendsPath(fileName, newBase, host, configFileName), // TSPP-SLOT(project-configuration)
                         host,
                         newBase,
                         errors,
@@ -3691,7 +3696,7 @@ function getExtendedConfig(
     extendedConfigCache: Map<string, ExtendedConfigCacheEntry> | undefined,
     result: ExtendsResult,
 ): ParsedTsconfig | undefined {
-    const path = host.useCaseSensitiveFileNames ? extendedConfigPath : toFileNameLowerCase(extendedConfigPath);
+    const path = getTSPPExtendedConfigKey(host.useCaseSensitiveFileNames ? extendedConfigPath : toFileNameLowerCase(extendedConfigPath), host); // TSPP-SLOT(project-configuration)
     let value: ExtendedConfigCacheEntry | undefined;
     let extendedResult: TsConfigSourceFile;
     let extendedConfig: ParsedTsconfig | undefined;
@@ -3954,7 +3959,7 @@ export function getFileNamesFromConfigSpecs(
 
     // Rather than re-query this for each file and filespec, we query the supported extensions
     // once and store it on the expansion context.
-    const supportedExtensions = getSupportedExtensions(options, extraFileExtensions);
+    const supportedExtensions = getTSPPConfigExtensions(getSupportedExtensions(options, extraFileExtensions), host, options.configFilePath, extraFileExtensions); // TSPP-SLOT(project-configuration)
     const supportedExtensionsWithJsonIfResolveJsonModule = getSupportedExtensionsWithJsonIfResolveJsonModule(options, supportedExtensions);
 
     // Literal files are always included verbatim. An "include" or "exclude" specification cannot
@@ -4011,7 +4016,7 @@ export function getFileNamesFromConfigSpecs(
     const literalFiles = arrayFrom(literalFileMap.values());
     const wildcardFiles = arrayFrom(wildcardFileMap.values());
 
-    return literalFiles.concat(wildcardFiles, arrayFrom(wildCardJsonFileMap.values()));
+    return getTSPPConfigFileNames(literalFiles.concat(wildcardFiles, arrayFrom(wildCardJsonFileMap.values())), host, options.configFilePath, extraFileExtensions, options); // TSPP-SLOT(project-configuration)
 }
 
 /** @internal */

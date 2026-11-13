@@ -40,9 +40,9 @@ export function createProblemChecker(
       if (cancellation === source) cancellation = undefined;
     }
     if (token.isCancellationRequested || fileName !== activeFile() || model.isDisposed()) return;
-    const config = models.get("/tsconfig.json");
-    if (config && isDirty("/tsconfig.json")) {
-      diagnostics = diagnostics.filter(diagnostic => diagnostic.fileName !== "/tsconfig.json");
+    const config = models.get("/tsppconfig.json");
+    if (config && isDirty("/tsppconfig.json")) {
+      diagnostics = diagnostics.filter(diagnostic => diagnostic.fileName !== "/tsppconfig.json");
       diagnostics.push(...parseProjectConfiguration(config.getValue(), definitions).diagnostics);
     }
     for (const [path, projectModel] of models) {

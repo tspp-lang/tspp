@@ -1,4 +1,4 @@
-// Every plugin alone, every pair, every set without one plugin, and all of them, through the real command line: tsconfig
+// Every plugin alone, every pair, every set without one plugin, and all of them, through the real command line: tsppconfig
 // resolution, macro workers, analyzers, emit. In-process tests share one registry that only ever grows, so they miss
 // what a partial plugin set breaks, and they never reach the worker. Each case also states the errors it must report,
 // because a plugin that swallowed another's syntax would report nothing.
@@ -111,7 +111,7 @@ function compileAndRun(set) {
   try {
     const source = path.join(directory, "src");
     fs.mkdirSync(source);
-    // A project resolves its plugins from its own node_modules; its tsconfig.json enables exactly this set.
+    // A project resolves its plugins from its own node_modules; its tsppconfig.json enables exactly this set.
     installCompiler(directory);
     const parts = set.map(name => features[name]);
     // Macros reach every declaration the other plugins let a project write.
@@ -121,7 +121,7 @@ function compileAndRun(set) {
     const needsMacro = set.includes("macros") ? `${macro}\n` : "";
     fs.writeFileSync(path.join(source, "good.tspp"), `${good}\n`);
     fs.writeFileSync(path.join(source, "bad.tspp"), `${needsMacro}${parts.map(part => part.bad).join("\n")}\nexport {};\n`);
-    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+    fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({
       compilerOptions: {
         target: "es2022",
         module: "commonjs",
@@ -162,7 +162,7 @@ test("the command line checks type-level let bindings and indexed arguments", ()
       'type Result<T extends Holder> = Succ<T["tag"]>;',
       "const value: Result<Holder> = 2;",
     ].join("\n"));
-    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+    fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({
       compilerOptions: { types: [], plugins: [{ name: pluginName("type-computation"), tspp: true }] },
       files: ["index.tspp"],
     }));
@@ -184,7 +184,7 @@ test("solution builds load each project's plugins and do not call a refuted proj
       fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
       fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
       fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
-      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+      fs.writeFileSync(path.join(directory, name, "tsppconfig.json"), JSON.stringify({
         compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, skipLibCheck: true, composite: true, plugins: [{ name: pluginName(plugin), tspp: true }] },
         include: ["src"],
         references,
@@ -192,7 +192,7 @@ test("solution builds load each project's plugins and do not call a refuted proj
     };
     project("data", "nominal-types", "export data Flag = On | Off;\n");
     project("proof", "formal-verification", `${features["formal-verification"].bad}\n`, [{ path: "../data" }]);
-    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "data" }, { path: "proof" }] }));
+    fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({ files: [], references: [{ path: "data" }, { path: "proof" }] }));
     for (let run = 0; run < 2; run++) {
       const built = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-b"], { cwd: directory, encoding: "utf8" });
       assert.match(built.stdout, features["formal-verification"].message, `run ${run}\n${built.stdout}${built.stderr}`);
@@ -217,7 +217,7 @@ test("a project of a solution build sees only its own plugins, whatever was buil
       fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
       fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
       fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
-      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+      fs.writeFileSync(path.join(directory, name, "tsppconfig.json"), JSON.stringify({
         compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, skipLibCheck: false, composite: true, plugins: plugins.map(plugin => ({ name: pluginName(plugin), tspp: true })) },
         include: ["src"],
         references: references.map(reference => ({ path: `../${reference}` })),
@@ -233,9 +233,9 @@ test("a project of a solution build sees only its own plugins, whatever was buil
     const build = order => {
       for (const name of order) {
         fs.rmSync(path.join(directory, name, "out"), { recursive: true, force: true });
-        fs.rmSync(path.join(directory, name, "tsconfig.tsbuildinfo"), { force: true });
+        fs.rmSync(path.join(directory, name, "tsppconfig.tsbuildinfo"), { force: true });
       }
-      fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: order.map(name => ({ path: name })) }));
+      fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({ files: [], references: order.map(name => ({ path: name })) }));
       const built = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-b"], { cwd: directory, encoding: "utf8" });
       return { ...built, errors: built.stdout.split(/\r?\n/).filter(line => /error TS/.test(line)).sort() };
     };
@@ -263,7 +263,7 @@ test("a project built from TS++ declarations stays buildable as its sources chan
       fs.mkdirSync(path.join(directory, name, "src"), { recursive: true });
       fs.symlinkSync(path.join(directory, "node_modules"), path.join(directory, name, "node_modules"), "junction");
       fs.writeFileSync(path.join(directory, name, "src", "index.tspp"), source);
-      fs.writeFileSync(path.join(directory, name, "tsconfig.json"), JSON.stringify({
+      fs.writeFileSync(path.join(directory, name, "tsppconfig.json"), JSON.stringify({
         compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, composite: true, plugins: [{ name: pluginName("nominal-types"), tspp: true }] },
         include: ["src"],
         references: references.map(reference => ({ path: `../${reference}` })),
@@ -283,7 +283,7 @@ export const value = match held { Some(value) => value + 1, None => 0 };
 `;
     project("library", library);
     project("consumer", consumer, ["library"]);
-    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({ files: [], references: [{ path: "library" }, { path: "consumer" }] }));
+    fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({ files: [], references: [{ path: "library" }, { path: "consumer" }] }));
     const build = args => spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, ...args], { cwd: directory, encoding: "utf8" });
     const built = build(["-b"]);
     assert.equal(built.status, 0, `${built.stdout}${built.stderr}`);
@@ -313,7 +313,7 @@ test("a TS++ file lacking a plugin of its dependency reads the compatible declar
   try {
     installCompiler(directory);
     const compile = (cwd, plugins, extra = {}) => {
-      fs.writeFileSync(path.join(cwd, "tsconfig.json"), JSON.stringify({
+      fs.writeFileSync(path.join(cwd, "tsppconfig.json"), JSON.stringify({
         compilerOptions: { target: "es2022", module: "nodenext", moduleResolution: "nodenext", outDir: "out", rootDir: "src", types: [], strict: true, declaration: true, plugins: plugins.map(plugin => ({ name: pluginName(plugin), tspp: true })), ...extra },
         include: ["src"],
       }));
@@ -377,11 +377,11 @@ test("a project finds plugins installed above it, however -p names it", () => {
     const project = path.join(directory, "workspace", "project");
     fs.mkdirSync(path.join(project, "src"), { recursive: true });
     fs.writeFileSync(path.join(project, "src", "a.tspp"), `${features["nominal-types"].code}\n`);
-    fs.writeFileSync(path.join(project, "tsconfig.json"), JSON.stringify({
+    fs.writeFileSync(path.join(project, "tsppconfig.json"), JSON.stringify({
       compilerOptions: { target: "es2022", module: "commonjs", noEmit: true, types: [], strict: true, skipLibCheck: true, plugins: [{ name: pluginName("nominal-types"), tspp: true }] },
       include: ["src"],
     }));
-    for (const [cwd, name] of [[project, "."], [project, "tsconfig.json"], [path.dirname(project), "project"], [directory, project]]) {
+    for (const [cwd, name] of [[project, "."], [project, "tsppconfig.json"], [path.dirname(project), "project"], [directory, project]]) {
       const compiled = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-p", name], { cwd, encoding: "utf8" });
       assert.equal(compiled.status, 0, `-p ${name} from ${cwd}\n${compiled.stdout}${compiled.stderr}`);
     }
@@ -399,7 +399,7 @@ for (const mode of [{ incremental: true, tsBuildInfoFile: "out.tsbuildinfo" }, {
       fs.mkdirSync(path.join(directory, "src"));
       installCompiler(directory);
       fs.writeFileSync(path.join(directory, "src", "a.tspp"), features["formal-verification"].bad + "\n");
-      fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+      fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({
         compilerOptions: { target: "es2022", module: "commonjs", outDir: "out", types: [], strict: true, skipLibCheck: true, ...mode, plugins: [{ name: pluginName("formal-verification"), tspp: true }] },
         include: ["src"],
       }));

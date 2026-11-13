@@ -3,8 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "check": "tspp --project tsconfig.json --pretty false",
-    "build": "tspp --project tsconfig.json --pretty false --noEmit false",
+    "check": "tspp --project tsppconfig.json --pretty false",
+    "build": "tspp --project tsppconfig.json --pretty false --noEmit false",
     "start": "node dist/01-classes.js && node dist/02-sealed-and-final.js",
     "lint": "eslint src"
   },

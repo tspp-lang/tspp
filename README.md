@@ -99,8 +99,10 @@ outputs. The root scripts delegate to the `ts-plus-plus` workspace.
 
 ## TypeScript compatibility boundary
 
+TS++ projects use `tsppconfig.json`; ordinary TypeScript projects continue to use `tsconfig.json`.
+
 TS++ deliberately retains upstream internal names such as the `ts` namespace,
-`typescript.js`, `tsconfig.json`, and the tsserver protocol. Those names describe
+`typescript.js`, and the tsserver protocol. Those names describe
 the TypeScript API and compatibility surface, not the public TS++ product name.
 Keeping that boundary stable also makes future upstream comparison and merging
 tractable.

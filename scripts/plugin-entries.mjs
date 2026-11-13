@@ -1,5 +1,5 @@
 // Writes packages/compiler/plugins: the entry points through which a project names the feature plugins the compiler
-// package ships, such as `ts-plus-plus/plugins/modern-syntax` in tsconfig.json and
+// package ships, such as `ts-plus-plus/plugins/modern-syntax` in tsppconfig.json and
 // `ts-plus-plus/plugins/formal-verification/smt` in an import. Each entry forwards to the plugin's own package, an
 // internal one that is never published, and one exists for every entry of that package's `exports`.
 // Usage: node scripts/plugin-entries.mjs [--check]

@@ -6,7 +6,7 @@ only loading, composition, transport, and stable SDK contracts.
 
 ```mermaid
 flowchart LR
-    Config[tsconfig.json plugins] --> Resolver[package resolution]
+    Config[tsppconfig.json plugins] --> Resolver[package resolution]
     Resolver --> CompilerHost[compiler facet host]
     Resolver --> LSHost[language-service facet host]
     Resolver -.-> LSPHost[optional future LSP facet host]
@@ -134,6 +134,34 @@ The SDK holds the compiler details each plugin would otherwise repeat:
 - `replaceChild` rewrites syntax a plugin has just parsed;
 - `createGeneratedName` gives a name that stays unique in JavaScript.
 
+## Project configuration
+
+TS++ projects use `tsppconfig.json`. The TS++ command line, language server, and editor
+extension discover that configuration without falling back to `tsconfig.json` or
+`jsconfig.json`. Explicit variant names such as `tsppconfig.test.json` support multiple
+configurations. Directory project references and directory-based builds select
+`tsppconfig.json`; explicit `extends` files may still share ordinary JSON options.
+
+Ordinary TypeScript projects keep `tsconfig.json` and `jsconfig.json`, including the
+compiler's TypeScript API defaults and the build configurations of packages implemented
+in TypeScript. Product configuration selection belongs to the host, not to a feature
+plugin. The editor associates TS++ configurations with JSONC, supplies local option
+schemas, and reports configuration diagnostics through the TS++ compiler.
+
+The `project-configuration` host slot carries that identity through configuration
+parsing, solution builds, and reconstructed compiler/watch hosts. It selects the
+configuration before plugin loading can run. Shared `extends` caches keep separate
+entries for the two directory-default rules; file changes invalidate both. Ordinary
+configured projects also retain the upstream source extensions, so broad includes or
+triple-slash references cannot accidentally import TS++ globals. Explicit host extension
+support and configuration-free `createProgram` calls retain their existing contracts.
+
+Explicit JSON project references retain their originating product through weak metadata
+on the parsed compiler options and the cached project host. This lets an explicitly named
+configuration load its feature plugins without registering a global identity for its path
+or changing the caller's original TypeScript host. API consumers that explicitly select
+TS++ mode can use `createTSPPConfigHost` to obtain an isolated host wrapper.
+
 ## Reading declarations across plugin sets
 
 This is designed behaviour, not a fallback for something that went wrong:
@@ -142,10 +170,19 @@ This is designed behaviour, not a fallback for something that went wrong:
 > wrote it. Any other project reads the compatible `.d.ts` beside it.
 
 A `.d.tspp` file's first line names those plugins (`// @tspp-plugins a,b`); the host
-compares it with the active ones at the one place a program loads a file, so package
-`tsppTypes`, the `tspp-types` condition, and project references all follow the rule. It
+compares it with the active ones during module resolution, before recording the
+resolved path, extension, or package identity. A program's file-loading path also
+checks explicit roots and custom host results. Package `tsppTypes`, the `tspp-types`
+condition, and project references all follow the rule. It
 counts the writer's plugins, not the syntax a file happens to use: a file without plugin
 syntax is the same either way.
+
+The module resolver's two declaration-selection call sites use the existing
+`declaration-output` host helper. Waiting until a file is loaded leaves a `.d.tspp`
+resolution pointing at `.d.ts` content, which breaks declaration barrels and repeated
+imports. This is a declaration compatibility rule shared by all plugins; rewriting
+source syntax cannot repair module-cache identities. Interoperability tests cover
+the resulting path, extension, package identity, and mixed TS/TS++ imports.
 
 What a project without the plugin gets is what the syntax lowers to. Its types still
 hold, and it cannot use the plugin's syntax on them. A type TypeScript cannot express is
@@ -393,8 +430,9 @@ Product-layer slots belong to the host; no plugin registers with them:
 |---|---|
 | `tspp-extension` (`.tspp` sources and `.d.tspp` declarations) | `compiler/tspp/files.ts` |
 | `module-resolution` (`.tspp`/`.d.tspp` resolution, `tsppTypes`, the `tspp-types` condition) | `compiler/tspp/files.ts` |
-| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`, and which of them a project reads) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts` |
-| `command-line` (branding, plugins from tsconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` |
+| `project-configuration` (project configuration discovery, source membership, references, cache identity, and build/watch host propagation) | `compiler/tspp/configuration.ts`, `server/tspp/configuration.ts` |
+| `declaration-output` (a compatible `.d.ts` beside each `.d.tspp`, and which of them a project reads) | `compiler/tspp/emit.ts`, `compiler/tspp/files.ts`, `compiler/tspp/registry.ts` |
+| `command-line` (branding, plugins from tsppconfig, one-shot compilations that wait for rebuilders and analyzers) | `compiler/tspp/commandLine.ts` |
 | `plugin-host` (the registry, plugin activation in tsserver) | `compiler/tspp/registry.ts`, `server/tspp/project.ts` |
 
 ## Language server modification rules

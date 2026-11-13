@@ -324,6 +324,7 @@ import {
     writeFileEnsuringDirectories,
 } from "./_namespaces/ts.js";
 import * as performance from "./_namespaces/ts.performance.js";
+import { getTSPPProgramExtensions, inheritTSPPConfigHost } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
 import { rebuildTSPPProgram } from "./tspp/rebuild.js"; // TSPP-SLOT(program-rebuild)
 import {
@@ -500,7 +501,7 @@ export function createCompilerHostWorker(
         createDirectory: d => system.createDirectory(d),
         createHash: maybeBind(system, system.createHash),
     };
-    return compilerHost;
+    return inheritTSPPConfigHost(compilerHost, system); // TSPP-SLOT(project-configuration)
 }
 
 /** @internal */
@@ -1589,7 +1590,7 @@ export function createProgram(_rootNamesOrOptions: readonly string[] | CreatePro
 
     let skipVerifyCompilerOptions = false;
     const currentDirectory = host.getCurrentDirectory();
-    const supportedExtensions = getSupportedExtensions(options);
+    const supportedExtensions = getTSPPProgramExtensions(getSupportedExtensions(options), host, options); // TSPP-SLOT(project-configuration)
     const supportedExtensionsWithJsonIfResolveJsonModule = getSupportedExtensionsWithJsonIfResolveJsonModule(options, supportedExtensions);
 
     // Map storing if there is emit blocking diagnostics for given input
@@ -5115,7 +5116,7 @@ export function parseConfigHostFromCompilerHostLike<T extends BuilderProgram>(
     host: (CompilerHost | ProgramHost<T>) & { onUnRecoverableConfigFileDiagnostic?: DiagnosticReporter; },
     directoryStructureHost: DirectoryStructureHost = host,
 ): ParseConfigFileHost {
-    return {
+    return inheritTSPPConfigHost<ParseConfigFileHost>({ // TSPP-SLOT(project-configuration)
         fileExists: f => directoryStructureHost.fileExists(f),
         readDirectory(root, extensions, excludes, includes, depth) {
             Debug.assertIsDefined(directoryStructureHost.readDirectory, "'CompilerHost.readDirectory' must be implemented to correctly process 'projectReferences'");
@@ -5129,7 +5130,7 @@ export function parseConfigHostFromCompilerHostLike<T extends BuilderProgram>(
         getCurrentDirectory: () => host.getCurrentDirectory(),
         onUnRecoverableConfigFileDiagnostic: host.onUnRecoverableConfigFileDiagnostic || returnUndefined,
         trace: host.trace ? s => host.trace!(s) : undefined,
-    };
+    }, host); // TSPP-SLOT(project-configuration)
 }
 
 /**

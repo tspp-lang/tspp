@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as lsp from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 import { createServer, PACKAGE_ROOT, type TestLspServer } from './test-utils.js';
+import { CommandTypes } from './ts-protocol.js';
+import { TSServerRequestCommand } from './commands/tsserverRequests.js';
 
 const repoRoot = path.resolve(PACKAGE_ROOT, '..', '..');
 const tsserverPath = path.join(repoRoot, 'packages', 'compiler', 'built', 'local', 'tsserver.js');
@@ -22,7 +24,7 @@ describe('TS++ plugins in a multi-project workspace', () => {
     const versions = new Map<string, number>();
 
     function writeProject(name: string, plugins: readonly string[], extra: object = {}): void {
-        fs.outputJsonSync(path.join(workspace, name, 'tsconfig.json'), {
+        fs.outputJsonSync(path.join(workspace, name, 'tsppconfig.json'), {
             compilerOptions: {
                 target: 'es2022',
                 module: 'commonjs',
@@ -135,7 +137,7 @@ describe('TS++ plugins in a multi-project workspace', () => {
         // Finding references from `without-plugin` loads `top`, which refers to it and declares the plugin itself.
         writeProject('without-plugin', []);
         writeProject('top', [pluginName], { references: [{ path: '../without-plugin' }] });
-        fs.outputJsonSync(path.join(workspace, 'tsconfig.json'), { files: [], references: [{ path: './without-plugin' }, { path: './top' }] });
+        fs.outputJsonSync(path.join(workspace, 'tsppconfig.json'), { files: [], references: [{ path: './without-plugin' }, { path: './top' }] });
         await start();
         const item = await open('without-plugin');
         await server!.references({
@@ -147,7 +149,7 @@ describe('TS++ plugins in a multi-project workspace', () => {
         await expectPlainName(item);
     }, 120_000);
 
-    it('moves an open file to the right server when its tsconfig changes its plugins', async () => {
+    it('moves an open file to the right server when its tsppconfig changes its plugins', async () => {
         writeProject('without-plugin', []);
         writeProject('other', []);
         await start();
@@ -165,5 +167,41 @@ describe('TS++ plugins in a multi-project workspace', () => {
         writeProject('without-plugin', []);
         await waitForMessages(changing, current => current.includes(missingName));
         await expectPlainName(changing);
+    }, 120_000);
+
+    it('synchronizes a JSONC project configuration before a TS++ source opens', async () => {
+        writeProject('with-plugin', [pluginName]);
+        await start();
+        const configPath = path.join(workspace, 'with-plugin', 'tsppconfig.json');
+        const configUri = URI.file(configPath).toString();
+        server!.didOpenTextDocument({ textDocument: {
+            uri: configUri, languageId: 'jsonc', version: 1, text: fs.readFileSync(configPath, 'utf8'),
+        } });
+        const item = await open('with-plugin');
+        await expectSection(item);
+        expect(diagnostics.has(configUri)).toBe(false);
+        server!.didChangeTextDocument({ textDocument: { uri: configUri, version: 2 }, contentChanges: [{ text: fs.readFileSync(configPath, 'utf8') + '\n' }] });
+        server!.didCloseTextDocument({ textDocument: { uri: configUri } });
+        await expectSection(item);
+    }, 120_000);
+
+    it('loads plugins and preserves project ownership through an arbitrary JSON reference', async () => {
+        fs.outputJsonSync(path.join(workspace, 'tsppconfig.json'), { files: [], references: [{ path: './child/app.json' }] });
+        fs.outputJsonSync(path.join(workspace, 'child', 'app.json'), {
+            compilerOptions: {
+                target: 'es2022', module: 'commonjs', strict: true, types: [], noEmit: true, composite: true,
+                plugins: [{ name: pluginName, tspp: true }],
+            },
+            include: ['src/**/*.tspp'],
+        });
+        fs.outputFileSync(path.join(workspace, 'child', 'src', 'index.tspp'), source);
+        await start();
+        const item = await open('child');
+        await expectSection(item);
+        const response = await server!.executeCommand({
+            command: TSServerRequestCommand.ID,
+            arguments: [CommandTypes.ProjectInfo, { file: item.uri, needFileNameList: false }, { expectsResult: true, isAsync: false }],
+        }) as { body: { configFileName: string; }; };
+        expect(response.body.configFileName.replaceAll('\\', '/')).toBe(URI.file(path.join(workspace, 'child', 'app.json')).fsPath.replaceAll('\\', '/'));
     }, 120_000);
 });

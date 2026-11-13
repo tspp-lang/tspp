@@ -197,6 +197,104 @@ describe('PluginSetRoutingTsServer', () => {
         expect(exits).toHaveLength(1);
         expect(router.pluginSetKeys).toEqual([]);
     });
+
+    it('reroutes open TS++ files immediately after configuration watch changes', () => {
+        const keys = new Map([['/x/a.tspp', 'x']]);
+        const { router, servers, events, open } = createRouter(keys);
+        open('/x/a.tspp');
+        servers.get('x')!.fire(EventName.createFileWatcher, { id: 7, path: '/x/tsppconfig.json' });
+        const watcherId = (events[0] as ts.server.protocol.CreateFileWatcherEvent).body.id;
+        keys.set('/x/a.tspp', 'y');
+        void router.executeImpl(CommandTypes.WatchChange, [{ id: watcherId, updated: ['/x/tsppconfig.json'] }], noResponse);
+        expect(servers.get('x')!.commands()).toContain(CommandTypes.WatchChange);
+        expect(servers.get('x')!.commands()).toContain(CommandTypes.Close);
+        expect(servers.get('y')!.requests[0]).toMatchObject({ command: CommandTypes.Open, args: { file: '/x/a.tspp' } });
+        expect(events.at(-1)).toMatchObject({ event: EventName.projectsUpdatedInBackground, body: { openFiles: ['/x/a.tspp'] } });
+    });
+});
+
+describe('TS++ configuration discovery', () => {
+    let root: string;
+    let resolver: PluginSetResolver;
+    const config = (name: string, extra = {}) => ({ compilerOptions: { plugins: [{ name, tspp: true }] }, ...extra });
+    function write(file: string, content: object | string): string {
+        const filePath = path.join(root, file);
+        fs.outputFileSync(filePath, typeof content === 'string' ? content : JSON.stringify(content));
+        return filePath;
+    }
+
+    beforeAll(() => {
+        root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tspp-config-discovery-')));
+        resolver = PluginSetResolver.load(path.resolve(import.meta.dirname, '../../../compiler/built/local/tsserver.js'))!;
+    });
+    afterAll(() => fs.removeSync(root));
+
+    it('uses tsppconfig for TS++ while preserving ordinary TS and JS project discovery', () => {
+        write('mixed/tsppconfig.json', config('tspp'));
+        write('mixed/tsconfig.json', config('typescript'));
+        expect(resolver.resolve(write('mixed/file.tspp', 'export {};'), root)).toBe('tspp');
+        expect(resolver.resolve(write('mixed/file.ts', 'export {};'), root)).toBe('typescript');
+        write('javascript/jsconfig.json', config('javascript'));
+        expect(resolver.resolve(write('javascript/file.js', 'export {};'), root)).toBe('javascript');
+    });
+
+    it('never automatically adopts tsconfig or jsconfig for a TS++ source', () => {
+        write('legacy/tsconfig.json', config('legacy'));
+        write('legacy/jsconfig.json', config('legacy-js'));
+        expect(resolver.resolve(write('legacy/file.tspp', 'export {};'), root)).toBe('');
+    });
+
+    it('requires an SDK with product configuration APIs instead of parsing TS++ projects as ordinary TS', () => {
+        const oldSdk = PluginSetResolver.load(createRequire(import.meta.url).resolve('typescript/lib/tsserver.js'))!;
+        write('unsupported-sdk/tsppconfig.json', config('product'));
+        const source = write('unsupported-sdk/index.tspp', 'export {};');
+        expect(() => oldSdk.resolve(source, root)).toThrow('Rebuild or update the TS++ SDK');
+        write('unsupported-sdk/tsconfig.json', config('ordinary'));
+        const ordinary = write('unsupported-sdk/index.ts', 'export {};');
+        expect(oldSdk.resolve(ordinary, root)).toBe('ordinary');
+    });
+
+    it('resolves directory references to tsppconfig instead of a neighboring tsconfig', () => {
+        write('solution/tsppconfig.json', { files: [], references: [{ path: './app' }, { path: './tsppconfig.tests.json' }] });
+        write('solution/app/tsppconfig.json', config('app', { include: ['src'] }));
+        write('solution/app/tsconfig.json', config('wrong'));
+        write('solution/tsppconfig.tests.json', config('tests', { include: ['test'] }));
+        const app = write('solution/app/src/index.tspp', 'export {};');
+        const tests = write('solution/test/index.tspp', 'export {};');
+        expect(resolver.resolve(app, root)).toBe('app');
+        expect(resolver.resolve(tests, root)).toBe('tests');
+    });
+
+    it('routes explicitly opened configuration variants by their own plugin set', () => {
+        write('variant/tsppconfig.json', config('main'));
+        const alternate = write('variant/tsppconfig.demo.json', config('demo'));
+        expect(resolver.resolve(alternate, root)).toBe('demo');
+    });
+
+    it('retains TS++ semantics for arbitrary JSON references and their directory extends', () => {
+        write('custom-solution/tsppconfig.json', { files: [], references: [{ path: './app.json' }] });
+        write('custom-solution/app.json', { extends: './base', include: ['src'] });
+        write('custom-solution/base/tsppconfig.json', config('custom-app'));
+        write('custom-solution/base/tsconfig.json', config('ordinary-base'));
+        // Ordinary TypeScript resolves this relative extends name to base.json.
+        write('custom-solution/base.json', config('ordinary-base'));
+        const source = write('custom-solution/src/index.tspp', 'export {};');
+        expect(resolver.resolve(source, root)).toBe('custom-app');
+        write('custom-solution/tsconfig.json', { files: [], references: [{ path: './app.json' }] });
+        const ordinarySource = write('custom-solution/src/ordinary.ts', 'export {};');
+        expect(resolver.resolve(ordinarySource, root)).toBe('ordinary-base');
+    });
+
+    it('rereads inherited configurations after invalidation', () => {
+        const base = write('cache/base.json', config('first'));
+        write('cache/tsppconfig.json', { extends: './base.json' });
+        const source = write('cache/index.tspp', 'export {};');
+        expect(resolver.resolve(source, root)).toBe('first');
+        write('cache/base.json', config('second'));
+        resolver.invalidate();
+        expect(resolver.resolve(source, root)).toBe('second');
+        fs.removeSync(base);
+    });
 });
 
 describe('PluginSetResolver', () => {

@@ -14,7 +14,7 @@ function sourcesUnder(directory) {
 
 function exampleProjects() {
   return fs.readdirSync(examplesRoot, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && fs.existsSync(path.join(examplesRoot, entry.name, "tsconfig.json")))
+    .filter(entry => entry.isDirectory() && fs.existsSync(path.join(examplesRoot, entry.name, "tsppconfig.json")))
     .map(entry => {
       const root = path.join(examplesRoot, entry.name);
       return { name: entry.name, root, files: sourcesUnder(root).sort().map(file => ({ file, relative: path.relative(examplesRoot, file).replaceAll("\\", "/"), text: fs.readFileSync(file, "utf8") })) };

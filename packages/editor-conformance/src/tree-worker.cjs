@@ -29,7 +29,7 @@ function treeViolation(sourceFile) {
   return violation;
 }
 
-const configFile = path.join(root, "tsconfig.json");
+const configFile = path.join(root, "tsppconfig.json");
 const { options } = ts.parseJsonConfigFileContent(ts.readConfigFile(configFile, ts.sys.readFile).config, ts.sys, root);
 ts.loadTSPPConfiguredPlugins(options, configFile, ts.sys);
 if (options.plugins?.some(plugin => plugin.tspp) && !ts.getActiveTSPPPlugins().length) throw new Error(`No TS++ plugins active for ${root}.`);

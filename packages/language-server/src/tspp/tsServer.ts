@@ -49,7 +49,7 @@ export function createTsServer(host: TsServerHost): ITypeScriptServer {
 
 /** The tsserver arguments TS++ adds to upstream's. */
 export function tsServerArgs(options: TsClientOptions, pluginManager: PluginManager): string[] {
-    // TS++ feature packages are project dependencies declared by the project's tsconfig, so resolve them from that
+    // TS++ feature packages are project dependencies declared by the project's tsppconfig, so resolve them from that
     // project before falling back to global probe locations.
     const args = ['--allowLocalPluginLoads'];
     // The only TS++ feature plugins this server may activate, whatever configs it comes across while searching for a

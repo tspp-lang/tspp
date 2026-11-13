@@ -155,7 +155,9 @@ export class PluginSetRoutingTsServer implements ITypeScriptServer {
 
     private watchChange(args: ts.server.protocol.WatchChangeRequestArgs | readonly ts.server.protocol.WatchChangeRequestArgs[], executeInfo: ExecuteInfo): Responses {
         const changesOfGroup = new Map<Group, ts.server.protocol.WatchChangeRequestArgs[]>();
+        let configChanged = false;
         for (const change of Array.isArray(args) ? args as readonly ts.server.protocol.WatchChangeRequestArgs[] : [args as ts.server.protocol.WatchChangeRequestArgs]) {
+            configChanged ||= [...change.created ?? [], ...change.updated ?? [], ...change.deleted ?? []].some(file => file.endsWith('.json'));
             const watcher = this.watchers.get(change.id);
             if (watcher) {
                 changesOfGroup.set(watcher.group, [...changesOfGroup.get(watcher.group) ?? [], { ...change, id: watcher.id }]);
@@ -163,6 +165,12 @@ export class PluginSetRoutingTsServer implements ITypeScriptServer {
         }
         for (const [group, changes] of changesOfGroup) {
             void group.server.executeImpl(CommandTypes.WatchChange, changes, executeInfo);
+        }
+        if (configChanged) {
+            const moved = this.moveFilesWhosePluginsChanged();
+            if (moved.length) {
+                this.emit({ seq: 0, type: 'event', event: EventName.projectsUpdatedInBackground, body: { openFiles: moved } });
+            }
         }
         return [undefined];
     }
@@ -185,7 +193,7 @@ export class PluginSetRoutingTsServer implements ITypeScriptServer {
         const { workspaceRoot } = this.options;
         return [...this.groups.values()].find(group => group.files.size > 0)
             ?? this.groups.values().next().value
-            ?? this.group(this.options.resolve(workspaceRoot ? path.join(workspaceRoot, 'file') : '', workspaceRoot));
+            ?? this.group(this.options.resolve(workspaceRoot ? path.join(workspaceRoot, 'file.tspp') : '', workspaceRoot));
     }
 
     private group(key: string): Group {

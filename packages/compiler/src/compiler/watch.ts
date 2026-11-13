@@ -1,3 +1,4 @@
+import { getTSPPConfigDiagnostic, inheritTSPPConfigHost } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 import {
     addRange,
     BuilderProgram,
@@ -129,12 +130,12 @@ export function createDiagnosticReporter(system: System, pretty?: boolean): Diag
         getCanonicalFileName: createGetCanonicalFileName(system.useCaseSensitiveFileNames),
     };
     if (!pretty) {
-        return diagnostic => system.write(formatDiagnostic(diagnostic, host));
+        return diagnostic => system.write(formatDiagnostic(getTSPPConfigDiagnostic(diagnostic, system), host)); // TSPP-SLOT(project-configuration)
     }
 
     const diagnostics: Diagnostic[] = new Array(1);
     return diagnostic => {
-        diagnostics[0] = diagnostic;
+        diagnostics[0] = getTSPPConfigDiagnostic(diagnostic, system); // TSPP-SLOT(project-configuration)
         system.write(formatDiagnosticsWithColorAndContext(diagnostics, host) + host.getNewLine());
         diagnostics[0] = undefined!; // TODO: GH#18217
     };
@@ -842,7 +843,7 @@ export function setGetSourceFileAsHashVersioned(compilerHost: CompilerHost): voi
  */
 export function createProgramHost<T extends BuilderProgram = EmitAndSemanticDiagnosticsBuilderProgram>(system: System, createProgram: CreateProgram<T> | undefined): ProgramHost<T> {
     const getDefaultLibLocation = memoize(() => getDirectoryPath(normalizePath(system.getExecutingFilePath())));
-    return {
+    return inheritTSPPConfigHost<ProgramHost<T>>({ // TSPP-SLOT(project-configuration)
         useCaseSensitiveFileNames: () => system.useCaseSensitiveFileNames,
         getNewLine: () => system.newLine,
         getCurrentDirectory: memoize(() => system.getCurrentDirectory()),
@@ -862,7 +863,7 @@ export function createProgramHost<T extends BuilderProgram = EmitAndSemanticDiag
         createProgram: createProgram || createEmitAndSemanticDiagnosticsBuilderProgram as any as CreateProgram<T>,
         storeSignatureInfo: system.storeSignatureInfo,
         now: maybeBind(system, system.now),
-    };
+    }, system); // TSPP-SLOT(project-configuration)
 }
 
 /**

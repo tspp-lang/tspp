@@ -8,6 +8,20 @@ The server accepts the `tspp` language id and treats `.tspp` documents as
 TypeScript script kinds backed by the TSPP parser and language service. Clients
 should pass the TSPP SDK in `initializationOptions.tsserver.path`.
 
+TS++ source projects are discovered through `tsppconfig.json`, including directory
+project references. They do not automatically adopt `tsconfig.json` or
+`jsconfig.json`. Ordinary TypeScript and JavaScript documents keep their existing
+project discovery. Clients may synchronize `tsppconfig.json` and
+`tsppconfig.*.json` as JSON/JSONC documents; they are routed by that configuration's
+plugin set. The VSCode client supplies configuration diagnostics through compiler
+configuration parsing while retaining JSON schema completion.
+
+TS++ 源码项目通过 `tsppconfig.json` 发现，目录形式的项目引用也使用该文件名，
+不会自动采用 `tsconfig.json` 或 `jsconfig.json`。普通 TypeScript 和 JavaScript
+文件保持原有的项目发现行为。客户端可以用 JSON/JSONC 语言同步 `tsppconfig.json`
+和 `tsppconfig.*.json`，服务器按配置自身的插件集路由。VSCode 客户端使用编译器的
+配置解析提供真实诊断，同时保留 JSON schema 补全。
+
 The remainder of this document is the upstream documentation and retains
 upstream TypeScript terminology where behavior has not changed.
 

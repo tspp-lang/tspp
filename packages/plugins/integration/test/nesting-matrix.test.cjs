@@ -232,7 +232,7 @@ function compilePair(key, cases) {
       fs.writeFileSync(path.join(source, `good${index}.tspp`), item.good);
       if (item.bad) fs.writeFileSync(path.join(source, `bad${index}.tspp`), item.bad);
     });
-    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+    fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({
       compilerOptions: {
         target: "es2022",
         module: "commonjs",

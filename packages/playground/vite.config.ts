@@ -249,7 +249,7 @@ function examplesPlugin(): Plugin {
       if (source !== `\0${id}`) return undefined;
       const entries = readdirSync(examplesRoot).filter(name => /^\d\d-/.test(name)).sort().flatMap(project => {
         const directory = join(examplesRoot, project);
-        const configPath = join(directory, "tsconfig.json");
+        const configPath = join(directory, "tsppconfig.json");
         if (!existsSync(configPath)) return [];
         const configText = readFileSync(configPath, "utf8");
         const config = JSON.parse(configText) as {
@@ -267,7 +267,7 @@ function examplesPlugin(): Plugin {
         const files = Object.fromEntries([
           ...existsSync(readme) ? [["/README.md", readFileSync(readme, "utf8")]] : [],
           ["/package.json", readFileSync(join(directory, "package.json"), "utf8")],
-          ["/tsconfig.json", configText],
+          ["/tsppconfig.json", configText],
           ...sources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),
           ...resources.map(file => [`/src/${file}`, readFileSync(join(sourceRoot, file), "utf8")]),
         ]);

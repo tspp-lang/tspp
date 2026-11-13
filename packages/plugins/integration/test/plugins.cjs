@@ -47,7 +47,7 @@ function installCompiler(directory) {
   fs.symlinkSync(compilerPackage, path.join(directory, "node_modules", "ts-plus-plus"), "junction");
 }
 
-/** The name a tsconfig.json gives a plugin of the compiler package, `ts-plus-plus/plugins/<name>`. */
+/** The name a tsppconfig.json gives a plugin of the compiler package, `ts-plus-plus/plugins/<name>`. */
 const pluginName = name => `ts-plus-plus/plugins/${name}`;
 
 module.exports = { allPlugins, useAllPlugins, pluginOrder, pluginsRoot, compilerPackage, installCompiler, pluginName };

@@ -27,7 +27,12 @@ export const jsTsLanguageModes = [
 ];
 
 export function isSupportedLanguageMode(doc: LspDocument): boolean {
-    return [typescript, typescriptreact, javascript, javascriptreact, tspp].includes(doc.languageId); // TSPP-SLOT(tspp-language)
+    return [typescript, typescriptreact, javascript, javascriptreact, tspp].includes(doc.languageId) || isTsppConfigDocument(doc); // TSPP-SLOT(tspp-language)
+}
+
+// TSPP-SLOT(tspp-config-jsonc): Keep configuration documents in the JSON language service while syncing their text.
+export function isTsppConfigDocument(doc: { languageId: string; filepath: string; }): boolean {
+    return ['json', 'jsonc'].includes(doc.languageId) && /(?:^|[/\\])tsppconfig(?:\.[^/\\]+)?\.json$/i.test(doc.filepath);
 }
 
 export function isTypeScriptDocument(doc: LspDocument): boolean {

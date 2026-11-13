@@ -88,6 +88,7 @@ import {
     WatchOptions,
 } from "./_namespaces/ts.js";
 import * as performance from "./performance.js";
+import { getTSPPHostConfigName } from "./tspp/configuration.js"; // TSPP-SLOT(project-configuration)
 import {
     enableTSPPBuildPlugins,
     getTSPPHelpExample,
@@ -618,7 +619,7 @@ function executeCommandLineWorker(
 
         const fileOrDirectory = normalizePath(commandLine.options.project);
         if (!fileOrDirectory /* current directory "." */ || sys.directoryExists(fileOrDirectory)) {
-            configFileName = combinePaths(fileOrDirectory, "tsconfig.json");
+            configFileName = combinePaths(fileOrDirectory, getTSPPHostConfigName(sys)); // TSPP-SLOT(project-configuration)
             if (!sys.fileExists(configFileName)) {
                 reportDiagnostic(createCompilerDiagnostic(Diagnostics.Cannot_find_a_tsconfig_json_file_at_the_specified_directory_Colon_0, commandLine.options.project));
                 return sys.exit(ExitStatus.DiagnosticsPresent_OutputsSkipped);
@@ -634,7 +635,7 @@ function executeCommandLineWorker(
     }
     else if (!commandLine.options.ignoreConfig || commandLine.fileNames.length === 0) {
         const searchPath = normalizePath(sys.getCurrentDirectory());
-        configFileName = findConfigFile(searchPath, fileName => sys.fileExists(fileName));
+        configFileName = findConfigFile(searchPath, fileName => sys.fileExists(fileName), getTSPPHostConfigName(sys)); // TSPP-SLOT(project-configuration)
         // if (!commandLine.options.ignoreConfig) {
         if (commandLine.fileNames.length !== 0) {
             if (configFileName) {
@@ -715,7 +716,7 @@ function executeCommandLineWorker(
     else {
         if (commandLineOptions.showConfig) {
             // eslint-disable-next-line no-restricted-syntax
-            sys.write(JSON.stringify(convertToTSConfig(commandLine, combinePaths(currentDirectory, "tsconfig.json"), sys), null, 4) + sys.newLine);
+            sys.write(JSON.stringify(convertToTSConfig(commandLine, combinePaths(currentDirectory, getTSPPHostConfigName(sys)), sys), null, 4) + sys.newLine); // TSPP-SLOT(project-configuration)
             return sys.exit(ExitStatus.Success);
         }
         reportDiagnostic = updateReportDiagnostic(
@@ -1306,13 +1307,13 @@ function writeConfigFile(
     options: CompilerOptions,
 ) {
     const currentDirectory = sys.getCurrentDirectory();
-    const file = normalizePath(combinePaths(currentDirectory, "tsconfig.json"));
+    const file = normalizePath(combinePaths(currentDirectory, getTSPPHostConfigName(sys))); // TSPP-SLOT(project-configuration)
     if (sys.fileExists(file)) {
         reportDiagnostic(createCompilerDiagnostic(Diagnostics.A_tsconfig_json_file_is_already_defined_at_Colon_0, file));
     }
     else {
         sys.writeFile(file, generateTSConfig(options, sys.newLine));
-        const output: string[] = [sys.newLine, ...getHeader(sys, "Created a new tsconfig.json")];
+        const output: string[] = [sys.newLine, ...getHeader(sys, `Created a new ${getTSPPHostConfigName(sys)}`)]; // TSPP-SLOT(project-configuration)
         output.push(`You can learn more at https://aka.ms/tsconfig` + sys.newLine);
         for (const line of output) {
             sys.write(line);

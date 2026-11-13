@@ -96,7 +96,7 @@ function emit(example, outDir) {
         "exec",
         "tspp",
         "-p",
-        "tsconfig.json",
+        "tsppconfig.json",
         "--noEmit",
         "false",
         "--outDir",

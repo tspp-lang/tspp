@@ -20,13 +20,17 @@ import { ExecutionTarget } from './tsServer/server.js';
 import { applyCodeActionCommand, applyFixAllCodeActionCommand } from './tspp/lspServer.js';
 
 const diagnostics: Map<string, lsp.PublishDiagnosticsParams> = new Map();
+let diagnosticsObserver: ((params: lsp.PublishDiagnosticsParams) => void) | undefined;
 
 let server: TestLspServer;
 
 beforeAll(async () => {
     server = await createServer({
         rootUri: uri(),
-        publishDiagnostics: args => diagnostics.set(args.uri, args),
+        publishDiagnostics: args => {
+            diagnostics.set(args.uri, args);
+            diagnosticsObserver?.(args);
+        },
     });
 });
 
@@ -34,6 +38,7 @@ beforeEach(() => {
     server.closeAllForTesting();
     // "closeAllForTesting" triggers final publishDiagnostics with an empty list so clear last.
     diagnostics.clear();
+    diagnosticsObserver = undefined;
     server.workspaceEdits = [];
 });
 
@@ -1550,7 +1555,22 @@ describe('code actions', () => {
     });
 
     it('can filter quickfix code actions filtered by only', async () => {
+        const publishedParameters = new Promise<lsp.Diagnostic[]>(resolve => {
+            diagnosticsObserver = params => {
+                if (params.uri !== doc.uri) {
+                    return;
+                }
+                const parameters = params.diagnostics.filter(diagnostic => diagnostic.code === 6133 && typeof diagnostic.message === 'string'
+                    && ["'bar' is declared but its value is never read.", "'baz' is declared but its value is never read."].includes(diagnostic.message));
+                if (parameters.length === 2) {
+                    diagnosticsObserver = undefined;
+                    resolve(parameters.sort((left, right) => left.range.start.character - right.range.start.character));
+                }
+            };
+        });
         await openDocumentAndWaitForDiagnostics(server, doc);
+        const parameterDiagnostics = await publishedParameters;
+        expect(parameterDiagnostics).toMatchObject(['bar', 'baz'].map(name => ({ range: range(doc, name), code: 6133 })));
         const result = await server.codeAction({
             textDocument: doc,
             range: {
@@ -1558,20 +1578,13 @@ describe('code actions', () => {
                 end: { line: 1, character: 49 },
             },
             context: {
-                diagnostics: [{
-                    range: {
-                        start: { line: 1, character: 25 },
-                        end: { line: 1, character: 49 },
-                    },
-                    code: 6133,
-                    message: 'unused arg',
-                }],
+                diagnostics: parameterDiagnostics,
                 only: ['refactor.rewrite', 'invalid-action'],
             },
         });
 
         expect(result).toMatchObject([
-            {
+            ...parameterDiagnostics.map((diagnostic, index) => ({
                 command: {
                     arguments: [
                         {
@@ -1582,36 +1595,23 @@ describe('code actions', () => {
                                             {
                                                 end: {
                                                     line: 2,
-                                                    offset: 28,
+                                                    offset: diagnostic.range.end.character + 1,
                                                 },
-                                                newText: '_bar',
+                                                newText: index === 0 ? '_bar' : '_baz',
                                                 start: {
                                                     line: 2,
-                                                    offset: 25,
+                                                    offset: diagnostic.range.start.character + 1,
                                                 },
                                             },
                                         ],
                                     },
                                 ],
-                                description: "Prefix 'bar' with an underscore",
+                                description: `Prefix '${index === 0 ? 'bar' : 'baz'}' with an underscore`,
                                 fixAllDescription: "Prefix all unused declarations with '_' where possible",
                                 fixId: 'unusedIdentifier_prefix',
                                 fixName: 'unusedIdentifier',
                             },
-                            diagnostic: {
-                                code: 6133,
-                                message: 'unused arg',
-                                range: {
-                                    end: {
-                                        character: 49,
-                                        line: 1,
-                                    },
-                                    start: {
-                                        character: 25,
-                                        line: 1,
-                                    },
-                                },
-                            },
+                            diagnostic,
                             documentUri: uri('bar.ts'),
                         },
                     ],
@@ -1620,8 +1620,12 @@ describe('code actions', () => {
                 },
                 isPreferred: true,
                 kind: 'quickfix',
-                title: "Prefix 'bar' with an underscore",
-            },
+                title: `Prefix '${index === 0 ? 'bar' : 'baz'}' with an underscore`,
+                edit: { documentChanges: [{
+                    textDocument: { uri: doc.uri, version: doc.version },
+                    edits: [{ range: diagnostic.range, newText: index === 0 ? '_bar' : '_baz' }],
+                }] },
+            })),
             {
                 command: {
                     arguments: [

@@ -15,7 +15,7 @@
     }
   },
   "scripts": {
-    "build": "tspp -p tsconfig.json --pretty false",
+    "build": "tspp -p tsppconfig.json --pretty false",
     "check": "pnpm build && node ../../../node_modules/typescript/bin/tsc -p consumer/tsconfig.json --pretty false",
     "lint": "eslint src consumer/src"
   },

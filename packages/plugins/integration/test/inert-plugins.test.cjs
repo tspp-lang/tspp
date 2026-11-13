@@ -27,7 +27,7 @@ function compile(populate, set) {
   try {
     populate(path.join(directory, "src"));
     installCompiler(directory);
-    fs.writeFileSync(path.join(directory, "tsconfig.json"), JSON.stringify({
+    fs.writeFileSync(path.join(directory, "tsppconfig.json"), JSON.stringify({
       compilerOptions: {
         target: "es2022", module: "commonjs", outDir: "out", rootDir: "src", types: [], strict: true, noImplicitAny: false, skipLibCheck: true,
         plugins: set.map(name => ({ name: pluginName(name), tspp: true })),
@@ -47,7 +47,7 @@ function compile(populate, set) {
 }
 
 for (const example of examples) {
-  const tsconfig = fs.readFileSync(path.join(examplesRoot, example, "tsconfig.json"), "utf8");
+  const tsconfig = fs.readFileSync(path.join(examplesRoot, example, "tsppconfig.json"), "utf8");
   const declared = plugins.filter(name => tsconfig.includes(`"${pluginName(name)}"`));
   const populate = source => fs.cpSync(path.join(examplesRoot, example, "src"), source, { recursive: true });
   test(`${example} does not notice plugins it does not use`, () => {

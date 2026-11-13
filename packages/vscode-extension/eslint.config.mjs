@@ -2,7 +2,7 @@ import globals from "globals";
 
 export default [
   {
-    files: ["extension.js", "scripts/**/*.js"],
+    files: ["extension.js", "configuration*.js", "scripts/**/*.js", "test/**/*.cjs"],
     languageOptions: {
       globals: globals.node,
     },

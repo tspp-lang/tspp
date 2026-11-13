@@ -117,6 +117,7 @@ import {
     isTSPPSourceFile,
     tryAddingTSPPExtensions,
 } from "./tspp/files.js"; // TSPP-SLOT(module-resolution)
+import { getTSPPReadableDeclaration } from "./tspp/registry.js"; // TSPP-SLOT(declaration-output)
 
 /** @internal */
 export function trace(host: ModuleResolutionHost, message: DiagnosticMessage, ...args: any[]): void {
@@ -2127,6 +2128,8 @@ function loadFileNameFromPackageJsonField(extensions: Extensions, candidate: str
     ) {
         const result = tryFile(candidate, onlyRecordFailures, state);
         const ext = tryExtractTSExtension(candidate) as Extension;
+        const compatible = result && getTSPPReadableDeclaration(result, state.host); // TSPP-SLOT(declaration-output)
+        if (compatible) return { path: compatible, ext: Extension.Dts, resolvedUsingTsExtension: false }; // TSPP-SLOT(declaration-output)
         return result !== undefined ? { path: candidate, ext, resolvedUsingTsExtension: packageJsonValue ? !endsWith(packageJsonValue, ext) : undefined } : undefined;
     }
 
@@ -2194,6 +2197,8 @@ function tryAddingExtensions(candidate: string, extensions: Extensions, original
 
     function tryExtension(ext: string, resolvedUsingTsExtension?: boolean): PathAndExtension | undefined {
         const path = tryFile(candidate + ext, onlyRecordFailures, state);
+        const compatible = path && getTSPPReadableDeclaration(path, state.host); // TSPP-SLOT(declaration-output)
+        if (compatible) return { path: compatible, ext: Extension.Dts, resolvedUsingTsExtension: false }; // TSPP-SLOT(declaration-output)
         return path === undefined ? undefined : { path, ext, resolvedUsingTsExtension: !state.candidateIsFromPackageJsonField && resolvedUsingTsExtension };
     }
 }

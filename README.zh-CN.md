@@ -52,7 +52,9 @@ pnpm playground:dev
 
 ## TypeScript 兼容性边界
 
-TS++ 有意保留了上游的内部命名，例如 `ts` 命名空间、`typescript.js`、`tsconfig.json` 以及 `tsserver` 协议。这些名称描述的是 TypeScript API 及兼容性表面，而非 TS++ 的公开产品名称。保持这一边界的稳定，也使得未来与上游源码进行比对与合并更加可控。
+TS++ 项目使用 `tsppconfig.json`，普通 TypeScript 项目继续使用 `tsconfig.json`。
+
+TS++ 有意保留了上游的内部命名，例如 `ts` 命名空间、`typescript.js` 以及 `tsserver` 协议。这些名称描述的是 TypeScript API 及兼容性表面，而非 TS++ 的公开产品名称。保持这一边界的稳定，也使得未来与上游源码进行比对与合并更加可控。
 
 ## 许可证与上游声明
 
