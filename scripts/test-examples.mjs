@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const examplesRoot = join(repoRoot, "packages", "examples");
+const cli = join(repoRoot, "packages", "compiler", "bin", "tspp");
 const exampleNames = readdirSync(examplesRoot, { withFileTypes: true })
     .filter(entry => entry.isDirectory() && /^\d{2}-/.test(entry.name))
     .map(entry => entry.name)
@@ -65,6 +66,20 @@ for (const example of packages) {
     console.log(`\n[examples] compiling ${example.directory} (${example.name})`);
     run("pnpm", ["--filter", example.name, "check"], repoRoot);
 
+    // Run authored sources through the public CLI, independently of the emitted-JavaScript checks below.
+    // The interop consumer uses the package output prepared by its check script.
+    const consumerRoot = join(example.root, "consumer", "src");
+    const runnableSources = [
+        ...example.sources,
+        ...(existsSync(consumerRoot) ? listFiles(consumerRoot).filter(file => [".ts", ".tspp"].includes(extname(file)) && !/\.d\.(?:ts|tspp)$/.test(file)) : []),
+    ];
+    for (const source of runnableSources) {
+        console.log(`[examples] directly running ${relative(examplesRoot, source)}`);
+        const result = spawnSync(process.execPath, [cli, source], { cwd: example.root, stdio: "inherit", timeout: 120_000 });
+        if (result.error) throw new Error(`Running ${relative(examplesRoot, source)} failed: ${result.error.message}`, { cause: result.error });
+        if (result.status !== 0) throw new Error(`Running ${relative(examplesRoot, source)} failed with ${result.signal ?? `exit code ${result.status}`}.`);
+    }
+
     const runtimeDirectory = mkdtempSync(join(example.root, ".runtime-"));
     try {
         console.log(`[examples] emitting ${example.directory} for its runtime smoke test`);
@@ -95,6 +110,7 @@ function emit(example, outDir) {
         example.name,
         "exec",
         "tspp",
+        "--compile",
         "-p",
         "tsppconfig.json",
         "--noEmit",

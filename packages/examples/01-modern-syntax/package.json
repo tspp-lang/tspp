@@ -4,8 +4,8 @@
   "private": true,
   "description": "Example project for the TS++ modern-syntax plugin.",
   "scripts": {
-    "build": "tspp -p tsppconfig.json --pretty false",
-    "check": "tspp -p tsppconfig.json --noEmit --pretty false",
+    "build": "tspp --compile -p tsppconfig.json --pretty false",
+    "check": "tspp --compile -p tsppconfig.json --noEmit --pretty false",
     "lint": "eslint src"
   },
   "dependencies": {

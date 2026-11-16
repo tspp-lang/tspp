@@ -29,6 +29,6 @@ If a required plugin is not enabled, explain the plugin and configuration change
 
 Follow the target project's conventions and use syntax and examples from the matching version. When fixing diagnostics, preserve the required behavior, type constraints, and proof goals.
 
-Prefer the project's existing check commands and locally installed TS++ compiler. Select compilation, tests, or other checks appropriate to the affected project and change. Ordinary TypeScript compilation does not replace TS++ feature checks.
+Run a source file with `tspp file.tspp`. Use `tspp --compile -p tsppconfig.json` to compile or check a project. Prefer the project's existing check commands and locally installed TS++ compiler. Select compilation, tests, or other checks appropriate to the affected project and change. Ordinary TypeScript compilation does not replace TS++ feature checks.
 
 Correct code based on actual diagnostics. If the environment or tools prevent verification, explain the specific blocker and do not report unfinished checks as passing.

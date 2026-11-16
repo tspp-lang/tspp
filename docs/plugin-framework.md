@@ -465,7 +465,7 @@ parser is process-global, so the process is the isolation boundary: a project's
 plugin set decides which process serves it, and feature packages themselves must
 not work around this with globals.
 
-- **Command line.** Each project of a build gets its own plugin set: `tspp -b` makes a
+- **Command line.** Each project of a build gets its own plugin set: `tspp --compile -b` makes a
   project's plugins the active ones when it creates the project's program, and again
   when analyzers run on that program after the build.
 - **Language server.** `PluginSetRoutingTsServer`

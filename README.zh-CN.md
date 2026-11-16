@@ -54,8 +54,18 @@ pnpm playground:dev
 
 `compiler` 包暴露了两个命令：
 
-- `tspp` — TS++ 命令行编译器；
+- `tspp` — 运行 TS++ 文件或编译项目；
 - `tsppserver` — 采用上游 `tsserver` 协议的 TSPP 编译器服务。
+
+直接运行源码文件，或使用 `--compile` 进入编译器命令行：
+
+```sh
+tspp hello.tspp
+tspp --compile -p tsppconfig.json
+```
+
+直接执行需要支持模块钩子的 Node.js 22.15 或更新版本。入口文件后的参数会传给程序。
+编译器参数可通过 `tspp --compile --help` 查看。
 
 独立的 LSP 包暴露了 `tspp-language-server` 命令，用于将该协议适配为标准 LSP 协议。VS Code 扩展会使用工作区中的 `ts-plus-plus` SDK 启动该 LSP，并将 `.tspp` 文件关联到 `tspp` 语言模式。
 

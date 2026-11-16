@@ -67,13 +67,46 @@ function compileExamples(consumer) {
         return directory;
     });
     for (const directory of directories) {
-        const compiled = tspp(consumer, directory, "-p", ".", "--pretty", "false");
+        const compiled = tspp(consumer, directory, "--compile", "-p", ".", "--pretty", "false");
         assert.equal(compiled.status, 0, `${path.basename(directory)}\n${compiled.stdout}${compiled.stderr}`);
         console.log(`ok  compiled ${path.basename(directory)}`);
     }
     const emitted = spawnSync(process.execPath, [path.join(consumer, "examples", "05-nominal-types", "dist", "01-basics.js")], { encoding: "utf8" });
     assert.equal(emitted.status, 0, `emitted JavaScript failed\n${emitted.stdout}${emitted.stderr}`);
     console.log("ok  ran emitted JavaScript");
+}
+
+function checkRuntime(consumer) {
+    const hello = path.join(consumer, "examples", "00-hello-world");
+    const ranHello = tspp(consumer, hello, "src/index.tspp");
+    assert.equal(ranHello.status, 0, `${ranHello.stdout}${ranHello.stderr}`);
+    assert.equal(ranHello.stdout.trim(), "Hello, World!");
+
+    for (const type of ["commonjs", "module"]) {
+        const project = path.join(consumer, `runtime-${type}`);
+        const dependency = path.join(project, "node_modules", "runtime-dependency");
+        fs.mkdirSync(dependency, { recursive: true });
+        fs.writeFileSync(path.join(project, "package.json"), JSON.stringify({ type }));
+        fs.writeFileSync(path.join(project, "tsppconfig.json"), JSON.stringify({
+            compilerOptions: { target: "es2022", module: "nodenext", moduleResolution: "nodenext", strict: true },
+        }));
+        fs.writeFileSync(path.join(dependency, "package.json"), JSON.stringify({ name: "runtime-dependency", type, main: "index.js", types: "index.d.ts" }));
+        fs.writeFileSync(path.join(dependency, "index.d.ts"), 'export const value: string;\n');
+        fs.writeFileSync(path.join(dependency, "index.js"), type === "module" ? 'export const value = "dependency";\n' : 'exports.value = "dependency";\n');
+        fs.writeFileSync(path.join(project, "dep.tspp"), 'export const suffix = "local";\n');
+        fs.writeFileSync(path.join(project, "main.tspp"), [
+            'import { value } from "runtime-dependency";',
+            'import { suffix } from "./dep.js";',
+            'declare const process: { argv: string[]; exitCode: number };',
+            'console.log(`${value}:${suffix}:${process.argv.slice(2).join(",")}`);',
+            'process.exitCode = 7;',
+            '',
+        ].join("\n"));
+        const result = tspp(consumer, project, "main.tspp", "first", "second");
+        assert.equal(result.status, 7, `${type} runtime failed\n${result.stdout}${result.stderr}`);
+        assert.equal(result.stdout.trim(), "dependency:local:first,second");
+    }
+    console.log("ok  ran installed CLI in CommonJS and ESM projects");
 }
 
 function writeProject(consumer) {
@@ -100,7 +133,7 @@ function writeProject(consumer) {
 
 // A compiler that ignored its plugins could pass every example that checks nothing, so errors must be reported too.
 function checkErrorsAreReported(consumer, project) {
-    const compiled = tspp(consumer, project, "-p", ".", "--pretty", "false");
+    const compiled = tspp(consumer, project, "--compile", "-p", ".", "--pretty", "false");
     const output = `${compiled.stdout}${compiled.stderr}`;
     assert.equal(compiled.status, 1, output);
     assert.match(output, /refuted postcondition could not be proved/);
@@ -213,6 +246,7 @@ try {
     checkInstalledManifests(consumer);
     console.log("ok  installed every tarball");
     compileExamples(consumer);
+    checkRuntime(consumer);
     const project = writeProject(consumer);
     checkErrorsAreReported(consumer, project);
     checkPlayground();

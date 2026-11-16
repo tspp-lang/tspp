@@ -93,6 +93,12 @@ Explore effect handling, automated compile-time theorem proving, and compile-tim
 
 Inside any example package directory, you can run:
 
+`tspp src/file.tspp` 直接运行源码；使用 `tspp --compile -p tsppconfig.json` 编译项目。
+Run a source file directly with `tspp src/file.tspp`, or compile the project with `tspp --compile -p tsppconfig.json`.
+
+仓库根目录的 `pnpm test:examples` 会逐个直接执行示例源码（包括 TypeScript 互操作消费者），并在 CI 中运行；任一文件执行失败或超时都会使检查失败。
+From the repository root, `pnpm test:examples` directly executes every example source, including the TypeScript interop consumer, as part of CI. A failed or timed-out execution fails the check.
+
 ```bash
 # 运行编译期类型、契约与语法检查 / Run compile-time type, contract, and syntax checks
 pnpm check

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const fs = require('node:fs')
-const path = require('node:path')
-const developmentCompiler = path.resolve(__dirname, '../built/local/tsc.js')
-require(fs.existsSync(developmentCompiler) ? developmentCompiler : '../lib/tsc.js')
+require('./tspp-runner.cjs').main(process.argv.slice(2)).catch(error => {
+    console.error(error.stack || error.message || String(error))
+    process.exitCode = 1
+})

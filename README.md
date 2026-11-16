@@ -49,8 +49,18 @@ pnpm playground:dev
 
 The compiler package exposes two commands:
 
-- `tspp` — the TS++ command-line compiler;
+- `tspp` — run TS++ files or compile projects;
 - `tsppserver` — the TSPP compiler service using the upstream tsserver protocol.
+
+Run a source file directly, or use `--compile` for the compiler CLI:
+
+```sh
+tspp hello.tspp
+tspp --compile -p tsppconfig.json
+```
+
+Direct execution requires Node.js 22.15 or newer with module hooks. Arguments after
+the entry file are forwarded to the program. Use `tspp --compile --help` for compiler options.
 
 The separate LSP package exposes `tspp-language-server`, which adapts that
 protocol to LSP. The VSCode extension starts the LSP with the workspace
