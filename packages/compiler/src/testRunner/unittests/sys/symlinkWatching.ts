@@ -484,6 +484,9 @@ describe("unittests:: sys:: symlinkWatching::", () => {
                 ],
                 linkSubFileDelete: [
                     { event: "rename", fileName: "sub/folder/file3.ts" },
+                    // Windows may also report parent metadata changes when another process observes the junction.
+                    // https://github.com/nodejs/node/issues/53903
+                    { event: "change", fileName: "sub/folder", optional: true },
                 ],
 
                 parallelFileCreate: undefined,

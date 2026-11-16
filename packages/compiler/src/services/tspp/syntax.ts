@@ -226,8 +226,9 @@ function createSyntaxList(nodes: NodeArray<Node>, parent: Node, createNode: (kin
     return list;
 }
 
-/** Whether a node's children are factory-created or out of source order, which the formatting rules cannot walk. @internal */
+/** Whether a TS++ node's children are factory-created or out of source order, which the formatting rules cannot walk. @internal */
 export function hasUnformattableTSPPChildren(node: Node): boolean {
+    if (!isInTSPPFile(node)) return false;
     let end = node.pos;
     const isUnordered = (range: TextRange) => {
         if (range.pos < 0 || range.pos < end) return true;

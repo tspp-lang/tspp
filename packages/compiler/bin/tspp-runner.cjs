@@ -180,7 +180,11 @@ async function run(entry, args, manifest) {
         stdio: "inherit",
         env: { ...process.env, TSPP_RUN_MANIFEST: manifest },
     });
-    const forward = signal => child.kill(signal);
+    const forward = signal => {
+        // Windows broadcasts console Ctrl+C to both processes. kill('SIGINT') would
+        // terminate the child before its own handler can finish cleanup.
+        if (process.platform !== "win32" || signal !== "SIGINT") child.kill(signal);
+    };
     const sigint = () => forward("SIGINT");
     const sigterm = () => forward("SIGTERM");
     process.on("SIGINT", sigint);

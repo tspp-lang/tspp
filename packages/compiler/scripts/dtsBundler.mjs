@@ -73,7 +73,9 @@ function getDeclarationStatement(node) {
     return undefined;
 }
 
-const program = ts.createProgram([entrypoint], { target: ts.ScriptTarget.ES2015 });
+// The compiler's own relative imports also worked with Classic resolution. SDK contracts come from a package.
+const compilerOptions = { target: ts.ScriptTarget.ES2015, moduleResolution: ts.ModuleResolutionKind.Node10 };
+const program = ts.createProgram([entrypoint], compilerOptions);
 
 const typeChecker = program.getTypeChecker();
 
@@ -242,6 +244,68 @@ const scopeStack = [];
 /** @type {Map<ts.Symbol, string>} */
 const symbolToNamespace = new Map();
 
+const sdkModule = ts.resolveModuleName("@tspp/plugin-sdk", entrypoint, compilerOptions, ts.sys).resolvedModule;
+assert(sdkModule, "Failed to resolve @tspp/plugin-sdk declarations; build the SDK before bundling the compiler");
+const sdkDirectory = path.dirname(path.resolve(sdkModule.resolvedFileName));
+const sdkNamespace = "__tsppPluginSDK";
+/** @type {Map<ts.Symbol, WriteTarget>} */
+const sdkDeclarations = new Map();
+/** @type {Map<string, { symbol: ts.Symbol, writeTarget: WriteTarget }>} */
+const sdkAliases = new Map();
+
+/** @param {ts.Identifier} node */
+function isSDKTypeReference(node) {
+    if (ts.isPartOfTypeNode(node)) return true;
+    // Type queries refer to values, so isPartOfTypeNode deliberately excludes their expression names.
+    let name = /** @type {ts.EntityName} */ (node);
+    while (ts.isQualifiedName(name.parent)) name = name.parent;
+    return ts.isTypeQueryNode(name.parent) && name.parent.exprName === name;
+}
+
+/** @param {ts.Symbol} symbol */
+function getSDKDeclarationSymbol(symbol) {
+    const resolved = resolveSymbol(symbol);
+    if (!resolved.declarations?.length) return undefined;
+    return resolved.declarations.every(decl => {
+            const relative = path.relative(sdkDirectory, path.resolve(decl.getSourceFile().fileName));
+            return !path.isAbsolute(relative) && relative !== ".." && !relative.startsWith(`..${path.sep}`) && !!getDeclarationStatement(decl);
+        }) ? resolved : undefined;
+}
+
+/**
+ * Keep the SDK dependency graph private to the declaration module. External imports would require consumers of
+ * the otherwise self-contained bundle (including APILibCheck's virtual project) to resolve the SDK and upstream TS.
+ * @param {ts.Symbol} symbol
+ * @param {WriteTarget} writeTarget
+ */
+function includeSDKDeclaration(symbol, writeTarget) {
+    const previous = sdkDeclarations.get(symbol) ?? 0;
+    if ((previous & writeTarget) === writeTarget) return;
+    sdkDeclarations.set(symbol, previous | writeTarget);
+    /** @type {(node: ts.Node) => void} */
+    const visit = node => {
+        if (ts.isIdentifier(node) && isSDKTypeReference(node)) {
+            const referenced = typeChecker.getSymbolAtLocation(node);
+            const dependency = referenced && getSDKDeclarationSymbol(referenced);
+            if (dependency) includeSDKDeclaration(dependency, writeTarget);
+        }
+        ts.forEachChild(node, visit);
+    };
+    for (const declaration of symbol.declarations ?? []) visit(declaration);
+}
+
+/**
+ * @param {string} name
+ * @param {ts.Symbol} symbol
+ * @param {WriteTarget} writeTarget
+ */
+function includeSDKAlias(name, symbol, writeTarget) {
+    const previous = sdkAliases.get(name);
+    assert(!previous || previous.symbol === symbol, `Conflicting SDK aliases for ${name}`);
+    sdkAliases.set(name, { symbol, writeTarget: (previous?.writeTarget ?? 0) | writeTarget });
+    includeSDKDeclaration(symbol, writeTarget);
+}
+
 /**
  * @param {string} name
  */
@@ -323,6 +387,12 @@ function verifyMatchingSymbols(decl, isInternal) {
                 fail(`No symbol for node at ${nodeToLocation(node)}`);
             }
             const symbolInScope = findInScope(symbolOfNode.name);
+            const sdkSymbol = getSDKDeclarationSymbol(symbolOfNode);
+            if (sdkSymbol) {
+                assert(!symbolInScope || !symbolsConflict(symbolOfNode, symbolInScope), `SDK alias conflicts with bundled declaration: ${symbolOfNode.name}`);
+                includeSDKAlias(symbolOfNode.name, sdkSymbol, isInternal ? WriteTarget.Internal : WriteTarget.Both);
+                return node;
+            }
             if (!symbolInScope) {
                 if (symbolOfNode.declarations?.every(d => isLocalDeclaration(d) && d.getSourceFile() === decl.getSourceFile()) && !isSelfReference(node, symbolOfNode)) {
                     // The symbol is a local that needs to be copied into the scope.
@@ -481,6 +551,57 @@ function emitAsNamespace(name, parent, moduleSymbol, needExportModifier) {
 }
 
 emitAsNamespace("ts", "", moduleSymbol, /*needExportModifier*/ false);
+
+/**
+ * @param {ts.EntityName} name
+ * @returns {ts.QualifiedName}
+ */
+function prefixSDKTypeName(name) {
+    return ts.isIdentifier(name)
+        ? ts.factory.createQualifiedName(ts.factory.createIdentifier("ts"), name)
+        : ts.factory.createQualifiedName(prefixSDKTypeName(name.left), name.right);
+}
+
+/**
+ * @param {ts.Node} node
+ * @returns {ts.Node}
+ */
+function rewriteSDKDeclaration(node) {
+    if (
+        ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)
+        && node.argument.literal.text === "typescript-upstream"
+    ) {
+        const name = node.qualifier ? prefixSDKTypeName(node.qualifier) : ts.factory.createIdentifier("ts");
+        const typeArguments = ts.visitNodes(node.typeArguments, rewriteSDKDeclaration, ts.isTypeNode);
+        assert(node.isTypeOf || node.qualifier, "A namespace import cannot be used as a type");
+        return node.isTypeOf ? ts.factory.createTypeQueryNode(name, typeArguments) : ts.factory.createTypeReferenceNode(name, typeArguments);
+    }
+    if (ts.isIdentifier(node) && isSDKTypeReference(node)) {
+        const referenced = typeChecker.getSymbolAtLocation(node);
+        const symbol = referenced && getSDKDeclarationSymbol(referenced);
+        if (symbol && node.text !== symbol.name) return ts.factory.createIdentifier(symbol.name);
+    }
+    return ts.visitEachChild(node, rewriteSDKDeclaration, /*context*/ undefined);
+}
+
+if (sdkDeclarations.size) {
+    const target = [...sdkDeclarations.values()].reduce((left, right) => left | right, 0);
+    write(`declare namespace ${sdkNamespace} {`, target);
+    increaseIndent();
+    for (const [symbol, writeTarget] of sdkDeclarations) {
+        for (const declaration of symbol.declarations ?? []) {
+            const statement = /** @type {ts.Statement} */ (getDeclarationStatement(declaration));
+            const rewritten = rewriteSDKDeclaration(statement);
+            const updated = ts.visitEachChild(rewritten, node => removeDeclareConstExport(node, /*needExportModifier*/ true), /*context*/ undefined);
+            writeNode(updated, declaration.getSourceFile(), writeTarget);
+        }
+    }
+    decreaseIndent();
+    write("}", target);
+    for (const [name, { symbol, writeTarget }] of sdkAliases) {
+        write(`import ${name} = ${sdkNamespace}.${symbol.name};`, writeTarget);
+    }
+}
 
 write("export = ts;", WriteTarget.Both);
 

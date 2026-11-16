@@ -32,6 +32,7 @@
 | --- | --- |
 | [command-kit](./command-kit/README.md) | 帮助开发者编写命令行应用的工具库 |
 | [local-ip](./local-ip/README.md) | 查看本机网卡与 IP 地址，支持筛选和 JSON 输出 |
+| [task-kit](./task-kit/README.md) | 定义、准备和运行任务及其依赖的工具库 |
 
 ---
 
@@ -78,3 +79,4 @@ tutorials live in [examples](../examples/README.md).
 | --- | --- |
 | [command-kit](./command-kit/README.md) | A library for developers building command-line applications |
 | [local-ip](./local-ip/README.md) | Inspect local interfaces and IP addresses with filtering and JSON output |
+| [task-kit](./task-kit/README.md) | Define, prepare, and run tasks and their dependencies |

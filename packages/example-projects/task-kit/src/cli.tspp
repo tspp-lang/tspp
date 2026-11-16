@@ -1,0 +1,83 @@
+import {
+  Command, flag, option, optionalArgument, text, Parsed, ParseFailed, HelpRequested, VersionRequested, formatDiagnostic,
+} from "@tspp/command-kit";
+import type { TaskOptions, TaskTable } from "./model.js";
+import { prepareTasks, formatPlan } from "./planner.js";
+import { executePlan } from "./runner.js";
+import type { ExecutionProcesses } from "./processes.js";
+import { defaultCacheFile, readLastTask, saveLastTask, selectTask, taskCandidates, type TaskSelectionOptions } from "./search.js";
+
+export interface TaskCliOptions extends Omit<TaskOptions, "args"> {
+  readonly argv?: readonly string[];
+  readonly commandName?: string;
+  readonly cacheFile?: string;
+  readonly selectTask?: (options: TaskSelectionOptions) => Promise<string | undefined>;
+}
+
+/** Returns an exit code and removes signal handlers; the host owns process.exitCode. */
+export async function runTaskCli(tasks: TaskTable, options: TaskCliOptions): Promise<number> {
+  const logger = options.logger ?? console;
+  const name = optionalArgument("task", text(), { description: "Task name; omit to search interactively" });
+  const env = option("env", text(), { description: "Override environment file for the whole graph" });
+  const dry = flag("dry-run", { description: "Preview the task graph without preparing or running", default: options.dryRun });
+  const prepare = flag("prepare-only", { description: "Collect all options, then print the prepared plan", default: options.prepareOnly });
+  const list = flag("list", { description: "List public tasks" });
+  const all = flag("list-all", { description: "List public and internal tasks" });
+  const command = new Command(options.commandName ?? "task", "Run project tasks. Arguments after -- go to the root task's last command.")
+    .argument(name).option(env).option(dry).option(prepare).option(list).option(all);
+  const argv = [...(options.argv ?? process.argv.slice(2))];
+  const separator = argv.indexOf("--");
+  const forwarded = separator < 0 ? [] : argv.slice(separator + 1);
+  const parsed = command.parse(separator < 0 ? argv : argv.slice(0, separator));
+  const invocation = match parsed {
+    Parsed(value) => value,
+    HelpRequested(help) => do { logger.log(help); undefined; },
+    VersionRequested(version) => do { logger.log(version); undefined; },
+    ParseFailed(error) => do { logger.warn(formatDiagnostic(error)); undefined; },
+  };
+  if (!invocation) return match parsed { ParseFailed(_) => 2, _ => 0 };
+  if (invocation.get(list) || invocation.get(all)) {
+    for (const candidate of taskCandidates(tasks, invocation.get(all))) logger.log(candidate.name);
+    return 0;
+  }
+  const controller = new AbortController();
+  let receivedSignal: "SIGINT" | "SIGTERM" | undefined;
+  let processes: ExecutionProcesses | undefined;
+  const forwardAbort = (): void => controller.abort(options.signal?.reason);
+  const stop = (signal: "SIGINT" | "SIGTERM"): void => {
+    if (receivedSignal) { logger.warn("[task] Repeated signal: force stopping task processes"); processes?.force(); return; }
+    receivedSignal = signal;
+    controller.abort(new Error(`Received ${signal}`));
+  };
+  const interrupt = (): void => stop("SIGINT");
+  const terminate = (): void => stop("SIGTERM");
+  process.on("SIGINT", interrupt); process.on("SIGTERM", terminate);
+  options.signal?.addEventListener("abort", forwardAbort, { once: true });
+  if (options.signal?.aborted) forwardAbort();
+  try {
+    controller.signal.throwIfAborted();
+    let selected = invocation.get(name);
+    if (selected === undefined) {
+      const cache = options.cacheFile ?? defaultCacheFile(options.rootDir);
+      const lastTask = await readLastTask(cache);
+      selected = await (options.selectTask ?? selectTask)({ candidates: taskCandidates(tasks), lastTask, signal: controller.signal });
+      if (selected === undefined) { logger.log("Cancelled"); return 0; }
+      if (!Object.hasOwn(tasks, selected) || tasks[selected].public === false) throw new Error(`Unknown public task: ${selected}`);
+      await saveLastTask(cache, selected);
+    }
+    const plan = await prepareTasks(tasks, selected, {
+      ...options, envFile: invocation.get(env) ?? options.envFile, args: forwarded,
+      dryRun: invocation.get(dry), prepareOnly: invocation.get(prepare), signal: controller.signal,
+    });
+    if (invocation.get(dry) || invocation.get(prepare)) logger.log(formatPlan(plan));
+    else await executePlan(plan, { ...options, signal: controller.signal, onProcesses: value => { processes = value; } });
+    return receivedSignal === "SIGINT" ? 130 : receivedSignal === "SIGTERM" ? 143 : 0;
+  } catch (error) {
+    if (receivedSignal) return receivedSignal === "SIGINT" ? 130 : 143;
+    logger.warn(error instanceof Error ? error.message : String(error));
+    return 1;
+  } finally {
+    process.off("SIGINT", interrupt); process.off("SIGTERM", terminate);
+    options.signal?.removeEventListener("abort", forwardAbort);
+  }
+}

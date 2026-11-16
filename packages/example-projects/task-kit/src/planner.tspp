@@ -1,0 +1,118 @@
+import { resolve } from "node:path";
+import {
+  PreparedCommand, PreparedTask, TaskPlan,
+  type TaskCommand, type TaskDefinition, type TaskOptions, type TaskTable,
+} from "./model.js";
+import { environmentId, loadEnvironment } from "./environment.js";
+
+function commands(task: TaskDefinition): readonly TaskCommand[] {
+  if (task.run === undefined) return [];
+  return "program" in task.run ? [task.run] : task.run;
+}
+
+/** Validate every definition before loading environment files or calling preparers. */
+export function validateTasks(tasks: TaskTable, root: string): void {
+  if (!Object.hasOwn(tasks, root)) throw new Error(`Unknown task: ${root}`);
+  for (const [name, task] of Object.entries(tasks)) {
+    if (!name.trim() || typeof task.description !== "string" || !task.description.trim()) throw new Error(`Task '${name}' needs a description`);
+    if (task.dependencyMode !== undefined && task.dependencyMode !== "serial" && task.dependencyMode !== "parallel") throw new Error(`Task '${name}' has an invalid dependencyMode`);
+    for (const dependency of task.dependencies ?? []) {
+      if (!Object.hasOwn(tasks, dependency)) throw new Error(`Task '${name}' depends on unknown task '${dependency}'`);
+    }
+    for (const entry of commands(task)) {
+      if (typeof entry.program !== "string" || !entry.program.trim() || !Array.isArray(entry.args) || entry.args.some(arg => typeof arg !== "string")) throw new Error(`Task '${name}' has an invalid command`);
+    }
+  }
+  const visited = new Set<string>();
+  const visit = (name: string, trail: readonly string[]): void => {
+    if (trail.includes(name)) throw new Error(`Circular task dependency: ${[...trail, name].join(" -> ")}`);
+    if (visited.has(name)) return;
+    for (const dependency of tasks[name].dependencies ?? []) visit(dependency, [...trail, name]);
+    visited.add(name);
+  };
+  for (const name of Object.keys(tasks)) visit(name, []);
+}
+
+/** Preparation uses a frozen copy: later definition/file changes never alter execution. */
+export async function prepareTasks(tasks: TaskTable, root: string, options: TaskOptions): Promise<TaskPlan> {
+  if (!options.rootDir || typeof options.rootDir !== "string") throw new Error("rootDir is required");
+  validateTasks(tasks, root);
+  options.signal?.throwIfAborted();
+  const rootDir = resolve(options.rootDir);
+  const definitions = new Map(Object.entries(tasks).map(([name, task]) => [name, {
+    ...task,
+    dependencies: Object.freeze([...(task.dependencies ?? [])]),
+    env: task.env === undefined ? undefined : Object.freeze({ ...task.env }),
+    run: Object.freeze(commands(task).map(entry => Object.freeze({ program: entry.program, args: Object.freeze([...entry.args]) }))),
+  }]));
+  let inherited: Readonly<NodeJS.ProcessEnv> = Object.freeze({ ...(options.env ?? process.env) });
+  if (!options.dryRun && options.envFile !== undefined) inherited = await loadEnvironment(inherited, options.envFile, options);
+  const pending = new Map<string, { task: TaskDefinition; node: PreparedTask }>();
+  const collect = async (name: string, parentEnv: Readonly<NodeJS.ProcessEnv>, parentHasFile: boolean): Promise<void> => {
+    options.signal?.throwIfAborted();
+    const task = definitions.get(name);
+    if (!task) throw new Error(`Unknown task: ${name}`);
+    let env = parentEnv;
+    if (!options.dryRun && options.envFile === undefined && task.envFile !== undefined) env = await loadEnvironment(env, task.envFile, options);
+    if (task.env !== undefined) env = Object.freeze({ ...env, ...task.env });
+    const hasFile = parentHasFile || options.envFile !== undefined || task.envFile !== undefined;
+    if (!options.dryRun && task.requireEnvFile && !hasFile) throw new Error(`Task '${name}' requires an environment file; use --env <file>`);
+    const identity = environmentId(env);
+    const existing = pending.get(name);
+    if (existing) {
+      if (!options.dryRun && existing.node.environmentId !== identity) throw new Error(`Task '${name}' is requested in conflicting environments`);
+      return;
+    }
+    const node = new PreparedTask(name, task.description, Object.freeze([...(task.dependencies ?? [])]),
+      task.dependencyMode ?? "serial", Object.freeze({ ...env }), identity, resolve(rootDir, task.cwd ?? "."),
+      Object.freeze(commands(task).map(entry => Object.freeze(new PreparedCommand(entry.program, Object.freeze([...entry.args]))))),
+      task.inheritStdin === true, task.prepare !== undefined, options.envFile ?? task.envFile);
+    pending.set(name, { task, node });
+    for (const dependency of node.dependencies) await collect(dependency, env, hasFile);
+  };
+  await collect(root, inherited, options.envFile !== undefined);
+  const result: PreparedTask[] = [];
+  const forwarded = Object.freeze([...(options.args ?? [])]);
+  for (const [name, { task, node }] of pending) {
+    options.signal?.throwIfAborted();
+    let args: readonly string[] = name === root && task.forwardArgs ? forwarded : Object.freeze([]);
+    if (!options.dryRun && task.prepare) {
+      const prepared = await task.prepare(Object.freeze({ taskName: name, isRoot: name === root, args, env: node.env, cwd: node.cwd, signal: options.signal }));
+      options.signal?.throwIfAborted();
+      if (!prepared || !Array.isArray(prepared.args) || prepared.args.some(arg => typeof arg !== "string")) throw new Error(`Preparation for '${name}' must return string arguments`);
+      args = Object.freeze([...prepared.args]);
+    }
+    const compiled = node.commands.map((entry, index) => Object.freeze(new PreparedCommand(entry.program,
+      Object.freeze([...entry.args, ...(index === node.commands.length - 1 ? args : [])]))));
+    result.push(Object.freeze(new PreparedTask(node.name, node.description, node.dependencies, node.dependencyMode,
+      node.env, node.environmentId, node.cwd, Object.freeze(compiled), node.inheritStdin, node.hasPreparation, node.envFile)));
+  }
+  return Object.freeze(new TaskPlan(root, rootDir, Object.freeze(result), !options.dryRun));
+}
+
+export function formatCommand(command: TaskCommand): string do {
+  [command.program, ...command.args].map(arg => /^[\w./:=@+-]+$/.test(arg) ? arg : JSON.stringify(arg)).join(" ");
+}
+
+export function formatPlan(plan: TaskPlan): string {
+  const lookup = new Map(plan.tasks.map(task => [task.name, task]));
+  const lines = [`Execution plan: ${plan.root}${plan.prepared ? " (prepared)" : " (preview; preparation skipped)"}`];
+  const seen = new Set<string>();
+  const visit = (name: string, indent: string): void => {
+    const node = lookup.get(name);
+    if (!node) throw new Error(`Invalid plan: missing task '${name}'`);
+    lines.push(`${indent}${name} [${node.dependencyMode}${node.hasPreparation ? ", prepare" : ""}${node.envFile ? `, env: ${node.envFile}` : ""}] - ${node.description}${seen.has(name) ? " (shared)" : ""}`);
+    if (seen.has(name)) return;
+    seen.add(name);
+    for (const dependency of node.dependencies) visit(dependency, `${indent}  `);
+    for (const entry of node.commands) lines.push(`${indent}  $ ${formatCommand(entry)}`);
+  };
+  visit(plan.root, "");
+  return lines.join("\n");
+}
+
+/** Rendering requests an output capability; callers choose their terminal or collector. */
+export effect PlanOutput { write(text: string): void; }
+export function printPlan(plan: TaskPlan) / PlanOutput: void {
+  perform PlanOutput.write(formatPlan(plan));
+}

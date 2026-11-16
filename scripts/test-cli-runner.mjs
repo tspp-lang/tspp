@@ -6,6 +6,8 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
 import test from 'node:test';
+import vm from 'node:vm';
+import { EventEmitter } from 'node:events';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(root, 'packages/compiler/bin/tspp');
@@ -32,6 +34,32 @@ function success(result) {
     assert.equal(result.status, 0, result.stdout + result.stderr);
     return result.stdout.trim();
 }
+
+test('console interrupts preserve Windows child cleanup and forward repeated POSIX signals', async () => {
+    const source = fs.readFileSync(path.join(root, 'packages/compiler/bin/tspp-runner.cjs'), 'utf8');
+    for (const platform of ['win32', 'linux']) {
+        const host = Object.assign(new EventEmitter(), { platform, execPath: process.execPath, env: {} });
+        const child = new EventEmitter();
+        const forwarded = [];
+        child.kill = signal => { forwarded.push(signal); return true; };
+        const module = { exports: {} };
+        vm.runInNewContext(source + '\nmodule.exports.runForTest = run;', {
+            module, __dirname: path.join(root, 'packages/compiler/bin'), process: host,
+            require: name => name === 'node:child_process' ? { spawn: () => child } : createRequire(import.meta.url)(name),
+        });
+        const running = module.exports.runForTest('entry.tspp', [], 'manifest.json');
+        host.emit('SIGINT');
+        host.emit('SIGINT');
+        assert.deepEqual(forwarded, platform === 'win32' ? [] : ['SIGINT', 'SIGINT']);
+        host.emit('SIGTERM');
+        assert.equal(forwarded.at(-1), 'SIGTERM');
+        child.emit('exit', 130, null);
+        await running;
+        assert.equal(host.exitCode, 130);
+        assert.equal(host.listenerCount('SIGINT'), 0);
+        assert.equal(host.listenerCount('SIGTERM'), 0);
+    }
+});
 
 test('help, version and explicit compiler mode', t => {
     const directory = project(t, { 'main.tspp': 'console.log("executed");' });

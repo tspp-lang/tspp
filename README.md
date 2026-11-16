@@ -45,6 +45,13 @@ pnpm test
 pnpm playground:dev
 ```
 
+Root scripts use [task-kit](packages/example-projects/task-kit/README.md). Run
+`pnpm task --list` to see tasks, `pnpm task build --dry-run` to inspect a plan,
+or `pnpm task build --prepare-only` to prepare it without executing commands.
+`pnpm bootstrap:tasks` builds the prerequisites explicitly; task commands also
+build them automatically when needed. Task definitions live in
+`scripts/task/tasks.ts`. Use `pnpm check` for repository checks.
+
 ## Commands
 
 The compiler package exposes two commands:

@@ -33,7 +33,7 @@ TS++ Compiler - Version FakeTSVersion
   [94mtspp --init[39m
   Creates a tsconfig.json with the recommended settings in the working directory.
 
-  [94mtspp -p ./path/to/tsconfig.json[39m
+  [94mtspp -p ./path/to/tsppconfig.json[39m
   Compiles the TypeScript project located at the specified path.
 
   [94mtspp --help --all[39m

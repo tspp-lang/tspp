@@ -50,6 +50,12 @@ pnpm test
 pnpm playground:dev
 ```
 
+根目录脚本使用 [task-kit](packages/example-projects/task-kit/README.md)。运行
+`pnpm task --list` 查看任务，`pnpm task build --dry-run` 查看执行计划，
+或用 `pnpm task build --prepare-only` 仅准备任务。`pnpm bootstrap:tasks` 可显式构建
+运行所需依赖；执行任务时也会在需要时自动构建。任务定义位于
+`scripts/task/tasks.ts`，使用 `pnpm check` 运行仓库检查。
+
 ## 命令与架构说明
 
 `compiler` 包暴露了两个命令：

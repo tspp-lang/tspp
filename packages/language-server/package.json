@@ -27,7 +27,7 @@
   "scripts": {
     "dev": "rimraf lib && rollup --config rollup.config.ts --configPlugin \"typescript={sourceMap: false}\" --watch",
     "build": "rimraf lib && rollup --config rollup.config.ts --configPlugin \"typescript={sourceMap: false}\"",
-    "clean": "rimraf lib *.tsbuildinfo",
+    "clean": "rimraf --glob lib *.tsbuildinfo",
     "test": "cross-env CONSOLE_LOG_LEVEL=warning vitest --coverage",
     "test:fixtures": "pnpm --filter @tspp/example-nominal-types build",
     "test:commit": "pnpm test:fixtures && cross-env CONSOLE_LOG_LEVEL=warning vitest run",

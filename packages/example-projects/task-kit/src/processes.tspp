@@ -1,0 +1,158 @@
+import { type ChildProcess, spawn } from "node:child_process";
+import crossSpawn from "cross-spawn";
+import type { PreparedCommand, PreparedTask, TaskLogger } from "./model.js";
+import { formatCommand } from "./planner.js";
+
+/** Each execution owns its children; cancellation never touches another execution. */
+export class ExecutionProcesses {
+  private readonly children = new Set<ChildProcess>();
+  private termination: Promise<void> | undefined;
+  private readonly targets = new Set<number>();
+  private forced = false;
+  private readonly forceWaiters = new Set<() => void>();
+  private readonly killJobs = new Set<Promise<void>>();
+
+  constructor(private readonly logger: TaskLogger, private readonly timeout: number) {
+    if (!Number.isFinite(timeout) || timeout < 0) throw new Error("gracefulTimeoutMs must be a nonnegative finite number");
+  }
+
+  async run(task: PreparedTask, command: PreparedCommand, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    this.logger.log(`[task] ${task.name}: ${formatCommand(command)}`);
+    await new Promise<void>((resolve, reject) => {
+      const child = crossSpawn(command.program, [...command.args], {
+        cwd: task.cwd, env: { ...task.env, TASK_EXECUTION_PHASE: "execute" },
+        stdio: [task.inheritStdin ? "inherit" : "ignore", "inherit", "inherit"],
+        detached: process.platform !== "win32", windowsHide: !task.inheritStdin,
+      });
+      this.children.add(child);
+      child.once("error", error => { this.children.delete(child); reject(error); });
+      child.once("close", (code, reason) => {
+        if (code !== 0 && child.pid !== undefined) this.targets.add(child.pid);
+        this.children.delete(child);
+        if (code === 0) resolve();
+        else reject(new Error(`Task '${task.name}' failed: exit ${String(code)}, signal ${String(reason)}`));
+      });
+    });
+    signal.throwIfAborted();
+  }
+
+  private kill(pid: number, force: boolean): void {
+    if (process.platform === "win32") {
+      const job = new Promise<void>(resolve => {
+        const helper = spawn("taskkill.exe", ["/PID", String(pid), "/T", ...(force ? ["/F"] : [])], { stdio: "ignore", windowsHide: true });
+        helper.once("error", () => resolve());
+        helper.once("close", () => resolve());
+      });
+      this.killJobs.add(job);
+      void job.then(() => this.killJobs.delete(job));
+    } else {
+      try { process.kill(-pid, force ? "SIGKILL" : "SIGTERM"); }
+      catch { try { process.kill(pid, force ? "SIGKILL" : "SIGTERM"); } catch { /* The process already exited. */ } }
+    }
+  }
+
+  force(): void {
+    this.forced = true;
+    for (const waiter of this.forceWaiters) waiter();
+    this.forceWaiters.clear();
+    for (const child of this.children) if (child.pid !== undefined) this.targets.add(child.pid);
+    for (const pid of this.targets) this.kill(pid, true);
+  }
+
+  /** Keep Windows ancestry information while stopping roots, including already-orphaned descendants. */
+  private async windowsDescendants(): Promise<void> {
+    if (process.platform !== "win32" || this.targets.size === 0) return;
+    await new Promise<void>(resolve => {
+      const query = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command",
+        "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress"],
+      { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+      let output = "";
+      let reported = false;
+      const report = (): void => {
+        if (reported) return;
+        reported = true;
+        this.logger.warn("[task] Windows descendant discovery failed; taskkill /T will still stop reachable process trees");
+      };
+      query.stdout.on("data", chunk => { output += String(chunk); });
+      const timeout = setTimeout(() => { query.kill(); }, 5000);
+      query.once("error", () => { clearTimeout(timeout); report(); resolve(); });
+      query.once("close", () => {
+        clearTimeout(timeout);
+        try {
+          const value: unknown = JSON.parse(output);
+          const entries: unknown[] = Array.isArray(value) ? value : [value];
+          const remaining = entries.flatMap(entry => {
+            if (typeof entry !== "object" || entry === null || !("ProcessId" in entry) || !("ParentProcessId" in entry)) return [];
+            return typeof entry.ProcessId === "number" && typeof entry.ParentProcessId === "number" ? [{ pid: entry.ProcessId, parent: entry.ParentProcessId }] : [];
+          });
+          let changed = true;
+          while (changed) {
+            changed = false;
+            for (const entry of remaining) if (this.targets.has(entry.parent) && !this.targets.has(entry.pid)) {
+              this.targets.add(entry.pid); changed = true;
+            }
+          }
+        } catch { report(); }
+        if (this.forced) this.force();
+        resolve();
+      });
+    });
+  }
+
+  private groupExists(pid: number): boolean {
+    if (process.platform === "win32") {
+      try { process.kill(pid, 0); return true; } catch { return false; }
+    }
+    try { process.kill(-pid, 0); return true; } catch { return false; }
+  }
+
+  private waitForExit(timeout: number): Promise<void> {
+    if (this.children.size === 0) return Promise.resolve();
+    return new Promise(resolve => {
+      const observed = [...this.children];
+      const finish = (): void => {
+        if (this.children.size > 0) return;
+        cleanup(); resolve();
+      };
+      const cleanup = (): void => {
+        clearTimeout(timer);
+        for (const child of observed) { child.off("close", finish); child.off("error", finish); }
+      };
+      const timer = setTimeout(() => { cleanup(); resolve(); }, timeout);
+      for (const child of observed) { child.once("close", finish); child.once("error", finish); }
+    });
+  }
+
+  terminate(): Promise<void> {
+    if (this.termination) return this.termination;
+    this.termination = this.stop();
+    return this.termination;
+  }
+
+  private async stop(): Promise<void> {
+    for (const child of this.children) if (child.pid !== undefined) this.targets.add(child.pid);
+    if (this.targets.size === 0) return;
+    this.logger.warn(`[task] Stopping task processes (grace period ${this.timeout}ms)`);
+    const deadline = Date.now() + this.timeout;
+    // Windows enumeration can take longer than the grace period; live roots must still stop on time.
+    const escalation = setTimeout(() => this.force(), this.timeout);
+    try {
+      const descendants = this.windowsDescendants();
+      for (const pid of this.targets) this.kill(pid, this.forced);
+      await descendants;
+      await this.waitForExit(Math.max(0, deadline - Date.now()));
+      // Descendants can outlive a shell whose close event has already fired.
+      if ([...this.targets].some(pid => this.groupExists(pid))) {
+        if (!this.forced && Date.now() < deadline) await new Promise<void>(resolve => {
+          const finish = (): void => { clearTimeout(timer); this.forceWaiters.delete(finish); resolve(); };
+          const timer = setTimeout(finish, Math.max(0, deadline - Date.now()));
+          this.forceWaiters.add(finish);
+        });
+        this.force();
+      }
+      await Promise.all([...this.killJobs]);
+      await this.waitForExit(1000);
+    } finally { clearTimeout(escalation); }
+  }
+}

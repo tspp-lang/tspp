@@ -52,6 +52,9 @@ jobs:
         run: pnpm test:cli
       - name: Check, directly run and format every example
         run: pnpm test:examples
+      - run: pnpm task build --dry-run
+      - run: pnpm task build --prepare-only
+      - run: node --test scripts/task/integration.test.mjs
       - run: pnpm test:example-projects
 
   products:

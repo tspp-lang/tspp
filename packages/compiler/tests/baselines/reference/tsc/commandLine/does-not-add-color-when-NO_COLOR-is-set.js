@@ -34,7 +34,7 @@ COMMON COMMANDS
   tspp --init
   Creates a tsconfig.json with the recommended settings in the working directory.
 
-  tspp -p ./path/to/tsconfig.json
+  tspp -p ./path/to/tsppconfig.json
   Compiles the TypeScript project located at the specified path.
 
   tspp --help --all

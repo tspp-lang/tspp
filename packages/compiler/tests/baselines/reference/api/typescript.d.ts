@@ -10038,6 +10038,10 @@ declare namespace ts {
     function isBuildCommand(commandLineArgs: readonly string[]): boolean;
     /** Creates a program and waits for program rebuilders that finish asynchronously, such as compile-time macros. */
     function createProgramAsync(createProgramOptions: CreateProgramOptions): Promise<Program>;
+    /** Resolve a TS++ project directory without changing TypeScript's configuration defaults. */
+    function resolveTSPPConfigFileProjectName(project: string): string;
+    /** Create an isolated product configuration host, including explicitly selected custom JSON configurations. */
+    function createTSPPConfigHost<T extends object>(host: T): T;
     function getDefaultFormatCodeSettings(newLineCharacter?: string): FormatCodeSettings;
     /**
      * Represents an immutable snapshot of a script at a specified time.Once acquired, the

@@ -1,0 +1,77 @@
+import {
+  Execute, Prepare, Preview, executionMode, type TaskOptions, type TaskPlan, type TaskTable,
+} from "./model.js";
+import { PlanOutput, prepareTasks, printPlan, validateTasks } from "./planner.js";
+import { ExecutionProcesses } from "./processes.js";
+
+export interface PlanExecutionOptions {
+  readonly signal?: AbortSignal;
+  readonly logger?: TaskOptions["logger"];
+  readonly gracefulTimeoutMs?: number;
+  /** CLI uses this to escalate a second signal immediately. */
+  readonly onProcesses?: (processes: ExecutionProcesses) => void;
+}
+
+export async function executePlan(plan: TaskPlan, options: PlanExecutionOptions = {}): Promise<void> {
+  if (!plan.prepared) throw new Error("Cannot execute an unprepared preview plan");
+  const definitions: Record<string, { description: string; dependencies: readonly string[] }> = Object.create(null);
+  for (const task of plan.tasks) {
+    if (Object.hasOwn(definitions, task.name)) throw new Error(`Invalid plan: duplicate task '${task.name}'`);
+    definitions[task.name] = { description: task.description, dependencies: task.dependencies };
+  }
+  validateTasks(definitions, plan.root);
+  const logger = options.logger ?? console;
+  const processes = new ExecutionProcesses(logger, options.gracefulTimeoutMs ?? 10_000);
+  options.onProcesses?.(processes);
+  const controller = new AbortController();
+  const externalAbort = (): void => { controller.abort(options.signal?.reason); void processes.terminate(); };
+  options.signal?.addEventListener("abort", externalAbort, { once: true });
+  if (options.signal?.aborted) externalAbort();
+  const tasks = new Map(plan.tasks.map(task => [task.name, task]));
+  const running = new Map<string, Promise<void>>();
+  const visit = (name: string): Promise<void> => {
+    const previous = running.get(name);
+    if (previous) return previous;
+    // Defer work until after registration, including synchronous dependency traversal.
+    const work = Promise.resolve().then(async () => {
+      controller.signal.throwIfAborted();
+      const task = tasks.get(name);
+      if (!task) throw new Error(`Invalid plan: missing task '${name}'`);
+      const start = Date.now();
+      logger.log(`[task] Starting ${name} - ${task.description}`);
+      if (task.dependencyMode === "parallel") await Promise.all(task.dependencies.map(visit));
+      else for (const dependency of task.dependencies) await visit(dependency);
+      controller.signal.throwIfAborted();
+      for (const entry of task.commands) await processes.run(task, entry, controller.signal);
+      logger.log(`[task] Finished ${name} (${Date.now() - start}ms)`);
+    }).catch(error => {
+      controller.abort(error);
+      void processes.terminate();
+      throw error;
+    });
+    running.set(name, work);
+    return work;
+  };
+  try { await visit(plan.root); }
+  catch (error) {
+    controller.abort(error);
+    await processes.terminate();
+    await Promise.allSettled([...running.values()]);
+    throw options.signal?.aborted ? options.signal.reason : error;
+  } finally { options.signal?.removeEventListener("abort", externalAbort); }
+}
+
+export async function runTasks(tasks: TaskTable, taskName: string, options: TaskOptions): Promise<TaskPlan> {
+  const plan = await prepareTasks(tasks, taskName, options);
+  const logger = options.logger ?? console;
+  const mode = executionMode(options);
+  const shouldExecute = match mode {
+    Execute => true,
+    Preview | Prepare => do {
+      handle PlanOutput { write: text => logger.log(text) } in { printPlan(plan); };
+      false;
+    },
+  };
+  if (shouldExecute) await executePlan(plan, options);
+  return plan;
+}

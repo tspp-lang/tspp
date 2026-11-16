@@ -1,0 +1,86 @@
+export interface TaskCommand {
+  readonly program: string;
+  readonly args: readonly string[];
+}
+
+export interface PreparationContext {
+  readonly taskName: string;
+  readonly isRoot: boolean;
+  readonly args: readonly string[];
+  readonly env: Readonly<NodeJS.ProcessEnv>;
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+}
+
+export interface PreparationResult { readonly args: readonly string[]; }
+
+export interface TaskDefinition {
+  readonly description: string;
+  readonly details?: string;
+  readonly dependencies?: readonly string[];
+  readonly dependencyMode?: "serial" | "parallel";
+  readonly envFile?: string;
+  readonly env?: Readonly<Record<string, string>>;
+  readonly cwd?: string;
+  readonly run?: TaskCommand | readonly TaskCommand[];
+  readonly forwardArgs?: boolean;
+  readonly prepare?: (context: PreparationContext) => PreparationResult | Promise<PreparationResult>;
+  readonly inheritStdin?: boolean;
+  readonly requireEnvFile?: boolean;
+  readonly public?: boolean;
+}
+
+export type TaskTable = Readonly<Record<string, TaskDefinition>>;
+export interface TaskLogger { log(message: string): void; warn(message: string): void; }
+export interface EnvFileContext {
+  readonly rootDir: string;
+  readonly filePath: string;
+  readonly env: Readonly<NodeJS.ProcessEnv>;
+  readonly signal?: AbortSignal;
+}
+/** Return plaintext dotenv content, or an already parsed variable map. */
+export type EnvFileLoader = (context: EnvFileContext) => string | Readonly<Record<string, string>>
+  | Promise<string | Readonly<Record<string, string>>>;
+
+export interface TaskOptions {
+  readonly rootDir: string;
+  readonly envFile?: string;
+  readonly env?: Readonly<NodeJS.ProcessEnv>;
+  readonly args?: readonly string[];
+  readonly dryRun?: boolean;
+  readonly prepareOnly?: boolean;
+  readonly signal?: AbortSignal;
+  readonly loadEnvFile?: EnvFileLoader;
+  readonly logger?: TaskLogger;
+  readonly gracefulTimeoutMs?: number;
+}
+
+/** Context identity prevents a shared task from silently using a different environment. */
+export newtype EnvironmentId = string;
+export data class PreparedCommand(program: string, args: readonly string[])
+export data class PreparedTask(
+  name: string,
+  description: string,
+  dependencies: readonly string[],
+  dependencyMode: "serial" | "parallel",
+  env: Readonly<NodeJS.ProcessEnv>,
+  environmentId: EnvironmentId,
+  cwd: string,
+  commands: readonly PreparedCommand[],
+  inheritStdin: boolean,
+  hasPreparation: boolean,
+  envFile: string | undefined = undefined,
+)
+export data class TaskPlan(root: string, rootDir: string, tasks: readonly PreparedTask[], prepared: boolean)
+
+export data RunMode = Preview | Prepare | Execute;
+export function executionMode(options: TaskOptions): RunMode do {
+  if (options.dryRun) Preview;
+  else if (options.prepareOnly) Prepare;
+  else Execute;
+}
+
+export function command(program: string, ...args: string[]): TaskCommand do {
+  Object.freeze({ program, args: Object.freeze(args) });
+}
+export function defineTasks<T extends TaskTable>(tasks: T): T { return tasks; }

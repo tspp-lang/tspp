@@ -1,0 +1,60 @@
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
+import { EnvironmentId, type TaskOptions } from "./model.js";
+
+export function environmentId(env: Readonly<NodeJS.ProcessEnv>): EnvironmentId do {
+  EnvironmentId(createHash("sha256").update(JSON.stringify(
+    Object.entries(env).filter(([, value]) => value !== undefined).sort(([a], [b]) => a.localeCompare(b)),
+  )).digest("hex"));
+}
+
+/** Parse dotenv assignments, quoted multiline strings, export prefixes, and comments. */
+export function parseEnv(text: string): Record<string, string> {
+  const values: Record<string, string> = Object.create(null);
+  const assignment = /(?:^|\n)[ \t]*(?:export[ \t]+)?([A-Za-z_][A-Za-z0-9_.-]*)[ \t]*(?:=[ \t]*|:[ \t]+)('[^']*'|"(?:\\[\s\S]|[^"\\])*"|`[^`]*`|[^\r\n]*)/g;
+  for (const matched of text.replace(/\r\n?/g, "\n").matchAll(assignment)) {
+    const name = matched[1];
+    let value = matched[2].trim();
+    const quote = value[0];
+    if ((quote === "'" || quote === '"' || quote === "`") && value.endsWith(quote)) {
+      value = value.slice(1, -1);
+      if (quote === '"') value = value.replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    } else value = value.replace(/\s*#.*$/, "").trim();
+    values[name] = value;
+  }
+  return values;
+}
+
+export function interpolateEnv(values: Readonly<Record<string, string>>, inherited: Readonly<NodeJS.ProcessEnv>, label = "environment"): NodeJS.ProcessEnv {
+  const resolved = new Map<string, string>();
+  const visit = (name: string, trail: readonly string[]): string => {
+    const cached = resolved.get(name);
+    if (cached !== undefined) return cached;
+    if (trail.includes(name)) throw new Error(`${label}: circular variable reference: ${[...trail, name].join(" -> ")}`);
+    const raw = Object.hasOwn(values, name) ? values[name] : undefined;
+    if (raw === undefined) {
+      const value = inherited[name];
+      if (value === undefined) throw new Error(`${label}: undefined variable '${name}'`);
+      return value;
+    }
+    const value = raw.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g, (_matched, reference: string) => visit(reference, [...trail, name]));
+    resolved.set(name, value);
+    return value;
+  };
+  const result = { ...inherited };
+  for (const name of Object.keys(values)) result[name] = visit(name, []);
+  return result;
+}
+
+export async function loadEnvironment(env: Readonly<NodeJS.ProcessEnv>, file: string, options: TaskOptions): Promise<Readonly<NodeJS.ProcessEnv>> {
+  options.signal?.throwIfAborted();
+  const rootDir = resolve(options.rootDir);
+  const filePath = resolve(rootDir, file);
+  const loaded = options.loadEnvFile
+    ? await options.loadEnvFile({ rootDir, filePath, env: Object.freeze({ ...env }), signal: options.signal })
+    : await readFile(filePath, "utf8");
+  options.signal?.throwIfAborted();
+  const values = typeof loaded === "string" ? parseEnv(loaded) : loaded;
+  return Object.freeze({ ...interpolateEnv(values, env, file), ENV_FILE_PATH: file, PROJECT_ROOT_DIR: rootDir });
+}
