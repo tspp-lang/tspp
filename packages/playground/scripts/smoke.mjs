@@ -2,6 +2,7 @@
 // proves little here: plugins activate in a worker, from a bundle ordered differently from the compiler's own.
 // Usage: node scripts/smoke.mjs [example ids...] (after `vite build`). CHROME_PATH names the browser to use.
 import { existsSync } from "node:fs";
+import assert from "node:assert/strict";
 import process from "node:process";
 import { chromium } from "playwright-core";
 import { preview } from "vite";
@@ -28,6 +29,7 @@ try {
   const examples = requested.length ? requested : available;
   if (!examples.length) throw new Error("The playground lists no examples.");
 
+  await checkPreviewTabs(page);
   await checkUnsavedDiagnostics(page);
 
   let fileCount = 0;
@@ -54,7 +56,64 @@ if (failures.length) {
 }
 process.exit(0);
 
+async function checkPreviewTabs(page) {
+  await page.selectOption("#examples", "00-hello-world");
+  const tree = path => page.locator(`#project-tree [data-path="${path}"]`);
+  const tab = path => page.locator(`#tabs [data-path="${path}"]`);
+  const paths = () => page.locator("#tabs .tab").evaluateAll(tabs => tabs.map(tab => tab.dataset.path));
+
+  await tree("/package.json").click();
+  assert.deepEqual(await paths(), ["/package.json"]);
+  await tree("/tsppconfig.json").click();
+  assert.deepEqual(await paths(), ["/tsppconfig.json"]);
+  await tree("/tsppconfig.json").dblclick();
+  assert.equal(await tab("/tsppconfig.json").evaluate(tab => tab.classList.contains("preview")), false);
+  await tree("/package.json").click();
+  await tab("/package.json").locator(".tab-label").dblclick();
+  assert.equal(await tab("/package.json").evaluate(tab => tab.classList.contains("preview")), false);
+  await tree("/src/index.tspp").click();
+  assert.equal(await tab("/src/index.tspp").locator(".tab-label").evaluate(label => getComputedStyle(label).fontStyle), "italic");
+  await page.locator("#editor .monaco-editor .view-lines").click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.insertText("\n// Keep an edited preview open.");
+  assert.equal(await tab("/src/index.tspp").evaluate(tab => tab.classList.contains("preview")), false);
+  await tree("/package.json").click();
+  assert.deepEqual(await paths(), ["/tsppconfig.json", "/package.json", "/src/index.tspp"]);
+  // Undoing an edit must not turn the pinned tab back into a preview.
+  await tab("/src/index.tspp").click();
+  await page.locator("#editor .monaco-editor .view-lines").click();
+  await page.keyboard.press("Control+z");
+  assert.equal(await tab("/src/index.tspp").evaluate(tab => tab.classList.contains("preview")), false);
+  await tab("/package.json").locator(".tab-close").click();
+  await tree("/package.json").click();
+  await tab("/package.json").locator(".tab-close").click();
+  assert.equal(await page.locator("#tabs .preview").count(), 0);
+  await tree("/package.json").click();
+  page.once("dialog", dialog => dialog.accept("manifest.json"));
+  await page.getByRole("button", { name: "Rename selected item" }).click();
+  assert.equal(await tab("/manifest.json").evaluate(tab => tab.classList.contains("preview")), true);
+  const sharedUrl = page.url();
+  // Opening a shared custom project restores both pinned tabs and its one preview.
+  const restored = await page.context().browser().newPage();
+  try {
+    await restored.goto(sharedUrl, { waitUntil: "load" });
+    await restored.locator('#tabs .tab.preview[data-path="/manifest.json"]').waitFor();
+    assert.deepEqual(await restored.locator("#tabs .tab").evaluateAll(tabs => tabs.map(tab => tab.dataset.path)), await paths());
+  }
+  finally {
+    await restored.close();
+    await page.bringToFront();
+  }
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Delete selected item" }).click();
+  assert.equal(await page.locator("#tabs .preview").count(), 0);
+  console.log("ok   preview replacement, double-click, editing, undo, close, rename, delete, and shared state");
+  await page.selectOption("#examples", "00-hello-world");
+}
+
 async function checkUnsavedDiagnostics(page) {
+  // The example includes src/**/*.tspp; create the test file inside that directory.
+  await page.locator('#project-tree [data-path="/src/index.tspp"]').click();
   page.once("dialog", dialog => dialog.accept("diagnostics-smoke.tspp"));
   await page.getByRole("button", { name: "New file" }).click();
   const editor = page.locator("#editor .monaco-editor");
@@ -65,7 +124,16 @@ async function checkUnsavedDiagnostics(page) {
   };
   const save = async () => {
     await page.keyboard.press("Control+s");
-    await page.locator("#outputs-status").filter({ hasText: /^Up to date$/ }).waitFor();
+    await page.locator("#outputs-status").filter({ hasText: /^Up to date$/ }).waitFor().catch(async error => {
+      console.error("Save failure:", await page.evaluate(() => ({
+        status: document.querySelector("#outputs-status")?.textContent,
+        output: document.querySelector("#output-empty")?.textContent,
+        problems: document.querySelector("#problems")?.textContent,
+        active: document.querySelector("#tabs .active")?.getAttribute("data-path"),
+        source: document.querySelector("#editor .view-lines")?.textContent,
+      })));
+      throw error;
+    });
   };
   const runAndCheck = async expected => {
     const errors = await runActiveFile(page);
@@ -73,6 +141,7 @@ async function checkUnsavedDiagnostics(page) {
     await page.locator("#run-output").getByText(expected, { exact: true }).waitFor();
   };
 
+  await editor.locator(".view-lines").click();
   await write('console.log("saved-output");');
   await save();
   await write('const value: number = "draft-output"; console.log(value);');

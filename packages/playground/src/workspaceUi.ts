@@ -24,10 +24,13 @@ export function renderEditorTabs(
   dirty: ReadonlySet<string>,
   onOpen: (path: string) => void,
   onClose: (path: string) => void,
+  preview: string | undefined,
+  onKeepOpen: (path: string) => void,
 ): void {
   tabBar.hidden = paths.length === 0;
-  tabBar.replaceChildren(...paths.map(path => {
-    const tab = document.createElement("div");
+  const existing = new Map([...tabBar.querySelectorAll<HTMLElement>(".tab")].map(tab => [tab.dataset.path, tab]));
+  const tabs = paths.map(path => {
+    const tab = existing.get(path) ?? document.createElement("div");
     tab.className = "tab";
     tab.dataset.path = path;
     tab.role = "tab";
@@ -35,11 +38,12 @@ export function renderEditorTabs(
     tab.title = path.slice(1);
     tab.classList.toggle("active", path === active);
     tab.classList.toggle("dirty", dirty.has(path));
+    tab.classList.toggle("preview", path === preview);
     tab.setAttribute("aria-selected", String(path === active));
-    const label = document.createElement("span");
+    const label = tab.querySelector(".tab-label") ?? document.createElement("span");
     label.className = "tab-label";
     label.textContent = path.slice(1);
-    const close = document.createElement("button");
+    const close = tab.querySelector<HTMLButtonElement>(".tab-close") ?? document.createElement("button");
     close.type = "button";
     close.className = "tab-close";
     close.setAttribute("aria-label", `Close ${path.slice(1)}`);
@@ -49,8 +53,10 @@ export function renderEditorTabs(
       event.stopPropagation();
       onClose(path);
     };
-    tab.append(label, close);
+    close.ondblclick = event => event.stopPropagation();
+    if (!label.parentElement) tab.append(label, close);
     tab.onclick = () => onOpen(path);
+    tab.ondblclick = () => onKeepOpen(path);
     // Pressing the middle button over the scrollable tab bar starts autoscroll where the browser has it, and then no auxclick follows.
     tab.onmousedown = event => {
       if (event.button === 1) event.preventDefault();
@@ -61,7 +67,14 @@ export function renderEditorTabs(
       else if (event.key === "Delete") onClose(path);
     };
     return tab;
-  }));
+  });
+  // Keep the clicked tab attached so the browser can deliver a second click as a double-click.
+  for (const tab of existing.values()) {
+    if (!tabs.includes(tab)) tab.remove();
+  }
+  tabs.forEach((tab, index) => {
+    if (tabBar.children[index] !== tab) tabBar.insertBefore(tab, tabBar.children[index] ?? null);
+  });
 }
 
 export function setupHorizontalResizer(resizer: HTMLElement, workspace: HTMLElement): void {

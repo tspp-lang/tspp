@@ -26,6 +26,14 @@ export interface ProjectTreeState {
   readonly selected: string;
 }
 
+/** Update file selection without replacing the row receiving a double-click. */
+export function updateProjectTreeSelection(container: HTMLElement, active: string, selected: string): void {
+  for (const row of container.querySelectorAll<HTMLElement>(".tree-row")) {
+    row.classList.toggle("selected", row.dataset.path === selected);
+    row.classList.toggle("active", row.dataset.path === active);
+  }
+}
+
 function projectEntries(state: ProjectTreeState, parent: string): TreeEntry[] {
   const entries: TreeEntry[] = [];
   for (const path of state.directories) {
@@ -43,6 +51,7 @@ export function renderProjectTree(
   container: HTMLElement,
   state: ProjectTreeState,
   onSelect: (path: string, directory: boolean) => void,
+  onKeepOpen?: (path: string) => void,
 ): boolean {
   const fragment = document.createDocumentFragment();
   const renderEntries = (parent: string, depth: number): void => {
@@ -78,6 +87,7 @@ export function renderProjectTree(
       name.textContent = baseName(entry.path);
       row.append(twist, icon, name);
       row.onclick = () => onSelect(entry.path, entry.directory);
+      if (!entry.directory) row.ondblclick = () => onKeepOpen?.(entry.path);
       fragment.append(row);
       if (entry.directory && state.expandedDirectories.has(entry.path)) renderEntries(entry.path, depth + 1);
     }
