@@ -351,15 +351,34 @@ test("formal-verification and modern-syntax: every path of a do block is checked
   assert.deepEqual((await verify(source("5n"))).proofs, ["f postcondition: failed"]);
 });
 
+test("formal-verification and advanced-classes: generated members do not acquire the following function contract", async () => {
+  const source = `data class Balances(source: bigint, destination: bigint)
+function transfer(source: bigint, destination: bigint, amount: bigint) with {
+  ensures: result.source === source - amount && result.destination === destination + amount
+    && result.source + result.destination === source + destination;
+}: Balances { return new Balances(source - amount, destination + amount); }`;
+  const valid = await verify(source);
+  assert.deepEqual(valid.analysis, []);
+  assert.deepEqual(valid.proofs, ["transfer postcondition: proved"]);
+  const invalid = await verify(source.replace("destination + amount);", "destination - amount);"));
+  assert.ok(invalid.analysis.some(message => /transfer postcondition could not be proved/.test(message)), invalid.analysis.join("\n"));
+  assert.deepEqual(invalid.proofs, ["transfer postcondition: failed"]);
+});
+
 test("formal-verification and nominal-types: contracts hold over match", async () => {
   const source = (bound, arm) => `
     data S = A(x: bigint) | B;
     export function f(s: S) with { requires: s.x >= 1n; ensures: result >= ${bound}; }: bigint {
       return match s { A(x) => ${arm}, B => 2n };
     }`;
-  assert.deepEqual((await verify(source("1n", "x"))).proofs, ["f postcondition: proved"]);
-  assert.deepEqual((await verify(source("5n", "x"))).proofs, ["f postcondition: failed"]);
-  assert.deepEqual((await verify(source("5n", "6n"))).proofs, ["f postcondition: failed"]);
+  const valid = await verify(source("1n", "x"));
+  assert.deepEqual(valid.analysis, []);
+  assert.deepEqual(valid.proofs, ["f postcondition: proved"]);
+  for (const arm of ["x", "6n"]) {
+    const invalid = await verify(source("5n", arm));
+    assert.ok(invalid.analysis.some(message => /f postcondition could not be proved/.test(message)), invalid.analysis.join("\n"));
+    assert.deepEqual(invalid.proofs, ["f postcondition: failed"]);
+  }
 });
 
 test("formal-verification and type-computation: contracts on generic and kinded functions", async () => {
@@ -404,6 +423,7 @@ test("formal-verification: an authored `as never` proves nothing, while the end 
   const exhaustive = await verify(`
     data S = A | B;
     export function f(s: S) with { ensures: result >= 5n; }: bigint { return match s { A => 6n, B => 7n }; }`);
+  assert.deepEqual(exhaustive.analysis, []);
   assert.deepEqual(exhaustive.proofs, ["f postcondition: proved"]);
 });
 
