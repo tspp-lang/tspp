@@ -38,7 +38,6 @@
     "z3-solver": "5.2.0"
   },
   "devDependencies": {
-    "@tspp/plugin-advanced-classes": "workspace:*",
     "@tspp/plugin-nominal-types": "workspace:*",
     "@types/node": "^24.10.1",
     "eslint": "^10.10.0",

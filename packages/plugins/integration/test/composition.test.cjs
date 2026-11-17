@@ -608,3 +608,12 @@ test("the result does not depend on the order plugins are loaded in", () => {
   assert.equal(script(pluginOrder(sorted, 3)), baseline);
   assert.equal(script([...sorted].reverse()), baseline);
 });
+
+test("formal-verification and advanced-classes: generated signatures do not acquire the following function contract", async () => {
+  const { analysis } = await verify(`data class Balances(source: bigint, destination: bigint)
+    function transfer(source: bigint, destination: bigint, amount: bigint) with {
+      ensures: result.source === source - amount && result.destination === destination + amount
+        && result.source + result.destination === source + destination;
+    }: Balances { return new Balances(source - amount, destination + amount); }`);
+  assert.deepEqual(analysis, []);
+});

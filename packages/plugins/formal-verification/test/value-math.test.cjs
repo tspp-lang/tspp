@@ -1,8 +1,5 @@
-const assert = require('node:assert/strict');
 const test = require('node:test');
 const { expectVerification } = require('./analyze.cjs');
-const { createProgram, diagnosticMessages, ts, usePlugins } = require('../../test-support/compile.cjs');
-usePlugins(require('../../advanced-classes/dist'));
 
 const pair = `interface Division { quotient: bigint; remainder: bigint; }
 function divide(total: bigint, count: bigint) with {
@@ -10,18 +7,6 @@ function divide(total: bigint, count: bigint) with {
   ensures: result.quotient >= 0n && result.remainder >= 0n && result.remainder < count
     && result.quotient * count + result.remainder === total;
 }: Division { return { quotient: total / count, remainder: total % count }; }`;
-
-test('data-class generated signatures do not acquire the following function contract, through the full compiler', async () => {
-  const source = `data class Balances(source: bigint, destination: bigint)
-function transfer(source: bigint, destination: bigint, amount: bigint) with {
-  ensures: result.source === source - amount && result.destination === destination + amount
-    && result.source + result.destination === source + destination;
-}: Balances { return new Balances(source - amount, destination + amount); }`;
-  const { program } = createProgram(source, { noLib: false });
-  assert.deepEqual(diagnosticMessages(program), []);
-  const diagnostics = await ts.runTSPPProgramAnalyzers(program);
-  assert.deepEqual(diagnostics.map(item => item.message), []);
-});
 
 const cases = [
   {

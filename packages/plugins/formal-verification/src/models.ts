@@ -11,6 +11,8 @@ export interface RecordFields extends ReadonlyMap<string, Sort | undefined> {
     /** Fields present in some, but not every, arm of a union. Useful after narrowing, never unconditional summaries. */
     readonly optional?: ReadonlySet<string>;
     readonly literalChoices?: ReadonlyMap<string, readonly string[]>;
+    /** Scalar tuple positions of lowered data values, whose named fields are modeled separately. */
+    readonly scalarPositions?: ReadonlyMap<string, ReadonlySet<number>>;
 }
 export const numberSortFromModel = (model: FunctionModel["numberModel"]) =>
     model === "mathematical-real" ? "Real" : model === "safe-integer" ? "NumberInt" : undefined;
@@ -67,7 +69,7 @@ export function modelSignature(
     const parameterPositions: number[] = [];
     const parameterFields: (string | undefined)[] = [];
     const parameterRefinements: Record<string, RefinementModel> = {};
-    const recordParameters = new Set<string>();
+    const recordParameters = new Map<string, RecordFields>();
     const parameterLiteralChoices: Record<string, readonly string[]> = {};
     for (const [position, parameter] of declaration.parameters.entries()) {
         if (!ts.isIdentifier(parameter.name)) continue;
@@ -82,7 +84,7 @@ export function modelSignature(
         }
         else {
             const fields = fieldsFromType(parameter.type, records);
-            if (fields) recordParameters.add(nameText(parameter.name));
+            if (fields) recordParameters.set(nameText(parameter.name), fields);
             for (const [field, typeSort] of fields ?? []) {
                 const sort = typeSort === "NumberInt" ? numberSortFromModel(numberModel) : typeSort;
                 if (sort) {
@@ -115,7 +117,7 @@ export function modelSignature(
 
 /** Calls share records, while scalar parameters are passed by value. Summaries have no heap or old-value model. */
 function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: readonly string[], variables: Readonly<Record<string, Sort>>,
-    records: ReadonlySet<string>, hasPostcondition: boolean): string | undefined {
+    records: ReadonlyMap<string, RecordFields>, hasPostcondition: boolean): string | undefined {
     const body = ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration) || ts.isConstructorDeclaration(declaration)
         || ts.isGetAccessorDeclaration(declaration) || ts.isSetAccessorDeclaration(declaration) ? declaration.body : undefined;
     if (!body) return undefined;
@@ -125,13 +127,24 @@ function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: r
         if (hasPostcondition && parameters.includes(key)) mutation ??= "a contracted scalar parameter is reassigned";
     }
     let unsafe = false;
-    const visit = (node: TS.Node, nested = false): void => {
+    const isImmediateFunction = (node: TS.Node): boolean => {
+        if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return false;
+        if (node.asteriskToken || node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return false;
+        let target: TS.Node = node;
+        while (target.parent && ts.isParenthesizedExpression(target.parent)) target = target.parent;
+        return !!target.parent && ts.isCallExpression(target.parent) && target.parent.expression === target;
+    };
+    const visit = (node: TS.Node, nested = false, inline = false): void => {
         if (ts.isIdentifier(node) && records.has(nameText(node))) {
             const parent = node.parent;
+            const positional = parent && ts.isPropertyAccessExpression(parent) && parent.expression === node
+                && ts.isElementAccessExpression(parent.parent) && parent.parent.expression === parent
+                && ts.isNumericLiteral(parent.parent.argumentExpression)
+                && records.get(nameText(node))?.scalarPositions?.get(nameText(parent.name))?.has(Number(nameText(parent.parent.argumentExpression)));
             const readsField = parent && ts.isPropertyAccessExpression(parent) && parent.expression === node
-                && `${nameText(node)}.${nameText(parent.name)}` in variables
+                && (`${nameText(node)}.${nameText(parent.name)}` in variables || positional)
                 && !(ts.isCallExpression(parent.parent) && parent.parent.expression === parent);
-            const returnsRecord = parent && ts.isReturnStatement(parent) && parent.expression === node;
+            const returnsRecord = !inline && parent && ts.isReturnStatement(parent) && parent.expression === node;
             const destructuresScalars = parent && ts.isVariableDeclaration(parent) && parent.initializer === node
                 && ts.isObjectBindingPattern(parent.name) && parent.name.elements.every(element =>
                     !element.dotDotDotToken && !element.initializer && ts.isIdentifier(element.name)
@@ -147,7 +160,7 @@ function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: r
                 target = parent;
             }
         }
-        ts.forEachChild(node, child => visit(child, nested || ts.isFunctionLike(node)));
+        ts.forEachChild(node, child => visit(child, nested || ts.isFunctionLike(node) && !isImmediateFunction(node), inline || ts.isFunctionLike(node)));
     };
     visit(body);
     return unsafe ? "a record parameter is aliased, escaped, or captured" : mutation;
@@ -263,6 +276,7 @@ export function collectDataTypes(
         const fields = Object.assign(new Map<string, Sort | undefined>([[nominalTypes!.tagProperty, "String"]]), {
             optional: new Set<string>(),
             literalChoices: new Map([[nominalTypes!.tagProperty, dataType.variants.map(variant => nominalTypes!.tagOf(variant))]]),
+            scalarPositions: new Map<string, ReadonlySet<number>>(),
         });
         for (const variant of dataType.variants) {
             for (const field of variant.fields) {
@@ -283,6 +297,11 @@ export function collectDataTypes(
                 fields.optional.add(name);
             }
         }
+        const positions = new Set<number>();
+        for (const variant of dataType.variants) variant.fields.forEach((_, index) => {
+            if (dataType.variants.every(other => !other.fields[index] || fields.get(other.fields[index].name))) positions.add(index);
+        });
+        fields.scalarPositions.set(nominalTypes!.valuesProperty, positions);
         records.set(dataType.name, fields);
     }
     return constructors;

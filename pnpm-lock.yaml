@@ -876,9 +876,6 @@ importers:
         specifier: 5.2.0
         version: 5.2.0
     devDependencies:
-      '@tspp/plugin-advanced-classes':
-        specifier: workspace:*
-        version: link:../advanced-classes
       '@tspp/plugin-nominal-types':
         specifier: workspace:*
         version: link:../nominal-types
