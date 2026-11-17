@@ -67,6 +67,9 @@ function indexDeclarations(file: ModeledFile, declarations: Map<DeclarationKey, 
         // A `new` resolves to the class itself.
         add(statement, { kind: "member", owner, member: owner.constructorMember });
         for (const member of statement.members) {
+            // Generated data-class members share the class's entire source range. Keep the class declaration's
+            // constructor target rather than overwriting it with copy/equals/toString at that same location.
+            if (nodeStart(member, sourceFile) === nodeStart(statement, sourceFile)) continue;
             if (ts.isConstructorDeclaration(member)) add(member, { kind: "member", owner, member: owner.constructorMember });
             else if (ts.isMethodDeclaration(member)) {
                 const name = memberName(member.name);

@@ -1,0 +1,100 @@
+import * as http from "node:http";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { randomUUID } from "node:crypto";
+import { addAccount, addTransaction, voidTransaction, summarize, type LedgerState } from "./domain.js";
+import { parseMoney, splitMoney } from "./money.js";
+import { fileStorage, readStored, writeStored } from "./store.js";
+import { exportCsv, importCsv } from "./csv.js";
+
+const MAX_BODY = 1024 * 1024;
+class RequestError extends Error { constructor(message: string, readonly status = 400) { super(message); } }
+function object(value: unknown): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) throw new RequestError("请求必须是对象");
+  return Object.fromEntries(Object.entries(value));
+}
+function readBody(request: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let size = 0, tooLarge = false;
+    request.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY) { tooLarge = true; chunks.length = 0; }
+      else if (!tooLarge) chunks.push(chunk);
+    });
+    request.on("end", () => { if (tooLarge) reject(new RequestError("请求内容过大", 413)); else resolve(Buffer.concat(chunks).toString("utf8")); });
+    request.on("error", reject);
+  });
+}
+function send(response: http.ServerResponse, status: number, body: string, type = "application/json; charset=utf-8"): void {
+  response.writeHead(status, { "Content-Type": type, "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store", "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'; base-uri 'none'", "Referrer-Policy": "no-referrer" });
+  response.end(body);
+}
+function json(response: http.ServerResponse, status: number, value: unknown): void { send(response, status, JSON.stringify(value)); }
+export interface ServerOptions { filePath: string; port?: number; }
+export interface LedgerServer { server: http.Server; close(): Promise<void>; }
+export async function createLedgerServer(options: ServerOptions): Promise<LedgerServer> {
+  if (!options.filePath.trim()) throw new Error("数据文件路径不能为空");
+  if (options.port !== undefined && (!Number.isInteger(options.port) || options.port < 0 || options.port > 65535)) throw new Error("端口无效");
+  const storage = fileStorage(options.filePath);
+  let state: LedgerState;
+  try { state = readStored(storage); } catch (error) { storage.close(); throw error; }
+  const server = http.createServer(async (request, response) => {
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new RequestError("服务不可用", 503);
+      const authority = `127.0.0.1:${address.port}`;
+      if (request.headers.host !== authority) throw new RequestError("无效的 Host", 403);
+      const method = request.method ?? "GET";
+      const url = request.url ?? "/";
+      if (method !== "GET") {
+        if (request.headers.origin !== `http://${authority}`) throw new RequestError("无效的来源", 403);
+      }
+      if (method === "GET" && url === "/api/ledger") { json(response, 200, summarize(state)); return; }
+      if (method === "GET" && url === "/api/export.csv") { response.setHeader("Content-Disposition", 'attachment; filename="ledger.csv"'); send(response, 200, exportCsv(state), "text/csv; charset=utf-8"); return; }
+      const staticFiles: Record<string, [string, string]> = { "/": ["index.html", "text/html; charset=utf-8"], "/index.html": ["index.html", "text/html; charset=utf-8"], "/app.js": ["app.js", "text/javascript; charset=utf-8"], "/style.css": ["style.css", "text/css; charset=utf-8"] };
+      if (method === "GET" && Object.hasOwn(staticFiles, url)) {
+        const [file, type] = staticFiles[url];
+        send(response, 200, fs.readFileSync(path.join(__dirname, "../public", file), "utf8"), type); return;
+      }
+      const voidMatch = /^\/api\/transactions\/([^/]+)\/void$/.exec(url);
+      const isCsv = url === "/api/import.csv";
+      if (method !== "POST" || !(url === "/api/accounts" || url === "/api/transactions" || url === "/api/split" || isCsv || voidMatch)) throw new RequestError("未找到", 404);
+      const contentType = (request.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase();
+      if (contentType !== (isCsv ? "text/csv" : "application/json")) throw new RequestError("不支持的内容类型", 415);
+      const body = await readBody(request);
+      let next: LedgerState;
+      try {
+        if (isCsv) next = importCsv(state, body);
+        else {
+          const input: unknown = JSON.parse(body);
+          if (url === "/api/split") {
+            const data = object(input);
+            if (Object.keys(data).some(key => key !== "amount" && key !== "count")) throw new RequestError("分账包含未知字段");
+            if (typeof data.amount !== "string" || typeof data.count !== "number" || !Number.isSafeInteger(data.count) || data.count < 1 || data.count > 1000) throw new RequestError("分账参数无效");
+            json(response, 200, { shares: splitMoney(parseMoney(data.amount), BigInt(data.count)).map(String) }); return;
+          }
+          if (url === "/api/accounts") next = addAccount(state, input, randomUUID());
+          else if (url === "/api/transactions") next = addTransaction(state, input, randomUUID());
+          else if (voidMatch) {
+            if (Object.keys(object(input)).length !== 0) throw new RequestError("作废请求不接受附加字段");
+            next = voidTransaction(state, decodeURIComponent(voidMatch[1]));
+          }
+          else throw new RequestError("未找到", 404);
+        }
+      } catch (error) { if (error instanceof RequestError) throw error; throw new RequestError(error instanceof Error ? error.message : "输入无效"); }
+      state = writeStored(storage, next);
+      json(response, 200, summarize(state));
+    } catch (error) {
+      const status = error instanceof RequestError ? error.status : 500;
+      if (status === 500) console.error("Ledger request failed:", error);
+      json(response, status, { error: status === 500 ? "服务器内部错误" : error instanceof Error ? error.message : "请求无效" });
+    }
+  });
+  server.requestTimeout = 30000;
+  server.headersTimeout = 30000;
+  try {
+    await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(options.port ?? 4318, "127.0.0.1", () => { server.off("error", reject); resolve(); }); });
+  } catch (error) { storage.close(); throw error; }
+  return { server, close: () => new Promise<void>((resolve, reject) => { server.close(error => { try { storage.close(); } catch (closeError) { reject(closeError); return; } if (error) reject(error); else resolve(); }); }) };
+}

@@ -1,0 +1,26 @@
+import * as os from "node:os";
+import * as path from "node:path";
+import { Command, option, integer, text, formatDiagnostic, Parsed, HelpRequested, VersionRequested, ParseFailed } from "@tspp/command-kit";
+import { createLedgerServer } from "./server.js";
+
+const portOption = option("port", integer(), { description: "Local port" }).withDefault(4318);
+const dataOption = option("data", text(), { description: "Ledger JSON file" }).withDefault(path.join(os.homedir(), ".tspp-ledger", "ledger.json"));
+const command = new Command("ledger", "Local ledger server").option(portOption).option(dataOption);
+
+async function main(): Promise<void> {
+  const config = match command.parse(process.argv.slice(2)) {
+    Parsed(invocation) => ({ port: invocation.get(portOption), filePath: invocation.get(dataOption) }),
+    HelpRequested(message) => do { console.log(message); null; },
+    VersionRequested(message) => do { console.log(message); null; },
+    ParseFailed(diagnostic) => do { console.error(formatDiagnostic(diagnostic)); process.exitCode = 2; null; },
+  };
+  if (config === null) return;
+  if (!config.filePath.trim()) throw new Error("数据文件路径不能为空");
+  if (config.port < 1 || config.port > 65535) throw new Error("端口无效");
+  const app = await createLedgerServer(config);
+  console.log(`Ledger running at http://127.0.0.1:${config.port}/`);
+  const stop = () => { void app.close().catch(error => { console.error(error); process.exitCode = 1; }); };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+}
+main().catch(error => { console.error(error instanceof Error ? error.message : error); process.exitCode = 1; });

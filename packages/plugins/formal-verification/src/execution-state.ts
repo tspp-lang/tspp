@@ -2,7 +2,7 @@ import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import type * as TS from "typescript-upstream";
 import { nameText, nodeStart, nodeWidth, ts } from "./host-api";
 import type { TSPPAnalysisDiagnostic, TSPPAnalysisLocation } from "@tspp/plugin-sdk/compiler";
-import { expressionToSmtTerm, isNumericSort, smtSort, type Sort, type Term } from "./expression";
+import { expressionToSmtTerm, isNumericSort, smtSort, stringTerm, type Sort, type Term } from "./expression";
 import type { PendingProof } from "./contracts";
 import { refinementTerm, type RefinementModel } from "./refinements";
 import type { LogicLibrary } from "./logic";
@@ -15,6 +15,8 @@ export interface State {
     readonly values: Record<string, Term>;
     readonly declarations: Set<string>;
     readonly facts: string[];
+    /** Fresh local array literals, used only to recognize side-effect-free scalar pushes. */
+    arrays?: Set<string>;
     /** The data variant each reference is known to hold, from the tag tests on this path. */
     readonly variants?: Readonly<Record<string, DataConstructor>>;
     /** Why this path can no longer be modeled; obligations reached after it are reported instead of proved. */
@@ -57,7 +59,7 @@ export interface Context {
 
 export const cloneState = (state: State): State => ({
     variables: { ...state.variables }, values: { ...state.values },
-    declarations: new Set(state.declarations), facts: [...state.facts], variants: state.variants, unsupported: state.unsupported,
+    declarations: new Set(state.declarations), facts: [...state.facts], arrays: state.arrays && new Set(state.arrays), variants: state.variants, unsupported: state.unsupported,
 });
 
 // Built on first use: the host's `ts` is not there yet when this module loads.
@@ -172,12 +174,20 @@ export function assignedKeys(node: TS.Node): Set<string> {
 }
 
 export function lexicalNames(statements: readonly TS.Statement[]): string[] {
+    const names = (binding: TS.BindingName): string[] => ts.isIdentifier(binding) ? [nameText(binding)]
+        : binding.elements.flatMap(element => ts.isBindingElement(element) ? names(element.name) : []);
     return statements.flatMap(statement => ts.isVariableStatement(statement) && statement.declarationList.flags & ts.NodeFlags.BlockScoped
-        ? statement.declarationList.declarations.flatMap(declaration => ts.isIdentifier(declaration.name) ? [nameText(declaration.name)] : [])
+        ? statement.declarationList.declarations.flatMap(declaration => names(declaration.name))
         : []);
 }
 
-export const isBound = (state: State, name: string) => name in state.values || name in state.variables;
+export const isBound = (state: State, name: string) => name in state.values || name in state.variables || !!state.arrays?.has(name);
+
+/** Tracked collections may only be used by operations whose effects the executor explicitly models. */
+export function mentionsArray(node: TS.Node, state: State): boolean {
+    return ts.isIdentifier(node) && !!state.arrays?.has(nameText(node))
+        || !!ts.forEachChild(node, child => mentionsArray(child, state) || undefined);
+}
 
 /** A loop can forget the value of a binding at its head, so writes must preserve its modeled numeric type. */
 export function writeValue(state: State, key: string, value: Term): void {
@@ -199,6 +209,9 @@ export function initialState(model: FunctionModel, logic: LogicLibrary): State {
     const declarations = new Set<string>(logic.declarations);
     for (const [name, sort] of Object.entries(model.variables)) declarations.add(`(declare-const |${name}| ${smtSort(sort)})`);
     const state: State = { variables: { ...model.variables }, values: {}, declarations, facts: [] };
+    for (const [name, choices] of Object.entries(model.parameterLiteralChoices ?? {})) {
+        state.facts.push(`(or ${choices.map(choice => `(= |${name}| ${stringTerm(choice).smt})`).join(" ")})`);
+    }
     for (const requirement of model.requires) {
         const fact = expressionToSmtTerm(requirement.value, {
             variables: state.variables,

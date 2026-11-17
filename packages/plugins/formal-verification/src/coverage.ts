@@ -148,11 +148,11 @@ export function mayCarryObligations(node: TS.Node, state: State, context: Contex
         }
         if (ts.isCallExpression(current) && ts.isIdentifier(current.expression)) {
             const model = resolveFunction(current, context);
-            if (model && guardsCalls(model)) return true;
+            if (model && (guardsCalls(model) || model.callSafetyError)) return true;
         }
         else if (ts.isCallExpression(current) || ts.isNewExpression(current)) {
             const target = resolveCallTarget(current, context);
-            if (target && guardsCalls(target.member.model)) return true;
+            if (target && (guardsCalls(target.member.model) || target.member.model.callSafetyError)) return true;
         }
         return !!ts.forEachChild(current, child => visit(child) || undefined);
     };

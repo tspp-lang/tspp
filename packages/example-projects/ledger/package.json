@@ -1,0 +1,17 @@
+{
+  "name": "@tspp/ledger",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Local-first CNY ledger with verified money arithmetic, transfers and exact splitting.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tspp --compile -p tsppconfig.json --pretty false",
+    "check": "tspp --compile -p tsppconfig.json --noEmit --pretty false",
+    "start": "node dist/cli.js",
+    "test": "pnpm build && pnpm test:run",
+    "test:run": "node --test test/*.test.cjs"
+  },
+  "dependencies": { "@tspp/command-kit": "workspace:*" },
+  "devDependencies": { "ts-plus-plus": "workspace:*", "@types/node": "^22.20.5" }
+}

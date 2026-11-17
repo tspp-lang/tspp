@@ -57,6 +57,27 @@ lowered into the same symbolic state. Branch conditions over `_tag` fields feed
 the path solver, so field arithmetic and postconditions can use the narrowed
 branch facts without a second TypeScript type checker inside the plugin.
 
+Scalar record results can be destructured directly from a function call; each
+call receives fresh field symbols and its verified postconditions. Conditional
+expressions in contracts and `typeof` on modeled scalars are supported. Plain
+number fields do not acquire an integer model from their caller. A transparent
+value constructor (including generated data classes) can establish scalar result
+fields when its body only assigns constructor parameters to its own fields.
+Other constructor effects remain unsupported. A function with a postcondition
+must return on every reachable normal path and have an implementation to verify.
+Calls bind required scalar record fields once, in argument order. Functions that
+write, alias, capture, or pass on a record parameter cannot supply call summaries;
+neither can functions that reassign a contracted scalar parameter. These cases
+need an explicit post-state model, which this capsule does not provide. Optional
+fields and fields absent from a union arm are excluded from unconditional call
+summaries. Declared finite discriminator tags constrain function entry states, so
+an exhaustive ADT or union switch can establish that every normal path returns.
+
+An empty local array can collect modeled scalar values with `push` while a
+separate scalar loop invariant proves the arithmetic. This does not model array
+contents. Array aliases, escaping arguments, method replacement, and shadowing
+that could invoke arbitrary callbacks are rejected rather than ignored.
+
 The `ts-plus-plus/plugins/formal-verification/smt` entry point defines reusable logic
 without adding feature-specific hooks to compiler core. It supports declared and
 defined functions, predicates, `forall`/`exists`, trusted axioms, recursive

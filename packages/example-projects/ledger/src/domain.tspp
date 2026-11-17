@@ -1,0 +1,201 @@
+import { MAX_MONEY_DIGITS, Money, parseMoney } from "./money.js";
+export { parseMoney, formatMoney, splitMoney } from "./money.js";
+export newtype AccountId = string;
+export newtype TransactionId = string;
+
+export interface Account { id: string; name: string; openingBalance: string; }
+export interface Transaction {
+  id: string;
+  kind: "income" | "expense" | "transfer";
+  accountId: string;
+  toAccountId?: string;
+  amount: string;
+  note: string;
+  date: string;
+  voided: boolean;
+}
+export interface LedgerState { version: 1; accounts: Account[]; transactions: Transaction[]; }
+export interface LedgerSummary extends LedgerState {
+  accounts: (Account & { balance: string })[];
+  total: string;
+  income: string;
+  expense: string;
+}
+
+data Entry = Income(account: AccountId, amount: Money)
+  | Expense(account: AccountId, amount: Money)
+  | Transfer(source: AccountId, destination: AccountId, amount: Money);
+
+data class TransferBalances(source: bigint, destination: bigint)
+
+function transferBalances(source: bigint, destination: bigint, amount: bigint) with {
+  ensures: result.source === source - amount && result.destination === destination + amount
+    && result.source + result.destination === source + destination;
+}: TransferBalances {
+  return new TransferBalances(source - amount, destination + amount);
+}
+
+function record(input: unknown, allowed: readonly string[]): Record<string, unknown> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) throw new Error("需要 JSON 对象");
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!allowed.includes(key)) throw new Error(`未知字段：${key}`);
+    Object.defineProperty(result, key, { value, enumerable: true });
+  }
+  return result;
+}
+
+function text(value: unknown, label: string, max: number, allowEmpty = false): string {
+  if (typeof value !== "string" || value.length > max || (!allowEmpty && value.trim().length === 0)) {
+    throw new Error(`${label}必须是${allowEmpty ? "" : "非空"}字符串，最多 ${max} 字符`);
+  }
+  return value;
+}
+
+function identifier(value: unknown): string {
+  const id = text(value, "标识", 100);
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) throw new Error("标识只能包含字母、数字、下划线和短横线");
+  return id;
+}
+
+function storedMoney(value: unknown, positive = false): string {
+  const cents = text(value, "整数分金额", MAX_MONEY_DIGITS + 1);
+  const digits = cents.startsWith("-") ? cents.length - 1 : cents.length;
+  if (digits > MAX_MONEY_DIGITS || !/^(?:0|-?[1-9]\d*)$/.test(cents) || (positive && BigInt(cents) <= 0n)) {
+    throw new Error(positive ? "交易金额必须是正整数分" : "存储金额必须是规范整数分字符串");
+  }
+  return cents;
+}
+
+function dateString(value: unknown): string {
+  const date = text(value, "日期", 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("日期格式必须是 YYYY-MM-DD");
+  const [year, month, day] = date.split("-").map(Number);
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > days[month - 1]) throw new Error("日期不存在");
+  return date;
+}
+
+function transactionKind(value: unknown): Transaction["kind"] {
+  if (value !== "income" && value !== "expense" && value !== "transfer") throw new Error("交易类型无效");
+  return value;
+}
+
+function checkedTransaction(input: unknown, accounts: Set<string>): Transaction {
+  const obj = record(input, ["id", "kind", "accountId", "toAccountId", "amount", "note", "date", "voided"]);
+  const id = TransactionId(identifier(obj.id));
+  const kind = transactionKind(obj.kind);
+  const accountId = identifier(obj.accountId);
+  if (!accounts.has(accountId)) throw new Error("账户不存在");
+  const amount = storedMoney(obj.amount, true);
+  const note = text(obj.note, "备注", 500, true);
+  const date = dateString(obj.date);
+  if (typeof obj.voided !== "boolean") throw new Error("作废标记必须是布尔值");
+  const transaction: Transaction = { id, kind, accountId, amount, note, date, voided: obj.voided };
+  if (kind === "transfer") {
+    const destination = identifier(obj.toAccountId);
+    if (!accounts.has(destination)) throw new Error("收款账户不存在");
+    if (destination === accountId) throw new Error("转出和转入账户必须不同");
+    transaction.toAccountId = destination;
+  } else if (Object.hasOwn(obj, "toAccountId")) throw new Error("收支交易不能填写转入账户");
+  return transaction;
+}
+
+export function emptyLedger(): LedgerState { return { version: 1, accounts: [], transactions: [] }; }
+
+/** Validate and copy persisted data before it can affect any balances. */
+export function validateLedger(input: unknown): LedgerState {
+  const obj = record(input, ["version", "accounts", "transactions"]);
+  if (obj.version !== 1) throw new Error("不支持的账本版本");
+  if (!Array.isArray(obj.accounts) || !Array.isArray(obj.transactions)) throw new Error("账户和交易必须是数组");
+  if (obj.accounts.length > 1000 || obj.transactions.length > 100000) throw new Error("账本超过本地容量限制");
+  const ids = new Set<string>();
+  const accounts = obj.accounts.map((input: unknown): Account => {
+    const account = record(input, ["id", "name", "openingBalance"]);
+    const id = identifier(account.id);
+    if (ids.has(id)) throw new Error("账户标识重复");
+    ids.add(id);
+    return { id, name: text(account.name, "账户名称", 80), openingBalance: storedMoney(account.openingBalance) };
+  });
+  const transactionIds = new Set<string>();
+  const transactions = obj.transactions.map((input: unknown) => {
+    const transaction = checkedTransaction(input, ids);
+    if (transactionIds.has(transaction.id)) throw new Error("交易标识重复");
+    transactionIds.add(transaction.id);
+    return transaction;
+  });
+  return { version: 1, accounts, transactions };
+}
+
+export function addAccount(state: LedgerState, input: unknown, id: string): LedgerState {
+  const current = validateLedger(state);
+  const obj = record(input, ["name", "openingBalance"]);
+  const account: Account = {
+    id: identifier(id), name: text(obj.name, "账户名称", 80),
+    openingBalance: parseMoney(text(obj.openingBalance, "期初金额", 103)).toString(),
+  };
+  return validateLedger({ ...current, accounts: [...current.accounts, account] });
+}
+
+export function addTransaction(state: LedgerState, input: unknown, id: string): LedgerState {
+  const current = validateLedger(state);
+  const obj = record(input, ["kind", "accountId", "toAccountId", "amount", "note", "date"]);
+  const transaction = {
+    ...obj, id: identifier(id),
+    amount: parseMoney(text(obj.amount, "交易金额", 103)).toString(),
+    note: Object.hasOwn(obj, "note") ? obj.note : "", voided: false,
+  };
+  return validateLedger({ ...current, transactions: [...current.transactions, transaction] });
+}
+
+/** A void keeps the original entry for review and removes its entire effect. */
+export function voidTransaction(state: LedgerState, id: string): LedgerState {
+  const current = validateLedger(state);
+  const transactionId = TransactionId(identifier(id));
+  const target = current.transactions.find(transaction => transaction.id === transactionId);
+  if (!target) throw new Error("交易不存在");
+  if (target.voided) throw new Error("交易已经作废");
+  return { ...current, transactions: current.transactions.map(transaction =>
+    transaction.id === transactionId ? { ...transaction, voided: true } : transaction) };
+}
+
+function entry(transaction: Transaction): Entry {
+  const account = AccountId(transaction.accountId);
+  const amount = Money(BigInt(transaction.amount));
+  switch (transaction.kind) {
+    case "income": return Income(account, amount);
+    case "expense": return Expense(account, amount);
+    case "transfer": {
+      if (transaction.toAccountId === undefined) throw new Error("转账缺少收款账户");
+      return Transfer(account, AccountId(transaction.toAccountId), amount);
+    }
+  }
+}
+
+export function summarize(state: LedgerState): LedgerSummary {
+  const current = validateLedger(state);
+  const balances = new Map<AccountId, bigint>(current.accounts.map(account => [AccountId(account.id), BigInt(account.openingBalance)]));
+  let income = 0n;
+  let expense = 0n;
+  const balance = (id: AccountId): bigint => {
+    const value = balances.get(id);
+    if (value === undefined) throw new Error("账户不存在");
+    return value;
+  };
+  for (const transaction of current.transactions) {
+    if (transaction.voided) continue;
+    match entry(transaction) {
+      Income(account, amount) => do { balances.set(account, balance(account) + amount); income += amount; },
+      Expense(account, amount) => do { balances.set(account, balance(account) - amount); expense += amount; },
+      Transfer(source, destination, amount) => do {
+        const next = transferBalances(balance(source), balance(destination), amount);
+        balances.set(source, next.source);
+        balances.set(destination, next.destination);
+      },
+    };
+  }
+  const accounts = current.accounts.map(account => ({ ...account, balance: balance(AccountId(account.id)).toString() }));
+  const total = accounts.reduce((sum, account) => sum + BigInt(account.balance), 0n);
+  return { ...current, accounts, total: total.toString(), income: income.toString(), expense: expense.toString() };
+}

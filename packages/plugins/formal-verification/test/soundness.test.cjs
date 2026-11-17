@@ -139,7 +139,7 @@ const f = () => successor(-1n);`,
     name: "unknown call taints record",
     source: `type Point = { x: bigint };
 function px(p: Point) with { requires: p.x === 1n; ensures: result === 1n; }: bigint { mutate(p); return p.x; }`,
-    rejects: /px postcondition cannot be verified because '/,
+    rejects: /Function 'px' cannot be verified because a record parameter is aliased, escaped, or captured/,
   },
   {
     name: "real division by zero",

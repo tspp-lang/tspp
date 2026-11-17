@@ -171,7 +171,11 @@ export function collectClassModels(
         const methods = new Map<string, MemberModel>();
         const staticMethods = new Map<string, MemberModel>();
         const modelMember = (declaration: NonNullable<MemberModel["declaration"]>, memberLabel: string, kind: MemberKind): MemberModel => {
-            const clause = clauseAt(code, sourceText, after(code, declaration.parameters.end, ")"));
+            // Syntax plugins synthesize members with no original parameter-list span. Searching from -1 would
+            // attach the next source function's contract to every generated member of a data class.
+            const clause = declaration.parameters.pos >= 0 && declaration.parameters.end >= declaration.parameters.pos
+                && !!declaration.body && declaration.body.pos >= declaration.parameters.end
+                ? clauseAt(code, sourceText, after(code, declaration.parameters.end, ")")) : undefined;
             if (clause) attached.add(clause.start);
             const own = readNumberModel(clause, report);
             if (own && numberModel && own !== numberModel) {

@@ -1,0 +1,60 @@
+import { validateLedger, type LedgerState } from "./domain.js";
+
+const columns = ["record", "id", "name", "openingBalance", "kind", "accountId", "toAccountId", "amount", "note", "date", "voided"];
+function escapeCell(value: string): string {
+  return /[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+export function exportCsv(state: LedgerState): string {
+  const rows: string[][] = [columns];
+  for (const account of state.accounts) rows.push(["account", account.id, account.name, account.openingBalance, "", "", "", "", "", "", ""]);
+  for (const transaction of state.transactions) rows.push(["transaction", transaction.id, "", "", transaction.kind, transaction.accountId, transaction.toAccountId ?? "", transaction.amount, transaction.note, transaction.date, String(transaction.voided)]);
+  return rows.map(row => row.map(escapeCell).join(",")).join("\r\n") + "\r\n";
+}
+function parseRows(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [], cell = "", quoted = false, afterQuote = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') { quoted = false; afterQuote = true; }
+      else cell += c;
+    } else if (c === '"' && !cell && !afterQuote) quoted = true;
+    else if (c === ",") { row.push(cell); cell = ""; afterQuote = false; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell); rows.push(row); row = []; cell = ""; afterQuote = false;
+    } else {
+      if (afterQuote || c === '"') throw new Error("CSV 引号格式无效");
+      cell += c;
+    }
+  }
+  if (quoted) throw new Error("CSV 字段引号未闭合");
+  if (row.length || cell || afterQuote) { row.push(cell); rows.push(row); }
+  return rows;
+}
+export function importCsv(state: LedgerState, text: string): LedgerState {
+  const rows = parseRows(text.replace(/^\uFEFF/, ""));
+  const header = rows.shift();
+  if (!header || header.length !== columns.length || header.some((v, i) => v !== columns[i])) throw new Error("CSV 表头无效");
+  const accounts: unknown[] = [...state.accounts];
+  const transactions: unknown[] = [...state.transactions];
+  const accountIds = new Set(state.accounts.map(item => item.id));
+  const transactionIds = new Set(state.transactions.map(item => item.id));
+  for (const row of rows) {
+    if (row.length !== columns.length) throw new Error("CSV 行格式无效");
+    if (row[0] === "account") {
+      if (row.slice(4).some(Boolean)) throw new Error("账户行包含多余字段");
+      if (accountIds.has(row[1])) throw new Error("账户标识重复");
+      accountIds.add(row[1]);
+      accounts.push({ id: row[1], name: row[2], openingBalance: row[3] });
+    } else if (row[0] === "transaction") {
+      if (row[2] || row[3]) throw new Error("交易行包含多余字段");
+      if (transactionIds.has(row[1])) throw new Error("交易标识重复");
+      if (row[10] !== "true" && row[10] !== "false") throw new Error("作废标记无效");
+      transactionIds.add(row[1]);
+      transactions.push({ id: row[1], kind: row[4], accountId: row[5], ...(row[6] ? { toAccountId: row[6] } : {}), amount: row[7], note: row[8], date: row[9], voided: row[10] === "true" });
+    } else throw new Error("CSV 记录类型无效");
+  }
+  return validateLedger({ version: 1, accounts, transactions });
+}

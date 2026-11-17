@@ -1,0 +1,53 @@
+/** Integer cents are the only arithmetic representation used by the ledger. */
+export newtype Money = bigint;
+export const MAX_MONEY_DIGITS = 100;
+
+export function parseMoney(input: string): bigint {
+  if (typeof input !== "string" || input.length > 103 || !/^-?(?:0|[1-9]\d*)(?:\.\d{1,2})?$/.test(input)) {
+    throw new Error("金额必须是最多两位小数的十进制字符串");
+  }
+  const negative = input.startsWith("-");
+  const unsigned = negative ? input.slice(1) : input;
+  const [whole, fraction = ""] = unsigned.split(".");
+  const cents = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, "0"));
+  if (cents.toString().length > MAX_MONEY_DIGITS) throw new Error("金额最多支持 100 位整数分");
+  return negative ? -cents : cents;
+}
+
+export function formatMoney(cents: bigint): string {
+  if (typeof cents !== "bigint") throw new Error("金额必须使用整数分");
+  const absolute = cents < 0n ? -cents : cents;
+  return `${cents < 0n ? "-" : ""}${absolute / 100n}.${(absolute % 100n).toString().padStart(2, "0")}`;
+}
+
+interface Division { quotient: bigint; remainder: bigint; }
+
+function divide(total: bigint, count: bigint) with {
+  requires: total >= 0n && count > 0n;
+  ensures: result.quotient >= 0n && result.remainder >= 0n && result.remainder < count
+    && result.quotient * count + result.remainder === total;
+}: Division {
+  return { quotient: total / count, remainder: total % count };
+}
+
+/** Earlier recipients receive the remainder cents; every share differs by at most one cent. */
+export function splitMoney(total: bigint, count: bigint): bigint[] {
+  if (typeof total !== "bigint" || typeof count !== "bigint") throw new Error("分账金额和人数必须是整数");
+  if (total < 0n) throw new Error("分账金额不能为负数");
+  if (count <= 0n || count > 1000n) throw new Error("分账人数必须在 1 到 1000 之间");
+  const { quotient, remainder } = divide(total, count);
+  const shares: bigint[] = [];
+  let index = 0n;
+  let assigned = 0n;
+  while (index < count) with {
+    invariant: [index >= 0n, index <= count,
+      assigned === index * quotient + (index < remainder ? index : remainder)];
+  } {
+    const share = index < remainder ? quotient + 1n : quotient;
+    shares.push(share);
+    assigned += share;
+    index += 1n;
+  }
+  assert: assigned === total;
+  return shares;
+}

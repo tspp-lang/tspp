@@ -1,6 +1,6 @@
 import type * as TS from "typescript-upstream";
-import { mayCarryObligations } from "./coverage";
-import { assignmentKey, cloneState, isBound, lexicalNames, type Context, type State } from "./execution-state";
+import { mayCarryObligations, mayWriteValues } from "./coverage";
+import { assignmentKey, cloneState, isBound, lexicalNames, mentionsArray, type Context, type State } from "./execution-state";
 import { stringTerm, termForSort, type Sort, type Term } from "./expression";
 import { nameText, ts } from "./host-api";
 import type { DataConstructor, FunctionModel } from "./models";
@@ -19,22 +19,38 @@ export interface Lowering {
  * type outside the model, so its argument only has to hide no obligation.
  */
 export function lowerCallArguments(
-    node: { readonly arguments?: readonly TS.Expression[]; }, model: FunctionModel, state: State, context: Context, { lowerExpression }: Lowering,
+    node: { readonly arguments?: readonly TS.Expression[]; }, model: FunctionModel, state: State, context: Context, lowering: Lowering,
 ): Term[] {
+    const { lowerExpression } = lowering;
+    if (model.callSafetyError) throw new Error(`Call to '${model.name}' cannot be verified because ${model.callSafetyError}; parameter mutation and escaping records need a post-state model.`);
     const positions = model.parameterPositions ?? model.parameters.map((_, index) => index);
     const arity = model.arity ?? model.parameters.length;
     const callArguments = node.arguments ?? [];
     if (callArguments.length !== arity) throw new Error(`'${model.name}' expects ${arity} arguments.`);
-    callArguments.forEach((argument, index) => {
-        if (positions.includes(index)) return;
-        try { lowerExpression(argument, state, context); }
-        catch (error) { if (mayCarryObligations(argument, state, context)) throw error; }
+    if (callArguments.some(argument => mentionsArray(argument, state))) {
+        throw new Error("A tracked local array cannot escape through a function or constructor argument during verification.");
+    }
+    const values: Term[] = [];
+    // Evaluate each JavaScript argument exactly once, in source order, before selecting any of its scalar fields.
+    callArguments.forEach((argument, position) => {
+        const indexes = positions.flatMap((candidate, index) => candidate === position ? [index] : []);
+        if (!indexes.length) {
+            try { lowerExpression(argument, state, context); }
+            catch (error) { if (mayCarryObligations(argument, state, context) || mayWriteValues(argument)) throw error; }
+            return;
+        }
+        const record = indexes.some(index => model.parameterFields?.[index] !== undefined);
+        const fields = record ? lowerStructuredResult(argument, state, context, lowering) : undefined;
+        const scalar = record ? undefined : lowerExpression(argument, state, context);
+        for (const index of indexes) {
+            const field = model.parameterFields?.[index];
+            const value = field === undefined ? scalar : fields?.[`result.${field}`];
+            if (!value) throw new Error(`Argument ${position + 1} of '${model.name}' has no modeled scalar field '${field}'.`);
+            const sort = model.variables[model.parameters[index]];
+            values[index] = sort ? termForSort(value, sort, `Argument ${position + 1} of '${model.name}'`) : value;
+        }
     });
-    return positions.map((position, index) => {
-        const sort = model.variables[model.parameters[index]];
-        const value = lowerExpression(callArguments[position], state, context);
-        return sort ? termForSort(value, sort, `Argument ${position + 1} of '${model.name}'`) : value;
-    });
+    return values;
 }
 
 /** The function an immediately invoked call runs, as in `(() => { ... })()` and `((x) => x + 1n)(y)`. */
@@ -53,6 +69,12 @@ export function lowerImmediateCall(
     node: TS.CallExpression, callee: TS.ArrowFunction | TS.FunctionExpression, state: State, context: Context, { lowerExpression, executeStatements }: Lowering,
 ): Term {
     if (callee.asteriskToken || callee.modifiers?.length) throw new Error("Only plain immediately invoked functions can participate in formal verification.");
+    if (node.arguments.some(argument => mentionsArray(argument, state))) {
+        throw new Error("A tracked local array cannot escape through an immediately invoked function argument during verification.");
+    }
+    if (callee.parameters.some(parameter => ts.isIdentifier(parameter.name) && state.arrays?.has(nameText(parameter.name)))) {
+        throw new Error("An immediately invoked function cannot shadow a tracked local array during verification.");
+    }
     const saved: [string, Term | undefined, Sort | undefined][] = [];
     callee.parameters.forEach((parameter, index) => {
         if (!ts.isIdentifier(parameter.name)) throw new Error("Only named parameters of immediately invoked functions can participate in formal verification.");
@@ -69,7 +91,7 @@ export function lowerImmediateCall(
                 state.variables[name] = value.sort;
             }
         }
-        catch (error) { if (argument && mayCarryObligations(argument, state, context)) throw error; }
+        catch (error) { if (argument && (mayCarryObligations(argument, state, context) || mayWriteValues(argument))) throw error; }
     });
     const restore = (target: State) => {
         for (const [name, value, sort] of saved) {
@@ -184,7 +206,11 @@ export function lowerStructuredResult(node: TS.Expression, state: State, context
     const result: Record<string, Term> = { [`result.${constructor.tagProperty}`]: stringTerm(constructor.tag) };
     constructor.fields.forEach((field, index) => {
         try { result[`result.${field}`] = lowerExpression(node.arguments[index], state, context); }
-        catch { /* Recursive fields need no scalar SMT binding until selected. */ }
+        catch (error) {
+            // Recursive payloads need no scalar value, but evaluating them must not hide a guarded/unsafe call
+            // or a write that invalidates fields another proof still reads.
+            if (mayCarryObligations(node.arguments[index], state, context) || mayWriteValues(node.arguments[index])) throw error;
+        }
     });
     return result;
 }

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f4ed"><title>一页账 · 本地账本</title><link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+<div class="shell">
+  <aside class="sidebar">
+    <a class="brand" href="#overview" aria-label="一页账首页"><span class="brand-mark">一</span><span>一页账<small>YOUR LOCAL LEDGER</small></span></a>
+    <div class="sidebar-label">工作台</div>
+    <nav aria-label="主要导航"><a class="nav-link active" href="#overview"><span>◫</span> 账本概览</a><a class="nav-link" href="#transactions"><span>≡</span> 收支明细</a><a class="nav-link" href="#tools"><span>⊞</span> 实用工具</a></nav>
+    <div class="side-bottom"><span class="status-dot"></span><div><strong>数据留在本地</strong><small>安心记录，每一笔都有迹可循</small></div></div>
+  </aside>
+  <main>
+    <header class="topbar"><span>我的账本 <span class="slash">/</span> 总览</span><span class="top-status"><span class="status-dot"></span> 本地账本</span></header>
+    <div class="content">
+      <div id="load-error" class="load-error" role="alert" hidden><span>账本加载失败，请检查本地服务是否运行。</span><button id="retry-load" type="button">重新加载</button></div><section id="overview" class="section-heading"><div><div class="eyebrow">A LITTLE MORE CLARITY, EVERY DAY</div><h1>把日子，记清楚<span>。</span></h1><p>每一笔认真记录，都是对生活的掌握。</p></div><button class="primary" id="add-transaction">＋ <span>记一笔</span></button></section>
+      <section class="summary-grid" aria-label="账本概览"><article class="balance-card"><div class="card-top"><span>总资产 <span class="info">CNY</span></span><span>↗</span></div><div class="balance-value" id="total">¥ --</div><div class="balance-foot"><span>所有账户当前余额</span><span>◈</span></div></article><article class="stat-card"><div class="stat-icon income-icon">↙</div><div><div class="muted">累计收入</div><div class="stat-value" id="income">¥ --</div><small>已计入账本的收入</small></div></article><article class="stat-card"><div class="stat-icon expense-icon">↗</div><div><div class="muted">累计支出</div><div class="stat-value" id="expense">¥ --</div><small>已计入账本的支出</small></div></article></section>
+      <div class="dashboard-grid"><div class="main-column">
+        <section id="transactions" class="panel transactions"><div class="panel-heading"><div><div class="section-kicker">YOUR ACTIVITY</div><h2>收支明细 <span id="transaction-count" class="count">0</span></h2><p>记录生活中的每一笔来往</p></div><button class="text-button" id="clear-filters">清除筛选 ↗</button></div>
+          <div class="filters"><label class="search"><span>⌕</span><input id="search" type="search" placeholder="搜索备注或账户" aria-label="搜索备注或账户"></label><select id="filter-account" aria-label="筛选账户"><option value="">全部账户</option></select><select id="filter-kind" aria-label="筛选类型"><option value="">全部类型</option><option value="income">收入</option><option value="expense">支出</option><option value="transfer">转账</option></select></div>
+          <div class="table-wrap"><table><thead><tr><th>交易</th><th>账户</th><th>日期</th><th class="align-right">金额</th><th><span class="sr-only">操作</span></th></tr></thead><tbody id="transaction-list"></tbody></table><div id="empty-transactions" class="empty" hidden><span>◌</span><strong>这里还没有记录</strong><p>记下第一笔，或换个筛选条件看看。</p></div></div>
+        </section>
+      </div><div class="side-column">
+        <section class="panel accounts"><div class="panel-heading compact"><div><div class="section-kicker">YOUR ACCOUNTS</div><h2>我的账户</h2><p>资金去向，一目了然</p></div><button class="circle-button" id="add-account" aria-label="添加账户">＋</button></div><div id="account-list" class="account-list"></div><div id="empty-accounts" class="empty small" hidden><span>◌</span><strong>还没有账户</strong><p>先创建一个账户，开始记账。</p><button class="text-button" id="empty-add-account">创建账户 →</button></div><div class="account-footer">账户余额含期初金额 <span>↗</span></div></section>
+        <section id="tools" class="panel tools"><div class="panel-heading compact"><div><div class="section-kicker">LITTLE HELPERS</div><h2>实用工具</h2><p>让记账这件事更轻松</p></div></div><button class="tool-row" id="open-split"><span class="tool-icon">÷</span><span><strong>AA 分摊</strong><small>精确分到每一分钱</small></span><span class="arrow">↗</span></button><a class="tool-row" href="/api/export.csv" download="一页账.csv"><span class="tool-icon">↓</span><span><strong>导出 CSV</strong><small>保存一份账本副本</small></span><span class="arrow">↗</span></a><label class="tool-row upload"><span class="tool-icon">↑</span><span><strong>导入 CSV</strong><small>从文件导入账本数据</small></span><span class="arrow">↗</span><input id="import-file" type="file" accept=".csv,text/csv" aria-label="导入 CSV 文件"></label></section>
+        <div class="quote">“ 好好生活，也好好记账。 ”<span>MADE FOR YOUR EVERYDAY</span></div>
+      </div></div>
+      <footer><span>一页账 <i>·</i> 用心记录，慢慢积累</span><span>金额单位：人民币（元）</span></footer>
+    </div>
+  </main>
+</div>
+<div id="notice" role="status" aria-live="polite"></div>
+<dialog id="account-dialog" aria-labelledby="account-title"><form id="account-form"><div class="form-error" role="alert" hidden></div><div class="dialog-head"><div><div class="section-kicker">NEW ACCOUNT</div><h2 id="account-title">创建账户</h2></div><button type="button" class="close" data-close aria-label="关闭">×</button></div><p class="dialog-intro">给资金一个清晰的去处。</p><label>账户名称<input name="name" required maxlength="80" placeholder="例如：日常储蓄"></label><label>期初金额（元）<input name="openingBalance" inputmode="decimal" required value="0.00" placeholder="0.00"></label><div class="dialog-actions"><button type="button" class="secondary" data-close>取消</button><button class="primary" type="submit">创建账户</button></div></form></dialog>
+<dialog id="transaction-dialog" aria-labelledby="transaction-title"><form id="transaction-form"><div class="form-error" role="alert" hidden></div><div class="dialog-head"><div><div class="section-kicker">NEW TRANSACTION</div><h2 id="transaction-title">记一笔</h2></div><button type="button" class="close" data-close aria-label="关闭">×</button></div><p class="dialog-intro">把这一刻的收支记录下来。</p><label>类型<select name="kind"><option value="expense">支出</option><option value="income">收入</option><option value="transfer">转账</option></select></label><label>账户<select name="accountId" required></select></label><label id="destination-label" hidden>转入账户<select name="toAccountId"></select></label><div class="form-grid"><label>金额（元）<input name="amount" inputmode="decimal" required placeholder="0.00"></label><label>日期<input name="date" type="date" required></label></div><label>备注 <span class="optional">选填</span><input name="note" maxlength="500" placeholder="写点什么，方便日后回忆"></label><div class="dialog-actions"><button type="button" class="secondary" data-close>取消</button><button class="primary" type="submit">保存记录</button></div></form></dialog>
+<dialog id="split-dialog" aria-labelledby="split-title"><form id="split-form"><div class="form-error" role="alert" hidden></div><div class="dialog-head"><div><div class="section-kicker">SPLIT THE BILL</div><h2 id="split-title">AA 分摊</h2></div><button type="button" class="close" data-close aria-label="关闭">×</button></div><p class="dialog-intro">输入总金额和人数，精确分配每一分钱。</p><div class="form-grid"><label>总金额（元）<input name="amount" inputmode="decimal" required placeholder="0.00"></label><label>人数<input name="count" type="number" min="1" max="1000" step="1" required placeholder="例如 3"></label></div><button class="primary full" type="submit">计算分摊</button><div id="split-result" class="split-result" aria-live="polite"></div></form></dialog>
+<dialog id="void-dialog" aria-labelledby="void-title"><form id="void-form"><div class="form-error" role="alert" hidden></div><div class="dialog-head"><div><div class="section-kicker">VOID TRANSACTION</div><h2 id="void-title">作废这笔记录？</h2></div><button type="button" class="close" data-close aria-label="关闭">×</button></div><p class="dialog-intro">作废后金额会从账本统计中撤回，记录仍会保留，方便日后查阅。</p><div class="dialog-actions"><button type="button" class="secondary" data-close>取消</button><button class="danger-button" type="submit">确认作废</button></div></form></dialog>
+</body></html>

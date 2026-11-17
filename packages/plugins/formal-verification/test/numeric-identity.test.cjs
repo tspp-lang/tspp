@@ -179,7 +179,7 @@ test("does not guess the numeric type of a union field", async () => {
       const value: any = input.value;
       return value !== 0;
     }`,
-    rejects: /Unknown proof (field|variable)/,
+    rejects: /Function 'inspect' cannot be verified because a record parameter is aliased, escaped, or captured/,
   });
 });
 

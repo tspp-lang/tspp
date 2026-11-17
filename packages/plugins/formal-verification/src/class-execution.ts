@@ -118,7 +118,8 @@ export function leaveObject(state: State, node: TS.Node, callee: string, context
  * A call to a modeled method or constructor: its preconditions are proved with the arguments, and its postconditions
  * assumed of the result. Returns undefined for constructors, whose result is an object.
  */
-export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, target: MethodTarget, state: State, context: Context): Term | undefined {
+export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, target: MethodTarget, state: State, context: Context,
+    constructed?: { readonly assignments: ReadonlyMap<string, string>; readonly result: Record<string, Term>; }): Term | undefined {
     context.visited.add(node);
     const { owner, member, receiver } = target;
     const model = member.model;
@@ -140,7 +141,14 @@ export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, targ
         addProof(context, state, goal.smt, node.arguments?.[model.parameterPositions?.[index] ?? index] ?? node, `${refinement.name} argument refinement`);
     }
     leaveObject(state, node, model.name, context);
-    if (member.kind === "constructor") return undefined;
+    if (member.kind === "constructor") {
+        if (constructed) for (const [field, parameter] of constructed.assignments) {
+            const position = model.parameters.indexOf(parameter);
+            if (position < 0) throw new Error(`Constructor field '${field}' has no scalar argument.`);
+            constructed.result[`result.${field}`] = arguments_[position];
+        }
+        return undefined;
+    }
     const sort = model.returnSort;
     const name = `tspp.call.${model.name}.${context.nextTemporary++}`;
     const result: Term | undefined = sort && { smt: `|${name}|`, sort };
@@ -159,6 +167,34 @@ export function lowerMemberCall(node: TS.CallExpression | TS.NewExpression, targ
             if (fact.sort === "Bool") state.facts.push(fact.smt);
         }
     }
+    return result;
+}
+
+/** A transparent value constructor consists solely of assignments from parameters to its own scalar fields.
+ * This includes generated data-class constructors; arbitrary constructor effects remain unsupported. */
+export function lowerConstructedResult(node: TS.Expression, state: State, context: Context): Record<string, Term> | undefined {
+    while (ts.isParenthesizedExpression(node)) node = node.expression;
+    if (!ts.isNewExpression(node)) return undefined;
+    const target = resolveCallTarget(node, context);
+    if (!target || target.owner.base) return undefined;
+    const { owner, member } = target;
+    const body = member.declaration?.body;
+    if (!body || [...owner.fields.values()].some(field => field.initializer)) return undefined;
+    const assignments = new Map<string, string>();
+    // Parameter properties execute before the body; a later explicit assignment wins.
+    for (const field of owner.fields.values()) if (field.parameter) assignments.set(field.name, field.parameter);
+    for (const statement of body.statements) {
+        if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression)) return undefined;
+        const { left, right, operatorToken } = statement.expression;
+        if (operatorToken.kind !== ts.SyntaxKind.EqualsToken || !ts.isPropertyAccessExpression(left)
+            || left.expression.kind !== ts.SyntaxKind.ThisKeyword || !ts.isIdentifier(right)) return undefined;
+        const field = nameText(left.name);
+        if (!owner.fields.get(field)?.sort || !member.model.parameters.includes(nameText(right))) return undefined;
+        assignments.set(field, nameText(right));
+    }
+    if (!assignments.size) return undefined;
+    const result: Record<string, Term> = {};
+    lowerMemberCall(node, target, state, context, { assignments, result });
     return result;
 }
 
@@ -242,6 +278,11 @@ export function verifyMember(owner: ClassModel, member: MemberModel, base: Omit<
         ? participatesInVerification(declaration, member.model) || hooks.owesProof(declaration, context)
         : [...owner.fields.values()].some(field => field.initializer && mayCarryObligations(field.initializer, initialState(member.model, base.logic), context));
     if (!required && !owes) return undefined;
+    if (member.model.verificationSafetyError && declaration) {
+        diagnostic(context, declaration.name ?? declaration, `Member '${member.model.name}' cannot be verified because ${member.model.verificationSafetyError}; record aliases need a post-state model.`);
+        rejected.add(declaration);
+        return undefined;
+    }
     const usesNumber = !!declaration && (declaration.parameters.some(parameter => parameter.type?.kind === ts.SyntaxKind.NumberKeyword)
         || declaration.type?.kind === ts.SyntaxKind.NumberKeyword);
     if (usesNumber && !member.model.numberModel) {

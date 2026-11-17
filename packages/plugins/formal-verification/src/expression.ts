@@ -68,7 +68,7 @@ export interface ExpressionEnvironment {
 /** An ECMAScript identifier, which may also be a private name such as `#count`. */
 export const identifierSource = String.raw`#?[\p{ID_Start}_$][\p{ID_Continue}$\u200C\u200D]*`;
 
-const tokenPattern = new RegExp(String.raw`\s*(${identifierSource}|\d+(?:\.\d+)?n?|"(?:\\(?:\r\n|[\s\S])|[^"\\])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\])*'|===|!==|<=|>=|&&|\|\||[().,+\-*\/%<>!])\s*`, "gyu");
+const tokenPattern = new RegExp(String.raw`\s*(${identifierSource}|\d+(?:\.\d+)?n?|"(?:\\(?:\r\n|[\s\S])|[^"\\])*"|'(?:\\(?:\r\n|[\s\S])|[^'\\])*'|===|!==|<=|>=|&&|\|\||[().,?:+\-*\/%<>!])\s*`, "gyu");
 const identifierPattern = new RegExp(String.raw`^${identifierSource}$`, "u");
 
 function proofStringLiteral(token: string): Term {
@@ -111,7 +111,7 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
     const primary = (): Term => {
         let token = take();
         if (token === "(") {
-            const term = or();
+            const term = conditional();
             if (take() !== ")") throw new Error("Expected ')' in proof expression.");
             return term;
         }
@@ -134,7 +134,7 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
                 take();
                 const arguments_: Term[] = [];
                 while (peek() !== ")") {
-                    arguments_.push(or());
+                    arguments_.push(conditional());
                     if (peek() !== ",") break;
                     take();
                 }
@@ -189,7 +189,18 @@ export function expressionToSmtTerm(text: string, environment: ExpressionEnviron
     });
     const and = (): Term => binary(equality, ["&&"], (_op, left, right) => ({ smt: `(and ${requireSort(left, "Bool").smt} ${requireSort(right, "Bool").smt})`, sort: "Bool" }));
     const or = (): Term => binary(and, ["||"], (_op, left, right) => ({ smt: `(or ${requireSort(left, "Bool").smt} ${requireSort(right, "Bool").smt})`, sort: "Bool" }));
-    const result = or();
+    const conditional = (): Term => {
+        const condition = or();
+        if (peek() !== "?") return condition;
+        take();
+        const whenTrue = conditional();
+        if (take() !== ":") throw new Error("Expected ':' in conditional proof expression.");
+        const whenFalse = conditional();
+        requireSort(condition, "Bool");
+        if (whenTrue.sort !== whenFalse.sort) throw new Error("Both branches of a condition must have the same proof sort.");
+        return { smt: `(ite ${condition.smt} ${whenTrue.smt} ${whenFalse.smt})`, sort: whenTrue.sort };
+    };
+    const result = conditional();
     if (index !== tokens.length) throw new Error(`Unexpected token '${peek()}' in proof expression.`);
     return result;
 }
