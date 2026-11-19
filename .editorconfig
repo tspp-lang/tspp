@@ -1,10 +1,31 @@
 
 root = true
 
-[{src,scripts}/**.{ts,json,js}]
-end_of_line = crlf
+[*]
+end_of_line = lf
 charset = utf-8
 trim_trailing_whitespace = true
 insert_final_newline = true
 indent_style = space
 indent_size = 4
+
+[packages/compiler/**.{ts,tsx,mts,cts,js,jsx,mjs,cjs}]
+end_of_line = crlf
+
+[packages/compiler/{tests,lib,internal}/**]
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[**/{fixtures,baselines,__snapshots__,generated,_namespaces}/**]
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[**/*.generated.*]
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+
+[*.{md,mdx}]
+trim_trailing_whitespace = false

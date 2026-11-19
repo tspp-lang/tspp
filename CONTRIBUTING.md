@@ -29,6 +29,23 @@ pnpm test
 Compiler behavior changes should include focused tests under
 `packages/compiler/tests` or `packages/compiler/src/testRunner/unittests`.
 
+## Commit formatting
+
+Local installs enable Lefthook with Git 2.31 or newer. Older Git versions get a
+format-only pre-commit hook. To install the hooks in an existing checkout, run
+`node scripts/install-lefthook.mjs`.
+
+Before a commit, staged UTF-8 text files have their line endings normalized and a
+final newline added. Project files use LF; compiler TypeScript and JavaScript
+sources retain CRLF to match the upstream formatter. Generated files, compiler
+fixtures and baselines, binary files, and symbolic links are excluded.
+
+The hook updates staged content without adding unstaged edits. The normalizer
+updates a working file only when it matches the staged version; Lefthook may
+temporarily hide and restore unstaged edits around the hook. This is line-ending
+normalization, not a repository-wide style rewrite. Keep any broad style-formatting
+changes in a separate commit.
+
 ## Design boundaries
 
 - Keep new TS++ capabilities isolated behind explicit extension points.
