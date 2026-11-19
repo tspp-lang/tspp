@@ -331,6 +331,12 @@ export interface TSPPTypeOperations {
     /** An anonymous object type with `properties`, each instantiated with `mapper` when present. */
     createObjectType(properties: readonly import("typescript-upstream").Symbol[], mapper?: TSPPTypeMapper): import("typescript-upstream").Type;
     getIntersectionType(types: readonly import("typescript-upstream").Type[]): import("typescript-upstream").Type;
+    getUnionType(types: readonly import("typescript-upstream").Type[]): import("typescript-upstream").Type;
+    /**
+     * Slices a fixed tuple using zero-based, end-exclusive element positions, preserving readonly, optional elements,
+     * and labels. Returns undefined for non-tuples and tuples with a variadic or rest element.
+     */
+    sliceTupleType(type: import("typescript-upstream").Type, start: number, end?: number): import("typescript-upstream").Type | undefined;
     /** Keeps the import of a value alias in JavaScript output, for a value only generated code will mention. */
     markAliasReferenced(alias: import("typescript-upstream").Symbol): void;
     /** Keeps the import of an alias in declaration output, for a name only restored declaration text will mention. */
@@ -360,6 +366,12 @@ export interface TSPPTypeHost extends TSPPTypeOperations {
      * leaves its instantiation and printing to the extension.
      */
     createType(symbol?: import("typescript-upstream").Symbol): import("typescript-upstream").Type;
+    /** A fresh rigid type parameter, scoped by the extension that uses it; its constraint is not an equality. */
+    createTypeParameter(symbol?: import("typescript-upstream").Symbol, constraint?: import("typescript-upstream").Type): import("typescript-upstream").TypeParameter;
+    /** Checks an expression normally, including its body; when supplied, also checks it against `contextualType`. */
+    checkExpression(node: import("typescript-upstream").Expression, contextualType?: import("typescript-upstream").Type): import("typescript-upstream").Type;
+    /** The contextual type from the surrounding program, with any local refinement applied. */
+    getContextualType(node: import("typescript-upstream").Expression): import("typescript-upstream").Type | undefined;
     /** The type, alias resolved, that a type reference names, without reporting errors; undefined if none. */
     resolveTypeReferenceName(node: import("typescript-upstream").TypeReferenceNode | import("typescript-upstream").ExpressionWithTypeArguments): import("typescript-upstream").Symbol | undefined;
     /** The type parameters a generic type alias, class, or interface declares; undefined for other symbols. */
@@ -386,6 +398,17 @@ export interface TSPPTypeHost extends TSPPTypeOperations {
 export interface TSPPTypeExtension {
     /** The type of `node`, or undefined to resolve it the ordinary way. Results are not cached by the checker. */
     resolveTypeNode(node: import("typescript-upstream").TypeNode, host: TSPPTypeHost): import("typescript-upstream").Type | undefined;
+    /**
+     * Checks an expression owned by this extension. It must check its children through `host.checkExpression` and
+     * enforce its own typing rules before returning the result type. Returning undefined keeps ordinary checking.
+     * A recursive request for this same node skips this callback, so it can delegate to ordinary checking.
+     */
+    resolveExpressionType?(node: import("typescript-upstream").Expression, host: TSPPTypeHost): import("typescript-upstream").Type | undefined;
+    /**
+     * Applies evidence valid only at `location` to a type. The extension owns the scope and justification of this
+     * refinement; the compiler never changes the declarations or types cached outside that scope.
+     */
+    refineTypeAtLocation?(type: import("typescript-upstream").Type, location: import("typescript-upstream").Node, host: TSPPTypeHost): import("typescript-upstream").Type | undefined;
     /** Instantiates a type this extension created. */
     instantiateType(type: import("typescript-upstream").Type, mapper: TSPPTypeMapper, host: TSPPTypeHost): import("typescript-upstream").Type;
     /**

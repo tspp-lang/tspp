@@ -152,6 +152,7 @@ export * from "./unittests/tscWatch/watchApi.js";
 export * from "./unittests/tscWatch/watchEnvironment.js";
 export * from "./unittests/tspp/interop.js";
 export * from "./unittests/tspp/configuration.js";
+export * from "./unittests/tspp/typeOperations.js";
 export * from "./unittests/tsserver/applyChangesToOpenFiles.js";
 export * from "./unittests/tsserver/autoImportProvider.js";
 export * from "./unittests/tsserver/auxiliaryProject.js";

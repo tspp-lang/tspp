@@ -43,6 +43,24 @@ While traditional type systems support "Value $\to$ Value" (functions), "Type $\
    Covers `reify` type descriptors and compile-time `typecase` pattern matching with `infer` captures.
 9. **[`src/09-imported-aliases.tspp`](./src/09-imported-aliases.tspp)** — 跨文件导入类型级自然数、用 `Refl` 证明 `2 + 2 = 4`、值级类型函数 `Nat => Nat` 与按值索引的类型构造器 `Sized<N>`。
    Covers cross-file natural number computation, proving `2 + 2 = 4` with `Refl`, `Nat => Nat` functions, and value-indexed `Sized<N>`.
+10. **[`src/10-gadt-interpreter.tspp`](./src/10-gadt-interpreter.tspp)** — 带结果类型索引的表达式、无需断言的解释器，以及用自定义 `data` 构造器和 `match` 打包、拆解运行时才确定的类型。
+    Covers indexed expression constructors, an assertion-free interpreter, and user-defined existential pairs consumed with ordinary `match`. Host functions keep this example separate from variable binding and environments.
+11. **[`src/11-context-interpreter.tspp`](./src/11-context-interpreter.tspp)** — 上下文索引、变量位置证据、异构环境和 lambda 求值；通过延迟构造递归表达式计算阶乘。
+    Adds context indices, de Bruijn variable proofs, heterogeneous environments, lambda evaluation, and a delayed recursive factorial expression.
+12. **[`src/12-well-typed-interpreter.tspp`](./src/12-well-typed-interpreter.tspp)** — 独立完整示例：变量、lambda、阶乘与携带运行时类型证据的动态返回值，无需导入前面的文件。
+    A standalone interpreter combining contexts, variables, lambdas, factorial, and runtime-selected integer, boolean, or function results with indexed type witnesses.
+
+这三个解释器示例同时启用 `type-computation` 和 `nominal-types`。运行时依赖对通过用户定义的 `Some`、`Evaluated` 构造器和普通 `match` 表达；无需内置 `pack` 或 `unpack`。`lookup` 根据变量证据排除空环境分支，求值函数不使用类型断言。类型层的 `Sigma`、`Pair` 示例仍用于 MLTT 计算；运行时索引关联由 GADT 检查保留。示例展示类型安全，不检查任意递归函数的终止性。
+
+All three interpreters enable `type-computation` and `nominal-types`. Runtime dependent pairs use user-defined constructors
+and ordinary `match`; MLTT `Sigma` and `Pair` remain type-level computations. Variable proofs make empty-environment
+branches unreachable, and the evaluators require no type assertions. General termination checking is outside these examples.
+
+`add` 只需标注整个表达式的类型，构造器就能向内传递上下文、参数与结果索引，并推导 `Op` 回调和 `Stop` / `Pop` 的类型。阶乘保留一个局部变量类型标注及递归调用的上下文参数，其他构造器无需手写类型实参。缺少足够上下文时仍需标注；推导不会从后续语句倒推，也不会反解任意类型族。
+
+Annotating the whole `add` expression supplies the indices for nested constructors, operator callbacks, and variable
+proofs. Factorial retains one local expression annotation and the recursive call's context argument. Ambiguous calls
+still need annotations; inference does not use later statements or invert arbitrary type families.
 
 ---
 

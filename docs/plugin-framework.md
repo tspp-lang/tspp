@@ -393,6 +393,15 @@ its own: it runs from the `command-line` and `plugin-host` call sites.
 | `semantic-tokens` | `languageService.registerSemanticTokensProvider` | `services/tspp/syntax.ts` |
 | `formatting` | `languageService.registerFormattingProvider` | `compiler/tspp/registry.ts`, `services/tspp/formatting.ts` |
 
+The `type-extension` slot also checks extension-owned expressions and applies
+location-scoped type refinements. An expression extension must check its children
+through the host before returning a type. The host provides contextual types,
+fresh rigid parameters, substitution, and ordinary assignment checks; evidence
+and its scope belong to the plugin. Ordinary TypeScript desugaring cannot express
+branch-local equations or open an existential parameter. Indexed data matching
+uses these operations without changing global type declarations or filtering out
+failed expression checks. Zero-plugin parity remains covered by its own tests.
+
 `formatting` wraps the language service's three formatting entry points. TypeScript's
 formatter reads the projected text and the lowered tree, where plugin syntax can look like
 whitespace, so the host keeps only its edits that change nothing but whitespace (and

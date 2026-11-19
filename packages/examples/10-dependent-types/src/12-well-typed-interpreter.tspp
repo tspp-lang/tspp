@@ -1,0 +1,146 @@
+export type Ty = "int" | "bool" | { kind: "fun"; from: Ty; to: Ty };
+export type Fun<A extends Ty, B extends Ty> = { kind: "fun"; from: A; to: B };
+
+export type InterpTy<T extends Ty> = match T {
+    "int": bigint,
+    "bool": boolean,
+    Fun<infer A, infer B>: (argument: InterpTy<A>) => InterpTy<B>,
+    _: never
+};
+
+// The expression index also records the types of all variables in scope.
+// Stop refers to the nearest binder; Pop moves one binder outward.
+
+export type Context = readonly Ty[];
+
+export data HasType<C extends Context, T extends Ty> {
+    Stop: <R extends Context, T extends Ty>() => HasType<readonly [T, ...R], T>,
+    Pop: <U extends Ty, R extends Context, T extends Ty>(previous: HasType<R, T>) => HasType<readonly [U, ...R], T>,
+}
+
+export data Env<C extends Context> {
+    Nil: Env<readonly []>,
+    Cons: <T extends Ty, R extends Context>(head: InterpTy<T>, tail: Env<R>) => Env<readonly [T, ...R]>,
+}
+
+export function lookup<C extends Context, T extends Ty>(proof: HasType<C, T>, environment: Env<C>): InterpTy<T> {
+    return match proof {
+        Stop => match environment {
+            Cons(head, tail) => head
+        },
+        Pop(previous) => match environment {
+            Cons(head, tail) => lookup(previous, tail)
+        }
+    };
+}
+
+export data Expr<C extends Context, T extends Ty> {
+    Val: <C extends Context>(value: bigint) => Expr<C, "int">,
+    BoolVal: <C extends Context>(value: boolean) => Expr<C, "bool">,
+    Var: <C extends Context, T extends Ty>(proof: HasType<C, T>) => Expr<C, T>,
+    Lam: <C extends Context, A extends Ty, B extends Ty>(body: Expr<readonly [A, ...C], B>) => Expr<C, Fun<A, B>>,
+    App: <C extends Context, A extends Ty, B extends Ty>(fn: Expr<C, Fun<A, B>>, argument: Expr<C, A>) => Expr<C, B>,
+    Op: <C extends Context, A extends Ty, B extends Ty, R extends Ty>(
+        operation: (left: InterpTy<A>, right: InterpTy<B>) => InterpTy<R>,
+        left: Expr<C, A>,
+        right: Expr<C, B>
+    ) => Expr<C, R>,
+    If: <C extends Context, T extends Ty>(condition: Expr<C, "bool">, yes: Expr<C, T>, no: Expr<C, T>) => Expr<C, T>,
+    Delay: <C extends Context, T extends Ty>(force: () => Expr<C, T>) => Expr<C, T>,
+}
+
+export function interp<C extends Context, T extends Ty>(environment: Env<C>, expression: Expr<C, T>): InterpTy<T> {
+    return match expression {
+        Val(value) => value,
+        BoolVal(value) => value,
+        Var(proof) => lookup(proof, environment),
+        Lam(body) => value => interp(Cons(value, environment), body),
+        App(fn, argument) => interp(environment, fn)(interp(environment, argument)),
+        Op(operation, left, right) => operation(interp(environment, left), interp(environment, right)),
+        If(condition, yes, no) => interp(environment, condition) ? interp(environment, yes) : interp(environment, no),
+        Delay(force) => interp(environment, force())
+    };
+}
+
+// \x. \y. y + x
+export const add: Expr<readonly [], Fun<"int", Fun<"int", "int">>> = Lam(Lam(Op(
+    (left, right) => left + right,
+    Var(Stop()),
+    Var(Pop(Stop()))
+)));
+export const additionResult: bigint = interp(Nil, add)(20n)(22n);
+
+// Delay makes the recursive reference finite while the AST is constructed.
+export function factorial<C extends Context>(): Expr<C, Fun<"int", "int">> {
+    type Body = readonly ["int", ...C];
+    const argument: Expr<Body, "int"> = Var(Stop());
+    return Lam(If(
+        Op((left, right) => left === right, argument, Val(0n)),
+        Val(1n),
+        Op(
+            (left, right) => left * right,
+            App(
+                Delay(() => factorial<Body>()),
+                Op((left, right) => left - right, argument, Val(1n))
+            ),
+            argument
+        )
+    ));
+}
+
+export const factorialResult: bigint = interp(Nil, factorial())(6n);
+
+// Runtime type witnesses let match refine the value carried beside the witness.
+export data TypeWitness<T extends Ty> {
+    IntegerType: TypeWitness<"int">,
+    BooleanType: TypeWitness<"bool">,
+    FunctionType: <A extends Ty, B extends Ty>(
+        argument: TypeWitness<A>, result: TypeWitness<B>
+    ) => TypeWitness<Fun<A, B>>,
+}
+
+export data SomeExpr {
+    Some: <T extends Ty>(type: TypeWitness<T>, expression: Expr<readonly [], T>) => SomeExpr,
+}
+
+export data SomeValue {
+    Evaluated: <T extends Ty>(type: TypeWitness<T>, value: InterpTy<T>) => SomeValue,
+}
+
+export function choose(kind: "factorial" | "isZero" | "function", input: bigint): SomeExpr {
+    if (kind === "factorial") {
+        return Some(IntegerType, App(factorial(), Val(input)));
+    }
+    if (kind === "isZero") {
+        return Some(BooleanType, Op(
+            (left, right) => left === right,
+            Val(input),
+            Val(0n)
+        ));
+    }
+    return Some(FunctionType(IntegerType, IntegerType), factorial());
+}
+
+export function evaluateSome(expression: SomeExpr): SomeValue {
+    return match expression {
+        Some(type, term) => Evaluated(type, interp(Nil, term))
+    };
+}
+
+export function show(result: SomeValue): string {
+    return match result {
+        Evaluated(type, value) => match type {
+            IntegerType => value.toString(),
+            BooleanType => value ? "true" : "false",
+            FunctionType(argument, result) => "<function>"
+        }
+    };
+}
+
+export const dynamicInteger = evaluateSome(choose("factorial", 6n));
+export const dynamicBoolean = evaluateSome(choose("isZero", 0n));
+export const dynamicFunction = evaluateSome(choose("function", 0n));
+export const dynamicIntegerText = show(dynamicInteger);
+export const dynamicBooleanText = show(dynamicBoolean);
+export const dynamicFunctionText = show(dynamicFunction);
+

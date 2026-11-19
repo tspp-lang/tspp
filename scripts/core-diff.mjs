@@ -34,7 +34,9 @@ const targets = {
         ],
         // Project configuration call sites carry product identity through discovery, parsing, source membership,
         // builds, caches and reconstructed hosts; the implementation stays in tspp/ (docs/plugin-framework.md).
-        budget: { upstreamFiles: 30, upstreamAdded: 402, upstreamRemoved: 84 },
+        // Reviewed expression/type-extension call sites supply local evidence and checked expression bodies;
+        // their implementation and the feature-specific rules remain outside upstream files.
+        budget: { upstreamFiles: 30, upstreamAdded: 416, upstreamRemoved: 90 },
         // The parser's cursor for plugin syntax reads the parser's closure, so it cannot move to a new file.
         longHunkExceptions: [{ file: `${coreDir}/compiler/parser.ts`, contains: "createTSPPSyntaxCursor", maxAdded: 70 }],
     },

@@ -1,0 +1,56 @@
+// Indexed constructors encode the typing rules of this small expression language.
+// Host functions keep this example focused on GADTs and hidden result indices.
+// Variables and a de Bruijn-indexed environment can be added independently.
+
+export type Ty = "int" | "bool" | { kind: "fun"; from: Ty; to: Ty };
+export type Fun<A extends Ty, B extends Ty> = { kind: "fun"; from: A; to: B };
+
+export type InterpTy<T extends Ty> = match T {
+    "int": bigint,
+    "bool": boolean,
+    Fun<infer A, infer B>: (argument: InterpTy<A>) => InterpTy<B>,
+    _: never
+};
+
+export data Expr<T extends Ty> {
+    Val: (value: bigint) => Expr<"int">,
+    BoolVal: (value: boolean) => Expr<"bool">,
+    Host: <A extends Ty, B extends Ty>(fn: (argument: InterpTy<A>) => InterpTy<B>) => Expr<Fun<A, B>>,
+    App: <A extends Ty, B extends Ty>(fn: Expr<Fun<A, B>>, argument: Expr<A>) => Expr<B>,
+    If: <T extends Ty>(condition: Expr<"bool">, yes: Expr<T>, no: Expr<T>) => Expr<T>,
+}
+
+export function interp<T extends Ty>(expression: Expr<T>): InterpTy<T> {
+    return match expression {
+        Val(value) => value,
+        BoolVal(value) => value,
+        Host(fn) => fn,
+        App(fn, argument) => interp(fn)(interp(argument)),
+        If(condition, yes, no) => interp(condition) ? interp(yes) : interp(no)
+    };
+}
+
+// Both dependent pairs are user-defined data types. Their constructors hide T.
+export data SomeExpr {
+    Some: <T extends Ty>(tag: T, expression: Expr<T>) => SomeExpr,
+}
+
+export data SomeValue {
+    Evaluated: <T extends Ty>(tag: T, value: InterpTy<T>) => SomeValue,
+}
+
+export function choose(integer: boolean): SomeExpr {
+    return integer ? Some("int", Val(42n)) : Some("bool", BoolVal(true));
+}
+
+export function evaluateSome(expression: SomeExpr): SomeValue {
+    return match expression {
+        Some(tag, value) => Evaluated(tag, interp(value))
+    };
+}
+
+const isZero: Expr<Fun<"int", "bool">> = Host(value => value === 0n);
+export const integerResult: bigint = interp(If(BoolVal(true), Val(42n), Val(0n)));
+export const booleanResult: boolean = interp(App(isZero, Val(0n)));
+export const dynamicInteger: SomeValue = evaluateSome(choose(true));
+export const dynamicBoolean: SomeValue = evaluateSome(choose(false));

@@ -3,6 +3,10 @@
     "noEmit": true,
     "plugins": [
       {
+        "name": "ts-plus-plus/plugins/nominal-types",
+        "tspp": true
+      },
+      {
         "name": "ts-plus-plus/plugins/type-computation",
         "tspp": true
       }

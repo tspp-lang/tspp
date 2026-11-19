@@ -16,11 +16,12 @@ test("registers its declaration and match syntax and its diagnostics, and remove
   const compiler = {
     registerSyntaxExtension: register("syntax"),
     registerDiagnosticProvider: register("diagnostics"),
+    registerTypeExtension: register("types"),
   };
   const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts });
   host.register(nominalTypesPlugin);
   host.activateAll();
-  assert.deepEqual([...registered].sort(), ["diagnostics:nominal-types", "syntax:declaration", "syntax:expression"]);
+  assert.deepEqual([...registered].sort(), ["diagnostics:nominal-types", "syntax:declaration", "syntax:expression", "types:undefined"]);
   host.dispose();
   assert.equal(registered.size, 0);
 });
