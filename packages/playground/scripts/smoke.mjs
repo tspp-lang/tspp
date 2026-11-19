@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import assert from "node:assert/strict";
 import process from "node:process";
 import { chromium } from "playwright-core";
+import { deflateSync, strToU8 } from "fflate";
 import { preview } from "vite";
 
 const runTimeout = 180_000;
@@ -31,6 +32,7 @@ try {
 
   await checkPreviewTabs(page);
   await checkUnsavedDiagnostics(page);
+  await checkLineEndings(browser);
 
   let fileCount = 0;
   for (const example of examples) {
@@ -158,8 +160,59 @@ async function checkUnsavedDiagnostics(page) {
   console.log("ok   unsaved diagnostics and saved outputs");
 }
 
+async function selectExample(page, example) {
+  await page.selectOption("#examples", example);
+  assert.equal(await page.inputValue("#examples"), example,
+    `Could not open ${example}; a discard confirmation may have kept the previous project open.`);
+}
+
+async function checkLineEndings(browser) {
+  const state = {
+    files: {
+      "/src/mixed.tspp": 'console.log("mixed-eol");\n// Mixed line endings.\r\n',
+      "/notes.md": "# Notes\nMixed line endings here too.\r\n",
+    },
+    features: [],
+    active: "/src/mixed.tspp",
+  };
+  const hash = Buffer.from(deflateSync(strToU8(JSON.stringify(state)))).toString("base64url");
+  const url = `${server.resolvedUrls.local[0]}#v2=${hash}`;
+  const page = await browser.newPage();
+  const dialogs = [];
+  page.on("dialog", async dialog => {
+    dialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+  try {
+    const open = async () => {
+      await page.goto(url, { waitUntil: "load" });
+      await page.locator('#tabs .tab.active[data-path="/src/mixed.tspp"]').waitFor();
+    };
+    await open();
+    assert.equal(await page.locator("#tabs .tab.dirty").count(), 0, "Loading mixed line endings must not create unsaved edits");
+    assert.deepEqual(await runActiveFile(page), []);
+    await page.locator("#run-output").getByText("mixed-eol", { exact: true }).waitFor();
+    await selectExample(page, "00-hello-world");
+    assert.deepEqual(dialogs, [], "An untouched project must switch without a discard confirmation");
+    await page.locator('#project-tree [data-path="/src/index.tspp"]').waitFor();
+
+    await open();
+    await page.locator("#editor .monaco-editor .view-lines").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.insertText("\n// An actual edit.");
+    assert.equal(await page.locator("#tabs .tab.dirty").count(), 1);
+    await page.selectOption("#examples", "00-hello-world");
+    assert.deepEqual(dialogs, ["Discard all unsaved changes and open another example?"]);
+    assert.ok(await page.locator('#project-tree [data-path="/src/mixed.tspp"]').isVisible());
+    console.log("ok   mixed line endings stay clean, saved input runs, and actual edits still require confirmation");
+  }
+  finally {
+    await page.close();
+  }
+}
+
 async function checkInvalidMacroEditing(page) {
-  await page.selectOption("#examples", "13-macros");
+  await selectExample(page, "13-macros");
   await page.locator('#project-tree [data-path="/src/02-transform.tspp"]').click();
   const editor = page.locator("#editor .monaco-editor");
   await editor.locator(".view-lines").click();
@@ -274,7 +327,7 @@ async function runExample(page, example, errors) {
     window.__tsppAnalysisObserver = new MutationObserver(record);
     window.__tsppAnalysisObserver.observe(status, { childList: true, characterData: true, subtree: true });
   });
-  await page.selectOption("#examples", example);
+  await selectExample(page, example);
   const reasons = [];
   // Macros expand in the background: every built-in output must catch up with them. Declaration views are an
   // explicit Playground request even when the example's real tsppconfig disables emit or does not enable declarations.

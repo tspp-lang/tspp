@@ -178,8 +178,10 @@ function loadProject(state: SharedState) {
       resources.set(path, text);
       continue;
     }
-    savedContents.set(path, text);
-    models.set(path, createProjectModel(path, text));
+    const model = createProjectModel(path, text);
+    models.set(path, model);
+    // Monaco normalizes mixed line endings on creation. The saved compiler input must match that editor text.
+    savedContents.set(path, model.getValue());
   }
   state.directories?.map(normalizedPath).filter(path => path !== "/").forEach(path => directories.add(path));
   directories.forEach(path => expandedDirectories.add(path));
