@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
@@ -146,9 +147,9 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         };
         /** `$m._values[0]._values[1]` */
         const fieldOf = (reference: TS.Expression, index: number): TS.Expression =>
-            f.createElementAccessExpression(f.createPropertyAccessExpression(reference, f.createIdentifier("_values")), f.createNumericLiteral(index));
+            f.createElementAccessExpression(f.createPropertyAccessExpression(reference, f.createIdentifier(dataProperties.values)), f.createNumericLiteral(index));
         const tagTest = (reference: TS.Expression, pattern: MatchPattern): TS.Expression =>
-            f.createBinaryExpression(f.createPropertyAccessExpression(reference, f.createIdentifier("_tag")), f.createToken(kinds.EqualsEqualsEqualsToken), f.createStringLiteral(pattern.variant));
+            f.createBinaryExpression(f.createPropertyAccessExpression(reference, f.createIdentifier(dataProperties.tag)), f.createToken(kinds.EqualsEqualsEqualsToken), f.createStringLiteral(pattern.variant));
         const and = (left: TS.Expression, right: TS.Expression): TS.Expression => {
             const both = f.createBinaryExpression(left, f.createToken(kinds.AmpersandAmpersandToken), right);
             return right.pos >= 0 ? range(both, right.pos, right.end) : both;

@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import { maskNonCode } from "@tspp/plugin-sdk";
 import type * as TS from "typescript-upstream";
 import type { NominalDataField, NominalDataType, NominalTypesADTAPI } from "./api";
@@ -65,8 +66,8 @@ function getDataTypes(sourceText: string): NominalDataType[] {
 
 /** Describes `data` declarations and their run-time representation, which this plugin owns. */
 export const nominalTypesADTAPI: NominalTypesADTAPI = {
-    tagProperty: "_tag",
-    valuesProperty: "_values",
+    tagProperty: dataProperties.tag,
+    valuesProperty: dataProperties.values,
     tagOf: variant => variant.name,
     isMatchEnd: node => isMatchEnd(node as TS.Node),
     getDataTypes,

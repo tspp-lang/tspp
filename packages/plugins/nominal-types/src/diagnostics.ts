@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import type { TSPPDiagnosticProvider, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
@@ -52,14 +53,14 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
             const result = new Map<string, VariantInfo>();
             // Type objects of the command-line compiler have no helper methods, so read their flags.
             for (const constituent of type.flags & ts.TypeFlags.Union ? (type as TS.UnionType).types : [type]) {
-                const tag = checker.getPropertyOfType(constituent, "_tag");
+                const tag = checker.getPropertyOfType(constituent, dataProperties.tag);
                 const tagType = tag && checker.getTypeOfSymbol(tag) as TS.StringLiteralType | undefined;
                 if (!tagType || !(tagType.flags & ts.TypeFlags.StringLiteral)) continue;
-                const values = checker.getPropertyOfType(constituent, "_values");
+                const values = checker.getPropertyOfType(constituent, dataProperties.values);
                 const valuesType = values && checker.getTypeOfSymbol(values);
                 const fieldTypes = valuesType && checker.isTupleType(valuesType) ? checker.getTypeArguments(valuesType as TS.TypeReference) : [];
                 const fieldNames = checker.getPropertiesOfType(constituent).map(property => ts.symbolName(property))
-                    .filter(name => name !== "_tag" && name !== "_values" && name !== "__tsppNominal");
+                    .filter(name => name !== dataProperties.tag && name !== dataProperties.values && name !== "__tsppNominal");
                 result.set(tagType.value, { fieldNames, fieldTypes });
             }
             return result;

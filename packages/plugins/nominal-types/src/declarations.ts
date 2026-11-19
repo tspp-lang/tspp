@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
@@ -224,9 +225,15 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
                         cursor.nextToken();
                         continue;
                     }
+                    const fieldStart = cursor.getTokenStart();
                     const fieldName = cursor.parseIdentifier();
+                    const reserved = Object.values(dataProperties).some(name => name === ts.idText(fieldName));
+                    if (reserved) cursor.parseErrorAt(fieldStart, fieldName.end,
+                        `The field name '${ts.idText(fieldName)}' is reserved for the data representation.`);
                     cursor.parseExpected(kinds.ColonToken);
-                    fields.push({ name: fieldName, type: cursor.parseType() });
+                    const type = cursor.parseType();
+                    // Omit invalid fields so they do not collide with generated members and cause extra errors.
+                    if (!reserved) fields.push({ name: fieldName, type });
                     if (cursor.token() !== kinds.CommaToken) break;
                     cursor.nextToken();
                 }
@@ -244,14 +251,14 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     /** `{ readonly _tag: "V"; readonly field: T; ...; readonly _values: readonly [T, ...] }` */
     function variantType(cursor: TSPPSyntaxCursor, variant: ParsedVariant, valueTypes: readonly TS.TypeNode[], positioned = true): TS.TypeLiteralNode {
         const f = cursor.factory;
-        const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier("_tag"), undefined,
+        const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier(dataProperties.tag), undefined,
             f.createLiteralTypeNode(f.createStringLiteral(ts.idText(variant.name)))), variant.start);
         const fields = variant.fields.map(field => range(f.createPropertySignature(readonlyModifier(cursor), field.name, undefined, field.type), field.name.pos, field.type.end));
         // Without fields, `readonly never[]` makes a read of a field never, as in an arm a narrowed scrutinee cannot reach.
         const valuesTuple = f.createTypeOperatorNode(kinds.ReadonlyKeyword, variant.fields.length
             ? f.createTupleTypeNode(f.createNodeArray(valueTypes))
             : f.createArrayTypeNode(f.createKeywordTypeNode(kinds.NeverKeyword)));
-        const values = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier("_values"), undefined, valuesTuple), variant.valuesAt);
+        const values = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier(dataProperties.values), undefined, valuesTuple), variant.valuesAt);
         const literal = f.createTypeLiteralNode([tag, ...fields, values]);
         return positioned ? range(literal, variant.name.pos, variant.valuesAt) : literal;
     }
@@ -291,7 +298,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         const statements: TS.Statement[] = [alias, brandNamespace(cursor, name)];
         variants.forEach((variant, index) => {
             const variantName = ts.idText(variant.name);
-            const tag = f.createPropertyAssignment(f.createIdentifier("_tag"), f.createStringLiteral(variantName));
+            const tag = f.createPropertyAssignment(f.createIdentifier(dataProperties.tag), f.createStringLiteral(variantName));
             const constructorCopy = constructorCopies[index];
             if (!variant.fields.length || !constructorCopy) {
                 const type = f.createIntersectionTypeNode(f.createNodeArray([
@@ -300,7 +307,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
                 ]));
                 const value = f.createObjectLiteralExpression([
                     tag,
-                    f.createPropertyAssignment(f.createIdentifier("_values"), f.createArrayLiteralExpression(f.createNodeArray([]))),
+                    f.createPropertyAssignment(f.createIdentifier(dataProperties.values), f.createArrayLiteralExpression(f.createNodeArray([]))),
                 ]);
                 const constantName = range(f.createIdentifier(variantName), variant.name.pos, variant.name.end);
                 const declaration = ambient
@@ -319,7 +326,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
                 f.createReturnStatement(brandAs(cursor, f.createObjectLiteralExpression([
                     tag,
                     ...fields.map(field => f.createShorthandPropertyAssignment(reference(field.name))),
-                    f.createPropertyAssignment(f.createIdentifier("_values"), f.createArrayLiteralExpression(f.createNodeArray(fields.map(field => reference(field.name))))),
+                    f.createPropertyAssignment(f.createIdentifier(dataProperties.values), f.createArrayLiteralExpression(f.createNodeArray(fields.map(field => reference(field.name))))),
                 ]), dataType())),
             ]);
             const constructorTypeParameters = constructorCopy.typeParameters;

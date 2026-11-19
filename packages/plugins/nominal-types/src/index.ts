@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 import type { TSPPClearedSemanticToken, TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
@@ -158,9 +159,10 @@ function findNewtype(sourceText: string, name: string): {
  * lowers. Sources that spell `_tag` themselves work with that object, so they keep seeing it.
  */
 function hideRepresentation(token: SourceToken, display: string | undefined, sourceText: string) {
-    if (!display || !/\b_values\b/.test(display) || /\b_values\b/.test(sourceText)) return undefined;
+    const valuesPattern = new RegExp(`\\b${escapeRegExp(dataProperties.values)}\\b`);
+    if (!display || !valuesPattern.test(display) || valuesPattern.test(sourceText)) return undefined;
     const shown = display
-        .replace(/\{\s*readonly _tag: "([^"]+)";(?:[^{}]|\{[^{}]*\})*\}/g, "$1")
+        .replace(new RegExp(`\\{\\s*readonly ${escapeRegExp(dataProperties.tag)}: "([^"]+)";(?:[^{}]|\\{[^{}]*\\})*\\}`, "g"), "$1")
         .replace(/\(([A-Za-z_$][\w$]*)\)/g, "$1");
     return { start: token.start, length: token.length, display: shown };
 }
