@@ -1,8 +1,8 @@
 {
   "patterns": [
     {
-      "comment": "`data Name<T> = A | B(field: T)`. It ends at a semicolon or at a line that does not continue it.",
-      "begin": "(?<![.\\w$])(data)\\s+([A-Za-z_$][\\w$]*)(?=\\s*(?:<|=|$))",
+      "comment": "`data Name<T> = A | B(field: T)` and `data Name<T> { A: ... }` headers, including declarations without type parameters.",
+      "begin": "(?<![.\\w$])(data)\\s+([A-Za-z_$][\\w$]*)(?=\\s*(?:<|=|\\{|$))",
       "beginCaptures": {
         "1": {
           "name": "keyword.declaration.nominal-types.tspp"

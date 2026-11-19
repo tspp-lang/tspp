@@ -21,3 +21,12 @@ test("highlights every declared editor keyword in context", () => {
 });
 
 test("leaves angle-bracket classification to TypeScript", () => assertLeavesAngleBracketsToTypeScript(grammars));
+
+test("highlights data in brace declarations with and without generic parameters", () => {
+  for (const source of [
+    "data Token { Empty: Token }",
+    "export data Token { New: () => Token, Empty: Token }",
+    "export data SomeExpr {\n    Some: <T>(value: T) => SomeExpr,\n}",
+    "export data Expr<T> {\n    Val: (value: bigint) => Expr<bigint>,\n}",
+  ]) assertScoped(grammars, source, "data", /^keyword\.declaration\.nominal-types\.tspp$/);
+});

@@ -50,6 +50,20 @@ test("the comment check notices a keyword scoped inside a comment", async () => 
   assert.deepEqual(quiet.filter(item => item.rule === "grammar/comment-untouched"), []);
 });
 
+test("brace data declarations highlight their keyword in the shipped TextMate grammar", async () => {
+  const source = `export data Generic<T> { Value: (value: T) => Generic<T> }
+export data SomeExpr {
+    Some: <T>(value: T) => SomeExpr,
+}
+export data SomeValue { Empty: SomeValue }
+`;
+  const tokens = await tokenizeScope(source, "source.tspp");
+  for (const match of source.matchAll(/\bdata\b/g)) {
+    const token = tokens.find(token => token.start <= match.index && match.index < token.end);
+    assert.ok(token?.scopes.includes("keyword.declaration.nominal-types.tspp"), `data at ${match.index}: ${token?.scopes.join(" ")}`);
+  }
+});
+
 test("SMT artifacts highlight comments, commands, and sorts", async () => {
   const source = "; proof\n(assert (forall ((value Int)) (= value 1)))";
   const tokens = await tokenizeScope(source, "source.smt2");
