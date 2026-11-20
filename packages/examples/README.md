@@ -51,8 +51,8 @@ This trilogy forms the conceptual staircase of TS++'s advanced type system. **We
    从“为什么普通 TS 不能把未传参的 `Array` 作为泛型参数传递”讲起，认识类型的签名（`Type0`、`Type => Type`、`(Type, Type) => Type`、`Type1`），学习如何把类型构造器作为参数传递并编写统一的 `Functor<Container: Type => Type>`。
    Introduces Kinds (`Type0`, `Type => Type`, `(Type, Type) => Type`), passing unapplied generic type constructors as arguments, and abstracting over containers with `Functor`.
 3. **[`10-dependent-types`](./10-dependent-types)** — **第三阶：依赖类型与命题即类型（Value $\to$ Type 顶点）**
-   在掌握前两阶后，正式进入“类型依赖于具体值”的领域：从类型宇宙层级（`Type0 : Type1 : Type2`）与依赖函数（$\Pi$ 类型）出发，逐步深入依赖布尔分支 `If`、皮亚诺自然数（`Nat`）与数学归纳法、柯里-霍华德同构（命题即类型）与相等性证明（`Eq` / `Refl` / `PathInduction`）、依赖对类型（$\Sigma$ 类型），以及编译期类型具象化 `reify` 与 `typecase`。
-   Full progression into Dependent Types: type universes, dependent functions ($\Pi$ types), dependent pairs ($\Sigma$ types), Peano naturals and induction, propositional equality (`Eq` / `Refl` / `PathInduction`), and `reify` / `typecase`.
+   在掌握前两阶后，正式进入“类型依赖于具体值”的领域：从类型宇宙层级（`Type0 : Type1 : Type2`）与依赖函数（$\Pi$ 类型）出发，逐步深入依赖布尔分支 `If`、皮亚诺自然数（`Nat`）与数学归纳法、柯里-霍华德同构（命题即类型）与相等性证明（`Eq` / `Refl` / `PathInduction`）、依赖对类型（$\Sigma$ 类型）、编译期类型具象化 `reify` 与 `typecase`，最终通过广义代数数据类型（GADT / 按结果索引的 `data`）、存在构造器、德布鲁因（de Bruijn）词法上下文索引与运行时类型证据构建完整的无断言良类型解释器（Well-Typed Interpreter）。
+   Full progression into Dependent Types: type universes, dependent functions ($\Pi$ types), dependent pairs ($\Sigma$ types), Peano naturals and induction, propositional equality (`Eq` / `Refl` / `PathInduction`), `reify` / `typecase`, and assertion-free well-typed interpreters built with indexed `data` (GADTs), existential pairs, de Bruijn context proofs, and runtime type witnesses.
 
 ---
 

@@ -1,6 +1,76 @@
+// ============================================================================
+// 10-dependent-types / 11-context-interpreter.tspp
+//
+// 上下文索引、德布鲁因（de Bruijn）变量位置证据、异构环境与嵌套构造器上下文推导
+//
+// 在上一节 `10-gadt-interpreter.tspp` 中，表达式类型 `Expr<T>` 只按“求值结果类型 `T`”做索引，
+// 函数直接借用了宿主语言的闭包（`Host`）。但一门真正的编程语言还需要支持**局部变量绑定**与**匿名函数（Lambda）**！
+//
+// 如果用传统字符串变量名（如 `Var("x")`）来表示变量，编译器在编译期根本不知道 `"x"` 在当前作用域里存不存在、
+// 或者它到底是什么类型，求值时查表（`env["x"]`）就不得不处理“变量未定义”或“类型不匹配”的运行时异常。
+//
+// 为了在编译期彻底消灭“未绑定变量”与“变量类型错误”，本文件给表达式增加第二个索引——**词法上下文 `C extends Context`**：
+//   1. `Context` 是一个只读类型元组 `readonly Ty[]`，按从内到外的顺序记录当前作用域内所有已绑定变量的类型；
+//   2. 变量不再用易错的字符串名字，而是用**德布鲁因位置证据（de Bruijn Membership Proof）`HasType<C, T>`**：
+//      - `Stop()`：指向离当前位置最近（最内层 `Lam` 刚绑定）的那个变量，证明 `readonly [T, ...R]` 的第 0 个位置类型为 `T`；
+//      - `Pop(previous)`：向外层跳过一个绑定，去外层上下文 `R` 中继续查找类型为 `T` 的变量；
+//   3. 运行时环境 `Env<C>` 与编译期上下文 `C` 严格同步（空环境 `Nil: Env<readonly []>`，扩展环境 `Cons(head, tail)`）。
+//      在查表函数 `lookup(proof, environment)` 中，因为 `proof`（无论是 `Stop` 还是 `Pop`）已经静态证明了 `C` 必定非空（`readonly [..., ...R]`），
+//      所以 `match environment` 只需要写 `Cons(head, tail)` 分支——空环境 `Nil` 分支被编译器静态判定为不可能发生并自动免除！
+//   4. 借助**构造器上下文类型推导（Contextual Constructor Inference）**，编写嵌套的 `Lam(Lam(Op(..., Var(Stop()), Var(Pop(Stop())))))` 时，
+//      只需在外层标注一次表达式类型，编译器就会自动把上下文元组与结果索引向内传递给每一层构造器、运算符回调和变量证据！
+// ============================================================================
+// Context Indices, De Bruijn Variable Membership Proofs, Heterogeneous Environments & Contextual Constructor Inference
+//
+// In `10-gadt-interpreter.tspp`, `Expr<T>` was indexed solely by its result type `T`, relying on `Host` functions.
+// A real programming language, however, needs **lexical variable bindings** and **lambda abstractions (`Lam`)**!
+//
+// If variables were represented by plain string names (like `Var("x")`), the compiler could not statically guarantee
+// that `"x"` exists in scope or what type it has, forcing runtime environment lookups to handle missing or ill-typed variables.
+//
+// To eliminate unbound variables and variable type mismatches at compile time, we add a second index — the **typing context `C extends Context`**:
+//   1. `Context` is a readonly tuple of object-language types (`readonly Ty[]`), listing in-scope variable types from innermost to outermost;
+//   2. Instead of string names, variables carry a **de Bruijn membership proof `HasType<C, T>`**:
+//      - `Stop()`: refers to the nearest (innermost) binder, proving that the head of `readonly [T, ...R]` has type `T`;
+//      - `Pop(previous)`: steps outward past one binder `U`, lifting a proof `HasType<R, T>` into `HasType<readonly [U, ...R], T>`;
+//   3. The runtime environment `Env<C>` mirrors `C` element-by-element (`Nil: Env<readonly []>` and `Cons(head, tail)`).
+//      In `lookup(proof, environment)`, matching `Stop` or `Pop` refines `C` to a non-empty tuple `readonly [..., ...R]`,
+//      making the `Nil` branch provably unreachable so `match environment` only needs `Cons(head, tail)`!
+//   4. Thanks to **contextual constructor inference**, annotating an outer expression like `add` propagates context and result indices
+//      inward across nested `Lam`, `Op`, `Var`, `Stop()`, and `Pop(Stop())` calls without manual type arguments!
+// ============================================================================
+
 // The expression index also records the types of all variables in scope.
 // Stop refers to the nearest binder; Pop moves one binder outward.
 import type { Fun, InterpTy, Ty } from "./10-gadt-interpreter";
+
+// ----------------------------------------------------------------------------
+// 1. 词法上下文索引（`Context`）、变量位置证据（`HasType<C, T>`）与异构环境（`Env<C>`）
+//
+// - `Context = readonly Ty[]`：用元组类型在编译期追踪作用域内每一层变量的类型；
+// - `HasType<C, T>`：证明“在上下文 `C` 中存在某个固定位置的变量，其类型为 `T`”：
+//     * `Stop` 的返回索引要求上下文形如 `readonly [T, ...R]`（即栈顶第一个变量就是 `T`）；
+//     * `Pop` 接收一个在内层上下文 `R` 中成立的证据 `HasType<R, T>`，返回在扩展上下文 `readonly [U, ...R]` 中成立的证据；
+// - `Env<C>`：存放运行时真实值的异构链表，栈顶元素类型为 `InterpTy<T>`，与上下文元组 `C` 一一对应。
+//
+// 注意观察 `lookup`：
+// 为什么 `match environment` 里只写了 `Cons(head, tail)` 而没有写 `Nil`，编译器却不会报“缺少 `Nil` 分支”？
+// 因为在外层匹配了 `Stop` 或 `Pop` 之后，当前分支内的局部索引等式已知 `C = readonly [T, ...R]` 或 `readonly [U, ...R]`，
+// 而 `Nil` 的结果索引是 `Env<readonly []>`（空元组），与非空元组在编译期显然矛盾，因此穷尽性检查器自动将 `Nil` 剔除！
+// ----------------------------------------------------------------------------
+// 1. Context Tuples (`Context`), Variable Membership Proofs (`HasType<C, T>`) & Heterogeneous Environments (`Env<C>`)
+//
+// - `Context = readonly Ty[]`: tracks the types of all variables in scope as a type-level tuple;
+// - `HasType<C, T>`: a compile-time proof (and runtime de Bruijn index) that a variable of type `T` exists at a specific position in `C`:
+//     * `Stop` requires a non-empty context `readonly [T, ...R]` whose head is `T`;
+//     * `Pop` takes a proof `HasType<R, T>` and shifts it past one outer head element `U` to produce `HasType<readonly [U, ...R], T>`;
+// - `Env<C>`: a heterogeneous runtime value stack indexed by `C`, where each element has host type `InterpTy<T>`.
+//
+// Look closely at `lookup`:
+// Why does `match environment` only handle `Cons(head, tail)` without a `Nil` arm, yet pass exhaustiveness checking?
+// Because matching `Stop` or `Pop` refines `C` to a non-empty tuple `readonly [..., ...R]`, which is provably incompatible
+// with `Nil: Env<readonly []>`, so the GADT exhaustiveness checker automatically rules out `Nil`!
+// ----------------------------------------------------------------------------
 
 export type Context = readonly Ty[];
 
@@ -24,6 +94,30 @@ export function lookup<C extends Context, T extends Ty>(proof: HasType<C, T>, en
         }
     };
 }
+
+// ----------------------------------------------------------------------------
+// 2. 带上下文与结果双重索引的表达式 GADT（`Expr<C, T>`）与求值器（`interp`）
+//
+// `Expr<C, T>` 同时记录“该表达式在什么上下文 `C` 下合法”以及“求值出什么结果类型 `T`”：
+//   - `Var(proof)`：只要持有 `HasType<C, T>` 证据，就能在上下文 `C` 下安全引用类型为 `T` 的变量；
+//   - `Lam(body)`：匿名函数构造器！注意它的函数体 `body` 的上下文索引是 `readonly [A, ...C]`——
+//     这表示每进入一层 `Lam`，作用域栈顶就会自动压入一个新参数类型 `A`；而 `Lam(body)` 整体在原上下文 `C` 下的类型为 `Fun<A, B>`！
+//     求值 `Lam(body)` 时，返回一个宿主函数 `value => interp(Cons(value, environment), body)`，
+//     把实参 `value: InterpTy<A>` 压入运行时环境 `Cons(value, environment)` 后正好匹配 `body` 所需的 `Env<readonly [A, ...C]>`！
+//   - `Op(operation, left, right)`：通用二元运算构造器，接收宿主二元运算函数与两个子表达式；
+//   - `Delay(force)`：惰性/延迟子表达式构造器（`() => Expr<C, T>`），用于在构造递归 AST 时避免无限立即展开。
+// ----------------------------------------------------------------------------
+// 2. Doubly-Indexed Expression GADT (`Expr<C, T>`) & Evaluator (`interp`)
+//
+// `Expr<C, T>` tracks both the required lexical context `C` and the result type `T`:
+//   - `Var(proof)`: references a variable of type `T` in context `C`, backed by a `HasType<C, T>` proof;
+//   - `Lam(body)`: lambda abstraction! Its `body` is checked in the extended context `readonly [A, ...C]`
+//     (pushing parameter type `A` onto the front of `C`), producing an `Expr<C, Fun<A, B>>` in the outer context `C`.
+//     Evaluating `Lam(body)` returns a host closure `value => interp(Cons(value, environment), body)`,
+//     where `Cons(value, environment)` has type `Env<readonly [A, ...C]>`, matching `body` without any assertions!
+//   - `Op(operation, left, right)`: binary operator node combining two expressions with a host callback;
+//   - `Delay(force)`: thunks an expression (`() => Expr<C, T>`) so recursive ASTs can be constructed finitely.
+// ----------------------------------------------------------------------------
 
 export data Expr<C extends Context, T extends Ty> {
     Val: <C extends Context>(value: bigint) => Expr<C, "int">,
@@ -53,6 +147,34 @@ export function interp<C extends Context, T extends Ty>(environment: Env<C>, exp
     };
 }
 
+// ----------------------------------------------------------------------------
+// 3. 嵌套构造器的上下文索引自动推导（`add` 与 `factorial`）
+//
+// 观察下面的柯里化加法表达式 `add`（表示 $\lambda x.\, \lambda y.\, y + x$）：
+//   1. 我们只在最外层写了一个类型标注 `Expr<readonly [], Fun<"int", Fun<"int", "int">>>`；
+//   2. 第一层 `Lam` 自动获知外层上下文 `C = readonly []`、参数 `A = "int"`，并将内层上下文 `readonly ["int"]` 传给第二层 `Lam`；
+//   3. 第二层 `Lam` 自动将上下文扩展为 `readonly ["int", "int"]` 并传给 `Op`；
+//   4. 在上下文 `readonly ["int", "int"]` 下，`Var(Stop())` 自动推导出指向内层变量 `y: "int"`，
+//      `Var(Pop(Stop()))` 自动推导出跳过 `y` 指向外层变量 `x: "int"`；
+//   5. 两个 `Var(...)` 兄弟参数的 `"int"` 索引又反向推导出 `Op` 回调函数 `(left, right) => left + right` 中 `left` 和 `right` 均为 `bigint`！
+//
+// 在递归阶乘函数 `factorial` 中，我们使用 `Delay(() => factorial<Body>())` 按需展开递归调用，
+// 防止在构造 AST 阶段就发生无限递归；除了一处局部变量标注 `argument: Expr<Body, "int">` 和递归调用的 `<Body>` 外，其余构造器同样全部自动推导。
+// ----------------------------------------------------------------------------
+// 3. Contextual Constructor Inference Across Nested Lambdas & Delayed Recursion (`add` & `factorial`)
+//
+// Look at the curried addition expression `add` ($\lambda x.\, \lambda y.\, y + x$) below:
+//   1. We write a single outer annotation: `Expr<readonly [], Fun<"int", Fun<"int", "int">>>`;
+//   2. The outer `Lam` receives `C = readonly []` and `A = "int"`, passing context `readonly ["int"]` to the inner `Lam`;
+//   3. The inner `Lam` extends the context to `readonly ["int", "int"]` and passes it to `Op`;
+//   4. Under `readonly ["int", "int"]`, `Var(Stop())` automatically resolves to the inner binder `y: "int"`,
+//      and `Var(Pop(Stop()))` steps outward to the outer binder `x: "int"`;
+//   5. Those sibling `Expr<..., "int">` arguments in turn infer `left: bigint` and `right: bigint` on the `Op` callback!
+//
+// In `factorial`, `Delay(() => factorial<Body>())` keeps AST construction finite by deferring the recursive call until
+// evaluation reaches the `else` branch. Aside from `argument: Expr<Body, "int">` and `<Body>`, all constructors are inferred.
+// ----------------------------------------------------------------------------
+
 // \x. \y. y + x
 export const add: Expr<readonly [], Fun<"int", Fun<"int", "int">>> = Lam(Lam(Op(
     (left, right) => left + right,
@@ -80,3 +202,49 @@ export function factorial<C extends Context>(): Expr<C, Fun<"int", "int">> {
 }
 
 export const factorialResult: bigint = interp(Nil, factorial())(6n);
+
+// ----------------------------------------------------------------------------
+// 4. 编译期错误拦截（`@ts-expect-error`）
+//
+// 下面展示当试图在空上下文中引用未绑定变量、用不匹配的环境求值或写错变量作用域类型时，编译器如何静态报错拦截。
+// ----------------------------------------------------------------------------
+// 4. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The negative examples below demonstrate how the compiler statically prevents unbound variable access,
+// environment/context mismatches, and ill-typed variable references.
+// ----------------------------------------------------------------------------
+
+function compileTimeErrorExamples(): void {
+    // 1. 静态拦截未绑定变量：空上下文 `readonly []` 中没有任何变量，`Var(Stop())` 无法匹配 `readonly [T, ...R]`
+    // 1. Unbound variable rejection: `readonly []` is empty, so `Var(Stop())` cannot satisfy `readonly [T, ...R]`
+    // @ts-expect-error Cannot reference a variable in an empty context readonly [].
+    const unboundVariable: Expr<readonly [], "int"> = Var(Stop());
+
+    // 2. 静态拦截变量越界：只有 1 个变量的上下文 `readonly ["int"]` 中不能用 `Pop(Stop())` 访问第 2 个变量
+    // 2. Out-of-bounds de Bruijn index: `Pop(Stop())` requires at least 2 binders in the context
+    // @ts-expect-error Context readonly ["int"] has only one variable, so Pop(Stop()) is out of bounds.
+    const outOfBoundsVariable: HasType<readonly ["int"], "int"> = Pop(Stop());
+
+    // 3. 静态拦截变量类型不匹配：上下文中第 0 个变量是 `"bool"`，不能当作 `"int"` 引用
+    // 3. Variable type mismatch: the nearest variable in `readonly ["bool"]` has type `"bool"`, not `"int"`
+    // @ts-expect-error The nearest variable in readonly ["bool"] is "bool", not "int".
+    const wrongVariableType: HasType<readonly ["bool"], "int"> = Stop();
+
+    // 4. 静态拦截运行时环境与上下文不一致：`Cons(1n, Nil)` 是 `Env<readonly ["int"]>`，不能赋给 `Env<readonly ["bool"]>`
+    // 4. Environment/context mismatch: `Cons(1n, Nil)` produces `Env<readonly ["int"]>`, not `Env<readonly ["bool"]>`
+    // @ts-expect-error Cons(1n, Nil) has type Env<readonly ["int"]>, not Env<readonly ["bool"]>.
+    const mismatchedEnv: Env<readonly ["bool"]> = Cons<"int", readonly []>(1n, Nil);
+
+    // 5. 静态拦截求值环境缺失：需要 `readonly ["int"]` 上下文的开项表达式，绝不能在空环境 `Nil` 下直接求值
+    // 5. Open expression evaluation rejection: an expression requiring `readonly ["int"]` cannot be evaluated in `Nil`
+    const openExpr: Expr<readonly ["int"], "int"> = Var(Stop());
+    // @ts-expect-error openExpr requires Env<readonly ["int"]>, so evaluating with Nil is rejected.
+    const missingEnvValue = interp(Nil, openExpr);
+
+    void unboundVariable;
+    void outOfBoundsVariable;
+    void wrongVariableType;
+    void mismatchedEnv;
+    void missingEnvValue;
+}
+void compileTimeErrorExamples;

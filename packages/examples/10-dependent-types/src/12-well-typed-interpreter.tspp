@@ -1,3 +1,63 @@
+// ============================================================================
+// 10-dependent-types / 12-well-typed-interpreter.tspp
+//
+// 综合实战：独立完整的 Idris 风格良类型解释器与运行时类型证据（Type Witness GADT）
+//
+// 本文件将前两节（`10` 与 `11`）的全部技术融会贯通，构建一个**无需导入任何外部文件、可独立编译运行的完整良类型解释器**
+// （致敬依赖类型编程经典《Type-Driven Development with Idris》中的 Well-Typed Interpreter），并在此基础上再向前迈进关键一步：
+//
+// 在 `10-gadt-interpreter.tspp` 中，`SomeExpr` 打包的是普通字面量标签 `tag: T`。
+// 虽然普通字面量标签足以用来把 `interp(value)` 的结果重新装回 `Evaluated(tag, ...)`，
+// 但如果你拿到了一个 `SomeValue`（里面藏着未知类型 `T` 的结果 `value: InterpTy<T>`），想把它格式化成字符串打印出来：
+//   - 当 `T = "int"` 时，需要调用 `value.toString()`（此时 `value` 是 `bigint`）；
+//   - 当 `T = "bool"` 时，需要写 `value ? "true" : "false"`（此时 `value` 是 `boolean`）；
+//   - 当 `T = Fun<A, B>` 时，打印 `"<function>"`（此时 `value` 是函数）。
+// 在运行时的普通字符串比较（如 `if (tag === "int")`）中，编译器并不会反向建立关于隐藏索引 `T` 的依赖类型等式！
+//
+// 怎样让编译器在运行时分支判断中**同时收窄伴随数据 `value: InterpTy<T>` 的具体类型**？
+// 答案是定义**运行时类型证据 GADT（`TypeWitness<T>`，常称作 Singleton Type / 单例类型证据）**：
+//   - `IntegerType: TypeWitness<"int">`
+//   - `BooleanType: TypeWitness<"bool">`
+//   - `FunctionType: <A extends Ty, B extends Ty>(argument: TypeWitness<A>, result: TypeWitness<B>) => TypeWitness<Fun<A, B>>`
+// 当我们把 `type: TypeWitness<T>` 与 `value: InterpTy<T>` 一起打包进 `Evaluated(type, value)` 后，
+// 先 `match result` 取出 `(type, value)`，再紧接着 `match type`：
+//   - 进入 `IntegerType` 分支时，GADT 索引等式令隐藏类型 `T = "int"`，伴随的 `value: InterpTy<T>` 立刻被精确收窄为 `bigint`，可以直接调用 `value.toString()`！
+//   - 进入 `BooleanType` 分支时，隐藏类型 `T = "bool"`，伴随的 `value` 立刻被精确收窄为 `boolean`，可以直接用于三元条件 `value ? "true" : "false"`！
+// ============================================================================
+// Capstone Example: Standalone Idris-Style Well-Typed Interpreter & Runtime Type Witnesses (`TypeWitness<T>`)
+//
+// This file brings together everything from files `10` and `11` into a **self-contained, standalone well-typed interpreter**
+// (inspired by the classic Well-Typed Interpreter from *Type-Driven Development with Idris*), and takes one crucial step further:
+//
+// In `10-gadt-interpreter.tspp`, `SomeExpr` paired an expression with a plain type tag `tag: T`.
+// While a plain tag suffices to repackage `Evaluated(tag, interp(value))`, what if you receive a `SomeValue`
+// (carrying `value: InterpTy<T>` for an unknown existential `T`) and want to inspect or format `value` according to its type?
+//   - When `T = "int"`, you want to call `value.toString()` (`value` is a `bigint`);
+//   - When `T = "bool"`, you want to branch on `value ? "true" : "false"` (`value` is a `boolean`);
+//   - When `T = Fun<A, B>`, you want to render `"<function>"` (`value` is a closure).
+// Ordinary runtime string checks (`if (tag === "int")`) do not introduce dependent type equations for a hidden type parameter `T`!
+//
+// How do we let a runtime check **simultaneously refine the type of a sibling payload `value: InterpTy<T>`**?
+// By defining an indexed **Runtime Type Witness GADT (`TypeWitness<T>`, also known as a singleton type representation)**:
+//   - `IntegerType: TypeWitness<"int">`
+//   - `BooleanType: TypeWitness<"bool">`
+//   - `FunctionType: <A extends Ty, B extends Ty>(argument: TypeWitness<A>, result: TypeWitness<B>) => TypeWitness<Fun<A, B>>`
+// When `Evaluated(type, value)` pairs `type: TypeWitness<T>` with `value: InterpTy<T>`,
+// matching `Evaluated(type, value)` and then matching `type` propagates the GADT index equation to every sibling binding sharing `T`:
+//   - In the `IntegerType` arm, `T` is refined to `"int"`, so `value: InterpTy<T>` narrows directly to `bigint` (`value.toString()`)!
+//   - In the `BooleanType` arm, `T` is refined to `"bool"`, so `value` narrows directly to `boolean` (`value ? "true" : "false"`)!
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 目标语言类型编码与语义映射类型族（`Ty`、`Fun` 与 `InterpTy<T>`）
+//
+// 定义对象语言的类型编码 `Ty` 以及将类型编码映射为 TS++ 宿主类型的类型级模式匹配 `InterpTy<T>`。
+// ----------------------------------------------------------------------------
+// 1. Object-Language Type Codes & Semantic Interpretation Family (`Ty`, `Fun` & `InterpTy<T>`)
+//
+// Define the object-language type codes `Ty` and the type-level `match` family `InterpTy<T>` mapping them to host types.
+// ----------------------------------------------------------------------------
+
 export type Ty = "int" | "bool" | { kind: "fun"; from: Ty; to: Ty };
 export type Fun<A extends Ty, B extends Ty> = { kind: "fun"; from: A; to: B };
 
@@ -7,6 +67,18 @@ export type InterpTy<T extends Ty> = match T {
     Fun<infer A, infer B>: (argument: InterpTy<A>) => InterpTy<B>,
     _: never
 };
+
+// ----------------------------------------------------------------------------
+// 2. 词法上下文（`Context`）、德布鲁因变量位置证据（`HasType`）与异构环境（`Env`）
+//
+// 使用只读类型元组 `Context` 记录作用域内变量的类型，通过 `Stop`（最近绑定）与 `Pop`（向外移动一层）
+// 提供编译期越界免疫的变量查找证据；在 `lookup` 中自动排除不可能出现的空环境 `Nil` 分支。
+// ----------------------------------------------------------------------------
+// 2. Lexical Context (`Context`), De Bruijn Membership Proofs (`HasType`) & Heterogeneous Environments (`Env`)
+//
+// Track in-scope variable types with `Context`, prove variable membership with `Stop` (innermost binder) and `Pop`
+// (one binder outward), and look up values in `Env<C>` where `Nil` is statically excluded as unreachable.
+// ----------------------------------------------------------------------------
 
 // The expression index also records the types of all variables in scope.
 // Stop refers to the nearest binder; Pop moves one binder outward.
@@ -33,6 +105,18 @@ export function lookup<C extends Context, T extends Ty>(proof: HasType<C, T>, en
         }
     };
 }
+
+// ----------------------------------------------------------------------------
+// 3. 双重索引表达式 GADT（`Expr<C, T>`）、求值器（`interp`）与高阶递归程序（`add` / `factorial`）
+//
+// 完整涵盖整数/布尔字面量、变量引用 `Var`、Lambda 抽象 `Lam`、函数应用 `App`、宿主二元运算 `Op`、
+// 条件分支 `If` 与延迟递归 `Delay`，并演示柯里化加法 `add` 与阶乘 `factorial` 的构造器上下文推导。
+// ----------------------------------------------------------------------------
+// 3. Doubly-Indexed Expression GADT (`Expr<C, T>`), Evaluator (`interp`) & Higher-Order Programs (`add` / `factorial`)
+//
+// Covers literals, `Var`, `Lam`, `App`, `Op`, `If`, and `Delay`, demonstrating contextual constructor inference
+// on curried `add` ($\lambda x.\, \lambda y.\, y + x$) and delayed recursive `factorial`.
+// ----------------------------------------------------------------------------
 
 export data Expr<C extends Context, T extends Ty> {
     Val: <C extends Context>(value: bigint) => Expr<C, "int">,
@@ -90,6 +174,46 @@ export function factorial<C extends Context>(): Expr<C, Fun<"int", "int">> {
 
 export const factorialResult: bigint = interp(Nil, factorial())(6n);
 
+// ----------------------------------------------------------------------------
+// 4. 运行时类型证据 GADT（`TypeWitness<T>`）与跨字段依赖类型收窄（`show`）
+//
+// `TypeWitness<T>` 将编译期的类型编码 `T extends Ty` 具象化为携带索引的运行时 GADT 值：
+//   - 零参值构造器 `IntegerType: TypeWitness<"int">` 代表 `"int"` 的运行时类型证据；
+//   - 零参值构造器 `BooleanType: TypeWitness<"bool">` 代表 `"bool"` 的运行时类型证据；
+//   - 递归构造器 `FunctionType(argument, result)` 由参数类型证据 `TypeWitness<A>` 与返回值类型证据 `TypeWitness<B>`
+//     组合构造出函数类型证据 `TypeWitness<Fun<A, B>>`！
+//
+// 接着：
+//   - `SomeExpr` 用 `Some(type, expression)` 将类型证据 `TypeWitness<T>` 与闭合表达式 `Expr<readonly [], T>` 配对；
+//   - `SomeValue` 用 `Evaluated(type, value)` 将类型证据 `TypeWitness<T>` 与求值结果 `InterpTy<T>` 配对。
+//
+// 重点观察 `show(result: SomeValue)` 中的双重 `match`：
+// 外层 `match result` 解构出 `Evaluated(type, value)` 时，`type` 是 `TypeWitness<T>`，`value` 是 `InterpTy<T>`（共享同一个隐藏类型变量 `T`）。
+// 内层 `match type` 对类型证据进行分支匹配时，每个分支产生的索引等式会**同步收窄同一作用域内同样依赖 `T` 的 `value`**：
+//   - 在 `IntegerType` 分支中，`T = "int"`，因此 `value` 的类型 `InterpTy<T>` 自动收窄为 `bigint`，可安全调用 `value.toString()`；
+//   - 在 `BooleanType` 分支中，`T = "bool"`，因此 `value` 的类型自动收窄为 `boolean`，可安全执行 `value ? "true" : "false"`；
+//   - 在 `FunctionType(argument, result)` 分支中，`T = Fun<A, B>`，此时返回 `"<function>"`。
+// ----------------------------------------------------------------------------
+// 4. Runtime Type Witnesses (`TypeWitness<T>`) & Cross-Binding Dependent Refinement (`show`)
+//
+// `TypeWitness<T>` mirrors the type universe `Ty` as an indexed GADT value available at runtime:
+//   - Nullary value constructor `IntegerType: TypeWitness<"int">` witnesses `"int"`;
+//   - Nullary value constructor `BooleanType: TypeWitness<"bool">` witnesses `"bool"`;
+//   - Recursive constructor `FunctionType(argument, result)` combines `TypeWitness<A>` and `TypeWitness<B>`
+//     to witness `TypeWitness<Fun<A, B>>`!
+//
+// Using `TypeWitness<T>`:
+//   - `SomeExpr` pairs `type: TypeWitness<T>` with a closed expression `expression: Expr<readonly [], T>`;
+//   - `SomeValue` pairs `type: TypeWitness<T>` with an evaluated host value `value: InterpTy<T>`.
+//
+// Look closely at the nested `match` inside `show(result: SomeValue)`:
+// The outer `match result` binds `type: TypeWitness<T>` and `value: InterpTy<T>` for a shared hidden type parameter `T`.
+// The inner `match type` inspects the witness and applies its index equation to **refine `value` in the same scope**:
+//   - In `IntegerType`, `T = "int"`, so `value: InterpTy<T>` refines to `bigint` (`value.toString()`);
+//   - In `BooleanType`, `T = "bool"`, so `value: InterpTy<T>` refines to `boolean` (`value ? "true" : "false"`);
+//   - In `FunctionType(argument, result)`, `T = Fun<A, B>`, returning `"<function>"`.
+// ----------------------------------------------------------------------------
+
 // Runtime type witnesses let match refine the value carried beside the witness.
 export data TypeWitness<T extends Ty> {
     IntegerType: TypeWitness<"int">,
@@ -144,3 +268,43 @@ export const dynamicIntegerText = show(dynamicInteger);
 export const dynamicBooleanText = show(dynamicBoolean);
 export const dynamicFunctionText = show(dynamicFunction);
 
+// ----------------------------------------------------------------------------
+// 5. 编译期错误拦截（`@ts-expect-error`）
+//
+// 下面展示当类型证据与表达式/结果值不一致、或者试图让隐藏的存在类型变量逃逸出 `match` 作用域时，编译器如何静态报错拦截。
+// ----------------------------------------------------------------------------
+// 5. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The negative examples below demonstrate how the compiler statically rejects mismatched `TypeWitness` pairs
+// and prevents hidden existential types from escaping a `match` arm.
+// ----------------------------------------------------------------------------
+
+function compileTimeErrorExamples(sampleExpr: SomeExpr): void {
+    // 1. 类型证据与表达式索引不一致：`BooleanType` 证据要求搭配 `Expr<readonly [], "bool">`，不能传入整数表达式 `Val(1n)`
+    // 1. Witness/expression mismatch: `BooleanType` (`TypeWitness<"bool">`) cannot be paired with `Val(1n)` (`Expr<..., "int">`)
+    // @ts-expect-error BooleanType requires an Expr<readonly [], "bool">, not Expr<readonly [], "int">.
+    const mismatchedSome = Some(BooleanType, Val<readonly []>(1n));
+
+    // 2. 类型证据与求值结果不一致：`BooleanType` 证据要求搭配 `boolean`，不能传入 `1n`（`bigint`）
+    // 2. Witness/value mismatch: `BooleanType` requires a `boolean` value (`InterpTy<"bool">`), not `1n` (`bigint`)
+    // @ts-expect-error BooleanType requires a boolean value in Evaluated, not bigint.
+    const mismatchedEvaluated = Evaluated(BooleanType, 1n);
+
+    // 3. 函数类型证据索引不一致：`factorial()` 的类型是 `Fun<"int", "int">`，不能搭配 `FunctionType(IntegerType, BooleanType)`
+    // 3. Function witness mismatch: `factorial()` produces `Fun<"int", "int">`, not `Fun<"int", "bool">`
+    // @ts-expect-error factorial() has type Fun<"int", "int">, which does not match FunctionType(IntegerType, BooleanType).
+    const mismatchedFunctionSome = Some(FunctionType(IntegerType, BooleanType), factorial());
+
+    // 4. 阻止隐藏的存在类型逃逸：不能不重新打包就直接把带有隐藏类型 `T` 的 `term: Expr<readonly [], T>` 返回到 `match` 外部
+    // 4. Existential escape prevention: `term` has hidden type `Expr<readonly [], T>` and cannot escape the `match` arm unwrapped
+    const leakedExistential = match sampleExpr {
+        // @ts-expect-error A payload mentioning a hidden constructor type parameter cannot escape its match arm.
+        Some(type, term) => term
+    };
+
+    void mismatchedSome;
+    void mismatchedEvaluated;
+    void mismatchedFunctionSome;
+    void leakedExistential;
+}
+void compileTimeErrorExamples;
