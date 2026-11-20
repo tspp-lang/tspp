@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
@@ -14,6 +15,10 @@ export interface NominalDeclarations {
     /** Type aliases of `newtype` declarations with the node of their underlying type. */
     readonly newtypes: WeakMap<TS.Node, TS.TypeNode>;
     readonly newtypeCount: () => number;
+    /** Indexed declarations and their constructor signatures, for dependent matching. */
+    readonly gadts: WeakMap<TS.Node, GadtDeclaration>;
+    readonly gadtConstructors: WeakMap<TS.Node, GadtVariant>;
+    readonly gadtBrands: WeakMap<TS.Node, GadtDeclaration>;
     /** Whether `declaration` is the constructor function a `newtype` lowers to. */
     readonly isNewtypeConstructor: (declaration: TS.Node) => boolean;
     /** Whether `start` is where a generated companion of a declaration in `sourceFile` names itself. */
@@ -25,12 +30,30 @@ export interface NominalDeclarations {
     readonly isGeneratedDeclaration: (sourceFile: TS.SourceFile, start: number) => boolean;
 }
 
+export interface GadtVariant {
+    readonly name: string;
+    readonly typeParameters: readonly TS.TypeParameterDeclaration[];
+    readonly fields: readonly { readonly name: TS.Identifier; readonly type: TS.TypeNode; }[];
+    readonly resultType: TS.TypeReferenceNode;
+    readonly declaration: TS.SignatureDeclaration;
+}
+
+export interface GadtDeclaration {
+    readonly name: TS.Identifier;
+    readonly typeParameters: readonly TS.TypeParameterDeclaration[];
+    readonly variants: readonly GadtVariant[];
+}
+
 interface ParsedVariant {
     /** Token starts of the variant name and of what follows its fields, where generated members sit. */
     readonly start: number;
     readonly valuesAt: number;
     readonly name: TS.Identifier;
     readonly fields: readonly { readonly name: TS.Identifier; readonly type: TS.TypeNode; }[];
+    readonly typeParameters?: TS.NodeArray<TS.TypeParameterDeclaration>;
+    readonly resultType?: TS.TypeReferenceNode;
+    readonly callable?: boolean;
+    readonly signature?: TS.TypeNode;
 }
 
 /**
@@ -50,6 +73,10 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     const companions = new WeakSet<TS.Node>();
     const newtypes = new WeakMap<TS.Node, TS.TypeNode>();
     const newtypeConstructors = new WeakSet<TS.Node>();
+    const gadts = new WeakMap<TS.Node, GadtDeclaration>();
+    const gadtConstructors = new WeakMap<TS.Node, GadtVariant>();
+    const gadtBrands = new WeakMap<TS.Node, GadtDeclaration>();
+    const boundChildren = new WeakMap<TS.Node, TS.Node>();
     let newtypeCount = 0;
 
     const range = <T extends TS.Node | TS.NodeArray<TS.Node>>(node: T, pos: number, end: number): T => ts.setTextRange(node, { pos, end });
@@ -96,9 +123,9 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     }
 
     /** `Name.Name`, the nominal brand of a `newtype` or `data` declaration. */
-    function brandReference(cursor: TSPPSyntaxCursor, text: string): TS.TypeReferenceNode {
+    function brandReference(cursor: TSPPSyntaxCursor, text: string, arguments_?: readonly TS.TypeNode[]): TS.TypeReferenceNode {
         const f = cursor.factory;
-        return f.createTypeReferenceNode(f.createQualifiedName(f.createIdentifier(text), f.createIdentifier(text)));
+        return f.createTypeReferenceNode(f.createQualifiedName(f.createIdentifier(text), f.createIdentifier(text)), arguments_);
     }
 
     /**
@@ -107,8 +134,10 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
      * without source text would print as `(Missing)` wherever a type is not shown through an alias (hover on an imported
      * data constant, for example).
      */
-    function brandNamespace(cursor: TSPPSyntaxCursor, name: TS.Identifier): TS.ModuleDeclaration {
+    function brandNamespace(cursor: TSPPSyntaxCursor, name: TS.Identifier, indices?: readonly TS.TypeParameterDeclaration[]): TS.ModuleDeclaration {
         const f = cursor.factory;
+        const indexTuple = () => f.createTupleTypeNode(f.createNodeArray((indices ?? []).map(index =>
+            f.createTypeReferenceNode(f.createIdentifier(ts.idText(index.name))))));
         const brandMember = f.createPropertyDeclaration(
             [f.createModifier(kinds.PrivateKeyword), f.createModifier(kinds.ReadonlyKeyword)],
             f.createIdentifier("__tsppNominal"),
@@ -118,7 +147,18 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             undefined,
         );
         const brandName = range(f.createIdentifier(ts.idText(name)), name.pos, name.end);
-        const brand = f.createClassDeclaration([f.createModifier(kinds.ExportKeyword)], brandName, undefined, undefined, [brandMember]);
+        const brandParameters = indices?.map(index => f.createTypeParameterDeclaration(undefined,
+            range(f.createIdentifier(ts.idText(index.name)), index.name.pos, index.name.end)));
+        // Protected members retain their type in .d.ts output; private member types are erased by declaration emit.
+        // Keeping the invariant function here preserves index safety for ordinary TypeScript consumers too.
+        const indexMember = indices?.length ? f.createPropertyDeclaration(
+            [f.createModifier(kinds.ProtectedKeyword), f.createModifier(kinds.ReadonlyKeyword)], "__tsppIndex",
+            cursor.inAmbientContext() ? undefined : f.createToken(kinds.ExclamationToken),
+            f.createFunctionTypeNode(undefined, [f.createParameterDeclaration(undefined, undefined, "indices", undefined, indexTuple())], indexTuple()),
+            undefined,
+        ) : undefined;
+        const brand = f.createClassDeclaration([f.createModifier(kinds.ExportKeyword)], brandName, brandParameters, undefined,
+            indexMember ? [brandMember, indexMember] : [brandMember]);
         const namespace = root(f.createModuleDeclaration(
             companionModifiers(cursor, /*ambient*/ true),
             range(f.createIdentifier(ts.idText(name)), name.pos, name.end),
@@ -203,6 +243,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             const variantText = cursor.tokenText();
             const start = cursor.getTokenStart();
             const name = cursor.parseIdentifier();
+            const typeParameters = cursor.parseTypeParameters();
             const fields: { name: TS.Identifier; type: TS.TypeNode; }[] = [];
             let valuesAt = start;
             if (cursor.token() === kinds.OpenParenToken) {
@@ -224,16 +265,28 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
                         cursor.nextToken();
                         continue;
                     }
+                    const fieldStart = cursor.getTokenStart();
                     const fieldName = cursor.parseIdentifier();
+                    const reserved = Object.values(dataProperties).some(name => name === ts.idText(fieldName));
+                    if (reserved) cursor.parseErrorAt(fieldStart, fieldName.end,
+                        `The field name '${ts.idText(fieldName)}' is reserved for the data representation.`);
                     cursor.parseExpected(kinds.ColonToken);
-                    fields.push({ name: fieldName, type: cursor.parseType() });
+                    const type = cursor.parseType();
+                    // Omit invalid fields so they do not collide with generated members and cause extra errors.
+                    if (!reserved) fields.push({ name: fieldName, type });
                     if (cursor.token() !== kinds.CommaToken) break;
                     cursor.nextToken();
                 }
                 valuesAt = cursor.getTokenStart();
                 cursor.parseExpected(kinds.CloseParenToken);
             }
-            variants.push({ start, valuesAt, name, fields });
+            let resultType: TS.TypeReferenceNode | undefined;
+            if (cursor.parseOptional(kinds.ColonToken)) {
+                const resultStart = cursor.getNodePos();
+                const resultName = cursor.parseIdentifier();
+                resultType = range(cursor.factory.createTypeReferenceNode(resultName, cursor.parseTypeArguments()), resultStart, cursor.getNodePos());
+            }
+            variants.push({ start, valuesAt, name, fields, typeParameters, resultType });
             if (cursor.token() !== kinds.BarToken) break;
             cursor.nextToken();
         }
@@ -241,17 +294,58 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         return variants;
     }
 
+    function parseBracedVariants(cursor: TSPPSyntaxCursor): ParsedVariant[] {
+        const variants: ParsedVariant[] = [];
+        cursor.parseExpected(kinds.OpenBraceToken);
+        while (cursor.token() !== kinds.CloseBraceToken && cursor.token() !== kinds.EndOfFileToken) {
+            const start = cursor.getTokenStart();
+            const name = cursor.parseIdentifier();
+            cursor.parseExpected(kinds.ColonToken);
+            const signature = cursor.parseType();
+            let type = signature;
+            while (ts.isParenthesizedTypeNode(type)) type = type.type;
+            const functionType = ts.isFunctionTypeNode(type) ? type : undefined;
+            const callable = !!functionType;
+            const fields: { name: TS.Identifier; type: TS.TypeNode; }[] = [];
+            if (functionType) {
+                for (const parameter of functionType.parameters) {
+                    if (!ts.isIdentifier(parameter.name) || !parameter.type || parameter.questionToken || parameter.dotDotDotToken || parameter.initializer) {
+                        cursor.parseErrorAt(parameter.pos, parameter.end,
+                            "Constructor fields must be named, required parameters with explicit types; optional, rest, and destructured parameters are not supported.");
+                        continue;
+                    }
+                    const fieldText = ts.idText(parameter.name);
+                    if (Object.values(dataProperties).some(name => name === fieldText)) cursor.parseErrorAt(parameter.name.pos, parameter.name.end,
+                        `The field name '${ts.idText(parameter.name)}' is reserved for the data representation.`);
+                    fields.push({ name: parameter.name, type: parameter.type });
+                }
+            }
+            const result = functionType?.type ?? type;
+            if (!ts.isTypeReferenceNode(result)) cursor.parseErrorAt(result.pos, result.end,
+                "An indexed constructor must return its declared data type.");
+            variants.push({ start, valuesAt: signature.end, name, fields, callable, signature,
+                typeParameters: functionType?.typeParameters,
+                resultType: ts.isTypeReferenceNode(result) ? result : undefined,
+            });
+            if (!cursor.parseOptional(kinds.CommaToken)) break;
+        }
+        if (!variants.length) cursor.parseErrorAt(cursor.getTokenStart(), cursor.getTokenStart(),
+            "An indexed data declaration needs at least one constructor.");
+        cursor.parseExpected(kinds.CloseBraceToken);
+        return variants;
+    }
+
     /** `{ readonly _tag: "V"; readonly field: T; ...; readonly _values: readonly [T, ...] }` */
     function variantType(cursor: TSPPSyntaxCursor, variant: ParsedVariant, valueTypes: readonly TS.TypeNode[], positioned = true): TS.TypeLiteralNode {
         const f = cursor.factory;
-        const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier("_tag"), undefined,
+        const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier(dataProperties.tag), undefined,
             f.createLiteralTypeNode(f.createStringLiteral(ts.idText(variant.name)))), variant.start);
         const fields = variant.fields.map(field => range(f.createPropertySignature(readonlyModifier(cursor), field.name, undefined, field.type), field.name.pos, field.type.end));
         // Without fields, `readonly never[]` makes a read of a field never, as in an arm a narrowed scrutinee cannot reach.
         const valuesTuple = f.createTypeOperatorNode(kinds.ReadonlyKeyword, variant.fields.length
             ? f.createTupleTypeNode(f.createNodeArray(valueTypes))
             : f.createArrayTypeNode(f.createKeywordTypeNode(kinds.NeverKeyword)));
-        const values = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier("_values"), undefined, valuesTuple), variant.valuesAt);
+        const values = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier(dataProperties.values), undefined, valuesTuple), variant.valuesAt);
         const literal = f.createTypeLiteralNode([tag, ...fields, values]);
         return positioned ? range(literal, variant.name.pos, variant.valuesAt) : literal;
     }
@@ -266,41 +360,78 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         // Field types appear in the alias, its `_values` tuples, and the constructors, each a separate copy.
         const parseRest = () => {
             const typeParameters = cursor.parseTypeParameters();
+            if (cursor.token() === kinds.OpenBraceToken) return { typeParameters, variants: parseBracedVariants(cursor), braced: true };
             cursor.parseExpected(kinds.EqualsToken);
-            return { typeParameters, variants: parseVariants(cursor) };
+            return { typeParameters, variants: parseVariants(cursor), braced: false };
         };
         const valuesCopy = cursor.lookAhead(parseRest);
-        const constructorCopies = valuesCopy.variants.map(variant => variant.fields.length ? cursor.lookAhead(parseRest) : undefined);
-        const { typeParameters, variants } = parseRest();
+        const constructorCopies = valuesCopy.variants.map(variant => variant.fields.length || variant.resultType ? cursor.lookAhead(parseRest) : undefined);
+        const { typeParameters, variants, braced } = parseRest();
         const variantsEnd = cursor.getTokenStart();
-        cursor.parseSemicolon();
+        if (braced) cursor.parseOptional(kinds.SemicolonToken);
+        else cursor.parseSemicolon();
         const end = cursor.getNodePos();
         const at = end;
         rootAt = end;
         const text = ts.idText(name);
+        const indexed = braced || variants.some(variant => !!variant.resultType);
+        if (indexed) {
+            for (const variant of variants) {
+                for (const parameter of variant.typeParameters ?? []) {
+                    if (ts.idText(parameter.name) === text) cursor.parseErrorAt(parameter.name.pos, parameter.name.end,
+                        `A constructor parameter cannot shadow its data type '${text}'.`);
+                }
+                if (!variant.resultType) {
+                    cursor.parseErrorAt(variant.start, variant.name.end, "Every constructor of an indexed data declaration needs an explicit result type.");
+                    continue;
+                }
+                if (!ts.isIdentifier(variant.resultType.typeName) || ts.idText(variant.resultType.typeName) !== text) {
+                    cursor.parseErrorAt(variant.resultType.pos, variant.resultType.end, `Constructor '${ts.idText(variant.name)}' must return '${text}'.`);
+                }
+                if ((variant.resultType.typeArguments?.length ?? 0) !== (typeParameters?.length ?? 0)) {
+                    cursor.parseErrorAt(variant.resultType.pos, variant.resultType.end, `Constructor '${ts.idText(variant.name)}' must supply ${typeParameters?.length ?? 0} result indices.`);
+                }
+            }
+        }
+        else for (const variant of variants) {
+            if (variant.typeParameters?.length) cursor.parseErrorAt(variant.start, variant.name.end,
+                "A constructor with its own type parameters needs an explicit result type.");
+        }
 
-        const union = range(f.createUnionTypeNode(f.createNodeArray(variants.map((variant, index) =>
-            variantType(cursor, variant, valuesCopy.variants[index]?.fields.map(field => field.type) ?? [])))), variants[0]?.name.pos ?? at, at);
+        const union = range(f.createUnionTypeNode(f.createNodeArray(variants.map((variant, index) => {
+            // Existential constructor parameters have no scope outside a match. Direct field reads expose unknown;
+            // the matching type extension opens the actual constructor signature with fresh rigid parameters.
+            const hidden = indexed && !!variant.typeParameters?.length;
+            const aliasVariant = hidden ? { ...variant, fields: variant.fields.map(field => ({
+                name: field.name, type: f.createKeywordTypeNode(kinds.UnknownKeyword),
+            })) } : variant;
+            const fieldTypes = hidden ? variant.fields.map(() => f.createKeywordTypeNode(kinds.UnknownKeyword))
+                : valuesCopy.variants[index]?.fields.map(field => field.type) ?? [];
+            return variantType(cursor, aliasVariant, fieldTypes);
+        }))), variants[0]?.name.pos ?? at, at);
         // Data values are nominal: a structural lookalike lacks the brand.
         const branded = range(f.createIntersectionTypeNode(f.createNodeArray([
             range(f.createParenthesizedType(union), union.pos, union.end),
-            markGenerated(ts, brandReference(cursor, text), Math.min(variantsEnd, end)),
+            markGenerated(ts, brandReference(cursor, text, indexed ? typeArgumentsFor(cursor, typeParameters) : undefined), Math.min(variantsEnd, end)),
         ])), union.pos, at);
         const alias = range(f.createTypeAliasDeclaration(cursor.modifiers, name, typeParameters, branded), pos, end);
 
-        const statements: TS.Statement[] = [alias, brandNamespace(cursor, name)];
+        const namespace = brandNamespace(cursor, name, indexed ? typeParameters : undefined);
+        const statements: TS.Statement[] = [alias, namespace];
+        const gadtVariants: GadtVariant[] = [];
         variants.forEach((variant, index) => {
             const variantName = ts.idText(variant.name);
-            const tag = f.createPropertyAssignment(f.createIdentifier("_tag"), f.createStringLiteral(variantName));
+            const tag = f.createPropertyAssignment(f.createIdentifier(dataProperties.tag), f.createStringLiteral(variantName));
             const constructorCopy = constructorCopies[index];
-            if (!variant.fields.length || !constructorCopy) {
-                const type = f.createIntersectionTypeNode(f.createNodeArray([
+            const constructorVariant = constructorCopy?.variants[index];
+            if (!variant.callable && !variant.fields.length && !variant.typeParameters?.length || !constructorCopy) {
+                const type = constructorVariant?.resultType ?? f.createIntersectionTypeNode(f.createNodeArray([
                     variantType(cursor, { start: keywordStart, valuesAt: keywordStart, name: f.createIdentifier(variantName), fields: [] }, [], /*positioned*/ false),
                     brandReference(cursor, text),
                 ]));
                 const value = f.createObjectLiteralExpression([
                     tag,
-                    f.createPropertyAssignment(f.createIdentifier("_values"), f.createArrayLiteralExpression(f.createNodeArray([]))),
+                    f.createPropertyAssignment(f.createIdentifier(dataProperties.values), f.createArrayLiteralExpression(f.createNodeArray([]))),
                 ]);
                 const constantName = range(f.createIdentifier(variantName), variant.name.pos, variant.name.end);
                 const declaration = ambient
@@ -309,20 +440,29 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
                 const constant = root(f.createVariableStatement(companionModifiers(cursor, ambient), f.createVariableDeclarationList([declaration], ts.NodeFlags.Const)));
                 companions.add(constant);
                 statements.push(constant);
+                if (indexed && constructorVariant?.resultType) {
+                    // A nullary value still has a checked zero-argument signature for dependent matching metadata.
+                    const signatureResult = variant.resultType!;
+                    const signature = f.createFunctionTypeNode(undefined, [], signatureResult);
+                    boundChildren.set(declaration, signature);
+                    const metadata = { name: variantName, typeParameters: [], fields: [], resultType: signatureResult, declaration: signature };
+                    gadtVariants.push(metadata);
+                    gadtConstructors.set(declaration, metadata);
+                }
                 return;
             }
             const fields = constructorCopy.variants[index]?.fields ?? [];
             const parameters = fields.map(field => f.createParameterDeclaration(undefined, undefined, f.createIdentifier(ts.idText(field.name)), undefined, field.type));
             const reference = (fieldName: TS.Identifier) => f.createIdentifier(ts.idText(fieldName));
-            const dataType = () => f.createTypeReferenceNode(range(f.createIdentifier(text), name.pos, name.end), typeArgumentsFor(cursor, typeParameters));
+            const dataType = () => constructorVariant?.resultType ?? f.createTypeReferenceNode(range(f.createIdentifier(text), name.pos, name.end), typeArgumentsFor(cursor, typeParameters));
             const body = ambient ? undefined : f.createBlock([
                 f.createReturnStatement(brandAs(cursor, f.createObjectLiteralExpression([
                     tag,
                     ...fields.map(field => f.createShorthandPropertyAssignment(reference(field.name))),
-                    f.createPropertyAssignment(f.createIdentifier("_values"), f.createArrayLiteralExpression(f.createNodeArray(fields.map(field => reference(field.name))))),
+                    f.createPropertyAssignment(f.createIdentifier(dataProperties.values), f.createArrayLiteralExpression(f.createNodeArray(fields.map(field => reference(field.name))))),
                 ]), dataType())),
             ]);
-            const constructorTypeParameters = constructorCopy.typeParameters;
+            const constructorTypeParameters = indexed ? constructorVariant?.typeParameters : constructorCopy.typeParameters;
             const returnType = dataType();
             const constructor = root(f.createFunctionDeclaration(
                 companionModifiers(cursor, ambient),
@@ -335,14 +475,28 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
             ));
             companions.add(constructor);
             statements.push(constructor);
+            if (indexed && constructorVariant?.resultType) {
+                const metadata: GadtVariant = { name: variantName, typeParameters: constructorTypeParameters ?? [], fields,
+                    resultType: constructorVariant.resultType, declaration: constructor };
+                gadtVariants.push(metadata);
+                gadtConstructors.set(constructor, metadata);
+            }
         });
+        if (indexed) {
+            const declaration = { name, typeParameters: typeParameters ?? [], variants: gadtVariants };
+            gadts.set(alias, declaration);
+            const brand = (namespace.body as TS.ModuleBlock).statements[0];
+            gadtBrands.set(brand, declaration);
+        }
 
         authored.set(alias, {
             keyword: "data",
-            render: (sourceFile, printNested) => `data ${text}${printTypeParameters(typeParameters, sourceFile)} = ${variants.map(variant =>
-                variant.fields.length
-                    ? `${ts.idText(variant.name)}(${variant.fields.map(field => `${ts.idText(field.name)}: ${printNested(field.type)}`).join(", ")})`
-                    : ts.idText(variant.name)).join(" | ")};`,
+            render: (sourceFile, printNested) => braced
+                ? `data ${text}${printTypeParameters(typeParameters, sourceFile)} { ${variants.map(variant => `${ts.idText(variant.name)}: ${printNested(variant.signature!)}`).join(", ")} }`
+                : `data ${text}${printTypeParameters(typeParameters, sourceFile)} = ${variants.map(variant =>
+                `${ts.idText(variant.name)}${printTypeParameters(variant.typeParameters, sourceFile)}${variant.fields.length || variant.typeParameters?.length
+                    ? `(${variant.fields.map(field => `${ts.idText(field.name)}: ${printNested(field.type)}`).join(", ")})`
+                    : ""}${variant.resultType ? `: ${printNested(variant.resultType)}` : ""}`).join(" | ")};`,
         });
         // Companions follow the alias in the statement list, so their nodes sit at the next token.
         const after = cursor.getTokenStart();
@@ -371,6 +525,7 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         keywords: ["newtype", "data"],
         isStart: cursor => newtypeStart(cursor) || dataStart(cursor),
         parse: cursor => cursor.tokenText() === "newtype" ? parseNewtype(cursor) : parseData(cursor),
+        getBoundChild: node => boundChildren.get(node),
         restoreDeclaration: (statement, printNested) => {
             const original = ts.getOriginalNode(statement);
             if (companions.has(original)) return "";
@@ -414,6 +569,9 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
     return {
         extension,
         newtypes,
+        gadts,
+        gadtConstructors,
+        gadtBrands,
         newtypeCount: () => newtypeCount,
         isNewtypeConstructor: declaration => newtypeConstructors.has(declaration),
         isCompanionName,

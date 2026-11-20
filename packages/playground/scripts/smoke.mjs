@@ -2,8 +2,10 @@
 // proves little here: plugins activate in a worker, from a bundle ordered differently from the compiler's own.
 // Usage: node scripts/smoke.mjs [example ids...] (after `vite build`). CHROME_PATH names the browser to use.
 import { existsSync } from "node:fs";
+import assert from "node:assert/strict";
 import process from "node:process";
 import { chromium } from "playwright-core";
+import { deflateSync, strToU8 } from "fflate";
 import { preview } from "vite";
 
 const runTimeout = 180_000;
@@ -28,7 +30,9 @@ try {
   const examples = requested.length ? requested : available;
   if (!examples.length) throw new Error("The playground lists no examples.");
 
+  await checkPreviewTabs(page);
   await checkUnsavedDiagnostics(page);
+  await checkLineEndings(browser);
 
   let fileCount = 0;
   for (const example of examples) {
@@ -54,7 +58,64 @@ if (failures.length) {
 }
 process.exit(0);
 
+async function checkPreviewTabs(page) {
+  await page.selectOption("#examples", "00-hello-world");
+  const tree = path => page.locator(`#project-tree [data-path="${path}"]`);
+  const tab = path => page.locator(`#tabs [data-path="${path}"]`);
+  const paths = () => page.locator("#tabs .tab").evaluateAll(tabs => tabs.map(tab => tab.dataset.path));
+
+  await tree("/package.json").click();
+  assert.deepEqual(await paths(), ["/package.json"]);
+  await tree("/tsppconfig.json").click();
+  assert.deepEqual(await paths(), ["/tsppconfig.json"]);
+  await tree("/tsppconfig.json").dblclick();
+  assert.equal(await tab("/tsppconfig.json").evaluate(tab => tab.classList.contains("preview")), false);
+  await tree("/package.json").click();
+  await tab("/package.json").locator(".tab-label").dblclick();
+  assert.equal(await tab("/package.json").evaluate(tab => tab.classList.contains("preview")), false);
+  await tree("/src/index.tspp").click();
+  assert.equal(await tab("/src/index.tspp").locator(".tab-label").evaluate(label => getComputedStyle(label).fontStyle), "italic");
+  await page.locator("#editor .monaco-editor .view-lines").click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.insertText("\n// Keep an edited preview open.");
+  assert.equal(await tab("/src/index.tspp").evaluate(tab => tab.classList.contains("preview")), false);
+  await tree("/package.json").click();
+  assert.deepEqual(await paths(), ["/tsppconfig.json", "/package.json", "/src/index.tspp"]);
+  // Undoing an edit must not turn the pinned tab back into a preview.
+  await tab("/src/index.tspp").click();
+  await page.locator("#editor .monaco-editor .view-lines").click();
+  await page.keyboard.press("Control+z");
+  assert.equal(await tab("/src/index.tspp").evaluate(tab => tab.classList.contains("preview")), false);
+  await tab("/package.json").locator(".tab-close").click();
+  await tree("/package.json").click();
+  await tab("/package.json").locator(".tab-close").click();
+  assert.equal(await page.locator("#tabs .preview").count(), 0);
+  await tree("/package.json").click();
+  page.once("dialog", dialog => dialog.accept("manifest.json"));
+  await page.getByRole("button", { name: "Rename selected item" }).click();
+  assert.equal(await tab("/manifest.json").evaluate(tab => tab.classList.contains("preview")), true);
+  const sharedUrl = page.url();
+  // Opening a shared custom project restores both pinned tabs and its one preview.
+  const restored = await page.context().browser().newPage();
+  try {
+    await restored.goto(sharedUrl, { waitUntil: "load" });
+    await restored.locator('#tabs .tab.preview[data-path="/manifest.json"]').waitFor();
+    assert.deepEqual(await restored.locator("#tabs .tab").evaluateAll(tabs => tabs.map(tab => tab.dataset.path)), await paths());
+  }
+  finally {
+    await restored.close();
+    await page.bringToFront();
+  }
+  page.once("dialog", dialog => dialog.accept());
+  await page.getByRole("button", { name: "Delete selected item" }).click();
+  assert.equal(await page.locator("#tabs .preview").count(), 0);
+  console.log("ok   preview replacement, double-click, editing, undo, close, rename, delete, and shared state");
+  await page.selectOption("#examples", "00-hello-world");
+}
+
 async function checkUnsavedDiagnostics(page) {
+  // The example includes src/**/*.tspp; create the test file inside that directory.
+  await page.locator('#project-tree [data-path="/src/index.tspp"]').click();
   page.once("dialog", dialog => dialog.accept("diagnostics-smoke.tspp"));
   await page.getByRole("button", { name: "New file" }).click();
   const editor = page.locator("#editor .monaco-editor");
@@ -65,7 +126,16 @@ async function checkUnsavedDiagnostics(page) {
   };
   const save = async () => {
     await page.keyboard.press("Control+s");
-    await page.locator("#outputs-status").filter({ hasText: /^Up to date$/ }).waitFor();
+    await page.locator("#outputs-status").filter({ hasText: /^Up to date$/ }).waitFor().catch(async error => {
+      console.error("Save failure:", await page.evaluate(() => ({
+        status: document.querySelector("#outputs-status")?.textContent,
+        output: document.querySelector("#output-empty")?.textContent,
+        problems: document.querySelector("#problems")?.textContent,
+        active: document.querySelector("#tabs .active")?.getAttribute("data-path"),
+        source: document.querySelector("#editor .view-lines")?.textContent,
+      })));
+      throw error;
+    });
   };
   const runAndCheck = async expected => {
     const errors = await runActiveFile(page);
@@ -73,6 +143,7 @@ async function checkUnsavedDiagnostics(page) {
     await page.locator("#run-output").getByText(expected, { exact: true }).waitFor();
   };
 
+  await editor.locator(".view-lines").click();
   await write('console.log("saved-output");');
   await save();
   await write('const value: number = "draft-output"; console.log(value);');
@@ -89,8 +160,59 @@ async function checkUnsavedDiagnostics(page) {
   console.log("ok   unsaved diagnostics and saved outputs");
 }
 
+async function selectExample(page, example) {
+  await page.selectOption("#examples", example);
+  assert.equal(await page.inputValue("#examples"), example,
+    `Could not open ${example}; a discard confirmation may have kept the previous project open.`);
+}
+
+async function checkLineEndings(browser) {
+  const state = {
+    files: {
+      "/src/mixed.tspp": 'console.log("mixed-eol");\n// Mixed line endings.\r\n',
+      "/notes.md": "# Notes\nMixed line endings here too.\r\n",
+    },
+    features: [],
+    active: "/src/mixed.tspp",
+  };
+  const hash = Buffer.from(deflateSync(strToU8(JSON.stringify(state)))).toString("base64url");
+  const url = `${server.resolvedUrls.local[0]}#v2=${hash}`;
+  const page = await browser.newPage();
+  const dialogs = [];
+  page.on("dialog", async dialog => {
+    dialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+  try {
+    const open = async () => {
+      await page.goto(url, { waitUntil: "load" });
+      await page.locator('#tabs .tab.active[data-path="/src/mixed.tspp"]').waitFor();
+    };
+    await open();
+    assert.equal(await page.locator("#tabs .tab.dirty").count(), 0, "Loading mixed line endings must not create unsaved edits");
+    assert.deepEqual(await runActiveFile(page), []);
+    await page.locator("#run-output").getByText("mixed-eol", { exact: true }).waitFor();
+    await selectExample(page, "00-hello-world");
+    assert.deepEqual(dialogs, [], "An untouched project must switch without a discard confirmation");
+    await page.locator('#project-tree [data-path="/src/index.tspp"]').waitFor();
+
+    await open();
+    await page.locator("#editor .monaco-editor .view-lines").click();
+    await page.keyboard.press("Control+End");
+    await page.keyboard.insertText("\n// An actual edit.");
+    assert.equal(await page.locator("#tabs .tab.dirty").count(), 1);
+    await page.selectOption("#examples", "00-hello-world");
+    assert.deepEqual(dialogs, ["Discard all unsaved changes and open another example?"]);
+    assert.ok(await page.locator('#project-tree [data-path="/src/mixed.tspp"]').isVisible());
+    console.log("ok   mixed line endings stay clean, saved input runs, and actual edits still require confirmation");
+  }
+  finally {
+    await page.close();
+  }
+}
+
 async function checkInvalidMacroEditing(page) {
-  await page.selectOption("#examples", "13-macros");
+  await selectExample(page, "13-macros");
   await page.locator('#project-tree [data-path="/src/02-transform.tspp"]').click();
   const editor = page.locator("#editor .monaco-editor");
   await editor.locator(".view-lines").click();
@@ -205,7 +327,7 @@ async function runExample(page, example, errors) {
     window.__tsppAnalysisObserver = new MutationObserver(record);
     window.__tsppAnalysisObserver.observe(status, { childList: true, characterData: true, subtree: true });
   });
-  await page.selectOption("#examples", example);
+  await selectExample(page, example);
   const reasons = [];
   // Macros expand in the background: every built-in output must catch up with them. Declaration views are an
   // explicit Playground request even when the example's real tsppconfig disables emit or does not enable declarations.

@@ -1,5 +1,6 @@
 import examples from "virtual:tspp-examples";
 import { startLanguageWorker, type LanguageClient } from "./client";
+import { EditorTabs } from "./editorTabs";
 import { editorLanguage, isEditorFile, isSourceFile, registerEditorLanguages } from "./editorLanguages";
 import { defaultConfiguration, parseProjectConfiguration, setFeatureInConfiguration } from "./configuration";
 import { currentVersion, z3Location } from "./deployment";
@@ -7,7 +8,7 @@ import { effectiveFeatures, renderFeaturePanel } from "./features";
 import * as monaco from "./monaco";
 import { createOutputController } from "./outputs";
 import { createProblemChecker } from "./problems";
-import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, replacePathPrefix, validItemName } from "./projectTree";
+import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, updateProjectTreeSelection, replacePathPrefix, validItemName } from "./projectTree";
 import type { ProjectFiles } from "./protocol";
 import { formatModel, registerProviders, setDiagnosticMarkers } from "./providers";
 import { setupSettings } from "./settings";
@@ -84,7 +85,7 @@ const models = new Map<string, monaco.editor.ITextModel>();
 const savedContents = new Map<string, string>();
 const resources = new Map<string, string>();
 const viewStates = new Map<string, monaco.editor.ICodeEditorViewState | null>();
-let openFiles: string[] = [];
+const tabs = new EditorTabs();
 const directories = new Set<string>();
 const expandedDirectories = new Set<string>();
 const selected = new Set<string>();
@@ -127,6 +128,7 @@ function startDraft(): void {
 function createProjectModel(path: string, text: string): monaco.editor.ITextModel {
   const model = monaco.editor.createModel(text, editorLanguage(path), monaco.Uri.file(path));
   model.onDidChangeContent(() => {
+    tabs.keep(path);
     const dirty = dirtyFiles();
     if (!path.endsWith(".md")) {
       cancelCheck();
@@ -165,7 +167,6 @@ function loadProject(state: SharedState) {
   savedContents.clear();
   resources.clear();
   viewStates.clear();
-  openFiles = [];
   directories.clear();
   expandedDirectories.clear();
   const stateFiles = state.files["/tsppconfig.json"]
@@ -177,24 +178,25 @@ function loadProject(state: SharedState) {
       resources.set(path, text);
       continue;
     }
-    savedContents.set(path, text);
-    models.set(path, createProjectModel(path, text));
+    const model = createProjectModel(path, text);
+    models.set(path, model);
+    // Monaco normalizes mixed line endings on creation. The saved compiler input must match that editor text.
+    savedContents.set(path, model.getValue());
   }
   state.directories?.map(normalizedPath).filter(path => path !== "/").forEach(path => directories.add(path));
   directories.forEach(path => expandedDirectories.add(path));
   selectedProjectItem = state.active;
-  openFiles = [...new Set([...(state.open ?? []), state.active])].filter(path => models.has(path));
+  tabs.restore([...new Set([...(state.open ?? []), state.active])].filter(path => models.has(path)), state.preview ?? (state.open ? undefined : state.active));
   void applyConfiguration();
   outputs.markStale();
-  renderTabs();
   renderProjectTree();
   openFile(state.active, true);
 }
 
-function openFile(path: string, refreshOutput = false) {
+function openFile(path: string, refreshOutput = false, keepOpen = false) {
   const model = models.get(path);
   if (!model) return;
-  if (!openFiles.includes(path)) openFiles.push(path);
+  tabs.open(path, keepOpen);
   if (active && models.has(active)) viewStates.set(active, editor.saveViewState());
   active = path;
   outputs.setFile(path, refreshOutput, isSourceFile(path));
@@ -204,28 +206,33 @@ function openFile(path: string, refreshOutput = false) {
   if (viewState) editor.restoreViewState(viewState);
   renderTabs();
   selectedProjectItem = path;
-  renderProjectTree();
+  updateProjectTreeSelection(projectTree, active, selectedProjectItem);
+  renameProjectItem.disabled = deleteProjectItem.disabled = false;
   scheduleCheck();
 }
 
 function renderTabs(dirty = dirtyFiles()) {
-  renderEditorTabs(tabBar, openFiles.filter(path => models.has(path)), active, dirty, openFile, closeFile);
+  renderEditorTabs(tabBar, tabs.paths.filter(path => models.has(path)), active, dirty, openFile, closeFile, tabs.preview, path => {
+    tabs.keep(path);
+    renderTabs();
+    scheduleCheck();
+  });
 }
 
 function closeFile(path: string): void {
-  const index = openFiles.indexOf(path);
+  const index = tabs.paths.indexOf(path);
   if (index < 0) return;
   if (isDirty(path)) {
     if (!confirm(`Discard the unsaved changes in ${baseName(path)} and close it?`)) return;
     models.get(path)?.setValue(savedContents.get(path) ?? "");
   }
-  openFiles.splice(index, 1);
+  tabs.remove([path]);
   if (active !== path) {
     renderTabs();
     scheduleCheck();
     return;
   }
-  const next = openFiles[Math.min(index, openFiles.length - 1)];
+  const next = tabs.paths[Math.min(index, tabs.paths.length - 1)];
   if (next) {
     openFile(next);
     return;
@@ -259,6 +266,8 @@ function renderProjectTree(): void {
     }
     else if (models.has(path)) openFile(path);
     else renderProjectTree();
+  }, path => {
+    if (models.has(path)) openFile(path, false, true);
   });
   renameProjectItem.disabled = !hasSelection;
   deleteProjectItem.disabled = !hasSelection;
@@ -312,8 +321,8 @@ function createFile(): void {
   addParentDirectories(path, directories);
   savedContents.set(path, "");
   models.set(path, createProjectModel(path, ""));
+  tabs.paths.push(path);
   selectedProjectItem = path;
-  active = path;
   syncProjectChange(path);
   editor.focus();
 }
@@ -379,7 +388,6 @@ function renameSelectedItem(): void {
     for (const path of movedExpanded) expandedDirectories.delete(path);
     movedExpanded.forEach(path => expandedDirectories.add(replacePathPrefix(path, oldPath, nextPath)));
     if (active.startsWith(`${oldPath}/`)) active = replacePathPrefix(active, oldPath, nextPath);
-    openFiles = openFiles.map(path => path.startsWith(`${oldPath}/`) ? replacePathPrefix(path, oldPath, nextPath) : path);
   }
   else if (models.has(oldPath)) {
     const oldModel = models.get(oldPath)!;
@@ -394,7 +402,6 @@ function renameSelectedItem(): void {
     if (viewState) viewStates.set(nextPath, viewState);
     viewStates.delete(oldPath);
     if (active === oldPath) active = nextPath;
-    openFiles = openFiles.map(path => path === oldPath ? nextPath : path);
   }
   else {
     const text = resources.get(oldPath)!;
@@ -402,6 +409,7 @@ function renameSelectedItem(): void {
     resources.set(nextPath, text);
   }
   addParentDirectories(nextPath, directories);
+  tabs.rename(oldPath, nextPath);
   selectedProjectItem = nextPath;
   syncProjectChange(active);
 }
@@ -428,7 +436,7 @@ function deleteSelectedProjectItem(): void {
     savedContents.delete(file);
     viewStates.delete(file);
   }
-  openFiles = openFiles.filter(file => !affectedModels.includes(file));
+  tabs.remove(affectedModels);
   for (const file of [...resources.keys()]) {
     if (file === path || directory && file.startsWith(`${path}/`)) resources.delete(file);
   }
@@ -506,7 +514,7 @@ const refreshFeatures = renderFeaturePanel(featureList, definitions, () => selec
     return;
   }
   configModel.setValue(text);
-  if (!openFiles.includes("/tsppconfig.json")) openFiles.push("/tsppconfig.json");
+  if (!tabs.paths.includes("/tsppconfig.json")) tabs.paths.push("/tsppconfig.json");
   renderTabs();
 });
 
@@ -518,7 +526,8 @@ function scheduleCheck() {
     files: projectFiles(),
     features: [...selected],
     active,
-    open: openFiles,
+    open: tabs.paths,
+    preview: tabs.preview,
     directories: [...directories].sort(),
   })));
   shareLink.hidden = true;

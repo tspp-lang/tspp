@@ -33,6 +33,14 @@ Each checked alias publishes its normal form; run **TS++: Show MLTT Normal Forms
 At run time, `reify T` produces a serializable descriptor whose static type retains `T`, and expression-level
 `typecase` selects, at compile time, the first arm whose pattern accepts the described type, and emits only that arm.
 
+With `nominal-types` enabled, ordinary user-defined indexed `data` constructors can package a runtime-selected index
+with its payload. For example, `data SomeExpr { Some: <T extends Ty>(tag: T, expression: Expr<T>) => SomeExpr }` hides `T` in `SomeExpr`;
+an ordinary value-level `match` introduces a fresh index for the arm and retains the relationship between `tag` and
+`expression`. A type family written with type-level `match` can then map that index to its host value type. Repackage
+results that still depend on the hidden index before returning them from the arm. No built-in runtime pair constructor
+or unpacking keyword is required. The MLTT `Sigma`/`Pair` terms remain type-level constructs; their tuple lowering does
+not supply this runtime existential checking.
+
 Dependent types used to be a separate package, with `::` for their annotations and a text projection into TypeScript.
 Kinds and universes are one concept with them, so they now live here too.
 

@@ -11,6 +11,11 @@ export interface NominalDataField {
 export interface NominalDataVariant {
     readonly name: string;
     readonly fields: readonly NominalDataField[];
+    /** Constructor-local parameters and explicit result indices, when this is an indexed constructor. */
+    readonly typeParameters?: readonly string[];
+    readonly resultType?: string;
+    /** In brace declarations, distinguishes a constructor signature from a nullary value. */
+    readonly callable?: boolean;
 }
 
 export interface NominalDataType {

@@ -1154,10 +1154,13 @@ import { isTSPPStaticSideMember } from "./tspp/registry.js"; // TSPP-SLOT(interf
 import {
     createTSPPTypeState,
     getTSPPMember, // TSPP-SLOT(signature-constraint)
+    hasTSPPExpressionType,
     instantiateTSPPType,
     isTSPPOverloadApplicable, // TSPP-SLOT(signature-constraint)
     isTSPPSignatureRelated, // TSPP-SLOT(signature-constraint)
     isTSPPTypeParameterApplicable,
+    refineTSPPTypeAtLocation,
+    resolveTSPPExpressionType,
     resolveTSPPTypeNode,
     tsppTypeToTypeNode,
 } from "./tspp/types.js"; // TSPP-SLOT(type-extension)
@@ -1499,7 +1502,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     // See: https://github.com/microsoft/TypeScript/issues/52924
     /* eslint-disable no-var */
     var deferredDiagnosticsCallbacks: (() => void)[] = [];
-    var tsppTypes = createTSPPTypeState(host, () => checker, { createType, getErrorType: () => errorType, getUnknownSymbol: () => unknownSymbol, error, resolveTypeReferenceName, resolveAlias, getDeclaredTypeOfSymbol, getSymbolLinks, getNodeLinks, getTypeAliasInstantiation, createTypeReference, createTypeMapper, combineTypeMappers, instantiateType, checkTypeAssignableTo, getTypeWithThisArgument, createAnonymousType, createInstantiatedSymbolTable, getIntersectionType }); // TSPP-SLOT(type-extension)
+    var tsppTypes = createTSPPTypeState(host, () => checker, { createType, createTypeParameter, getNoConstraintType: () => noConstraintType, checkExpression, checkExpressionWithContextualType: (node, type) => checkExpressionWithContextualType(node, type, /*inferenceContext*/ undefined, CheckMode.Normal), getContextualType: node => getContextualType(node, /*contextFlags*/ undefined), getErrorType: () => errorType, getUnknownSymbol: () => unknownSymbol, error, resolveTypeReferenceName, resolveAlias, getDeclaredTypeOfSymbol, getSymbolLinks, getNodeLinks, getTypeAliasInstantiation, createTypeReference, createTypeMapper, combineTypeMappers, instantiateType, checkTypeAssignableTo, getTypeWithThisArgument, createAnonymousType, createInstantiatedSymbolTable, getIntersectionType, getUnionType, getTypeArguments, createTupleType }); // TSPP-SLOT(type-extension)
 
     var addLazyDiagnostic = (arg: () => void) => {
         deferredDiagnosticsCallbacks.push(arg);
@@ -20445,7 +20448,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function getTypeFromTypeNode(node: TypeNode): Type {
-        return getConditionalFlowTypeOfType(getTypeFromTypeNodeWorker(node), node);
+        return refineTSPPTypeAtLocation(tsppTypes, getConditionalFlowTypeOfType(getTypeFromTypeNodeWorker(node), node), node); // TSPP-SLOT(type-extension)
     }
 
     function getTypeFromTypeNodeWorker(node: TypeNode): Type {
@@ -21355,7 +21358,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
     }
 
     function checkTypeAssignableTo(source: Type, target: Type, errorNode: Node | undefined, headMessage?: DiagnosticMessage, containingMessageChain?: () => DiagnosticMessageChain | undefined, errorOutputObject?: { errors?: Diagnostic[]; }): boolean {
-        return checkTypeRelatedTo(source, target, assignableRelation, errorNode, headMessage, containingMessageChain, errorOutputObject);
+        return checkTypeRelatedTo(refineTSPPTypeAtLocation(tsppTypes, source, errorNode), refineTSPPTypeAtLocation(tsppTypes, target, errorNode), assignableRelation, errorNode, headMessage, containingMessageChain, errorOutputObject); // TSPP-SLOT(type-extension)
     }
 
     /**
@@ -21363,7 +21366,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
      * attempt to issue more specific errors on, for example, specific object literal properties or tuple members.
      */
     function checkTypeAssignableToAndOptionallyElaborate(source: Type, target: Type, errorNode: Node | undefined, expr: Expression | undefined, headMessage?: DiagnosticMessage, containingMessageChain?: () => DiagnosticMessageChain | undefined): boolean {
-        return checkTypeRelatedToAndOptionallyElaborate(source, target, assignableRelation, errorNode, expr, headMessage, containingMessageChain, /*errorOutputContainer*/ undefined);
+        return checkTypeRelatedToAndOptionallyElaborate(refineTSPPTypeAtLocation(tsppTypes, source, expr ?? errorNode), refineTSPPTypeAtLocation(tsppTypes, target, expr ?? errorNode), assignableRelation, errorNode, expr, headMessage, containingMessageChain, /*errorOutputContainer*/ undefined); // TSPP-SLOT(type-extension)
     }
 
     function checkTypeRelatedToAndOptionallyElaborate(
@@ -32799,6 +32802,11 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
      * @returns the contextual type of an expression.
      */
     function getContextualType(node: Expression, contextFlags: ContextFlags | undefined): Type | undefined {
+        const type = getContextualTypeWorker(node, contextFlags); // TSPP-SLOT(type-extension)
+        return type && refineTSPPTypeAtLocation(tsppTypes, type, node);
+    }
+
+    function getContextualTypeWorker(node: Expression, contextFlags: ContextFlags | undefined): Type | undefined {
         if (node.flags & NodeFlags.InWithStatement) {
             // We cannot answer semantic questions within a with block, do not proceed any further
             return undefined;
@@ -41782,8 +41790,8 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         const saveCurrentNode = currentNode;
         currentNode = node;
         instantiationCount = 0;
-        const uninstantiatedType = checkExpressionWorker(node, checkMode, forceTuple);
-        const type = instantiateTypeWithSingleGenericCallSignature(node, uninstantiatedType, checkMode);
+        const uninstantiatedType = resolveTSPPExpressionType(tsppTypes, node as Expression) ?? checkExpressionWorker(node, checkMode, forceTuple); // TSPP-SLOT(type-extension)
+        const type = refineTSPPTypeAtLocation(tsppTypes, instantiateTypeWithSingleGenericCallSignature(node, uninstantiatedType, checkMode), node); // TSPP-SLOT(type-extension)
         if (isConstEnumObjectType(type)) {
             checkConstEnumAccess(node, type);
         }
@@ -46608,7 +46616,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
         const functionFlags = getFunctionFlags(container);
         if (expr) {
             const unwrappedExpr = skipParentheses(expr, excludeJSDocTypeAssertions);
-            if (isConditionalExpression(unwrappedExpr)) {
+            if (isConditionalExpression(unwrappedExpr) && !hasTSPPExpressionType(tsppTypes, unwrappedExpr)) { // TSPP-SLOT(type-extension)
                 checkReturnExpression(container, unwrappedReturnType, node, unwrappedExpr.whenTrue, checkExpression(unwrappedExpr.whenTrue), /*inConditionalExpression*/ true);
                 checkReturnExpression(container, unwrappedReturnType, node, unwrappedExpr.whenFalse, checkExpression(unwrappedExpr.whenFalse), /*inConditionalExpression*/ true);
                 return;

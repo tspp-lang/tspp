@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
+const { readFileSync } = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { PassThrough } = require('node:stream');
@@ -39,7 +40,29 @@ function readiness(t, file) {
   t.after(() => { watcher.close(); clearTimeout(timer); });
   return promise;
 }
-function processExists(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+function processExists(pid, readStat = pid => readFileSync(`/proc/${pid}/stat`, 'utf8')) {
+  try { process.kill(pid, 0); } catch { return false; }
+  if (process.platform !== 'linux') return true;
+  try {
+    // kill(pid, 0) also succeeds for an exited descendant awaiting reaping by its new parent.
+    const stat = readStat(pid);
+    const state = stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3);
+    return state !== 'Z' && state !== 'X';
+  } catch (error) {
+    if (error.code === 'ENOENT') return false;
+    throw error;
+  }
+}
+
+test('Linux process liveness rejects zombies while retaining running descendants', { skip: process.platform !== 'linux' }, () => {
+  assert.equal(processExists(process.pid), true);
+  for (const state of ['R', 'S', 'D', 'T']) {
+    assert.equal(processExists(process.pid, pid => `${pid} (worker ) name) ${state} 1 2 3`), true, state);
+  }
+  for (const state of ['Z', 'X']) {
+    assert.equal(processExists(process.pid, pid => `${pid} (worker ) name) ${state} 1 2 3`), false, state);
+  }
+});
 
 test('serial dependencies, shared-task deduplication, command order and root argument forwarding', async t => {
   const rootDir = await workspace(t);

@@ -1,10 +1,13 @@
+import { dataProperties } from "./representation";
 import { definePlugin, TSPP_PLUGIN_API_VERSION } from "@tspp/plugin-sdk";
 import { formatTSPPSyntax } from "@tspp/plugin-sdk/language-service";
 import type { TSPPClearedSemanticToken, TSPPSemanticToken, TSPPSemanticTokensRequest } from "@tspp/plugin-sdk/language-service";
-import { nominalTypesADTAPI, nominalTypesADTAPIName } from "./adt";
+import { getDataDeclarationSources, nominalTypesADTAPI, nominalTypesADTAPIName } from "./adt";
 import { createNominalDeclarations } from "./declarations";
 import { createNominalDiagnostics } from "./diagnostics";
 import { createValueMatches } from "./match";
+import { createGadtMatches } from "./gadt-match";
+import { createGadtInference } from "./gadt-inference";
 
 const pluginId = "nominal-types";
 
@@ -34,6 +37,13 @@ export const nominalTypesPlugin = definePlugin({
                 ]);
                 context.onDispose(context.compiler.registerSyntaxExtension(declarations.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(matches.extension));
+                const matchTypes = createGadtMatches(context.ts, declarations, matches);
+                const inference = createGadtInference(context.ts, declarations);
+                context.onDispose(context.compiler.registerTypeExtension({
+                    ...matchTypes,
+                    resolveExpressionType: (node, host) => matchTypes.resolveExpressionType?.(node, host)
+                        ?? inference.resolveExpressionType?.(node, host),
+                }));
                 return context.compiler.registerDiagnosticProvider(createNominalDiagnostics(context.ts, declarations, matches));
             },
         },
@@ -118,6 +128,9 @@ interface SourceToken {
 interface SourceVariant {
     readonly name: string;
     readonly fields: readonly { readonly name: string; readonly type: string; }[];
+    readonly typeParameters?: readonly string[];
+    readonly resultType?: string;
+    readonly callable?: boolean;
 }
 
 type SourcePosition = number & { readonly __brand: "SourcePosition"; };
@@ -158,9 +171,10 @@ function findNewtype(sourceText: string, name: string): {
  * lowers. Sources that spell `_tag` themselves work with that object, so they keep seeing it.
  */
 function hideRepresentation(token: SourceToken, display: string | undefined, sourceText: string) {
-    if (!display || !/\b_values\b/.test(display) || /\b_values\b/.test(sourceText)) return undefined;
+    const valuesPattern = new RegExp(`\\b${escapeRegExp(dataProperties.values)}\\b`);
+    if (!display || !valuesPattern.test(display) || valuesPattern.test(sourceText)) return undefined;
     const shown = display
-        .replace(/\{\s*readonly _tag: "([^"]+)";(?:[^{}]|\{[^{}]*\})*\}/g, "$1")
+        .replace(new RegExp(`\\{\\s*readonly ${escapeRegExp(dataProperties.tag)}: "([^"]+)";(?:[^{}]|\\{[^{}]*\\})*\\}`, "g"), "$1")
         .replace(/\(([A-Za-z_$][\w$]*)\)/g, "$1");
     return { start: token.start, length: token.length, display: shown };
 }
@@ -208,24 +222,20 @@ function constructorTokens(request: TSPPSemanticTokensRequest): TSPPSemanticToke
 }
 
 function findDataDeclarations(sourceText: string): readonly SourceDataDeclaration[] {
-    const declarations: SourceDataDeclaration[] = [];
-    const expression = /\bdata\s+([A-Za-z_$][\w$]*)(\s*<([^;=]+)>)?\s*=\s*([\s\S]*?)\s*;/g;
-    let match: RegExpExecArray | null;
-    while ((match = expression.exec(sourceText))) {
-        const parameters = parseTypeParameters(match, 3);
-        const variants = splitTopLevel(match[4], "|").map(parseVariant).filter((value): value is SourceVariant => !!value);
-        declarations.push({
-            name: match[1],
-            parameters,
-            variants,
-            display: `data ${match[1]}${match[2]?.replace(/\s+/g, " ") ?? ""} = ${normalizeSource(match[4])}`,
-        });
-    }
-    return declarations;
+    return getDataDeclarationSources(sourceText).map(source => ({
+        name: source.data.name,
+        parameters: parseSourceParameters(source.parameterText, SourcePosition(source.parameterStart)),
+        variants: source.data.variants,
+        display: `data ${source.data.name}${source.parameterText ? `<${normalizeSource(source.parameterText)}>` : ""} ${source.braced
+            ? `{ ${normalizeSource(source.body)} }` : `= ${normalizeSource(source.body)}`}`,
+    }));
 }
 
 /** A word in the body of a `data` or `newtype` that names one of its type parameters, which lowering moved to generated functions. */
 function findTypeParameterInDeclaration(sourceText: string, token: SourceToken & { readonly text: string; }): boolean {
+    for (const source of getDataDeclarationSources(sourceText)) {
+        if (source.start <= token.start && token.start < source.end && source.data.typeParameters.includes(token.text)) return true;
+    }
     for (const match of sourceText.matchAll(/\b(?:data|newtype)\s+[A-Za-z_$][\w$]*\s*<([^;=]+)>\s*=[^;]*;/g)) {
         if (token.start < match.index || token.start >= match.index + match[0].length) continue;
         if (splitTopLevel(match[1], ",").some(parameter => parameter.trim().split(/[\s:]/)[0] === token.text)) return true;
@@ -234,6 +244,11 @@ function findTypeParameterInDeclaration(sourceText: string, token: SourceToken &
 }
 
 function findDeclarationTypeParameter(sourceText: string, token: SourceToken): SourceTypeParameter | undefined {
+    for (const source of getDataDeclarationSources(sourceText)) {
+        const parameter = parseSourceParameters(source.parameterText, SourcePosition(source.parameterStart)).find(candidate =>
+            candidate.start === token.start && candidate.length === token.length);
+        if (parameter) return parameter;
+    }
     const expression = /\b(?:data|newtype)\s+[A-Za-z_$][\w$]*(\s*<([^;=]+)>)?\s*=/g;
     let match: RegExpExecArray | null;
     while ((match = expression.exec(sourceText))) {
@@ -255,8 +270,12 @@ function parseTypeParameters(match: RegExpExecArray, captureIndex: number): read
     const sourceOffset = match[0].indexOf(source);
     if (sourceOffset < 0) return [];
     const captureStart = advancePosition(SourcePosition(match.index), RelativeOffset(sourceOffset));
+    return parseSourceParameters(source, captureStart);
+}
+
+function parseSourceParameters(source: string, captureStart: SourcePosition): readonly SourceTypeParameter[] {
     return splitTopLevelWithOffsets(source, ",").flatMap(part => {
-        const parsed = /^\s*([A-Za-z_$][\w$]*)(?:\s*:\s*([\s\S]+))?\s*$/.exec(part.text);
+        const parsed = /^\s*([A-Za-z_$][\w$]*)(?:\s*(?::|extends)\s*([\s\S]+)|\s*=[\s\S]+)?\s*$/.exec(part.text);
         if (!parsed) return [];
         const nameOffset = RelativeOffset(part.text.indexOf(parsed[1]));
         return [{
@@ -266,21 +285,6 @@ function parseTypeParameters(match: RegExpExecArray, captureIndex: number): read
             length: parsed[1].length,
         }];
     });
-}
-
-function parseVariant(source: string): SourceVariant | undefined {
-    const match = /^\s*([A-Za-z_$][\w$]*)(?:\s*\(([\s\S]*)\))?\s*$/.exec(source);
-    if (!match) return undefined;
-    const fields = match[2]
-        ? splitTopLevel(match[2], ",").map(field => {
-            const separator = field.indexOf(":");
-            return separator < 0 ? undefined : {
-                name: field.slice(0, separator).trim(),
-                type: field.slice(separator + 1).trim(),
-            };
-        }).filter((value): value is { readonly name: string; readonly type: string; } => !!value)
-        : [];
-    return { name: match[1], fields };
 }
 
 function formatVariantQuickInfo(
@@ -294,12 +298,12 @@ function formatVariantQuickInfo(
         if (argument) substitutions.set(parameter.name, argument);
     });
     const resultArguments = declaration.parameters.map(parameter => substitutions.get(parameter.name) ?? parameter.name);
-    const result = `${declaration.name}${resultArguments.length ? `<${resultArguments.join(", ")}>` : ""}`;
+    const result = variant.resultType ?? `${declaration.name}${resultArguments.length ? `<${resultArguments.join(", ")}>` : ""}`;
     const fields = variant.fields.map(field => `${field.name}: ${substitutions.get(field.type) ?? field.type}`).join(", ");
-    const parameters = argumentsAtUse
+    const parameters = variant.typeParameters?.length ? `<${variant.typeParameters.join(", ")}>` : variant.resultType || argumentsAtUse
         ? ""
         : declaration.parameters.length ? `<${declaration.parameters.map(parameter => parameter.name).join(", ")}>` : "";
-    return `(data constructor) ${variant.name}${parameters}${fields ? `(${fields})` : ""}: ${result}`;
+    return `(data constructor) ${variant.name}${parameters}${fields || variant.callable ? `(${fields})` : ""}: ${result}`;
 }
 
 function instantiationAt(

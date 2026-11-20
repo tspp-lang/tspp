@@ -1,0 +1,245 @@
+// ============================================================================
+// 10-dependent-types / 10-gadt-interpreter.tspp
+//
+// 广义代数数据类型（GADT / 按结果类型索引的 `data`）、无断言求值器与运行时存在依赖对
+//
+// 在普通代数数据类型（ADT，如 `Option<T>` 或 `List<T>`）中，同一个 `data` 声明下的所有构造器
+// 都只能返回相同的泛型结果类型（例如 `None` 和 `Some(v)` 的返回类型都是统一个 `Option<T>`）。
+// 因此，如果你用普通 ADT 来表示一门小语言的语法树 `Expr`（包含整数 `Val(42n)`、布尔值 `BoolVal(true)`、
+// 条件分支 `If(cond, yes, no)`），类型系统根本无法阻止写出 `If(Val(1n), Val(2n), BoolVal(false))` 这样荒谬的表达式；
+// 编写求值器 `interp` 时，返回值也只能写成大杂烩联合类型 `bigint | boolean | Function`，到处充满类型断言（`as`）和运行时报错风险！
+//
+// 为了让“语法树在构造出来的那一刻就由编译器静态保证类型合法（Well-Typed by Construction）”，
+// TS++ 支持**广义代数数据类型（Generalized Algebraic Data Types，简称 GADT / 索引数据类型）**：
+//   1. 每个构造器都可以单独指定自己的具体返回类型索引（例如 `Val: (value: bigint) => Expr<"int">`、
+//      `BoolVal: (value: boolean) => Expr<"bool">`），把小语言的类型规则直接编码进构造器签名里；
+//   2. 当使用 `match` 模式匹配一个 `Expr<T>` 时，编译器会在每个分支内部自动根据该构造器的返回索引建立局部类型等式
+//      （例如进入 `Val(value)` 分支时自动获知 `T = "int"`），从而直接将返回值类型族 `InterpTy<T>` 精确收窄为 `bigint`，全程无需任何 `as` 类型断言！
+//   3. 构造器还可以声明未出现在返回类型中的“隐藏类型参数”（存在量化类型 / Existential Types），
+//      将运行时才确定的类型标签 `tag: T` 与对应的表达式 `Expr<T>` 或结果 `InterpTy<T>` 打包成运行时依赖对（`SomeExpr` / `SomeValue`），
+//      并直接用普通 `match` 安全拆包，无需任何特殊的内置 `pack` 或 `unpack` 关键字。
+// ============================================================================
+// Generalized Algebraic Data Types (GADTs / Indexed `data`), Assertion-Free Evaluation & Runtime Existential Pairs
+//
+// In ordinary algebraic data types (ADTs like `Option<T>` or `List<T>`), every constructor of a `data` declaration
+// must return the exact same uniform result type (`Option<T>`).
+// If you model an expression AST `Expr` with an ordinary ADT (containing `Val(42n)`, `BoolVal(true)`, and `If(cond, yes, no)`),
+// the type system cannot prevent ill-typed ASTs like `If(Val(1n), Val(2n), BoolVal(false))`, and an evaluator `interp`
+// must return a loose union `bigint | boolean | Function` riddled with unsafe type assertions (`as`).
+//
+// To make ASTs **well-typed by construction**, TS++ supports **Generalized Algebraic Data Types (GADTs / Indexed Data Types)**:
+//   1. Each constructor specifies its own concrete result index (e.g. `Val: (value: bigint) => Expr<"int">` and
+//      `BoolVal: (value: boolean) => Expr<"bool">`), encoding the object language's typing rules directly into constructors;
+//   2. When pattern-matching an `Expr<T>` with `match`, each arm locally refines `T` using the constructor's result equation
+//      (e.g. inside `Val(value)`, `T` is refined to `"int"`), so the type family `InterpTy<T>` reduces directly to `bigint` with zero type assertions!
+//   3. Constructors may also quantify over local type parameters hidden from the result type (existential types),
+//      pairing a runtime type tag `tag: T` with an `Expr<T>` or `InterpTy<T>` (`SomeExpr` / `SomeValue`) and unpacking them
+//      safely through ordinary `match` without any special `pack` or `unpack` keywords.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 目标语言类型编码与语义映射类型族（`Ty`、`Fun` 与 `InterpTy<T>`）
+//
+// 我们先定义目标小语言本身的类型宇宙 `Ty`（对象语言类型标签）：
+//   - `"int"`：代表目标语言中的整数类型；
+//   - `"bool"`：代表目标语言中的布尔类型；
+//   - `Fun<A, B>`（即 `{ kind: "fun"; from: A; to: B }`）：代表从类型 `A` 到类型 `B` 的函数类型。
+//
+// 接着，用类型级 `match` 定义语义解释类型族 `InterpTy<T>`，把目标语言的类型标签 `T` 映射为宿主语言（TS++）的真实运行时类型：
+//   - `InterpTy<"int">` 化简为 `bigint`；
+//   - `InterpTy<"bool">` 化简为 `boolean`；
+//   - `InterpTy<Fun<A, B>>` 递归化简为宿主函数类型 `(argument: InterpTy<A>) => InterpTy<B>`。
+// ----------------------------------------------------------------------------
+// 1. Object-Language Type Codes & Semantic Interpretation Family (`Ty`, `Fun` & `InterpTy<T>`)
+//
+// First, we define the type codes `Ty` of our embedded expression language:
+//   - `"int"`: integer type in the object language;
+//   - `"bool"`: boolean type in the object language;
+//   - `Fun<A, B>` (`{ kind: "fun"; from: A; to: B }`): function type from `A` to `B`.
+//
+// Next, the type-level `match` family `InterpTy<T>` maps each object-language type code `T` to its host TS++ runtime type:
+//   - `InterpTy<"int">` reduces to `bigint`;
+//   - `InterpTy<"bool">` reduces to `boolean`;
+//   - `InterpTy<Fun<A, B>>` recursively reduces to `(argument: InterpTy<A>) => InterpTy<B>`.
+// ----------------------------------------------------------------------------
+
+export type Ty = "int" | "bool" | { kind: "fun"; from: Ty; to: Ty };
+export type Fun<A extends Ty, B extends Ty> = { kind: "fun"; from: A; to: B };
+
+export type InterpTy<T extends Ty> = match T {
+    "int": bigint,
+    "bool": boolean,
+    Fun<infer A, infer B>: (argument: InterpTy<A>) => InterpTy<B>,
+    _: never
+};
+
+// ----------------------------------------------------------------------------
+// 2. 按结果类型索引的表达式 GADT（`Expr<T>`）与无断言求值器（`interp`）
+//
+// 写法：`data <类型名><索引参数> { <构造器名>: <类型参数>(<字段...>) => <类型名><具体结果索引>, ... }`
+// 效果：
+//   - `Val` 只能构造出 `Expr<"int">`，`BoolVal` 只能构造出 `Expr<"bool">`；
+//   - `Host` 将宿主函数 `(argument: InterpTy<A>) => InterpTy<B>` 包装为 `Expr<Fun<A, B>>`
+//     （本文件用宿主函数演示函数调用，从而专注于 GADT 与隐藏索引；下一节 `11` 再引入变量绑定与词法环境）；
+//   - `App` 强制要求第一个参数是 `Expr<Fun<A, B>>` 且第二个参数是相匹配的 `Expr<A>`，返回 `Expr<B>`；
+//   - `If` 强制要求条件必须是 `Expr<"bool">`，且 `yes` 和 `no` 两个分支必须具有相同的类型 `Expr<T>`。
+//
+// 在求值函数 `interp<T extends Ty>(expression: Expr<T>): InterpTy<T>` 中：
+// 当 `match expression` 进入不同构造器分支时，编译器自动将返回类型 `InterpTy<T>` 代入该分支的索引等式进行化简，
+// 每个分支的返回值都与 `InterpTy<T>` 严丝合缝，不需要任何类型转换或断言！
+// ----------------------------------------------------------------------------
+// 2. Result-Indexed Expression GADT (`Expr<T>`) & Assertion-Free Evaluator (`interp`)
+//
+// Syntax: `data <Name><Indices> { <Constructor>: <TypeParams>(<fields...>) => <Name><ResultIndices>, ... }`
+// Effect:
+//   - `Val` always produces `Expr<"int">`, and `BoolVal` always produces `Expr<"bool">`;
+//   - `Host` lifts a host function `(argument: InterpTy<A>) => InterpTy<B>` into `Expr<Fun<A, B>>`
+//     (using host functions keeps this first example focused on GADTs and existential indices; file `11` adds variables and environments);
+//   - `App` requires a function expression `Expr<Fun<A, B>>` and a matching argument `Expr<A>`, returning `Expr<B>`;
+//   - `If` requires a boolean condition `Expr<"bool">` and two branches `yes`, `no` of the exact same type `Expr<T>`.
+//
+// Inside `interp<T extends Ty>(expression: Expr<T>): InterpTy<T>`:
+// Matching each constructor refines `T` locally to that constructor's result index, reducing `InterpTy<T>`
+// automatically in every arm without a single type assertion!
+// ----------------------------------------------------------------------------
+
+export data Expr<T extends Ty> {
+    Val: (value: bigint) => Expr<"int">,
+    BoolVal: (value: boolean) => Expr<"bool">,
+    Host: <A extends Ty, B extends Ty>(fn: (argument: InterpTy<A>) => InterpTy<B>) => Expr<Fun<A, B>>,
+    App: <A extends Ty, B extends Ty>(fn: Expr<Fun<A, B>>, argument: Expr<A>) => Expr<B>,
+    If: <T extends Ty>(condition: Expr<"bool">, yes: Expr<T>, no: Expr<T>) => Expr<T>,
+}
+
+export function interp<T extends Ty>(expression: Expr<T>): InterpTy<T> {
+    return match expression {
+        Val(value) => value,
+        BoolVal(value) => value,
+        Host(fn) => fn,
+        App(fn, argument) => interp(fn)(interp(argument)),
+        If(condition, yes, no) => interp(condition) ? interp(yes) : interp(no)
+    };
+}
+
+// ----------------------------------------------------------------------------
+// 3. 隐藏类型参数（存在量化构造器）与运行时依赖对（`SomeExpr` 与 `SomeValue`）
+//
+// 如果一个表达式的具体类型 `T` 要到运行时（比如根据用户输入或布尔配置）才能确定，该怎么返回它？
+// 观察 `SomeExpr` 和 `SomeValue`：它们的返回类型 `SomeExpr` / `SomeValue` 本身不带泛型参数 `<T>`，
+// 但它们的构造器 `Some` 和 `Evaluated` 却声明了局部类型参数 `<T extends Ty>`！
+//   - `Some: <T extends Ty>(tag: T, expression: Expr<T>) => SomeExpr`：
+//     将某个未知但内部自洽的 `T` 的标签 `tag: T` 与表达式 `expression: Expr<T>` 打包成一个运行时依赖对（隐藏了 `T`）；
+//   - `Evaluated: <T extends Ty>(tag: T, value: InterpTy<T>) => SomeValue`：
+//     将标签 `tag: T` 与求值后的结果 `value: InterpTy<T>` 打包成结果依赖对。
+//
+// 在 `evaluateSome` 中，用普通 `match expression` 解构 `Some(tag, value)` 时：
+// 编译器会引入一个局部刚性（rigid）存在类型变量，记住“`tag` 的类型与 `value` 的表达式索引是同一个 `T`”，
+// 因此 `interp(value)` 算出的 `InterpTy<T>` 可以直接与同一个 `tag` 重新打包进 `Evaluated(tag, interp(value))`！
+// ----------------------------------------------------------------------------
+// 3. Hidden Type Parameters (Existential Constructors) & Runtime Dependent Pairs (`SomeExpr` & `SomeValue`)
+//
+// How do we return an expression whose type index `T` is chosen dynamically at runtime (e.g. from a boolean flag)?
+// Look at `SomeExpr` and `SomeValue`: the data types themselves take no type parameters,
+// while their constructors `Some` and `Evaluated` quantify over a local `<T extends Ty>` hidden from the return type!
+//   - `Some: <T extends Ty>(tag: T, expression: Expr<T>) => SomeExpr`:
+//     packs a type tag `tag: T` together with a matching `expression: Expr<T>`, hiding `T` existentially;
+//   - `Evaluated: <T extends Ty>(tag: T, value: InterpTy<T>) => SomeValue`:
+//     packs a type tag `tag: T` together with its evaluated payload `value: InterpTy<T>`.
+//
+// In `evaluateSome`, matching `Some(tag, value)` introduces a fresh rigid type parameter connecting `tag` and `value`:
+// `interp(value)` produces `InterpTy<T>` for that exact same hidden `T`, which pairs straight back with `tag` in `Evaluated(tag, interp(value))`!
+// ----------------------------------------------------------------------------
+
+// Both dependent pairs are user-defined data types. Their constructors hide T.
+export data SomeExpr {
+    Some: <T extends Ty>(tag: T, expression: Expr<T>) => SomeExpr,
+}
+
+export data SomeValue {
+    Evaluated: <T extends Ty>(tag: T, value: InterpTy<T>) => SomeValue,
+}
+
+// 根据运行时布尔值返回不同内部索引的表达式，但统一向上擦除隐藏为 `SomeExpr`
+// Return either an `"int"` expression or a `"bool"` expression at runtime under the single type `SomeExpr`
+export function choose(integer: boolean): SomeExpr {
+    return integer ? Some("int", Val(42n)) : Some("bool", BoolVal(true));
+}
+
+// 用普通 `match` 解构存在依赖对，求值后再用 `Evaluated` 重新打包
+// Unpack the existential pair with ordinary `match`, evaluate the term, and repackage with `Evaluated`
+export function evaluateSome(expression: SomeExpr): SomeValue {
+    return match expression {
+        Some(tag, value) => Evaluated(tag, interp(value))
+    };
+}
+
+// ----------------------------------------------------------------------------
+// 4. 上下文构造器推导与求值验证
+//
+// 注意下面的宿主函数表达式定义（將 `<"int", "bool">` 写在目标类型注解 `Expr<Fun<"int", "bool">>` 上）：
+// 我们只需在外层标注目标类型 `Expr<Fun<"int", "bool">>`，编译器就会自动向内推导出 `Host` 的索引 `A = "int"`、`B = "bool"`，
+// 并进一步将回调函数参数 `value` 的类型自动推导为 `InterpTy<"int">`（即 `bigint`）！
+// ----------------------------------------------------------------------------
+// 4. Contextual Constructor Inference & Evaluation Verification
+//
+// Notice the host-function expression definition below (with `<"int", "bool">` annotated on the target type `Expr<Fun<"int", "bool">>`):
+// Annotating the outer expected type `Expr<Fun<"int", "bool">>` automatically supplies `A = "int"` and `B = "bool"` to `Host`,
+// which in turn contextually types the callback parameter `value` as `InterpTy<"int">` (`bigint`)!
+// ----------------------------------------------------------------------------
+
+const isZero: Expr<Fun<"int", "bool">> = Host(value => value === 0n);
+export const integerResult: bigint = interp(If(BoolVal(true), Val(42n), Val(0n)));
+export const booleanResult: boolean = interp(App(isZero, Val(0n)));
+export const dynamicInteger: SomeValue = evaluateSome(choose(true));
+export const dynamicBoolean: SomeValue = evaluateSome(choose(false));
+
+// ----------------------------------------------------------------------------
+// 5. 编译期错误拦截（`@ts-expect-error`）
+//
+// 下面展示当构造器索引不匹配、`If` 分支类型不一致或伪造不匹配的运行时依赖对时，编译器如何静态拒绝。
+// ----------------------------------------------------------------------------
+// 5. Compile-Time Error Interception (`@ts-expect-error`)
+//
+// The negative examples below show how the compiler statically rejects mismatched expression indices,
+// incompatible `If` branches, and forged existential pairs whose tag and payload disagree.
+// ----------------------------------------------------------------------------
+
+function compileTimeErrorExamples(): void {
+    // 1. 索引不变性：`Val(1n)` 的类型是 `Expr<"int">`，绝不能赋值给 `Expr<"bool">`
+    // 1. Index invariance: `Val(1n)` has type `Expr<"int">` and cannot be assigned to `Expr<"bool">`
+    // @ts-expect-error Val constructs Expr<"int">, not Expr<"bool">.
+    const wrongLiteralType: Expr<"bool"> = Val(1n);
+
+    // 2. 函数应用参数类型不匹配：`isZero` 期望参数为 `Expr<"int">`，不能传入 `BoolVal(true)`（`Expr<"bool">`）
+    // 2. Function application mismatch: `isZero` expects `Expr<"int">`, so passing `BoolVal(true)` is rejected
+    // @ts-expect-error isZero requires an Expr<"int"> argument.
+    const wrongAppArgument = App(isZero, BoolVal(true));
+
+    // 3. 条件类型不匹配：`If` 的第一个参数必须是 `Expr<"bool">`，不能用整数表达式 `Val(1n)` 当条件
+    // 3. Condition index mismatch: the condition of `If` must be `Expr<"bool">`, not `Expr<"int">`
+    // @ts-expect-error If condition must be Expr<"bool">.
+    const nonBooleanCondition = If(Val(1n), Val(2n), Val(3n));
+
+    // 4. 分支类型不一致：`If` 的 `yes` 与 `no` 分支必须具有相同的类型索引 `T`
+    // 4. Branch index mismatch: the `yes` and `no` branches of `If` must share the exact same index `T`
+    // @ts-expect-error If branches must have identical result indices.
+    const mismatchedBranches = If(BoolVal(true), Val(1n), BoolVal(false));
+
+    // 5. 依赖对内部索引不一致：标签是 `"bool"`，但表达式却是 `Expr<"int">`，无法通过 `Some` 的统一类型变量 `T` 检查
+    // 5. Mismatched existential pair: tag `"bool"` disagrees with `Val(1n): Expr<"int">` for the shared parameter `T`
+    // @ts-expect-error Tag "bool" does not match Expr<"int"> in Some.
+    const forgedSomeExpr = Some("bool", Val(1n));
+
+    // 6. 结果依赖对内部索引不一致：标签是 `"bool"`（要求 `InterpTy<"bool">` 即 `boolean`），但传入的值却是 `1n`（`bigint`）
+    // 6. Mismatched evaluated pair: tag `"bool"` requires a `boolean` value (`InterpTy<"bool">`), not `1n` (`bigint`)
+    // @ts-expect-error Tag "bool" requires a boolean payload in Evaluated.
+    const forgedSomeValue = Evaluated("bool", 1n);
+
+    void wrongLiteralType;
+    void wrongAppArgument;
+    void nonBooleanCondition;
+    void mismatchedBranches;
+    void forgedSomeExpr;
+    void forgedSomeValue;
+}
+void compileTimeErrorExamples;

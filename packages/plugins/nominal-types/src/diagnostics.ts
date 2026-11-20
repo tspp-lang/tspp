@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import type { TSPPDiagnosticProvider, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
@@ -7,6 +8,7 @@ import { getNestedPattern, type LoweredMatch, type MatchPattern, type ValueMatch
 interface VariantInfo {
     readonly fieldNames: readonly string[];
     readonly fieldTypes: readonly TS.Type[];
+    readonly reachable?: boolean;
 }
 
 /**
@@ -49,22 +51,24 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
             : undefined;
         const matchedType = symbol && symbol.flags & (ts.SymbolFlags.Variable | ts.SymbolFlags.Property) ? checker.getTypeOfSymbol(symbol) : checker.getTypeAtLocation(match.scrutinee);
         const variantsOf = (type: TS.Type): Map<string, VariantInfo> => {
+            const dependent = values.getGadtVariants?.(type, checker);
+            if (dependent) return new Map(dependent);
             const result = new Map<string, VariantInfo>();
             // Type objects of the command-line compiler have no helper methods, so read their flags.
             for (const constituent of type.flags & ts.TypeFlags.Union ? (type as TS.UnionType).types : [type]) {
-                const tag = checker.getPropertyOfType(constituent, "_tag");
+                const tag = checker.getPropertyOfType(constituent, dataProperties.tag);
                 const tagType = tag && checker.getTypeOfSymbol(tag) as TS.StringLiteralType | undefined;
                 if (!tagType || !(tagType.flags & ts.TypeFlags.StringLiteral)) continue;
-                const values = checker.getPropertyOfType(constituent, "_values");
+                const values = checker.getPropertyOfType(constituent, dataProperties.values);
                 const valuesType = values && checker.getTypeOfSymbol(values);
                 const fieldTypes = valuesType && checker.isTupleType(valuesType) ? checker.getTypeArguments(valuesType as TS.TypeReference) : [];
                 const fieldNames = checker.getPropertiesOfType(constituent).map(property => ts.symbolName(property))
-                    .filter(name => name !== "_tag" && name !== "_values" && name !== "__tsppNominal");
+                    .filter(name => name !== dataProperties.tag && name !== dataProperties.values && name !== "__tsppNominal");
                 result.set(tagType.value, { fieldNames, fieldTypes });
             }
             return result;
         };
-        const variants = variantsOf(matchedType);
+        const variants = values.gadtVariants.get(checker)?.get(match) ?? variantsOf(matchedType);
         const checkPattern = (pattern: MatchPattern, info: VariantInfo, invalid: { value: boolean; }): boolean => {
             if (pattern.elements.length !== info.fieldTypes.length) {
                 invalid.value = true;
@@ -102,7 +106,7 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
                 }
                 if (!onlyThisFieldIsRefutable || nestedPatterns.length === 0) continue;
                 const nestedVariants = variantsOf(info.fieldTypes[fieldIndex]);
-                if (nestedVariants.size > 0 && [...nestedVariants].every(([name, nested]) => isCovered(nestedPatterns.filter(pattern => pattern.variant === name), nested))) return true;
+                if (nestedVariants.size > 0 && [...nestedVariants].every(([name, nested]) => nested.reachable === false || isCovered(nestedPatterns.filter(pattern => pattern.variant === name), nested))) return true;
             }
             return false;
         };
@@ -149,7 +153,7 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
             }
         }
         if (!hasWildcard && variants.size > 0) {
-            const missing = [...variants].filter(([name, info]) => !covered.has(name) && !isCovered(unguardedPatterns.get(name) ?? [], info)).map(([name]) => name);
+            const missing = [...variants].filter(([name, info]) => info.reachable !== false && !covered.has(name) && !isCovered(unguardedPatterns.get(name) ?? [], info)).map(([name]) => name);
             if (missing.length) report(18065, `Non-exhaustive match. Missing patterns: ${missing.join(", ")}.`);
         }
     }

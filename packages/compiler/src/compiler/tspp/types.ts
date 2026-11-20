@@ -18,10 +18,13 @@ import type {
     DiagnosticArguments,
     DiagnosticMessage,
     DiagnosticMessageChain,
+    Expression,
     GenericType,
     InterfaceType,
+    NamedTupleMember,
     Node,
     NodeLinks,
+    ParameterDeclaration,
     Signature,
     Symbol,
     SymbolLinks,
@@ -32,9 +35,13 @@ import type {
     TypeMapper,
     TypeNode,
     TypeParameter,
+    TypeReference,
     TypeReferenceNode,
+    TupleTypeReference,
 } from "../types.js";
 import {
+    ElementFlags,
+    ObjectFlags,
     SymbolFlags,
     TypeFlags,
 } from "../types.js";
@@ -48,6 +55,11 @@ import {
 /** The checker functions behind the hosts that type extensions receive. @internal */
 export interface TSPPTypeCheckerInternals {
     readonly createType: (flags: TypeFlags) => Type;
+    readonly createTypeParameter: (symbol?: Symbol) => TypeParameter;
+    readonly getNoConstraintType: () => Type;
+    readonly checkExpression: (node: Expression) => Type;
+    readonly checkExpressionWithContextualType: (node: Expression, contextualType: Type) => Type;
+    readonly getContextualType: (node: Expression) => Type | undefined;
     readonly getErrorType: () => Type;
     readonly getUnknownSymbol: () => Symbol;
     readonly error: (location: Node | undefined, message: DiagnosticMessage, ...args: DiagnosticArguments) => unknown;
@@ -79,6 +91,9 @@ export interface TSPPTypeCheckerInternals {
     ) => Type;
     readonly createInstantiatedSymbolTable: (symbols: Symbol[], mapper: TypeMapper, mappingThisOnly: boolean) => SymbolTable;
     readonly getIntersectionType: (types: readonly Type[]) => Type;
+    readonly getUnionType: (types: readonly Type[]) => Type;
+    readonly getTypeArguments: (type: TypeReference) => readonly Type[];
+    readonly createTupleType: (types: readonly Type[], flags?: readonly ElementFlags[], readonly?: boolean, labels?: readonly (NamedTupleMember | ParameterDeclaration | undefined)[]) => Type;
 }
 
 /** One checker's type extension hosts and the types each extension created. @internal */
@@ -87,6 +102,9 @@ export interface TSPPTypeState {
     readonly internals: TSPPTypeCheckerInternals;
     readonly hosts: Map<TSPPTypeExtension, TSPPTypeHost>;
     readonly owners: WeakMap<Type, TSPPTypeExtension>;
+    readonly expressionChecks: WeakSet<Node>;
+    readonly checkedExpressions: WeakSet<Node>;
+    readonly refinements: WeakSet<Node>;
 }
 
 const typeOperations = new WeakMap<TypeCheckerHost, TSPPTypeOperations>();
@@ -94,7 +112,7 @@ const typeOperations = new WeakMap<TypeCheckerHost, TSPPTypeOperations>();
 /** @internal */
 export function createTSPPTypeState(checkerHost: TypeCheckerHost, getChecker: () => TypeChecker, internals: TSPPTypeCheckerInternals): TSPPTypeState {
     typeOperations.set(checkerHost, createTypeOperations(internals));
-    return { getChecker, internals, hosts: new Map(), owners: new WeakMap() };
+    return { getChecker, internals, hosts: new Map(), owners: new WeakMap(), expressionChecks: new WeakSet(), checkedExpressions: new WeakSet(), refinements: new WeakSet() };
 }
 
 /** The type operations of the checker created for `checkerHost`, such as a program. @internal */
@@ -124,6 +142,19 @@ function createTypeOperations(internals: TSPPTypeCheckerInternals): TSPPTypeOper
             return internals.createAnonymousType(/*symbol*/ undefined, members, emptyArray, emptyArray, emptyArray) as never;
         },
         getIntersectionType: types => internals.getIntersectionType(types as unknown as readonly Type[]) as never,
+        getUnionType: types => internals.getUnionType(types as unknown as readonly Type[]) as never,
+        sliceTupleType: (typeIn, start, end) => {
+            const type = typeIn as unknown as TupleTypeReference;
+            if (!(type.flags & TypeFlags.Object) || !(type.objectFlags & ObjectFlags.Reference)
+                || !(type.target.objectFlags & ObjectFlags.Tuple) || type.target.combinedFlags & ElementFlags.Variable) return undefined;
+            const target = type.target;
+            return internals.createTupleType(
+                internals.getTypeArguments(type).slice(start, end),
+                target.elementFlags.slice(start, end),
+                target.readonly,
+                target.labeledElementDeclarations?.slice(start, end),
+            ) as never;
+        },
         markAliasReferenced: symbol => {
             internals.getSymbolLinks(symbol as unknown as Symbol).referenced = true;
         },
@@ -163,6 +194,19 @@ function getHost(state: TSPPTypeState, extension: TSPPTypeExtension): TSPPTypeHo
             state.owners.set(type, extension);
             return type as never;
         },
+        createTypeParameter: (symbol, constraint) => {
+            const parameter = internals.createTypeParameter(symbol as unknown as Symbol | undefined);
+            parameter.constraint = constraint as unknown as Type | undefined ?? internals.getNoConstraintType();
+            return parameter as never;
+        },
+        checkExpression: (nodeIn, contextualTypeIn) => {
+            const node = nodeIn as unknown as Expression;
+            const contextualType = contextualTypeIn && refineTSPPTypeAtLocation(state, contextualTypeIn as unknown as Type, node);
+            const source = contextualType ? internals.checkExpressionWithContextualType(node, contextualType) : internals.checkExpression(node);
+            if (contextualType) internals.checkTypeAssignableTo(source, contextualType, node);
+            return source as never;
+        },
+        getContextualType: node => internals.getContextualType(node as unknown as Expression) as never,
         resolveTypeReferenceName: node => {
             const symbol = internals.resolveTypeReferenceName(node as unknown as TypeReferenceNode, SymbolFlags.Type, /*ignoreErrors*/ true);
             if (symbol === internals.getUnknownSymbol()) return undefined;
@@ -200,6 +244,45 @@ export function resolveTSPPTypeNode(state: TSPPTypeState, node: TypeNode): Type 
         if (type) return type as unknown as Type;
     }
     return undefined;
+}
+
+/** Checks extension-owned expression syntax, guarding requests back into the same expression. @internal */
+export function resolveTSPPExpressionType(state: TSPPTypeState, node: Expression): Type | undefined {
+    if (!getRegisteredTSPPTypeExtensions().length || state.expressionChecks.has(node) || !isTSPPSyntaxAllowedAt(node)) return undefined;
+    state.expressionChecks.add(node);
+    try {
+        for (const extension of getRegisteredTSPPTypeExtensions()) {
+            const type = extension.resolveExpressionType?.(node as never, getHost(state, extension));
+            if (type) {
+                state.checkedExpressions.add(node);
+                return type as unknown as Type;
+            }
+        }
+        return undefined;
+    }
+    finally {
+        state.expressionChecks.delete(node);
+    }
+}
+
+/** Whether an extension already checked the full expression, including its branches. @internal */
+export function hasTSPPExpressionType(state: TSPPTypeState, node: Expression): boolean {
+    return state.checkedExpressions.has(node);
+}
+
+/** Applies extension-owned local evidence without mutating the input type. @internal */
+export function refineTSPPTypeAtLocation(state: TSPPTypeState, type: Type, location: Node | undefined): Type {
+    if (!location || !getRegisteredTSPPTypeExtensions().length || state.refinements.has(location) || !isTSPPSyntaxAllowedAt(location)) return type;
+    state.refinements.add(location);
+    try {
+        for (const extension of getRegisteredTSPPTypeExtensions()) {
+            type = extension.refineTypeAtLocation?.(type as never, location as never, getHost(state, extension)) as unknown as Type | undefined ?? type;
+        }
+        return type;
+    }
+    finally {
+        state.refinements.delete(location);
+    }
 }
 
 /** A type extension's instantiation of a type it created; undefined for other types. @internal */

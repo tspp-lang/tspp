@@ -1,5 +1,4 @@
 import type * as TS from "typescript-upstream";
-import { isLoweredFunction } from "@tspp/plugin-sdk";
 import { nameText, ts } from "./host-api";
 import type { NominalTypesADTAPI } from "@tspp/plugin-nominal-types/api";
 import { identifierSource, type Sort } from "./expression";
@@ -12,8 +11,8 @@ export interface RecordFields extends ReadonlyMap<string, Sort | undefined> {
     /** Fields present in some, but not every, arm of a union. Useful after narrowing, never unconditional summaries. */
     readonly optional?: ReadonlySet<string>;
     readonly literalChoices?: ReadonlyMap<string, readonly string[]>;
-    /** Scalar tuple indexes of a storage field supplied by the ADT model; reading the storage itself still aliases it. */
-    readonly scalarElements?: ReadonlyMap<string, ReadonlySet<number>>;
+    /** Scalar tuple positions of lowered data values, whose named fields are modeled separately. */
+    readonly scalarPositions?: ReadonlyMap<string, ReadonlySet<number>>;
 }
 export const numberSortFromModel = (model: FunctionModel["numberModel"]) =>
     model === "mathematical-real" ? "Real" : model === "safe-integer" ? "NumberInt" : undefined;
@@ -130,32 +129,31 @@ function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: r
         }
     };
     inspectWrites(body);
-    const immediateLowered = (node: TS.Node): node is TS.ArrowFunction => {
-        if (!isLoweredFunction(ts, node)) return false;
-        let callee: TS.Node = node;
-        while (callee.parent && ts.isParenthesizedExpression(callee.parent)) callee = callee.parent;
-        return !!callee.parent && ts.isCallExpression(callee.parent) && callee.parent.expression === callee;
-    };
     let unsafe = false;
-    const visit = (node: TS.Node, nested = false): void => {
+    const isImmediateFunction = (node: TS.Node): boolean => {
+        if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return false;
+        if (node.asteriskToken || node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword)) return false;
+        let target: TS.Node = node;
+        while (target.parent && ts.isParenthesizedExpression(target.parent)) target = target.parent;
+        return !!target.parent && ts.isCallExpression(target.parent) && target.parent.expression === target;
+    };
+    const visit = (node: TS.Node, nested = false, inline = false): void => {
         if (ts.isIdentifier(node) && records.has(nameText(node))) {
             const parent = node.parent;
+            const positional = parent && ts.isPropertyAccessExpression(parent) && parent.expression === node
+                && ts.isElementAccessExpression(parent.parent) && parent.parent.expression === parent
+                && ts.isNumericLiteral(parent.parent.argumentExpression)
+                && records.get(nameText(node))?.scalarPositions?.get(nameText(parent.name))?.has(Number(nameText(parent.parent.argumentExpression)));
             const readsField = parent && ts.isPropertyAccessExpression(parent) && parent.expression === node
-                && `${nameText(node)}.${nameText(parent.name)}` in variables
+                && (`${nameText(node)}.${nameText(parent.name)}` in variables || positional)
                 && !(ts.isCallExpression(parent.parent) && parent.parent.expression === parent);
-            const storage = parent && ts.isPropertyAccessExpression(parent) && parent.expression === node ? parent : undefined;
-            const element = storage?.parent;
-            const readsScalarElement = storage && element && ts.isElementAccessExpression(element) && element.expression === storage
-                && ts.isNumericLiteral(element.argumentExpression)
-                && records.get(nameText(node))?.scalarElements?.get(nameText(storage.name))
-                    ?.has(Number(nameText(element.argumentExpression)));
-            const returnsRecord = parent && ts.isReturnStatement(parent) && parent.expression === node;
+            const returnsRecord = !inline && parent && ts.isReturnStatement(parent) && parent.expression === node;
             const destructuresScalars = parent && ts.isVariableDeclaration(parent) && parent.initializer === node
                 && ts.isObjectBindingPattern(parent.name) && parent.name.elements.every(element =>
                     !element.dotDotDotToken && !element.initializer && ts.isIdentifier(element.name)
                     && (!element.propertyName || ts.isIdentifier(element.propertyName) || ts.isStringLiteral(element.propertyName))
                     && `${nameText(node)}.${nameText(element.propertyName ?? element.name)}` in variables);
-            if (nested || (!readsField && !readsScalarElement && !returnsRecord && !destructuresScalars)) unsafe = true;
+            if (nested || (!readsField && !returnsRecord && !destructuresScalars)) unsafe = true;
             let target: TS.Node = node;
             while (target.parent && target.parent !== body) {
                 const parent = target.parent;
@@ -165,11 +163,10 @@ function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: r
                 target = parent;
             }
         }
-        // A lowered function invoked here cannot retain the parameter. Its body still needs the usual alias/write
-        // checks; a lowered callback passed elsewhere or any authored closure remains a possible capture.
-        const immediate = immediateLowered(node);
-        if (immediate) inspectWrites(node.body);
-        ts.forEachChild(node, child => visit(child, nested || ts.isFunctionLike(node) && !immediate));
+        // Immediate synchronous calls cannot retain the parameter, but their writes still affect call safety.
+        const immediate = isImmediateFunction(node);
+        if (immediate && (ts.isArrowFunction(node) || ts.isFunctionExpression(node))) inspectWrites(node.body);
+        ts.forEachChild(node, child => visit(child, nested || ts.isFunctionLike(node) && !immediate, inline || ts.isFunctionLike(node)));
     };
     visit(body);
     return unsafe ? "a record parameter is aliased, escaped, or captured" : mutation;
@@ -285,7 +282,7 @@ export function collectDataTypes(
         const fields = Object.assign(new Map<string, Sort | undefined>([[nominalTypes!.tagProperty, "String"]]), {
             optional: new Set<string>(),
             literalChoices: new Map([[nominalTypes!.tagProperty, dataType.variants.map(variant => nominalTypes!.tagOf(variant))]]),
-            scalarElements: new Map<string, ReadonlySet<number>>(),
+            scalarPositions: new Map<string, ReadonlySet<number>>(),
         });
         for (const variant of dataType.variants) {
             for (const field of variant.fields) {
@@ -306,11 +303,11 @@ export function collectDataTypes(
                 fields.optional.add(name);
             }
         }
-        const scalarIndexes = new Set<number>();
-        for (const variant of dataType.variants) for (const [index] of variant.fields.entries()) {
-            if (dataType.variants.every(candidate => !candidate.fields[index] || fields.get(candidate.fields[index].name))) scalarIndexes.add(index);
-        }
-        fields.scalarElements.set(nominalTypes!.valuesProperty, scalarIndexes);
+        const positions = new Set<number>();
+        for (const variant of dataType.variants) variant.fields.forEach((_, index) => {
+            if (dataType.variants.every(other => !other.fields[index] || fields.get(other.fields[index].name))) positions.add(index);
+        });
+        fields.scalarPositions.set(nominalTypes!.valuesProperty, positions);
         records.set(dataType.name, fields);
     }
     return constructors;

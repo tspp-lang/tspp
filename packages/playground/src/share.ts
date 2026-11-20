@@ -9,6 +9,8 @@ export interface SharedState {
   readonly active: string;
   /** Files whose editor tabs are open, in display order. */
   readonly open?: readonly string[];
+  /** The open tab that another preview may replace. */
+  readonly preview?: string;
   /** Explicit project directories, including empty ones. Non-empty directories are also inferred from files. */
   readonly directories?: readonly string[];
 }
@@ -36,7 +38,7 @@ export function decodeState(hash: string): SharedState | undefined {
     return undefined;
   }
   if (!state || typeof state !== "object") return undefined;
-  const { files, features, active: file, open, directories } = state as Record<string, unknown>;
+  const { files, features, active: file, open, preview, directories } = state as Record<string, unknown>;
   if (!isStringArray(features) || !files || typeof files !== "object" || Array.isArray(files)
     || !Object.values(files).every(text => typeof text === "string")) return undefined;
   const paths = Object.keys(files);
@@ -49,6 +51,7 @@ export function decodeState(hash: string): SharedState | undefined {
     features,
     active,
     open: openFiles.length ? [...new Set([...openFiles, active])] : undefined,
+    preview: typeof preview === "string" && openFiles.includes(preview) ? preview : undefined,
     directories: isStringArray(directories) ? directories : undefined,
   };
 }

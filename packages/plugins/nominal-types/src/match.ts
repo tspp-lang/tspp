@@ -1,3 +1,4 @@
+import { dataProperties } from "./representation";
 import type { TSPPSyntaxCursor, TSPPSyntaxExtension, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
@@ -24,11 +25,17 @@ export function getNestedPattern(element: PatternElement): MatchPattern | undefi
 export interface MatchArm {
     readonly patterns: readonly MatchPattern[];
     readonly guarded: boolean;
+    /** The expression checked and emitted for this arm, including its field-binding calls. */
+    readonly expression: TS.Expression;
+    readonly body: TS.Expression;
+    readonly guard?: TS.Expression;
+    readonly fields: readonly { readonly expression: TS.Expression; readonly path: readonly number[]; }[];
 }
 
 /** What the diagnostics need from a lowered `match`: its scrutinee, its arms, and where its patterns are written. */
 export interface LoweredMatch {
     readonly scrutinee: TS.Expression;
+    readonly input: TS.Expression;
     readonly arms: readonly MatchArm[];
     readonly start: number;
     readonly end: number;
@@ -48,6 +55,16 @@ export interface ValueMatches {
     /** Lowered matches by the call expression they became. */
     readonly matches: WeakMap<TS.Node, LoweredMatch>;
     readonly count: () => number;
+    readonly gadtVariants: WeakMap<TS.TypeChecker, WeakMap<LoweredMatch, ReadonlyMap<string, {
+        readonly fieldNames: readonly string[];
+        readonly fieldTypes: readonly TS.Type[];
+        readonly reachable: boolean;
+    }>>>;
+    getGadtVariants?(type: TS.Type, checker: TS.TypeChecker): ReadonlyMap<string, {
+        readonly fieldNames: readonly string[];
+        readonly fieldTypes: readonly TS.Type[];
+        readonly reachable: boolean;
+    }> | undefined;
 }
 
 /**
@@ -146,9 +163,9 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         };
         /** `$m._values[0]._values[1]` */
         const fieldOf = (reference: TS.Expression, index: number): TS.Expression =>
-            f.createElementAccessExpression(f.createPropertyAccessExpression(reference, f.createIdentifier("_values")), f.createNumericLiteral(index));
+            f.createElementAccessExpression(f.createPropertyAccessExpression(reference, f.createIdentifier(dataProperties.values)), f.createNumericLiteral(index));
         const tagTest = (reference: TS.Expression, pattern: MatchPattern): TS.Expression =>
-            f.createBinaryExpression(f.createPropertyAccessExpression(reference, f.createIdentifier("_tag")), f.createToken(kinds.EqualsEqualsEqualsToken), f.createStringLiteral(pattern.variant));
+            f.createBinaryExpression(f.createPropertyAccessExpression(reference, f.createIdentifier(dataProperties.tag)), f.createToken(kinds.EqualsEqualsEqualsToken), f.createStringLiteral(pattern.variant));
         const and = (left: TS.Expression, right: TS.Expression): TS.Expression => {
             const both = f.createBinaryExpression(left, f.createToken(kinds.AmpersandAmpersandToken), right);
             return right.pos >= 0 ? range(both, right.pos, right.end) : both;
@@ -163,16 +180,17 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
             return test;
         };
         /** Each binding of a pattern with the expression that reads its field. */
-        const bindings = (pattern: MatchPattern, read: () => TS.Expression): { name: TS.Identifier; read: () => TS.Expression; }[] =>
+        const bindings = (pattern: MatchPattern, read: () => TS.Expression, path: readonly number[] = []): { name: TS.Identifier; read: () => TS.Expression; path: readonly number[]; }[] =>
             pattern.elements.flatMap((element, index) => {
                 const field = () => fieldOf(read(), index);
                 switch (element.kind) {
-                    case "binding": return [{ name: element.name, read: field }];
-                    case "nested": return bindings(element.pattern, field);
+                    case "binding": return [{ name: element.name, read: field, path: [...path, index] }];
+                    case "nested": return bindings(element.pattern, field, [...path, index]);
                 }
             });
         /** `((a, b) => body)(field0, field1)`, or `body` when nothing is bound. */
-        const bind = (bound: readonly { name: TS.Identifier; read: () => TS.Expression; }[], names: readonly TS.Identifier[], body: TS.Expression): TS.Expression => {
+        let armFields: { expression: TS.Expression; path: readonly number[]; }[] = [];
+        const bind = (bound: readonly { name: TS.Identifier; read: () => TS.Expression; path: readonly number[]; }[], names: readonly TS.Identifier[], body: TS.Expression): TS.Expression => {
             if (!bound.length) return body;
             const parameters = names.map(name => name.pos >= 0 ? range(f.createParameterDeclaration(undefined, undefined, name), name.pos, name.end) : f.createParameterDeclaration(undefined, undefined, name));
             const positioned = names[0].pos >= 0;
@@ -183,7 +201,11 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
                 positioned ? names[0].pos : body.pos, body.end);
             const callee = range(f.createParenthesizedExpression(arrow), arrow.pos, arrow.end);
             // The field reads follow the body, empty, so the call's children stay in source order.
-            const reads = range(f.createNodeArray(bound.map(binding => markGenerated(ts, binding.read(), body.end))), body.end, body.end);
+            const reads = range(f.createNodeArray(bound.map(binding => {
+                const expression = markGenerated(ts, binding.read(), body.end);
+                armFields.push({ expression, path: binding.path });
+                return expression;
+            })), body.end, body.end);
             return range(f.createCallExpression(callee, undefined, reads), arrow.pos, body.end);
         };
 
@@ -192,10 +214,11 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         const arms: MatchArm[] = [];
         for (let index = parsedArms.length - 1; index >= 0; index--) {
             const arm = parsedArms[index];
-            arms.unshift({ patterns: arm.patterns, guarded: !!arm.guard });
+            armFields = [];
             const wildcard = arm.patterns.length === 1 && arm.patterns[0].variant === "_" && !arm.patterns[0].elements.length;
             if (wildcard && !arm.guard) {
                 chain = arm.result;
+                arms.unshift({ patterns: arm.patterns, guarded: false, expression: arm.result, body: arm.result, fields: [] });
                 continue;
             }
             const at = arm.patterns[0].start;
@@ -209,12 +232,15 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
                 : f.createTrue(), at);
             const bound = arm.patterns.length === 1 ? bindings(arm.patterns[0], temporary) : [];
             let resultNames = bound.map(binding => binding.name);
+            let guard: TS.Expression | undefined;
             if (arm.guard) {
-                test = markGenerated(ts, and(test, bind(bound, bound.map(binding => binding.name), arm.guard)), at);
+                guard = bind(bound, bound.map(binding => binding.name), arm.guard);
+                test = markGenerated(ts, and(test, guard), at);
                 // The pattern's names belong to the guard; the result binds the same fields under fresh names.
                 resultNames = bound.map(binding => range(f.createIdentifier(ts.idText(binding.name)), -1, -1));
             }
             const whenTrue = bind(bound, resultNames, arm.result);
+            arms.unshift({ patterns: arm.patterns, guarded: !!arm.guard, expression: whenTrue, body: arm.result, guard, fields: armFields });
             chain = range(f.createConditionalExpression(test, range(f.createToken(kinds.QuestionToken), whenTrue.pos, whenTrue.pos), whenTrue,
                 range(f.createToken(kinds.ColonToken), whenTrue.end, whenTrue.end), chain),
                 arm.start, chain.end > whenTrue.end ? chain.end : whenTrue.end);
@@ -231,7 +257,7 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         if (direct && unnarrowedCopy) checkedScrutinee = unnarrowedCopy;
         // Other syntax may replace the scrutinee inside the parameter; the parameter keeps its type either way.
         if (!direct) checkedScrutinee = scrutineeParameter.name as TS.Identifier;
-        matches.set(call, { scrutinee: checkedScrutinee, arms, start: pos, end, patternRanges: parsedArms.map(arm => ({ start: arm.patterns[0].start, end: arm.patterns[arm.patterns.length - 1].end })) });
+        matches.set(call, { scrutinee: checkedScrutinee, input: scrutinee, arms, start: pos, end, patternRanges: parsedArms.map(arm => ({ start: arm.patterns[0].start, end: arm.patterns[arm.patterns.length - 1].end })) });
         count++;
         return markGenerated(ts, call, closeStart);
     }
@@ -240,5 +266,6 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
         extension: { position: "expression", startTokens: [kinds.Identifier], keywords: ["match"], isStart, parse },
         matches,
         count: () => count,
+        gadtVariants: new WeakMap(),
     };
 }
