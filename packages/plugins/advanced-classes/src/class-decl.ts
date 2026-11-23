@@ -117,6 +117,9 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
     }
 
     function parseAdvancedClass(cursor: TSPPSyntaxCursor): TS.Statement | TS.Statement[] {
+        // A statement starts before its leading comments, as the parser's own do: the formatter indents comments with the
+        // statement that holds them, and comments outside every statement take the indentation of the enclosing block.
+        const fullStart = cursor.getNodePos();
         const startPos = cursor.getTokenStart();
         const f = cursor.factory;
         const outerModifiers = cursor.modifiers ? [...cursor.modifiers] : [];
@@ -478,7 +481,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
                 heritageClauses.length ? f.createNodeArray(heritageClauses) : undefined,
                 f.createNodeArray(allMembers),
             ),
-            startPos,
+            fullStart,
             endPos,
         );
 

@@ -54,3 +54,30 @@ test("formatting lays out a class with several bases like any other class", () =
   assert.equal(formatDocument(withoutIndentation(severalBases)), severalBases);
   assert.equal(formatDocument(withDoubledSpaces(severalBases)), severalBases);
 });
+
+const nested = `class Point {
+    constructor(public x: number) { }
+}
+
+class Named { }
+
+export function make(): unknown {
+    const origin = 1;
+    // A sealed point.
+    final class Fixed { }
+    // A named point.
+    /** Documented. */
+    class Landmark extends Point, Named { }
+    // A single instance.
+    object Registry {
+        size = origin;
+    }
+    return [Fixed, Landmark, Registry];
+}
+`;
+
+test("formatting indents the comments above plugin classes nested in a function", () => {
+  assert.equal(formatDocument(nested), nested);
+  assert.equal(formatDocument(withoutIndentation(nested)), nested);
+  assert.equal(formatDocument(withDoubledSpaces(nested)), nested);
+});

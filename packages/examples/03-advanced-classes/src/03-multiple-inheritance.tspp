@@ -107,8 +107,11 @@ class Ambiguous extends Shape, Left, Right {}
 // 2. 额外基类不能有构造参数（放在函数里：被拒绝的基类不会生成工厂，运行到这里会抛出错误）
 // 2. An additional base cannot take constructor parameters (inside a function: a rejected base gets no factory, and
 //    reaching this class at run time throws)
-// @ts-expect-error [TS19121] 'Measured' cannot be an additional base: its constructor takes parameters.
-export function makeSized(): unknown { class Sized extends Shape, Measured {} return Sized; }
+export function makeSized(): unknown {
+  // @ts-expect-error [TS19121] 'Measured' cannot be an additional base: its constructor takes parameters.
+  class Sized extends Shape, Measured {}
+  return Sized;
+}
 
 // 3. 没有实现额外基类的抽象成员
 // 3. An abstract member of an additional base left unimplemented

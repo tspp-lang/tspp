@@ -25,6 +25,8 @@ export function createObjectSyntax(ts: TSPPTypeScript): {
     }
 
     function parseObject(cursor: TSPPSyntaxCursor): readonly TS.Statement[] {
+        // The statement starts before its leading comments, as the parser's own do, so the formatter indents them with it.
+        const fullStart = cursor.getNodePos();
         const startPos = cursor.getTokenStart();
         const f = cursor.factory;
         const outerModifiers = cursor.modifiers;
@@ -109,7 +111,7 @@ export function createObjectSyntax(ts: TSPPTypeScript): {
                 constModifiers.length ? f.createNodeArray(constModifiers) : undefined,
                 f.createVariableDeclarationList([varDecl], ts.NodeFlags.Const),
             ),
-            startPos,
+            fullStart,
             endPos,
         );
 
