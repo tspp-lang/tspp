@@ -177,9 +177,10 @@ export const advancedClassesPlugin = definePlugin({
                 context.onDispose(context.compiler.registerSyntaxExtension(fieldSyntax.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(withSyntax.extension));
 
-                context.onDispose(context.compiler.registerProgramRebuilder(createMultipleInheritanceEmit(ts, multiple)));
+                const programs = new WeakMap<import("typescript-upstream").TypeChecker, import("typescript-upstream").Program>();
+                context.onDispose(context.compiler.registerProgramRebuilder(createMultipleInheritanceEmit(ts, multiple, program => programs.set(program.getTypeChecker(), program))));
 
-                const diagnostics = createAdvancedClassDiagnostics(ts, classDecls, fieldSyntax, withSyntax, multiple);
+                const diagnostics = createAdvancedClassDiagnostics(ts, classDecls, fieldSyntax, withSyntax, multiple, programs);
                 return context.compiler.registerDiagnosticProvider(diagnostics);
             },
         },

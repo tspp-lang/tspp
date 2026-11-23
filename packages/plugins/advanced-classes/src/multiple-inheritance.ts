@@ -8,6 +8,7 @@ export const DIAGNOSTIC_INVALID_ADDITIONAL_BASE = 19121;
 export const DIAGNOSTIC_INHERITED_MEMBER_CONFLICT = 19122;
 export const DIAGNOSTIC_UNIMPLEMENTED_ABSTRACT_MEMBER = 19123;
 export const DIAGNOSTIC_DUPLICATE_BASE = 19124;
+export const DIAGNOSTIC_PROTOTYPE_OPERATION = 19125;
 
 /** The key under which a class used as an additional base hands out copies of itself on another base. */
 export const mixinKey = "ts-plus-plus.mixin";

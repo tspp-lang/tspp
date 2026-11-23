@@ -32,3 +32,19 @@ shares the original class's private fields, static fields, and `instanceof`.
 - Each base must be a name, such as `Base` or `module.Base` (19120). Static fields of a copy read and write the
   original's, and `super` reaches only the first base.
 
+Prototype reflection on these copied classes is restricted (19125): direct `.prototype` on `C`, an additional base, or
+their subclasses; `.__proto__` on those constructors or instances; and the inherited reflective `.constructor` on their
+instances, including object destructuring declarations and assignments. The checker also rejects the built-in
+`Object`/`Reflect.getPrototypeOf` and `setPrototypeOf`, `Object.create`,
+and `Object.prototype.isPrototypeOf` calls when a relevant target, prototype, receiver, or argument has one of those
+types. It also checks the same restricted property names in built-in `Reflect.get`, `set`, `has`, `deleteProperty`,
+`defineProperty`, `getOwnPropertyDescriptor`, and `Object.getOwnPropertyDescriptor` and `defineProperty` calls. Literal and statically known
+string-key access, inferred value aliases, union and intersection types, and generic constraints are checked when
+the class identity remains available; API aliases are followed through `const` initializers and object destructuring.
+An explicitly declared ordinary `constructor` member is allowed. The first base remains unrestricted unless it is
+affected independently.
+
+These checks rely on static types within the compilation. Values widened to `any`, `object`, or an unrelated external
+type are not tracked; dynamic property names, indirect wrappers and arbitrary data flow are not analyzed. Normal
+construction, members, `instanceof`, `Object.keys`, and object spread remain available. Replacing static methods at
+run time can diverge between copies and is not checked.

@@ -12,7 +12,7 @@ interface PrivateEntry {
 }
 
 /** Emits each class used as an additional base as a factory of copies of itself, and the class itself as the first copy. */
-export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: MultipleInheritance): TSPPProgramRebuilder {
+export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: MultipleInheritance, registerProgram: (program: TS.Program) => void): TSPPProgramRebuilder {
     const kinds = ts.SyntaxKind;
     let target: TS.Program | undefined;
     const targetsByProgram = new WeakMap<TS.Program, ReturnType<typeof findAdditionalBases>>();
@@ -369,12 +369,14 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
             // Only classes with several bases need the program's emit changed.
             if (!multiple.used()) return undefined;
             target = program;
+            registerProgram(program);
             return {
                 // No statement is replaced, so the host keeps the program and only adds the transformer.
                 replacements: new Map(),
                 transformers: { before: [transformer] },
                 onRebuilt: rebuilt => {
                     target = rebuilt;
+                    registerProgram(rebuilt);
                 },
             };
         },

@@ -7,8 +7,9 @@ import type * as TS from "typescript-upstream";
 
 import type { AdvancedClassInfo, createAdvancedClassDeclarations } from "./class-decl";
 import type { createFieldSyntax } from "./field";
-import type { MultipleInheritance } from "./multiple-inheritance";
+import { DIAGNOSTIC_PROTOTYPE_OPERATION, type MultipleInheritance } from "./multiple-inheritance";
 import { checkMultipleBases, tokenStart } from "./multiple-inheritance-checks";
+import { createPrototypeCheck } from "./prototype-checks";
 import type { createWithSyntax } from "./with";
 
 export const DIAGNOSTIC_CANNOT_INHERIT_FINAL = 19101;
@@ -36,8 +37,10 @@ export function createAdvancedClassDiagnostics(
     fieldSyntax: ReturnType<typeof createFieldSyntax>,
     withSyntax: ReturnType<typeof createWithSyntax>,
     multiple: MultipleInheritance,
+    programs: WeakMap<TS.TypeChecker, TS.Program>,
 ): TSPPDiagnosticProvider {
     const kinds = ts.SyntaxKind;
+    const prototypeChecks = new WeakMap<TS.TypeChecker, ReturnType<typeof createPrototypeCheck>>();
 
     /**
      * The classes `node` inherits from, nearest first, as the checker sees them: a base can be written as a name, a
@@ -106,7 +109,17 @@ export function createAdvancedClassDiagnostics(
                 }
             }
 
+            let checkPrototype = prototypeChecks.get(checker);
+            if (!checkPrototype) {
+                checkPrototype = createPrototypeCheck(ts, multiple, programs.get(checker), checker);
+                prototypeChecks.set(checker, checkPrototype);
+            }
+
             function visit(node: TS.Node) {
+                checkPrototype!(node, (at, messageText) => {
+                    const start = tokenStart(ts, at, sourceFile);
+                    diagnostics.push({ file: sourceFile, start, length: Math.max(1, at.end - start), messageText, category: ts.DiagnosticCategory.Error, code: DIAGNOSTIC_PROTOTYPE_OPERATION });
+                });
                 // Check class inheritance
                 if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
                     const multipleBases = ts.isClassDeclaration(node) ? multiple.getMultipleBases(node) : undefined;
