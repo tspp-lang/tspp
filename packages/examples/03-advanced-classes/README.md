@@ -27,7 +27,7 @@ This directory demonstrates seven modern object-oriented class features in TS++.
 2. **[`src/02-sealed-and-final.tspp`](./src/02-sealed-and-final.tspp)** — `sealed class` 封闭类层次、`final` 类与方法，以及违反约束时的编译期报错验证（`@ts-expect-error`）。
    Covers `sealed class` hierarchies, `final` classes and methods, and compile-time boundary checks (`@ts-expect-error`).
 3. **[`src/03-multiple-inheritance.tspp`](./src/03-multiple-inheritance.tspp)** — 多继承：组合多个基类的行为、额外基类的抽象成员，以及成员冲突与不可复制基类的编译期报错。
-   Covers multiple inheritance: combining several bases, abstract members of additional bases, and compile-time errors for conflicting members and bases that cannot be copied.
+   Covers multiple inheritance: mapped constructor arguments and order, explicit `super[Base]` dispatch, shared private state, abstract members, and compile-time errors for conflicting members or missing constructor arguments.
 
 ---
 

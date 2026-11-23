@@ -1,6 +1,5 @@
 import { markGenerated } from "@tspp/plugin-sdk";
 import type {
-    TSPPSourcePreprocessor,
     TSPPSyntaxCursor,
     TSPPSyntaxExtension,
     TSPPTypeScript,
@@ -247,6 +246,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
         let extendsBaseName: string | undefined;
         let lowered: LoweredBases | undefined;
         let bases: TS.Expression[] = [];
+        let baseTypes: TS.ExpressionWithTypeArguments[] = [];
 
         if (cursor.token() === kinds.ExtendsKeyword) {
             const clauseStart = cursor.getTokenStart();
@@ -256,6 +256,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
             if (types.length > 1 && multiple.checkBases(cursor, nameNode, types)) {
                 lowered = multiple.lowerBases(cursor, nameNode, typeParameters, types, outerModifiers);
                 bases = types.map(type => type.expression);
+                baseTypes = types;
             }
             const clause = f.createHeritageClause(kinds.ExtendsKeyword, f.createNodeArray(lowered ? [lowered.heritage] : types.slice(0, 1)));
             ts.setTextRange(clause, { pos: clauseStart, end: cursor.getNodePos() });
@@ -286,6 +287,11 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
             cursor.parseOptional(kinds.SemicolonToken);
         }
 
+        const mappedSuper = lowered ? multiple.prepareMembers(cursor, baseTypes, userMembers, nameNode) : undefined;
+        if (mappedSuper) {
+            lowered = multiple.lowerBases(cursor, nameNode, typeParameters, baseTypes, outerModifiers, true);
+            heritageClauses[0] = f.createHeritageClause(kinds.ExtendsKeyword, f.createNodeArray([lowered.heritage]));
+        }
         const endPos = cursor.getNodePos();
 
         // Synthesize data class members if isData
@@ -498,10 +504,10 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
         const after = cursor.getTokenStart();
         const statement = markGenerated(ts, classDeclaration, after, { pos: startPos, end: endPos });
         if (!lowered) return statement;
-        multiple.register(classDeclaration, bases, isAbstract, endPos);
+        multiple.register(classDeclaration, bases, isAbstract, endPos, mappedSuper);
         // The interface and the default export sit without width at the end of the class: services and the formatter walk
         // statements in order, so a statement after the class must not hold any of its text.
-        return [statement, ...lowered.after.map(node => markGenerated(ts, node, endPos))];
+        return [...(mappedSuper?.before ?? []).map(node => markGenerated(ts, node, startPos)), statement, ...lowered.after.map(node => markGenerated(ts, node, endPos))];
     }
 
     const extension: TSPPSyntaxExtension = {

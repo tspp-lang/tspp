@@ -2,6 +2,7 @@ import type { TSPPSyntaxCursor, TSPPTypeScript } from "@tspp/plugin-sdk/compiler
 import type * as TS from "typescript-upstream";
 
 import { getTypeArgumentCopies } from "./heritage";
+import { createMappedSuper, type MappedSuper } from "./mapped-super";
 
 export const DIAGNOSTIC_MULTIPLE_BASE_SYNTAX = 19120;
 export const DIAGNOSTIC_INVALID_ADDITIONAL_BASE = 19121;
@@ -22,6 +23,7 @@ export interface MultipleBases {
     readonly isAbstract: boolean;
     /** The end of the class, where the generated interface sits without width. */
     readonly end: number;
+    readonly mapped?: MappedSuper;
 }
 
 /** A call that asks an additional base for its copy on the bases before it. */
@@ -61,6 +63,8 @@ export function createMultipleInheritance(ts: TSPPTypeScript) {
 
     const entityText = (node: TS.Expression): string =>
         ts.isIdentifier(node) ? ts.idText(node) : ts.isPropertyAccessExpression(node) ? `${entityText(node.expression)}.${ts.idText(node.name as TS.Identifier)}` : "";
+
+    const mapped = createMappedSuper(ts, entityText);
 
     /**
      * Whether the class at `class` lists more than one base. Runs inside a look-ahead: header clauses in braces are skipped,
@@ -125,6 +129,7 @@ export function createMultipleInheritance(ts: TSPPTypeScript) {
         typeParameters: TS.NodeArray<TS.TypeParameterDeclaration> | undefined,
         types: readonly TS.ExpressionWithTypeArguments[],
         modifiers: readonly TS.ModifierLike[],
+        mappedMode = false,
     ): LoweredBases {
         const f = cursor.factory;
         const className = ts.idText(nameNode);
@@ -174,7 +179,10 @@ export function createMultipleInheritance(ts: TSPPTypeScript) {
                 /*members*/ undefined,
             );
         };
-        const baseType = f.createIntersectionTypeNode(list([typeOf(types[0].expression), ...types.slice(1).map(type => staticSide(type.expression))]));
+        const constructorType = mappedMode ? f.createConstructorTypeNode(undefined, undefined, [
+            f.createParameterDeclaration(undefined, f.createToken(kinds.DotDotDotToken), "args", undefined, f.createArrayTypeNode(f.createKeywordTypeNode(kinds.AnyKeyword))),
+        ], f.createTypeReferenceNode(copyName(types[0].expression, true, true) as TS.EntityName, getTypeArgumentCopies(types[0]))) : typeOf(types[0].expression);
+        const baseType = f.createIntersectionTypeNode(list([constructorType, ...(mappedMode ? types : types.slice(1)).map(type => staticSide(type.expression))]));
 
         // Each additional base hands out its copy on what comes before it. Emit checks that it can: the file that declares it
         // may have been emitted before this class used it, as an incremental build does when only this file changed.
@@ -207,18 +215,19 @@ export function createMultipleInheritance(ts: TSPPTypeScript) {
         if (isDefault) after.push(f.createExportDeclaration(undefined, false, f.createNamedExports([f.createExportSpecifier(false, f.createIdentifier(className), "default")])));
 
         return {
-            heritage: range(f.createExpressionWithTypeArguments(heritageValue, types[0].typeArguments), { pos: types[0].pos, end: types[types.length - 1].end }),
+            heritage: range(f.createExpressionWithTypeArguments(heritageValue, mappedMode ? undefined : types[0].typeArguments), { pos: types[0].pos, end: types[types.length - 1].end }),
             classModifiers,
             after,
         };
     }
 
-    function register(declaration: TS.ClassDeclaration, bases: readonly TS.Expression[], isAbstract: boolean, end: number): void {
+    function register(declaration: TS.ClassDeclaration, bases: readonly TS.Expression[], isAbstract: boolean, end: number, mappedInfo?: MappedSuper): void {
         used = true;
-        parsed.set(declaration, { name: declaration.name ? ts.idText(declaration.name) : "", bases, isAbstract, end });
+        parsed.set(declaration, { name: declaration.name ? ts.idText(declaration.name) : "", bases, isAbstract, end, mapped: mappedInfo });
     }
 
     return {
+        ...mapped,
         hasMultipleBases,
         checkBases,
         lowerBases,

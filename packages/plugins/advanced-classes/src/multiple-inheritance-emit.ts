@@ -4,6 +4,8 @@ import type * as TS from "typescript-upstream";
 
 import { mixinKey, type MultipleInheritance } from "./multiple-inheritance";
 import { findAdditionalBases } from "./multiple-inheritance-checks";
+import { resolveMappedIndex } from "./mapped-super-checks";
+import { createQualifiedSuperEmit } from "./qualified-super-emit";
 
 interface PrivateEntry {
     readonly kind: "field" | "method";
@@ -54,6 +56,7 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
         if (!declaresTarget && !users.has(sourceFile.fileName)) return sourceFile;
         const f = context.factory;
         const options = program.getCompilerOptions();
+        const nativeFields = (options.target ?? ts.ScriptTarget.ES2022) >= ts.ScriptTarget.ES2022;
         const useDefine = options.useDefineForClassFields ?? (options.target ?? ts.ScriptTarget.ES2022) >= ts.ScriptTarget.ES2022;
 
         const helpers = {
@@ -87,19 +90,56 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
 
         // Asks an additional base for its copy, and names the base when its file was emitted before this use.
         const copyHelper = snippet(`
-            function $copy(extra, base, name, user) {
+            function $copy(extra, base, name, user, index) {
                 const key = Symbol.for($key);
                 const copy = Object.prototype.hasOwnProperty.call(extra, key) ? extra[key] : undefined;
                 if (typeof copy !== "function") {
                     throw new TypeError("'" + name + "' cannot be used as an additional base of '" + user + "': it was compiled before this use. Compile the file that declares it again.");
                 }
-                return copy(base);
+                return copy(base, index);
             }
         `, { copy: helpers.copy, key: f.createStringLiteral(mixinKey) });
 
         let usesHelpers = false;
         let usesCopy = false;
-        const checkCopies = (node: TS.Node): TS.Node => {
+        const qualified = createQualifiedSuperEmit(ts, multiple, context, program.getTypeChecker());
+        const checkCopies = (node: TS.Node): TS.VisitResult<TS.Node> => {
+            if (multiple.isConstructorProbe(node) && ts.isNewExpression(node)) {
+                return f.createArrayLiteralExpression(node.arguments?.map(argument => ts.visitNode(argument, checkCopies) as TS.Expression));
+            }
+            if (ts.isClassDeclaration(node)) {
+                const info = multiple.getMultipleBases(node);
+                if (info) {
+                    const capture = f.createUniqueName("__tsppBases");
+                    const binding = f.createVariableStatement(undefined, f.createVariableDeclarationList([
+                        f.createVariableDeclaration(capture, undefined, undefined, f.createArrayLiteralExpression(info.bases)),
+                    ], ts.NodeFlags.Const));
+                    let current = qualified.rewrite(node, info, capture);
+                    if (info.mapped) {
+                        usesCopy = true;
+                        let value: TS.Expression = f.createClassExpression(undefined, undefined, undefined, undefined, []);
+                        info.mapped.entries.forEach((entry, order) => {
+                            const index = resolveMappedIndex(ts, multiple, info, entry, program.getTypeChecker());
+                            value = f.createCallExpression(helpers.copy, undefined, [f.createElementAccessExpression(capture, Math.max(0, index)), value,
+                                f.createStringLiteral(multiple.entityText(info.bases[index] ?? entry.key)), f.createStringLiteral(info.name), f.createNumericLiteral(order)]);
+                        });
+                        current = f.updateClassDeclaration(current, current.modifiers, current.name, current.typeParameters,
+                            current.heritageClauses?.map(clause => clause.token === kinds.ExtendsKeyword
+                                ? f.updateHeritageClause(clause, [f.createExpressionWithTypeArguments(value, undefined)]) : clause), current.members);
+                        return [binding, ts.visitEachChild(current, checkCopies, context)];
+                    }
+                    usesCopy = true;
+                    let value: TS.Expression = f.createElementAccessExpression(capture, 0);
+                    info.bases.slice(1).forEach((extra, offset) => {
+                        value = f.createCallExpression(helpers.copy, undefined, [f.createElementAccessExpression(capture, offset + 1), value,
+                            f.createStringLiteral(multiple.entityText(extra)), f.createStringLiteral(info.name)]);
+                    });
+                    current = f.updateClassDeclaration(current, current.modifiers, current.name, current.typeParameters,
+                        current.heritageClauses?.map(clause => clause.token === kinds.ExtendsKeyword
+                            ? f.updateHeritageClause(clause, [f.createExpressionWithTypeArguments(value, undefined)]) : clause), current.members);
+                    return [binding, ts.visitEachChild(current, checkCopies, context)];
+                }
+            }
             const call = multiple.getCopyCall(node);
             if (call && ts.isCallExpression(node) && ts.isElementAccessExpression(node.expression)) {
                 usesCopy = true;
@@ -117,7 +157,7 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
             if (ts.isClassDeclaration(statement) && targets.has(ts.getOriginalNode(statement))) statements.push(...emitFactory(statement));
             else statements.push(statement);
         }
-        if (users.has(sourceFile.fileName)) statements = statements.map(statement => ts.visitNode(statement, checkCopies) as TS.Statement);
+        if (users.has(sourceFile.fileName)) statements = [...ts.visitNodes(f.createNodeArray(statements), checkCopies, ts.isStatement)];
         const added = [...usesHelpers ? helperStatements : [], ...usesCopy ? copyHelper : []];
         if (!added.length) return f.updateSourceFile(sourceFile, statements);
         const prologue = statements.findIndex(statement => !(ts.isExpressionStatement(statement) && ts.isStringLiteral(statement.expression)));
@@ -128,13 +168,17 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
             const name = ts.idText(declaration.name!);
             const classRef = f.createIdentifier(name);
             const brand = f.createUniqueName(`_${name}_brand`);
+            const prototypes = f.createUniqueName(`_${name}_prototypes`);
             const body = f.createUniqueName(`_${name}_body`);
             const base = f.createUniqueName("Base");
+            const mode = f.createUniqueName("argumentIndex");
 
             const hasModifier = (member: TS.ClassElement, kind: TS.SyntaxKind) => ts.canHaveModifiers(member) && !!ts.getModifiers(member)?.some(modifier => modifier.kind === kind);
             const isStatic = (member: TS.ClassElement) => hasModifier(member, kinds.StaticKeyword);
             const isRuntime = (member: TS.ClassElement) => !hasModifier(member, kinds.AbstractKeyword) && !hasModifier(member, kinds.DeclareKeyword);
 
+            const hoistPrivateInitializers = nativeFields && !useDefine && declaration.members.some(member =>
+                ts.isPropertyDeclaration(member) && !isStatic(member) && isRuntime(member) && !ts.isPrivateIdentifier(member.name) && !!member.initializer);
             const privates = new Map<string, PrivateEntry>();
             const declarations: TS.Statement[] = [];
             for (const member of declaration.members) {
@@ -152,6 +196,24 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
                 }
             }
 
+            const fieldValue = (value: TS.Expression | undefined, member: TS.PropertyDeclaration): TS.Expression => {
+                if (!value) return f.createVoidZero();
+                const visit = (node: TS.Node): TS.Node => {
+                    if (ts.isClassLike(node) || ts.isFunctionLike(node) && !ts.isArrowFunction(node)) return node;
+                    if (ts.isMetaProperty(node) && node.keywordToken === kinds.NewKeyword) return f.createVoidZero();
+                    return ts.visitEachChild(node, visit, context);
+                };
+                const rewritten = ts.visitNode(value, visit) as TS.Expression;
+                let unwrapped = value;
+                while (ts.isParenthesizedExpression(unwrapped)) unwrapped = unwrapped.expression;
+                const anonymous = ts.isArrowFunction(unwrapped) || (ts.isFunctionExpression(unwrapped) || ts.isClassExpression(unwrapped)) && !unwrapped.name;
+                const privateName = ts.isPrivateIdentifier(member.name);
+                const inferred = privateName ? nativeFields && !hoistPrivateInitializers ? f.createStringLiteral(ts.idText(member.name)) : undefined
+                    : useDefine ? nativeFields ? keyOf(member) : f.createStringLiteral("value") : undefined;
+                return anonymous && inferred ? f.createElementAccessExpression(f.createObjectLiteralExpression([
+                    f.createPropertyAssignment(f.createComputedPropertyName(inferred), rewritten),
+                ]), inferred) : rewritten;
+            };
             const keyOf = (member: TS.PropertyDeclaration): TS.Expression =>
                 ts.isIdentifier(member.name) ? f.createStringLiteral(ts.idText(member.name))
                 : ts.isStringLiteral(member.name) || ts.isNumericLiteral(member.name) ? f.createStringLiteral(member.name.text)
@@ -159,13 +221,14 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
             const thisMember = (target: TS.Expression, member: TS.PropertyDeclaration) => f.createElementAccessExpression(target, keyOf(member));
             const define = (target: TS.Expression, member: TS.PropertyDeclaration, value: TS.Expression) => snippet("Object.defineProperty($target, $key, { value: $value, writable: true, enumerable: true, configurable: true });", { target, key: keyOf(member), value })[0];
 
-            // Instance fields run in order right after the base constructor; with private state they move into the constructor.
-            const movesFields = privates.size > 0;
-            const fieldStatements: TS.Statement[] = [];
+            // Native fields precede parameter binding; downlevel/public assignment fields follow parameter properties.
+            const fieldsBeforeParameters: TS.Statement[] = [];
+            const fieldsAfterParameters: TS.Statement[] = [];
             const members: TS.ClassElement[] = [];
             const staticStatements: TS.Statement[] = [];
             const staticNames: TS.Expression[] = [];
             let constructorBody: readonly TS.Statement[] = [];
+            let constructorParameters: readonly TS.ParameterDeclaration[] = [];
             const runIn = (statementsOrValue: TS.Block | TS.Expression) => {
                 const block = ts.isBlock(statementsOrValue) ? statementsOrValue : f.createBlock([f.createReturnStatement(statementsOrValue)], true);
                 return f.createCallExpression(f.createPropertyAccessExpression(f.createParenthesizedExpression(f.createFunctionExpression(undefined, undefined, undefined, undefined, [], undefined, block)), "call"), undefined, [classRef]);
@@ -174,7 +237,7 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
             for (const member of declaration.members) {
                 if (!isRuntime(member) && !ts.isConstructorDeclaration(member)) continue;
                 if (ts.isConstructorDeclaration(member)) {
-                    if (member.body) constructorBody = member.body.statements;
+                    if (member.body) { constructorBody = member.body.statements; constructorParameters = member.parameters; }
                     continue;
                 }
                 if (ts.isClassStaticBlockDeclaration(member)) {
@@ -182,24 +245,22 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
                     continue;
                 }
                 if (ts.isPropertyDeclaration(member)) {
+                    const fieldStatements = nativeFields && (useDefine || ts.isPrivateIdentifier(member.name) && !hoistPrivateInitializers) ? fieldsBeforeParameters : fieldsAfterParameters;
                     if (isStatic(member)) {
                         staticNames.push(keyOf(member));
-                        const value = member.initializer ? runIn(member.initializer) : f.createVoidZero();
+                        const value = member.initializer ? runIn(fieldValue(member.initializer, member)) : f.createVoidZero();
                         if (useDefine) staticStatements.push(define(classRef, member, value));
                         else if (member.initializer) staticStatements.push(f.createExpressionStatement(f.createAssignment(thisMember(classRef, member), value)));
                         continue;
                     }
                     if (ts.isPrivateIdentifier(member.name)) {
                         const store = privates.get(ts.idText(member.name))!.name;
-                        fieldStatements.push(f.createExpressionStatement(f.createCallExpression(f.createPropertyAccessExpression(store, "set"), undefined, [f.createThis(), member.initializer ?? f.createVoidZero()])));
+                        if (hoistPrivateInitializers) fieldsBeforeParameters.push(f.createExpressionStatement(f.createCallExpression(f.createPropertyAccessExpression(store, "set"), undefined, [f.createThis(), f.createVoidZero()])));
+                        fieldStatements.push(f.createExpressionStatement(f.createCallExpression(f.createPropertyAccessExpression(store, "set"), undefined, [f.createThis(), fieldValue(member.initializer, member)])));
                         continue;
                     }
-                    if (movesFields) {
-                        if (useDefine) fieldStatements.push(define(f.createThis(), member, member.initializer ?? f.createVoidZero()));
-                        else if (member.initializer) fieldStatements.push(f.createExpressionStatement(f.createAssignment(thisMember(f.createThis(), member), member.initializer)));
-                        continue;
-                    }
-                    members.push(member);
+                    if (useDefine) fieldStatements.push(define(f.createThis(), member, fieldValue(member.initializer, member)));
+                    else if (member.initializer) fieldStatements.push(f.createExpressionStatement(f.createAssignment(thisMember(f.createThis(), member), fieldValue(member.initializer, member))));
                     continue;
                 }
                 if (ts.isMethodDeclaration(member) && ts.isPrivateIdentifier(member.name)) {
@@ -211,11 +272,23 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
             }
 
             const args = f.createUniqueName("args");
+            const parameterProperties = constructorParameters.filter(parameter => parameter.modifiers?.some(modifier =>
+                [kinds.PublicKeyword, kinds.ProtectedKeyword, kinds.PrivateKeyword, kinds.ReadonlyKeyword].includes(modifier.kind)) && ts.isIdentifier(parameter.name));
+            const properties = parameterProperties.map(parameter => f.createExpressionStatement(f.createAssignment(
+                f.createPropertyAccessExpression(f.createThis(), parameter.name as TS.Identifier), parameter.name as TS.Identifier)));
+            const parameterFields = nativeFields && useDefine ? parameterProperties.flatMap(parameter => snippet("Object.defineProperty(this, $key, { value: undefined, writable: true, enumerable: true, configurable: true });", { key: f.createStringLiteral(ts.idText(parameter.name as TS.Identifier)) })) : [];
+            const initialize = f.createArrowFunction(undefined, undefined, constructorParameters.map(parameter =>
+                f.updateParameterDeclaration(parameter, undefined, parameter.dotDotDotToken, parameter.name, parameter.questionToken, parameter.type, parameter.initializer)), undefined,
+                f.createToken(kinds.EqualsGreaterThanToken), f.createBlock([...nativeFields ? [] : snippet("$brand.add(this);", { brand }), ...properties, ...fieldsAfterParameters, ...constructorBody], true));
+            const values = f.createConditionalExpression(f.createBinaryExpression(mode, kinds.EqualsEqualsEqualsToken, f.createVoidZero()), undefined, args, undefined,
+                f.createConditionalExpression(f.createBinaryExpression(mode, kinds.EqualsEqualsEqualsToken, f.createNull()), undefined, f.createArrayLiteralExpression(), undefined,
+                    f.createElementAccessExpression(f.createElementAccessExpression(args, 0), mode)));
             const constructor = f.createConstructorDeclaration(undefined, [f.createParameterDeclaration(undefined, f.createToken(kinds.DotDotDotToken), args)], f.createBlock([
                 f.createExpressionStatement(f.createCallExpression(f.createSuper(), undefined, [f.createSpreadElement(args)])),
-                ...snippet("$brand.add(this);", { brand }),
-                ...fieldStatements,
-                ...constructorBody,
+                ...nativeFields ? snippet("$brand.add(this);", { brand }) : [],
+                ...parameterFields,
+                ...fieldsBeforeParameters,
+                f.createExpressionStatement(f.createCallExpression(f.createParenthesizedExpression(initialize), undefined, [f.createSpreadElement(values)])),
             ], true));
             const classExpression = f.createClassExpression(undefined, undefined, undefined, [f.createHeritageClause(kinds.ExtendsKeyword, [f.createExpressionWithTypeArguments(base, undefined)])], [constructor, ...members]);
             const rewritten = rewritePrivates(classExpression, privates, brand);
@@ -236,21 +309,28 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
 
             return [
                 ...declarations,
-                ...snippet("const $brand = new WeakSet();", { brand }),
-                f.createFunctionDeclaration(undefined, undefined, body, undefined, [f.createParameterDeclaration(undefined, undefined, base)], undefined, f.createBlock([f.createReturnStatement(rewritten)], true)),
+                ...snippet("const $brand = new WeakSet(); const $prototypes = new WeakSet();", { brand, prototypes }),
+                f.createFunctionDeclaration(undefined, undefined, body, undefined, [f.createParameterDeclaration(undefined, undefined, base), f.createParameterDeclaration(undefined, undefined, mode)], undefined, f.createBlock([f.createReturnStatement(rewritten)], true)),
                 binding,
                 ...snippet(`
                     Object.defineProperty($class, "name", { value: $name, configurable: true });
+                    $prototypes.add($class.prototype);
                     Object.defineProperty($class, Symbol.hasInstance, {
                         value: function (value) {
-                            return this === $class ? $brand.has(value) : Function.prototype[Symbol.hasInstance].call(this, value);
+                            if (this !== $class) return Function.prototype[Symbol.hasInstance].call(this, value);
+                            if (value === null || typeof value !== "object" && typeof value !== "function") return false;
+                            for (let prototype = Object.getPrototypeOf(value); prototype !== null; prototype = Object.getPrototypeOf(prototype)) {
+                                if ($prototypes.has(prototype)) return true;
+                            }
+                            return false;
                         },
                         writable: true,
                         configurable: true,
                     });
                     Object.defineProperty($class, Symbol.for($key), {
-                        value: function (base) {
-                            const copy = $body(base);
+                        value: function (base, index) {
+                            const copy = $body(base, index === undefined ? null : index);
+                            $prototypes.add(copy.prototype);
                             for (const name of $statics) {
                                 Object.defineProperty(copy, name, {
                                     get: () => $class[name],
@@ -262,7 +342,7 @@ export function createMultipleInheritanceEmit(ts: TSPPTypeScript, multiple: Mult
                             return copy;
                         },
                     });
-                `, { class: classRef, name: f.createStringLiteral(name), brand, body, key: f.createStringLiteral(mixinKey), statics: f.createArrayLiteralExpression(staticNames) }),
+                `, { class: classRef, name: f.createStringLiteral(name), brand, prototypes, body, key: f.createStringLiteral(mixinKey), statics: f.createArrayLiteralExpression(staticNames) }),
                 ...rewrittenStatics,
                 ...exported,
             ];

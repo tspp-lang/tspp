@@ -81,3 +81,20 @@ test("formatting indents the comments above plugin classes nested in a function"
   assert.equal(formatDocument(withoutIndentation(nested)), nested);
   assert.equal(formatDocument(withDoubledSpaces(nested)), nested);
 });
+
+
+const mappedBases = `class A { constructor(n: number) { } }
+class B { }
+class C extends A, B {
+    constructor() {
+        super({ A: [1], B: [] });
+    }
+    m() { return super[A].toString(); }
+}
+`;
+
+test("formatting preserves mapped super and indents its enclosing class", () => {
+  assert.equal(formatDocument(mappedBases), mappedBases);
+  assert.equal(formatDocument(withoutIndentation(mappedBases)), mappedBases);
+  assert.equal(formatDocument(withDoubledSpaces(mappedBases)), mappedBases);
+});

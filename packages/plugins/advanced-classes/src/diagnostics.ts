@@ -8,6 +8,7 @@ import type * as TS from "typescript-upstream";
 import type { AdvancedClassInfo, createAdvancedClassDeclarations } from "./class-decl";
 import type { createFieldSyntax } from "./field";
 import { DIAGNOSTIC_PROTOTYPE_OPERATION, type MultipleInheritance } from "./multiple-inheritance";
+import { checkMappedSuper } from "./mapped-super-checks";
 import { checkMultipleBases, tokenStart } from "./multiple-inheritance-checks";
 import { createPrototypeCheck } from "./prototype-checks";
 import type { createWithSyntax } from "./with";
@@ -124,6 +125,11 @@ export function createAdvancedClassDiagnostics(
                 if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
                     const multipleBases = ts.isClassDeclaration(node) ? multiple.getMultipleBases(node) : undefined;
                     if (multipleBases) {
+                        const report = (at: TS.Node, code: number, messageText: string) => {
+                            const start = tokenStart(ts, at, sourceFile);
+                            diagnostics.push({ file: sourceFile, start, length: Math.max(1, at.end - start), messageText, category: ts.DiagnosticCategory.Error, code });
+                        };
+                        checkMappedSuper(ts, multiple, node as TS.ClassDeclaration, checker, report);
                         checkMultipleBases(ts, multiple, node as TS.ClassDeclaration, checker, (at, code, messageText) => {
                             const start = tokenStart(ts, at, sourceFile);
                             diagnostics.push({ file: sourceFile, start, length: Math.max(1, at.end - start), messageText, category: ts.DiagnosticCategory.Error, code });
@@ -212,6 +218,16 @@ export function createAdvancedClassDiagnostics(
         },
 
         filterDiagnostic(diagnostic) {
+            if ([2511, 2674, 2675].includes(diagnostic.code) && diagnostic.file && diagnostic.start !== undefined) {
+                const at = diagnostic.start;
+                const probeAt = (node: TS.Node): boolean => multiple.isConstructorProbe(node) && node.pos <= at && at <= node.end && ts.isNewExpression(node) && !node.arguments?.some(argument => argument.pos <= at && at < argument.end) || !!ts.forEachChild(node, probeAt);
+                if (probeAt(diagnostic.file)) return false;
+            }
+            if ([2445, 2446].includes(diagnostic.code) && diagnostic.file && diagnostic.start !== undefined) {
+                const at = diagnostic.start;
+                const selectionAt = (node: TS.Node): boolean => (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && !!multiple.getSelectedSuper(node.expression) && node.pos <= at && at <= node.end || !!ts.forEachChild(node, selectionAt);
+                if (selectionAt(diagnostic.file)) return false;
+            }
             const moved = moveInterfaceDiagnostic(diagnostic);
             if (moved !== undefined) return moved;
             if ((diagnostic.code === 2304 || diagnostic.code === 2552) && diagnostic.file && diagnostic.start !== undefined) {

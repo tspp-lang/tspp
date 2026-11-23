@@ -38,7 +38,7 @@ Features are opt-in and composable via `tsppconfig.json` (`compilerOptions.plugi
 * **`with` Expressions**: Non-destructive copy expression for data classes and objects (`with(point, { x: 10 })`).
 * **`sealed class`**: Closed type hierarchies restricted to inheritance within the declaring file, enabling full Algebraic Data Types (ADTs) when combined with `object` and `data class`.
 * **`final class` & `final` Methods**: Compile-time prevention of subclassing and method overrides.
-* **Multiple Inheritance**: `class C extends A, B` inherits from every base. Later bases are copied onto the prototype chain and share private fields, static fields, and `instanceof` with the original; a member provided by two bases is a compile-time error. Prototype reflection on affected classes and instances is restricted; see the [plugin guide](../packages/plugins/advanced-classes/README.md#multiple-inheritance) for the exact scope.
+* **Multiple Inheritance**: `class C extends A, B` initializes each base with `super({ A: [x], B: [y] })`. All arguments evaluate once before constructors run in the map's written order on one shared instance; `super[A].method()` selects a base explicitly. Copied bases share private fields, static fields, and `instanceof` with the original; duplicate members remain errors. Mapped bases must be eligible top-level `.tspp` classes of the compilation, while legacy no-constructor/`super(args)` classes retain their ordinary first-base path. Prototype reflection on affected classes and instances is restricted; see the [plugin guide](../packages/plugins/advanced-classes/README.md#multiple-inheritance) for the exact scope.
 
 ```typescript
 sealed abstract class NetworkResult {

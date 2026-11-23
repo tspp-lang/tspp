@@ -257,7 +257,6 @@ test("an additional base must be a class the emitted program can copy", () => {
   const cases = {
     "it is not a class": "const Value = class {}; class C extends Root, Value {}",
     "it extends another class": "class Parent {} class Child extends Parent {} class C extends Root, Child {}",
-    "its constructor takes parameters": "class Takes { constructor(value: number) {} } class C extends Root, Takes {}",
     "it has a static private member": "class Hidden { static #count = 0; } class C extends Root, Hidden {}",
     "it has a private accessor": "class Hidden { get #value(): number { return 1; } } class C extends Root, Hidden {}",
     "it reads a private member through optional chaining": "class Hidden { #value = 1; read(other?: Hidden) { return other?.#value; } } class C extends Root, Hidden {}",
@@ -268,6 +267,9 @@ test("an additional base must be a class the emitted program can copy", () => {
     const result = compile(`class Root {} ${body}`);
     assert(result.messages.some(message => message.endsWith(`cannot be an additional base: ${problem}.`)), `${problem}: ${result.messages.join("\n")}`);
   }
+  assert.deepEqual(compile("class Root {} class Takes { constructor(value: number) {} } class C extends Root, Takes {}").messages, [
+    "Base 'Takes' requires constructor arguments; add a constructor with 'super({ Base: [...] })'.",
+  ]);
 });
 
 test("an additional base must be declared in a .tspp source file of this compilation", () => {

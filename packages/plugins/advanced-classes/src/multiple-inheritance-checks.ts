@@ -53,7 +53,23 @@ function findAdditionalBaseProblem(ts: TSPPTypeScript, declaration: TS.ClassDecl
 
     for (const member of declaration.members) {
         if (ts.canHaveDecorators(member) && ts.getDecorators(member)?.length) return "it has decorators";
-        if (ts.isConstructorDeclaration(member) && member.parameters.length) return "its constructor takes parameters";
+        if (member.name && ts.isComputedPropertyName(member.name)) return "it has a computed member name";
+        if (ts.isConstructorDeclaration(member) && member.body) {
+            let problem: string | undefined;
+            const visit = (node: TS.Node): void => {
+                if (node !== member && (ts.isClassLike(node) || ts.isFunctionLike(node) && !ts.isArrowFunction(node))) return;
+                if (ts.isIdentifier(node) && ts.idText(node) === "arguments" && !(ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) && !(ts.isPropertyAssignment(node.parent) && node.parent.name === node)) problem = "its constructor references arguments";
+                if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && ts.idText(node.expression) === "eval") problem = "its constructor calls direct eval";
+                if (ts.isReturnStatement(node) && node.expression) {
+                    let owner: TS.Node | undefined = node.parent;
+                    while (owner && !ts.isFunctionLike(owner)) owner = owner.parent;
+                    if (owner === member) problem = "its constructor returns a value";
+                }
+                ts.forEachChild(node, visit);
+            };
+            visit(member);
+            if (problem) return problem;
+        }
         if (member.name && ts.isPrivateIdentifier(member.name)) {
             if (isStatic(member)) return "it has a static private member";
             if (ts.isAccessor(member)) return "it has a private accessor";
@@ -130,7 +146,7 @@ export function findAdditionalBases(ts: TSPPTypeScript, multiple: MultipleInheri
     const users = new Set<string>();
     for (const declaration of collectMultipleBaseClasses(ts, multiple, program)) {
         users.add(sourceFileOf(declaration).fileName);
-        for (const base of multiple.getMultipleBases(declaration)!.bases.slice(1)) {
+        for (const base of multiple.getMultipleBases(declaration)!.bases.slice(multiple.getMultipleBases(declaration)!.mapped ? 0 : 1)) {
             const resolved = resolveAdditionalBase(ts, base, checker);
             if (resolved.declaration && !resolved.problem) targets.add(ts.getOriginalNode(resolved.declaration));
         }
@@ -174,16 +190,25 @@ export function checkMultipleBases(
             valid[index] = false;
             return;
         }
-        if (index === 0 || !symbol) {
+        if (index === 0 && !info.mapped || !symbol) {
             if (!symbol) valid[index] = false;
             return;
         }
         const resolved = resolveAdditionalBase(ts, base, checker);
         if (resolved.problem) {
-            report(base, DIAGNOSTIC_INVALID_ADDITIONAL_BASE, `'${text}' cannot be an additional base: ${resolved.problem}.`);
+            report(base, DIAGNOSTIC_INVALID_ADDITIONAL_BASE, `'${text}' cannot be ${info.mapped ? 'a mapped base' : 'an additional base'}: ${resolved.problem}.`);
             valid[index] = false;
         }
     });
+
+    if (!info.mapped) {
+        info.bases.slice(1).forEach(base => {
+            const signatures = checker.getSignaturesOfType(checker.getTypeAtLocation(base), ts.SignatureKind.Construct);
+            if (signatures.length && signatures.every(signature => (signature as TS.Signature & { minArgumentCount: number }).minArgumentCount > 0)) {
+                report(base, DIAGNOSTIC_INVALID_ADDITIONAL_BASE, `Base '${multiple.entityText(base)}' requires constructor arguments; add a constructor with 'super({ Base: [...] })'.`);
+            }
+        });
+    }
 
     // The same member from two bases is an error, even where this class declares it too.
     const ownType = checker.getDeclaredTypeOfSymbol(checker.getSymbolAtLocation(declaration.name!) ?? symbols[0]!);
