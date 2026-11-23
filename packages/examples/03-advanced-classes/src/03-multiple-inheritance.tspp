@@ -1,0 +1,127 @@
+// ============================================================================
+// 03-advanced-classes / 03-multiple-inheritance.tspp
+//
+// 多继承：`class C extends A, B, ...`
+//
+// 一个类可以列出多个基类。第一个基类是普通的父类，构造参数传给它，`super` 也指向它；
+// 之后的每个基类都会被“复制”到这条继承链上：
+//   - 复制品与原类共享私有字段（`#x`）、静态字段和 `instanceof` 判断，所以 `c instanceof B` 成立，
+//     B 的方法读取另一个 B 实例的 `#x` 也不会出错；
+//   - 两个基类提供同名成员时直接报错，即使子类自己也声明了这个成员；
+//   - 第二个及之后的基类必须是本次编译中某个 .tspp 文件顶层声明的类，不能有构造参数、
+//     不能继承别的类，也不能有静态私有成员。不满足这些条件的写法都会在编译期被拒绝。
+// ============================================================================
+// Multiple Inheritance: `class C extends A, B, ...`
+//
+// A class may list several bases. The first base is an ordinary parent: constructor arguments go to it, and `super`
+// refers to it. Every later base is copied onto the chain:
+//   - A copy shares the original's private fields (`#x`), static fields, and `instanceof`, so `c instanceof B` holds and
+//     a method of B can read `#x` of any other B;
+//   - The same member from two bases is a compile-time error, even when the class declares that member itself;
+//   - Every base after the first must be a class declared at the top level of a .tspp file of the same compilation,
+//     without constructor parameters, without a base of its own, and without static private members. The compiler
+//     rejects anything else.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 用多个基类组合行为
+// 1. Combining behavior from several bases
+// ----------------------------------------------------------------------------
+
+class Shape {
+  constructor(public readonly width: number, public readonly height: number) {}
+
+  area(): number {
+    return this.width * this.height;
+  }
+}
+
+// 额外基类：带私有状态与静态计数器
+// An additional base with private state and a static counter
+class Labeled {
+  static labeled = 0;
+  #label = "unnamed";
+
+  get label(): string {
+    return this.#label;
+  }
+
+  rename(label: string): this {
+    this.#label = label;
+    Labeled.labeled++;
+    return this;
+  }
+
+  hasSameLabel(other: Labeled): boolean {
+    return this.#label === other.#label;
+  }
+}
+
+// 额外基类：带抽象成员，子类必须实现
+// An additional base with an abstract member that the class must implement
+abstract class Describable {
+  abstract describe(): string;
+
+  print(): string {
+    return `<${this.describe()}>`;
+  }
+}
+
+class Panel extends Shape, Labeled, Describable {
+  describe(): string {
+    return `${this.label}: ${this.area()}`;
+  }
+}
+
+const panel = new Panel(3, 4).rename("door");
+const sticker = new Labeled().rename("door");
+
+// ----------------------------------------------------------------------------
+// 2. 编译期拒绝的写法
+// 2. What the compiler rejects
+// ----------------------------------------------------------------------------
+
+class Left {
+  side(): string {
+    return "left";
+  }
+}
+
+class Right {
+  side(): string {
+    return "right";
+  }
+}
+
+class Measured {
+  constructor(public readonly size: number) {}
+}
+
+// 1. 两个基类提供同名成员
+// 1. Two bases with a member of the same name
+// @ts-expect-error [TS19122] Member 'side' is inherited from both 'Left' and 'Right'.
+class Ambiguous extends Shape, Left, Right {}
+
+// 2. 额外基类不能有构造参数（放在函数里：被拒绝的基类不会生成工厂，运行到这里会抛出错误）
+// 2. An additional base cannot take constructor parameters (inside a function: a rejected base gets no factory, and
+//    reaching this class at run time throws)
+// @ts-expect-error [TS19121] 'Measured' cannot be an additional base: its constructor takes parameters.
+export function makeSized(): unknown { class Sized extends Shape, Measured {} return Sized; }
+
+// 3. 没有实现额外基类的抽象成员
+// 3. An abstract member of an additional base left unimplemented
+// @ts-expect-error [TS19123] Non-abstract class 'Silent' does not implement abstract member 'describe' inherited from 'Describable'.
+class Silent extends Shape, Describable {}
+
+export const rejected = [Ambiguous, Silent];
+
+console.log("[03-multiple-inheritance]", {
+  printed: panel.print(),
+  isShape: panel instanceof Shape,
+  isLabeled: panel instanceof Labeled,
+  isDescribable: panel instanceof Describable,
+  sharesPrivateState: sticker.hasSameLabel(panel),
+  renamed: Labeled.labeled,
+});

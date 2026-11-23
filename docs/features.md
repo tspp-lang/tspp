@@ -10,7 +10,7 @@ Features are opt-in and composable via `tsppconfig.json` (`compilerOptions.plugi
 
 | Feature Capsule | Package Name | Status | Key Capabilities | Example Project |
 | :--- | :--- | :--- | :--- | :--- |
-| [**Advanced Classes**](#1-advanced-classes) | `ts-plus-plus/plugins/advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods | [`03-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/03-advanced-classes) |
+| [**Advanced Classes**](#1-advanced-classes) | `ts-plus-plus/plugins/advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods, multiple inheritance | [`03-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/03-advanced-classes) |
 | [**Modern Syntax**](#2-modern-syntax) | `ts-plus-plus/plugins/modern-syntax` | Stable | `let ... in ...` expressions, `do { ... }` blocks, completion-valued bodies, `def` deep-readonly declarations, `use <-` trailing closures | [`01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax) |
 | [**Formal Verification**](#3-formal-verification) | `ts-plus-plus/plugins/formal-verification` | Stable | SMT/Z3 automated theorem proving, `requires`/`ensures` contracts, `assert:`/`assume:` proof points, `invariant:` loop and class invariants, refinement types | [`12-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/12-formal-verification) |
 | [**Nominal Types & ADTs**](#4-nominal-types--algebraic-data-types) | `ts-plus-plus/plugins/nominal-types` | Stable | Zero-cost `newtype` nominal abstractions, tagged union `data` declarations, exhaustive pattern `match` expressions with guards | [`05-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-nominal-types), [`06-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/06-newtype-consumer) |
@@ -38,6 +38,7 @@ Features are opt-in and composable via `tsppconfig.json` (`compilerOptions.plugi
 * **`with` Expressions**: Non-destructive copy expression for data classes and objects (`with(point, { x: 10 })`).
 * **`sealed class`**: Closed type hierarchies restricted to inheritance within the declaring file, enabling full Algebraic Data Types (ADTs) when combined with `object` and `data class`.
 * **`final class` & `final` Methods**: Compile-time prevention of subclassing and method overrides.
+* **Multiple Inheritance**: `class C extends A, B` inherits from every base. Later bases are copied onto the prototype chain and share private fields, static fields, and `instanceof` with the original; a member provided by two bases is a compile-time error.
 
 ```typescript
 sealed abstract class NetworkResult {

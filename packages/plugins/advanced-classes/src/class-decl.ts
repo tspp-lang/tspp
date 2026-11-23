@@ -7,8 +7,10 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
+import { parseHeritageTypes } from "./heritage";
 import { parseClassBodyMembers } from "./member-parser";
 import { recordModifierError } from "./diagnostics";
+import type { LoweredBases, MultipleInheritance } from "./multiple-inheritance";
 
 export interface DataClassProperty {
     name: string;
@@ -26,7 +28,7 @@ export interface AdvancedClassInfo {
     readonly prefix: string;
 }
 
-export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
+export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: MultipleInheritance): {
     extension: TSPPSyntaxExtension;
     getClassInfo: (declaration: TS.Node) => AdvancedClassInfo | undefined;
 } {
@@ -67,6 +69,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
             });
         }
         if (cursor.token() === kinds.ClassKeyword) {
+            if (cursor.lookAhead(() => multiple.hasMultipleBases(cursor))) return true;
             return cursor.lookAhead(() => {
                 cursor.nextToken(); // consume 'class'
                 if (cursor.token() === kinds.Identifier) cursor.nextToken();
@@ -84,31 +87,36 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
                 while (cursor.token() !== kinds.OpenBraceToken && cursor.token() !== kinds.EndOfFileToken) {
                     cursor.nextToken();
                 }
-                if (cursor.token() !== kinds.OpenBraceToken) return false;
-                cursor.nextToken();
-                let depth = 1;
-                while (depth > 0 && cursor.token() !== kinds.EndOfFileToken) {
-                    if (depth === 1 && (cursor.tokenText() === "field" || cursor.tokenText() === "final")) {
-                        const isModifier = cursor.lookAhead(() => {
-                            cursor.nextToken();
-                            const next = cursor.token();
-                            return next === kinds.Identifier || next === kinds.StringLiteral || next === kinds.NumericLiteral;
-                        });
-                        if (isModifier) return true;
-                    } else if (depth > 1 && cursor.tokenText() === "field") {
-                        return true;
-                    }
-                    if (cursor.token() === kinds.OpenBraceToken) depth++;
-                    else if (cursor.token() === kinds.CloseBraceToken) depth--;
-                    cursor.nextToken();
-                }
-                return false;
+                return hasMemberSyntax(cursor);
             });
         }
         return false;
     }
 
-    function parseAdvancedClass(cursor: TSPPSyntaxCursor): TS.Statement {
+    /** Whether the class body at `{` holds `field` or `final` members, which only this plugin's member parser reads. */
+    function hasMemberSyntax(cursor: TSPPSyntaxCursor): boolean {
+        if (cursor.token() !== kinds.OpenBraceToken) return false;
+        cursor.nextToken();
+        let depth = 1;
+        while (depth > 0 && cursor.token() !== kinds.EndOfFileToken) {
+            if (depth === 1 && (cursor.tokenText() === "field" || cursor.tokenText() === "final")) {
+                const isModifier = cursor.lookAhead(() => {
+                    cursor.nextToken();
+                    const next = cursor.token();
+                    return next === kinds.Identifier || next === kinds.StringLiteral || next === kinds.NumericLiteral;
+                });
+                if (isModifier) return true;
+            } else if (depth > 1 && cursor.tokenText() === "field") {
+                return true;
+            }
+            if (cursor.token() === kinds.OpenBraceToken) depth++;
+            else if (cursor.token() === kinds.CloseBraceToken) depth--;
+            cursor.nextToken();
+        }
+        return false;
+    }
+
+    function parseAdvancedClass(cursor: TSPPSyntaxCursor): TS.Statement | TS.Statement[] {
         const startPos = cursor.getTokenStart();
         const f = cursor.factory;
         const outerModifiers = cursor.modifiers ? [...cursor.modifiers] : [];
@@ -234,48 +242,26 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         // Heritage clauses: extends, implements
         const heritageClauses: TS.HeritageClause[] = [];
         let extendsBaseName: string | undefined;
+        let lowered: LoweredBases | undefined;
+        let bases: TS.Expression[] = [];
 
         if (cursor.token() === kinds.ExtendsKeyword) {
             const clauseStart = cursor.getTokenStart();
-            cursor.nextToken();
-            const types: TS.ExpressionWithTypeArguments[] = [];
-            while (cursor.token() !== kinds.OpenBraceToken && cursor.token() !== kinds.ImplementsKeyword && cursor.token() !== kinds.EndOfFileToken && !cursor.hasPrecedingLineBreak()) {
-                const exprStart = cursor.getTokenStart();
-                const expr = cursor.parseExpression();
-                if (ts.isIdentifier(expr)) extendsBaseName = ts.idText(expr);
-                let typeArgs: TS.NodeArray<TS.TypeNode> | undefined;
-                if (cursor.token() === kinds.LessThanToken) {
-                    typeArgs = cursor.parseTypeArguments();
-                }
-                const exprWithTypeArgs = f.createExpressionWithTypeArguments(expr, typeArgs);
-                ts.setTextRange(exprWithTypeArgs, { pos: exprStart, end: cursor.getNodePos() });
-                types.push(exprWithTypeArgs);
-                if (cursor.token() === kinds.CommaToken) cursor.nextToken();
-                else break;
+            const types = parseHeritageTypes(ts, cursor);
+            const first = types[0]?.expression;
+            if (first && ts.isIdentifier(first)) extendsBaseName = ts.idText(first);
+            if (types.length > 1 && multiple.checkBases(cursor, nameNode, types)) {
+                lowered = multiple.lowerBases(cursor, nameNode, typeParameters, types, outerModifiers);
+                bases = types.map(type => type.expression);
             }
-            const clause = f.createHeritageClause(kinds.ExtendsKeyword, f.createNodeArray(types));
+            const clause = f.createHeritageClause(kinds.ExtendsKeyword, f.createNodeArray(lowered ? [lowered.heritage] : types.slice(0, 1)));
             ts.setTextRange(clause, { pos: clauseStart, end: cursor.getNodePos() });
             heritageClauses.push(clause);
         }
 
         if (cursor.token() === kinds.ImplementsKeyword) {
             const clauseStart = cursor.getTokenStart();
-            cursor.nextToken();
-            const types: TS.ExpressionWithTypeArguments[] = [];
-            while (cursor.token() !== kinds.OpenBraceToken && cursor.token() !== kinds.EndOfFileToken && !cursor.hasPrecedingLineBreak()) {
-                const exprStart = cursor.getTokenStart();
-                const expr = cursor.parseExpression();
-                let typeArgs: TS.NodeArray<TS.TypeNode> | undefined;
-                if (cursor.token() === kinds.LessThanToken) {
-                    typeArgs = cursor.parseTypeArguments();
-                }
-                const exprWithTypeArgs = f.createExpressionWithTypeArguments(expr, typeArgs);
-                ts.setTextRange(exprWithTypeArgs, { pos: exprStart, end: cursor.getNodePos() });
-                types.push(exprWithTypeArgs);
-                if (cursor.token() === kinds.CommaToken) cursor.nextToken();
-                else break;
-            }
-            const clause = f.createHeritageClause(kinds.ImplementsKeyword, f.createNodeArray(types));
+            const clause = f.createHeritageClause(kinds.ImplementsKeyword, f.createNodeArray(parseHeritageTypes(ts, cursor)));
             ts.setTextRange(clause, { pos: clauseStart, end: cursor.getNodePos() });
             heritageClauses.push(clause);
         }
@@ -284,7 +270,12 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         let userMembers: TS.ClassElement[] = [];
         let finalMethods = new Set<string>();
 
-        if (cursor.token() === kinds.OpenBraceToken) {
+        if (cursor.token() === kinds.OpenBraceToken && lowered && !cursor.lookAhead(() => hasMemberSyntax(cursor))) {
+            // An ordinary body: the upstream parser reads every kind of member.
+            cursor.parseExpected(kinds.OpenBraceToken);
+            userMembers = [...cursor.parseClassMembers()];
+            cursor.parseExpected(kinds.CloseBraceToken);
+        } else if (cursor.token() === kinds.OpenBraceToken) {
             const parsed = parseClassBodyMembers(ts, cursor);
             userMembers = parsed.members;
             finalMethods = parsed.finalMethods;
@@ -476,7 +467,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         }
 
         const allMembers = [...synthesizedMembers, ...userMembers];
-        const classModifiers = [...outerModifiers];
+        const classModifiers = lowered ? [...lowered.classModifiers] : [...outerModifiers];
         if (isAbstract) classModifiers.push(f.createModifier(kinds.AbstractKeyword));
 
         const classDeclaration = range(
@@ -502,7 +493,12 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         });
 
         const after = cursor.getTokenStart();
-        return markGenerated(ts, classDeclaration, after, { pos: startPos, end: endPos });
+        const statement = markGenerated(ts, classDeclaration, after, { pos: startPos, end: endPos });
+        if (!lowered) return statement;
+        multiple.register(classDeclaration, bases, isAbstract, endPos);
+        // The interface and the default export sit without width at the end of the class: services and the formatter walk
+        // statements in order, so a statement after the class must not hold any of its text.
+        return [statement, ...lowered.after.map(node => markGenerated(ts, node, endPos))];
     }
 
     const extension: TSPPSyntaxExtension = {
@@ -511,6 +507,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript): {
         keywords: ["final", "sealed"],
         isStart: isAdvancedClassStart,
         parse: parseAdvancedClass,
+        isSourceCopy: multiple.isSourceCopy,
         // The declaration prints as ordinary output, which holds everything else, and this writes back what it lowered away.
         restoreDeclaration(node, printNested) {
             const authored = getClassInfo(node);

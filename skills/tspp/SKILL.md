@@ -23,7 +23,7 @@ Use the task's syntax and enabled plugins to select capsule entries below, then 
 
 | Plugin | When to read | Entry |
 | --- | --- | --- |
-| `ts-plus-plus/plugins/advanced-classes` | Write or troubleshoot TS++ data classes, singletons, sealed hierarchies, final members, and field accessors. | [advanced-classes](references/advanced-classes/SKILL.md) |
+| `ts-plus-plus/plugins/advanced-classes` | Write or troubleshoot TS++ data classes, singletons, sealed hierarchies, final members, field accessors, and multiple inheritance. | [advanced-classes](references/advanced-classes/SKILL.md) |
 | `ts-plus-plus/plugins/algebraic-effects` | Write or troubleshoot TS++ effect declarations, perform expressions, handlers, and suspend continuations. | [algebraic-effects](references/algebraic-effects/SKILL.md) |
 | `ts-plus-plus/plugins/formal-verification` | Write or troubleshoot TS++ formal proofs, function contracts, loop and class invariants, and refinement types. | [formal-verification](references/formal-verification/SKILL.md) |
 | `ts-plus-plus/plugins/macros` | Write or troubleshoot TS++ compile-time macros, AST generation, asynchronous expansion, and execution timeouts. | [macros](references/macros/SKILL.md) |

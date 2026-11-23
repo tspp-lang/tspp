@@ -29,3 +29,28 @@ test("formatting restores the indentation of fields and their accessors", () => 
 test("formatting tidies the spaces of fields and their accessors", () => {
   assert.equal(formatDocument(withDoubledSpaces(formatted)), formatted);
 });
+
+const severalBases = `class Point {
+    constructor(public x: number) { }
+}
+
+class Named {
+    #label = "unnamed";
+    get label(): string {
+        return this.#label;
+    }
+}
+
+/** A named point. */
+export class Landmark extends Point, Named {
+    describe(): string {
+        return this.label + "@" + this.x;
+    }
+}
+`;
+
+test("formatting lays out a class with several bases like any other class", () => {
+  assert.equal(formatDocument(severalBases), severalBases);
+  assert.equal(formatDocument(withoutIndentation(severalBases)), severalBases);
+  assert.equal(formatDocument(withDoubledSpaces(severalBases)), severalBases);
+});
