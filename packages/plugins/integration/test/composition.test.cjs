@@ -53,6 +53,37 @@ test("modern-syntax and nominal-types: a match in a use continuation", () => {
   assert.equal(r, 5);
 });
 
+test("modern-syntax and advanced-classes: a final class without final members reads every kind of member", () => {
+  const { r } = run(`
+    function tagged(method: (this: Counter) => number, _context: ClassMethodDecoratorContext): typeof method { return method; }
+    export final class Counter {
+      constructor(readonly start: number) {}
+      next(): number do { this.start + 1; }
+      get doubled(): number do { this.start * 2; }
+      *up() { yield this.start; }
+      @tagged label(): number { return this.start; }
+    }
+    const counter = new Counter(2);
+    export const r = [counter.next(), counter.doubled, [...counter.up()], counter.label()];`);
+  assert.deepEqual(r, [3, 4, [2], 2]);
+});
+
+test("modern-syntax and advanced-classes: a class with final members reads do bodies, generators, and async methods", async () => {
+  const { r, later } = run(`
+    export final class Counter {
+      constructor(readonly start: number) {}
+      final next(): number do { this.start + 1; }
+      get doubled(): number do { this.start * 2; }
+      *up() { yield this.start; }
+      async later(): Promise<number> { return await Promise.resolve(this.start); }
+    }
+    const counter = new Counter(2);
+    export const r = [counter.next(), counter.doubled, [...counter.up()]];
+    export const later = counter.later();`);
+  assert.deepEqual(r, [3, 4, [2]]);
+  assert.equal(await later, 2);
+});
+
 function runChecked(source) {
   const { program, outputs, messages } = compile(source);
   if (messages.length) return { messages, exports: {} };

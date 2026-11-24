@@ -274,7 +274,7 @@ export function createAdvancedClassDeclarations(ts: TSPPTypeScript, multiple: Mu
         let userMembers: TS.ClassElement[] = [];
         let finalMethods = new Set<string>();
 
-        if (cursor.token() === kinds.OpenBraceToken && lowered && !cursor.lookAhead(() => hasMemberSyntax(cursor))) {
+        if (cursor.token() === kinds.OpenBraceToken && !cursor.lookAhead(() => hasMemberSyntax(cursor))) {
             // An ordinary body: the upstream parser reads every kind of member.
             cursor.parseExpected(kinds.OpenBraceToken);
             userMembers = [...cursor.parseClassMembers()];
