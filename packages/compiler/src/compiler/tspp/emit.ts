@@ -28,16 +28,39 @@ import {
     getPreprocessedFunctionPrefix,
     getTSPPRestoredFunctionClause,
     isTSPPFileName,
+    startRecordingRestoringPlugins,
+    stopRecordingRestoringPlugins,
     tsppDeclarationPluginsHeader,
 } from "./registry.js";
 
 // Declaration output of TS++ files (`TSPP-SLOT(declaration-output)` sites): a `.d.tspp` declaration that keeps plugin
 // syntax, and beside it a TypeScript-compatible `.d.ts` printed from the same declaration transform.
 
-/** The header of a `.d.tspp` file written with the plugins active now, or undefined for any other file. @internal */
-export function getTSPPDeclarationHeader(filePath: string): string | undefined {
+function formatDeclarationHeader(plugins: readonly string[]): string {
+    return plugins.length ? `${tsppDeclarationPluginsHeader} ${plugins.join(",")}` : tsppDeclarationPluginsHeader;
+}
+
+/**
+ * The provisional header of a `.d.tspp` file, naming every active plugin, or undefined for any other file. The header
+ * is written before the file prints, and `finishTSPPDeclarationHeader` narrows it to the plugins whose syntax it holds.
+ * @internal
+ */
+export function startTSPPDeclarationHeader(filePath: string): string | undefined {
     const plugins = getActiveTSPPPlugins().map(plugin => plugin.manifest.id).sort();
-    return fileExtensionIs(filePath, ".d.tspp") && plugins.length ? tsppDeclarationPluginsHeader + plugins.join(",") : undefined;
+    if (!fileExtensionIs(filePath, ".d.tspp") || !plugins.length) return undefined;
+    startRecordingRestoringPlugins();
+    return formatDeclarationHeader(plugins);
+}
+
+/**
+ * The printed `.d.tspp` text with its first line, the provisional `header`, naming only the plugins that restored syntax
+ * in it, and how far that moved later text. A file that needs no plugin keeps the line, so line-based maps stay valid.
+ * @internal
+ */
+export function finishTSPPDeclarationHeader(text: string, header: string): { readonly text: string; readonly shift: number; } {
+    const narrowed = formatDeclarationHeader(stopRecordingRestoringPlugins());
+    if (!text.startsWith(header)) return { text, shift: 0 };
+    return { text: narrowed + text.slice(header.length), shift: narrowed.length - header.length };
 }
 
 /** Whether the compatible `.d.ts` beside a `.d.tspp` declaration file is blocked from being written. @internal */

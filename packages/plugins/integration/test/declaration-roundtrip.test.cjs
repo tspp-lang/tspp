@@ -106,3 +106,18 @@ test("compatibility declarations are plain TypeScript that upstream TypeScript c
     .map(diagnostic => upstream.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
   assert.deepEqual(messages, [], typescript);
 });
+
+test("each .d.tspp header names only the plugins whose syntax that file holds", () => {
+  const { program, outputs } = createProgram({
+    "/lib/data.tspp": "export data Flag = On | Off;",
+    "/lib/statics.tspp": "export interface Parser { static parse(text: string): number; }",
+    "/lib/plain.tspp": "export const answer: number = 42;\nexport * from \"./data\";",
+  }, { declaration: true, emitDeclarationOnly: true });
+  assert.deepEqual(diagnosticMessages(program), []);
+  program.emit();
+  const header = name => outputs.get(`/lib/${name}.d.tspp`).split(/\r?\n/)[0];
+  assert.equal(header("data"), "// @tspp-plugins nominal-types");
+  // The upstream printer keeps static interface members; only the compatible output leaves them out.
+  assert.equal(header("statics"), "// @tspp-plugins static-interface-members");
+  assert.equal(header("plain"), "// @tspp-plugins");
+});

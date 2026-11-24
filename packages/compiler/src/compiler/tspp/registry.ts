@@ -429,6 +429,17 @@ function printNestedDeclaration(container: Node, nested: Node): string {
  * @internal
  */
 export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean): string | undefined {
+    const restored = restoreDeclaration(node, !!compatibility);
+    if (compatibility || !restoringPlugins) return restored?.text;
+    // A `.d.tspp` file needs a plugin wherever its output differs from the compatible `.d.ts`: where the plugin restores
+    // the node here, even as nothing, or where it writes the node otherwise there, as a plugin whose syntax the upstream
+    // printer keeps does.
+    const different = restored ?? restoreDeclaration(node, /*compatibility*/ true);
+    if (different) restoringPlugins.add(different.pluginId);
+    return restored?.text;
+}
+
+function restoreDeclaration(node: Node, compatibility: boolean): { readonly text: string; readonly pluginId: string; } | undefined {
     const clauseOwner = compatibility ? clauseOwners.get(ts.getOriginalNode(node)) : undefined;
     const owner = clauseOwner ?? syntaxOwners.get(ts.getOriginalNode(node));
     const printNested = (nested: Node) => printNestedDeclaration(node, nested);
@@ -444,7 +455,7 @@ export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean):
             answeredBy = pluginId;
         }
     }
-    return restored;
+    return answeredBy === undefined ? undefined : { text: restored!, pluginId: answeredBy };
 }
 
 /** The text of a clause plugin syntax parsed after a function's parameters, for `.d.tspp` output. @internal */
@@ -454,7 +465,7 @@ export function getTSPPRestoredFunctionClause(node: Node): string | undefined {
     for (const { pluginId, extension } of [...syntaxExtensions.get("function-clause") ?? [], ...syntaxExtensions.get("header-clause") ?? []]) {
         if (pluginId !== owner) continue;
         const text = extension.restoreFunctionClause?.(node as never);
-        if (text) return text;
+        if (text) return recordRestoringPlugin(pluginId, text);
     }
     return undefined;
 }
@@ -578,11 +589,34 @@ export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
     return true;
 }
 
-/** The first line of a `.d.tspp` file: the plugins of the project that wrote it, which a reader must have to read it. @internal */
-export const tsppDeclarationPluginsHeader = "// @tspp-plugins ";
+/**
+ * The first line of a `.d.tspp` file, followed by the plugins whose syntax the file holds, which a reader must have to
+ * read it: `// @tspp-plugins a,b`. Alone, it says the file needs none. @internal
+ */
+export const tsppDeclarationPluginsHeader = "// @tspp-plugins";
+
+/** The plugins that restored syntax since `startRecordingRestoringPlugins`, while a `.d.tspp` file prints. */
+let restoringPlugins: Set<string> | undefined;
+
+/** Starts collecting the plugins that restore syntax, for the header of the `.d.tspp` file about to print. @internal */
+export function startRecordingRestoringPlugins(): void {
+    restoringPlugins = new Set();
+}
+
+/** The plugins that restored syntax since recording started, sorted; recording stops. @internal */
+export function stopRecordingRestoringPlugins(): readonly string[] {
+    const plugins = [...restoringPlugins ?? []].sort();
+    restoringPlugins = undefined;
+    return plugins;
+}
+
+function recordRestoringPlugin(pluginId: string, text: string): string {
+    restoringPlugins?.add(pluginId);
+    return text;
+}
 
 /**
- * The file to read in place of a `.d.tspp` file written with plugins that are not all active: its compatible `.d.ts`. By
+ * The file to read in place of a `.d.tspp` file that holds syntax of plugins not all active: its compatible `.d.ts`. By
  * design a project reads declarations of plugins it lacks as what they lower to, so a type TypeScript cannot express
  * arrives as that output's `unknown`. Undefined when the file itself is to be read, including one without a header.
  * @internal
@@ -590,8 +624,10 @@ export const tsppDeclarationPluginsHeader = "// @tspp-plugins ";
 export function getTSPPReadableDeclaration(fileName: string, host: { fileExists(fileName: string): boolean; readFile(fileName: string): string | undefined; }): string | undefined {
     if (!fileName.endsWith(".d.tspp")) return undefined;
     const text = host.readFile(fileName);
-    if (!text?.startsWith(tsppDeclarationPluginsHeader)) return undefined;
-    const required = text.slice(tsppDeclarationPluginsHeader.length, text.search(/\r?\n/)).split(",");
+    if (text === undefined) return undefined;
+    const firstLine = text.slice(0, text.search(/\r?\n|$/));
+    if (firstLine !== tsppDeclarationPluginsHeader && !firstLine.startsWith(`${tsppDeclarationPluginsHeader} `)) return undefined;
+    const required = firstLine.slice(tsppDeclarationPluginsHeader.length).trim().split(",").filter(Boolean);
     if (required.every(id => activePlugins.some(plugin => plugin.manifest.id === id))) return undefined;
     const compatible = getTSPPCompatibilityDeclarationFilePath(fileName)!;
     return host.fileExists(compatible) ? compatible : undefined;
@@ -1008,14 +1044,14 @@ export function getPreprocessedFunctionPrefix(
 ): string | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
+    for (const { pluginId, preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreFunctionPrefix?.({
             fileName,
             sourceText: entry.original,
             name,
             declarationStart,
         });
-        if (restored) return restored;
+        if (restored) return recordRestoringPlugin(pluginId, restored);
     }
     return undefined;
 }
@@ -1028,14 +1064,14 @@ export function getPreprocessedFunctionClause(
 ): string | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
+    for (const { pluginId, preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreFunctionClause?.({
             fileName,
             sourceText: entry.original,
             name,
             declarationStart,
         });
-        if (restored) return restored;
+        if (restored) return recordRestoringPlugin(pluginId, restored);
     }
     return undefined;
 }

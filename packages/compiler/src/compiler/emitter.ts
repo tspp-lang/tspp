@@ -428,12 +428,13 @@ import {
     emitTSPPCompatibilityDeclaration,
     emitTSPPRestoredFunctionClause,
     emitTSPPRestoredFunctionPrefix,
+    finishTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
     getTSPPCompatibilityImportTypeArgument,
     getTSPPCompatibilityModuleSpecifier,
-    getTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
     isTSPPCommentOutsideContainer, // TSPP-SLOT(syntax-extension)
     isTSPPCompatibilityDeclarationBlocked,
     isTSPPGeneratedForPrinting, // TSPP-SLOT(syntax-extension)
+    startTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
 } from "./tspp/emit.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPCompatibilityDeclarationFilePath } from "./tspp/files.js"; // TSPP-SLOT(declaration-output)
 import { getTSPPRestoredDeclaration } from "./tspp/registry.js"; // TSPP-SLOT(syntax-extension)
@@ -1024,7 +1025,7 @@ export function emitFiles(
             );
         }
 
-        const tsppDeclarationHeader = getTSPPDeclarationHeader(jsFilePath); // TSPP-SLOT(declaration-output)
+        const tsppDeclarationHeader = startTSPPDeclarationHeader(jsFilePath); // TSPP-SLOT(declaration-output)
         if (tsppDeclarationHeader) {
             writer.writeComment(tsppDeclarationHeader);
             writer.writeLine();
@@ -1070,7 +1071,12 @@ export function emitFiles(
         }
 
         // Write the output file
-        const text = writer.getText();
+        let text = writer.getText();
+        if (tsppDeclarationHeader) { // TSPP-SLOT(declaration-output)
+            const finished = finishTSPPDeclarationHeader(text, tsppDeclarationHeader); // TSPP-SLOT(declaration-output)
+            text = finished.text; // TSPP-SLOT(declaration-output)
+            if (sourceMapUrlPos !== undefined) sourceMapUrlPos += finished.shift; // TSPP-SLOT(declaration-output)
+        } // TSPP-SLOT(declaration-output)
         const data: WriteFileCallbackData = { sourceMapUrlPos, diagnostics: transform.diagnostics };
         writeFile(host, emitterDiagnostics, jsFilePath, text, !!compilerOptions.emitBOM, sourceFiles, data);
 
