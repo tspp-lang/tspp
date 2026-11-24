@@ -323,6 +323,17 @@ test("guards, or-patterns, and nested patterns lower after binding fields", () =
   assert.doesNotMatch(nested, /match envelope/);
 });
 
+test("an underscore field pattern ignores its field and may repeat", () => {
+  const source = `
+    data Shape = Rect(width: number, height: number, label: string) | Dot;
+    const shape: Shape = Rect(2, 3, "r");
+    const area = match shape { Rect(width, _, _) => width, Dot => 0 };
+    const rect = match shape { Rect(_, _, _) => 1, Dot => 0 };`;
+  assert.deepEqual(messagesOf(source), []);
+  const javascript = javascriptOf(source);
+  assert.doesNotMatch(javascript, /\(_\b|, _\b/);
+});
+
 test("feature-rich declarations keep newtype and data syntax", () => {
   const { program, outputs } = createProgram(`
     export newtype UserId = number;

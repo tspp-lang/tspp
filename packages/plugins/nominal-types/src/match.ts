@@ -184,7 +184,8 @@ export function createValueMatches(ts: TSPPTypeScript, getClaimedExpressions: ()
             pattern.elements.flatMap((element, index) => {
                 const field = () => fieldOf(read(), index);
                 switch (element.kind) {
-                    case "binding": return [{ name: element.name, read: field, path: [...path, index] }];
+                    // `_` ignores a field, so it may appear more than once in a pattern.
+                    case "binding": return ts.idText(element.name) === "_" ? [] : [{ name: element.name, read: field, path: [...path, index] }];
                     case "nested": return bindings(element.pattern, field, [...path, index]);
                 }
             });
