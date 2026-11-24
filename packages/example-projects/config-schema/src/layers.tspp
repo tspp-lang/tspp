@@ -1,0 +1,143 @@
+import { type Decoded, formatPath, Invalid, Issue, type PathSegment, Valid, valueOrThrow } from "./issues.js";
+import { type Field, type Schema, type Structure } from "./schema.js";
+
+/**
+ * Configuration values from one place, such as defaults, a file, or the environment. Later layers override earlier
+ * ones key by key. `origins` names where individual values came from, keyed by `formatPath`; `name` covers the rest.
+ */
+export interface Layer {
+  readonly name: string;
+  readonly values: unknown;
+  readonly origins?: ReadonlyMap<string, string>;
+}
+
+export function layer(name: string, values: unknown): Layer do {
+  ({ name, values });
+}
+
+function isPlainObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** The merged values of `layers` and where each value came from, keyed by `formatPath`. */
+export interface Merged {
+  readonly values: unknown;
+  readonly origins: ReadonlyMap<string, string>;
+}
+
+/** Merges objects key by key; any other value, arrays included, replaces what earlier layers had at its path. */
+export function mergeLayers(layers: readonly (Layer | undefined)[]): Merged {
+  const origins = new Map<string, string>();
+  let values: unknown = undefined;
+  for (const current of layers) {
+    if (current === undefined || current.values === undefined) continue;
+    values = merge(values, current.values, [], current, origins);
+  }
+  return { values, origins };
+}
+
+function merge(target: unknown, source: unknown, path: readonly PathSegment[], from: Layer, origins: Map<string, string>): unknown {
+  const key = formatPath(path);
+  origins.set(key, from.origins?.get(key) ?? from.name);
+  if (!isPlainObject(source)) return source;
+  const result: Record<string, unknown> = isPlainObject(target) ? { ...target } : {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value !== undefined) result[name] = merge(result[name], value, [...path, name], from, origins);
+  }
+  return result;
+}
+
+/** Decodes the merged layers, naming the layer of each rejected value that one layer provided. */
+export function loadConfig<T>(schema: Schema<T>, layers: readonly (Layer | undefined)[]): Decoded<T> {
+  const { values, origins } = mergeLayers(layers);
+  return match schema.decode(values) {
+    Valid(value) => Valid(value),
+    // A missing key has no value, so it has no origin; its parent's layer may not be the one that should provide it.
+    Invalid(issues) => Invalid(issues.map(item => item.message === "missing required key"
+      ? item
+      : new Issue(item.path, item.message, item.source ?? origins.get(formatPath(item.path))))),
+  };
+}
+
+/** `loadConfig`, throwing a `ConfigError` that lists every issue. */
+export function loadConfigOrThrow<T>(schema: Schema<T>, layers: readonly (Layer | undefined)[]): T do {
+  valueOrThrow(loadConfig(schema, layers));
+}
+
+export interface EnvironmentOptions {
+  /** Only variables starting with this prefix are read, such as `APP_`. */
+  readonly prefix: string;
+  /** Separates nested keys, as in `APP_SERVER__PORT`; `__` by default. */
+  readonly separator?: string;
+  readonly name?: string;
+}
+
+/**
+ * Reads variables such as `APP_SERVER__MAX_CONNECTIONS=20` into `{ server: { maxConnections: 20 } }`. Each part
+ * selects the key of the schema whose letters and digits match it regardless of case, and the schema at that path
+ * converts the text, so that `20` is a number only where a number is expected. Parts that match no key become
+ * camel-case keys, which an object schema then reports as unknown.
+ */
+export function environmentLayer(
+  schema: Schema<unknown>,
+  environment: Readonly<Record<string, string | undefined>>,
+  options: EnvironmentOptions,
+): Layer {
+  const separator = options.separator ?? "__";
+  if (!options.prefix || !separator) throw new Error("Environment variables need a nonempty prefix and separator");
+  const values: Record<string, unknown> = {};
+  const origins = new Map<string, string>();
+  for (const [variable, text] of Object.entries(environment).sort(([left], [right]) => left.localeCompare(right))) {
+    if (text === undefined || !variable.startsWith(options.prefix) || variable.length === options.prefix.length) continue;
+    const parts = variable.slice(options.prefix.length).split(separator);
+    if (parts.some(part => !part)) continue;
+    const { path, target } = resolvePath(schema, parts);
+    assign(values, path, target ? target.readText(text) : text);
+    origins.set(formatPath(path), variable);
+  }
+  return { name: options.name ?? "environment", values, origins };
+}
+
+const normalize = (text: string) => text.replace(/[^A-Za-z0-9]/gu, "").toLowerCase();
+const camelCase = (part: string) => part.toLowerCase().replace(/_+([a-z0-9])/gu, (_, letter: string) => letter.toUpperCase());
+
+function resolvePath(schema: Schema<unknown>, parts: readonly string[]): { path: PathSegment[]; target: Schema<unknown> | undefined } {
+  const path: PathSegment[] = [];
+  let target: Schema<unknown> | undefined = schema;
+  for (const part of parts) {
+    const step: { segment: PathSegment; schema: Schema<unknown> } | undefined = target && childOf(target.structure, part);
+    path.push(step?.segment ?? (/^\d+$/u.test(part) ? Number(part) : camelCase(part)));
+    target = step?.schema;
+  }
+  return { path, target };
+}
+
+function childOf(structure: Structure, part: string): { segment: PathSegment; schema: Schema<unknown> } | undefined do {
+  match structure {
+    Fields(fields, _) => do {
+      const field: Field | undefined = fields.find(candidate => normalize(candidate.key) === normalize(part));
+      field && { segment: field.key, schema: field.schema };
+    },
+    Elements(element) => /^\d+$/u.test(part) ? { segment: Number(part), schema: element } : undefined,
+    Entries(value) => ({ segment: camelCase(part), schema: value }),
+    // The first alternative that has the key decides, as there is no value yet to choose one.
+    Alternatives(options) => options.map(option => childOf(option.structure, part)).find(step => step !== undefined),
+    Scalar => undefined,
+  };
+}
+
+function assign(root: Record<string, unknown>, path: readonly PathSegment[], value: unknown): void {
+  let current: Record<string, unknown> | unknown[] = root;
+  path.forEach((segment, index) => {
+    const container = current as Record<PathSegment, unknown>;
+    if (index === path.length - 1) {
+      container[segment] = value;
+      return;
+    }
+    const next = container[segment];
+    // A variable for a nested key wins over a variable that set the whole parent as text.
+    current = (typeof next === "object" && next !== null ? next : container[segment] = typeof path[index + 1] === "number" ? [] : {}) as Record<string, unknown> | unknown[];
+  });
+}

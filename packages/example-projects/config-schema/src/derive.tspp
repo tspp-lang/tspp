@@ -1,0 +1,199 @@
+import type {
+  MacroContext,
+  MacroDeclarationSyntax,
+  MacroNode,
+  MacroPropertySyntax,
+  MacroReturn,
+  MacroStatement,
+  MacroTarget,
+  MacroTypeSyntax,
+} from "ts-plus-plus/plugins/macros/sdk";
+
+/** The package that generated code imports its schemas from. */
+const library = "@tspp/config-schema";
+
+/** A type that `deriveSchema` cannot describe, with the property path that leads to it. */
+class DeriveError extends Error {}
+
+/**
+ * Builds the schema expression for one target. Generated code names the library through imports of its own, under
+ * aliases such as `AppConfig$object`, so it needs no imports from the file that invokes the macro.
+ */
+class Generator {
+  private readonly used = new Set<string>();
+
+  constructor(private readonly context: MacroContext, private readonly prefix: string) {}
+
+  get imports(): MacroStatement {
+    const names = [...this.used, "Schema"].sort();
+    return this.context.factory.createImportStatement(library, names.map(name => ({ name, alias: this.alias(name) })));
+  }
+
+  alias(name: string): string do {
+    `${this.prefix}$${name}`;
+  }
+
+  /** A call of the library function `name`. */
+  call(name: string, args: readonly MacroNode[]): MacroNode {
+    this.used.add(name);
+    return this.context.factory.createCallExpression(this.context.factory.createIdentifier(this.alias(name)), undefined, args);
+  }
+
+  declaration(description: MacroDeclarationSyntax, where: string): MacroNode {
+    if (description.typeParameters.length) throw new DeriveError(`${where}: generic types have no single schema`);
+    switch (description.kind) {
+      case "interface":
+        return this.object(this.members(description, where, [description.name]), where, [description.name]);
+      case "type-alias":
+        return this.type(description.type, where, [description.name]);
+      case "class":
+        return this.call("of", [this.reference(description.name)]);
+    }
+  }
+
+  /** The properties of an interface and its bases; a property of the interface replaces a base property of the same name. */
+  members(description: MacroDeclarationSyntax & { readonly kind: "interface" }, where: string, seen: readonly string[]): MacroPropertySyntax[] {
+    if (description.unsupportedMembers.length) {
+      throw new DeriveError(`${where}: only properties can be read from configuration, not '${description.unsupportedMembers[0]}'`);
+    }
+    const members = new Map<string, MacroPropertySyntax>();
+    for (const base of description.heritage) {
+      const declaration = base.kind === "reference" && base.target ? this.context.describe(base.target.node) : undefined;
+      if (declaration?.kind !== "interface" || declaration.typeParameters.length) {
+        throw new DeriveError(`${where}: the base '${base.text}' is not an interface without type parameters`);
+      }
+      for (const member of this.members(declaration, where, [...seen, declaration.name])) members.set(member.name, member);
+    }
+    for (const member of description.members) members.set(member.name, member);
+    return [...members.values()];
+  }
+
+  object(members: readonly MacroPropertySyntax[], where: string, seen: readonly string[]): MacroNode {
+    const factory = this.context.factory;
+    const properties = members.map(member => {
+      const path = `${where}.${member.name}`;
+      const types = member.type.kind === "union" ? member.type.types : [member.type];
+      const present = types.filter(type => !(type.kind === "keyword" && type.keyword === "undefined"));
+      if (present.length < types.length && !member.optional) {
+        throw new DeriveError(`${path}: configuration has no undefined values; write '${member.name}?:' for a key that may be missing`);
+      }
+      if (!present.length) throw new DeriveError(`${path}: a property must allow a value other than undefined`);
+      const single = present.length === 1 ? present[0]! : { kind: "union", types: present, text: member.type.text } as const;
+      let schema = this.type(single, path, seen);
+      if (member.documentation) {
+        schema = factory.createCallExpression(factory.createPropertyAccessExpression(schema, "describe"), undefined, [
+          factory.createStringLiteral(member.documentation),
+        ]);
+      }
+      if (member.optional) schema = this.call("optional", [schema]);
+      return factory.createPropertyAssignment(member.name, schema);
+    });
+    return this.call("object", [factory.createObjectLiteralExpression(properties, true)]);
+  }
+
+  type(type: MacroTypeSyntax, where: string, seen: readonly string[]): MacroNode {
+    const factory = this.context.factory;
+    switch (type.kind) {
+      case "keyword":
+        if (type.keyword === "string" || type.keyword === "number" || type.keyword === "boolean" || type.keyword === "unknown") {
+          return this.call(type.keyword, []);
+        }
+        break;
+      case "literal":
+        return this.call("literal", [this.literal(type.value)]);
+      case "union":
+        if (type.types.every(member => member.kind === "literal")) {
+          return this.call("oneOf", type.types.map(member => this.literal(member.kind === "literal" ? member.value : null)));
+        }
+        return this.call("union", type.types.map(member => this.type(member, where, seen)));
+      case "array":
+        if (!type.readonly) throw new DeriveError(`${where}: arrays from configuration are frozen; write 'readonly ${type.element.text}[]'`);
+        return this.call("array", [this.type(type.element, where, seen)]);
+      case "object":
+        if (type.unsupportedMembers.length) {
+          throw new DeriveError(`${where}: only properties can be read from configuration, not '${type.unsupportedMembers[0]}'`);
+        }
+        return this.object(type.members, where, seen);
+      case "reference":
+        return this.named(type, where, seen);
+      case "unsupported":
+        break;
+    }
+    throw new DeriveError(`${where}: no schema describes the type '${type.text}'`);
+  }
+
+  named(type: MacroTypeSyntax & { readonly kind: "reference" }, where: string, seen: readonly string[]): MacroNode {
+    const [first, second] = type.arguments;
+    if (type.name === "ReadonlyArray" && first && !second) return this.call("array", [this.type(first, where, seen)]);
+    if (type.name === "Array") throw new DeriveError(`${where}: arrays from configuration are frozen; write '${type.text.replace(/^Array/u, "ReadonlyArray")}'`);
+    if (type.name === "Readonly" && first && !second) return this.type(first, where, seen);
+    if (type.name === "Record" && first?.kind === "keyword" && first.keyword === "string" && second) {
+      return this.call("record", [this.type(second, where, seen)]);
+    }
+    const description = type.target && this.context.describe(type.target.node);
+    if (!description || type.arguments.length) throw new DeriveError(`${where}: no schema describes the type '${type.text}'`);
+    if (description.kind === "class") return this.call("of", [this.reference(type.name)]);
+    if (description.typeParameters.length) throw new DeriveError(`${where}: generic types have no single schema`);
+    if (seen.includes(description.name)) throw new DeriveError(`${where}: '${description.name}' contains itself, which configuration cannot`);
+    if (description.kind === "interface" && description.unsupportedMembers.length) {
+      throw new DeriveError(`${where}: no schema describes the type '${type.text}', which has members other than properties such as '${description.unsupportedMembers[0]}'`);
+    }
+    const inner = [...seen, description.name];
+    return description.kind === "interface"
+      ? this.object(this.members(description, where, inner), where, inner)
+      : this.type(description.type, where, inner);
+  }
+
+  literal(value: string | number | boolean | null): MacroNode {
+    const factory = this.context.factory;
+    if (value === null) return factory.createNull();
+    if (typeof value === "string") return factory.createStringLiteral(value);
+    if (typeof value === "number") return factory.createNumericLiteral(value);
+    return value ? factory.createTrue() : factory.createFalse();
+  }
+
+  /** A class named as written where the macro is invoked, which must therefore be in scope there. */
+  reference(name: string): MacroNode {
+    const [first, ...rest] = name.split(".");
+    return rest.reduce((expression, part) => this.context.factory.createPropertyAccessExpression(expression, part), this.context.factory.createIdentifier(first!));
+  }
+}
+
+/**
+ * Generates `const <Name>Schema: Schema<Name>` from an interface or a type alias, exported when the target is. The
+ * annotation lets the checker confirm that the schema decodes what the type describes. Properties become keys,
+ * JSDoc comments become descriptions, `?` makes a key optional, literal unions become `oneOf`, read-only arrays become
+ * `array`, and classes such as `Duration` become `of(Duration)`, so they must be in scope where the macro is invoked.
+ * Nested interfaces and aliases are written out in place.
+ */
+export macro function deriveSchema(targets: readonly MacroTarget[], context: MacroContext): MacroReturn {
+  const [target] = targets;
+  if (!target || targets.length > 1) return context.fail("deriveSchema takes one interface or type alias");
+  const description = context.describe(target.node);
+  if (!description || description.kind === "class") {
+    return context.fail(`deriveSchema needs an interface or a type alias; use of(${target.name}) for a ConfigValue class`);
+  }
+  const generator = new Generator(context, description.name);
+  let schema: MacroNode;
+  try {
+    schema = generator.declaration(description, description.name);
+  }
+  catch (error) {
+    if (error instanceof DeriveError) return context.fail(error.message);
+    throw error;
+  }
+  const { factory, SyntaxKind, NodeFlags } = context.typescript;
+  const declaration = factory.createVariableDeclaration(
+    `${description.name}Schema`,
+    undefined,
+    factory.createTypeReferenceNode(generator.alias("Schema"), [factory.createTypeReferenceNode(description.name)]),
+    schema,
+  );
+  return [
+    generator.imports,
+    factory.createVariableStatement(
+      description.exported ? [factory.createModifier(SyntaxKind.ExportKeyword)] : undefined,
+      factory.createVariableDeclarationList([declaration], NodeFlags.Const),
+    ),
+  ];
+}

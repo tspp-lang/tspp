@@ -1,0 +1,57 @@
+import { formatPath } from "./issues.js";
+import type { Schema } from "./schema.js";
+
+/** One documented setting: a value that is not an object with declared keys. */
+export interface Setting {
+  /** The path as `formatPath` writes it, with `[]` for any array index and `.*` for any record key. */
+  readonly path: string;
+  readonly label: string;
+  readonly optional: boolean;
+  readonly description: string | undefined;
+}
+
+/** Lists the settings a schema accepts, in declaration order, for reference documentation or `--help` output. */
+export function explain(schema: Schema<unknown>): readonly Setting[] {
+  const settings: Setting[] = [];
+  visit(schema, "", false, settings);
+  return settings;
+}
+
+/** `path` followed by `key`, written as `formatPath` writes it. */
+function child(path: string, key: string): string do {
+  const step = formatPath([key]);
+  !path || step.startsWith("[") ? `${path}${step}` : `${path}.${step}`;
+}
+
+function visit(schema: Schema<unknown>, path: string, optional: boolean, settings: Setting[]): void {
+  const leaf = () => settings.push({ path: path || formatPath([]), label: schema.label, optional: optional || schema.optional, description: schema.description });
+  match schema.structure {
+    Fields(fields, _) => do {
+      if (!fields.length) leaf();
+      // A key below an optional object is only needed when the object is given.
+      for (const field of fields) visit(field.schema, child(path, field.key), optional || schema.optional, settings);
+    },
+    Elements(element) => match element.structure {
+      Fields(_, _) => visit(element, `${path}[]`, optional || schema.optional, settings),
+      _ => leaf(),
+    },
+    Entries(value) => match value.structure {
+      Fields(_, _) => visit(value, `${path}.*`, optional || schema.optional, settings),
+      _ => leaf(),
+    },
+    _ => leaf(),
+  };
+}
+
+/** Formats settings as aligned columns: path, label, and description. */
+export function formatSettings(settings: readonly Setting[]): string {
+  const rows = settings.map(setting => [
+    setting.path,
+    setting.optional ? `${setting.label} (optional)` : setting.label,
+    setting.description ?? "",
+  ] as const);
+  const widths = [0, 1].map(column => Math.max(0, ...rows.map(row => row[column].length)));
+  return rows.map(([path, label, description]) =>
+    [path.padEnd(widths[0]!), description ? label.padEnd(widths[1]!) : label, description].filter(Boolean).join("  ").trimEnd()
+  ).join("\n");
+}

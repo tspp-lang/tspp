@@ -1,0 +1,145 @@
+import { describeValue, type Decoded, invalid, Valid } from "./issues.js";
+import { Schema } from "./schema.js";
+
+/**
+ * A class whose instances are configuration values, such as a duration written as `"30s"`. Implementing classes are
+ * checked for both static members; `of(Class)` turns such a class into a schema.
+ */
+export interface ConfigValue {
+  /** Names the expected value in messages and explanations, such as `duration`. */
+  static readonly label: string;
+  static decode(input: unknown): Decoded<this>;
+}
+
+/**
+ * The static side of a `ConfigValue` class as a value. Static interface members only constrain `implements` clauses,
+ * so functions that receive such a class describe it with this ordinary type.
+ */
+export interface ConfigValueClass<T> {
+  readonly label: string;
+  decode(input: unknown): Decoded<T>;
+}
+
+/** A schema for a `ConfigValue` class; environment variables are passed to its `decode` as text. */
+export function of<T>(type: ConfigValueClass<T>): Schema<T> do {
+  new Schema(type.label, input => type.decode(input));
+}
+
+/** `amount × size` for a decimal `amount` such as `1.1`, if it is a whole number; computed exactly. */
+function scaled(amount: string, size: number): number {
+  const [whole = "", fraction = ""] = amount.split(".");
+  const scale = 10n ** BigInt(fraction.length);
+  const numerator = BigInt(whole + fraction) * BigInt(size);
+  return numerator % scale === 0n ? Number(numerator / scale) : Number.NaN;
+}
+
+const durationUnits = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000, d: 86_400_000 } as const;
+type DurationUnit = keyof typeof durationUnits;
+const durationText = /^(?:\d+(?:\.\d+)?(?:ms|s|m|h|d))+$/u;
+const durationPart = /(\d+(?:\.\d+)?)(ms|s|m|h|d)/gu;
+
+/** A non-negative whole number of milliseconds, written as `500ms`, `1.5s`, `1h30m`, or a number of milliseconds. */
+export final class Duration implements ConfigValue {
+  static readonly label = "duration";
+
+  static decode(input: unknown): Decoded<Duration> {
+    const milliseconds = typeof input === "number"
+      ? input
+      : typeof input === "string" && durationText.test(input)
+      ? [...input.matchAll(durationPart)].reduce((total, [, amount, unit]) => total + scaled(amount!, durationUnits[unit as DurationUnit]), 0)
+      : Number.NaN;
+    return Number.isSafeInteger(milliseconds) && milliseconds >= 0
+      ? Valid(new Duration(milliseconds))
+      : invalid(`expected a whole number of milliseconds such as 500ms, 30s, or 1h30m, got ${describeValue(input)}`);
+  }
+
+  static milliseconds(milliseconds: number): Duration {
+    if (!Number.isSafeInteger(milliseconds) || milliseconds < 0) throw new RangeError("A duration must be a non-negative whole number of milliseconds");
+    return new Duration(milliseconds);
+  }
+
+  private constructor(readonly milliseconds: number) {}
+
+  get seconds(): number do {
+    this.milliseconds / 1_000;
+  }
+
+  /** The shortest text that `decode` reads back as this duration, such as `1h30m`. */
+  toString(): string {
+    if (this.milliseconds === 0) return "0s";
+    let rest = this.milliseconds;
+    const parts: string[] = [];
+    for (const unit of ["d", "h", "m", "s"] as const) {
+      const size = durationUnits[unit];
+      if (rest >= size) {
+        parts.push(`${Math.floor(rest / size)}${unit}`);
+        rest %= size;
+      }
+    }
+    if (rest) parts.push(`${rest}ms`);
+    return parts.join("");
+  }
+
+  toJSON(): string do {
+    this.toString();
+  }
+}
+
+const byteUnits = {
+  B: 1,
+  KB: 1e3, MB: 1e6, GB: 1e9, TB: 1e12,
+  KiB: 2 ** 10, MiB: 2 ** 20, GiB: 2 ** 30, TiB: 2 ** 40,
+} as const;
+type ByteUnit = keyof typeof byteUnits;
+const byteText = /^(\d+(?:\.\d+)?)\s*([KMGT]i?B|B)?$/iu;
+const canonicalUnit = new Map(Object.keys(byteUnits).map(unit => [unit.toLowerCase(), unit as ByteUnit]));
+
+/** A whole number of bytes, written as `512KB`, `10MiB`, or a number of bytes. Decimal and binary units are distinct. */
+export final class ByteSize implements ConfigValue {
+  static readonly label = "byte size";
+
+  static decode(input: unknown): Decoded<ByteSize> {
+    const bytes = typeof input === "number" ? input : do {
+      const parts = typeof input === "string" ? byteText.exec(input.trim()) : null;
+      parts ? scaled(parts[1]!, byteUnits[canonicalUnit.get((parts[2] ?? "B").toLowerCase())!]) : Number.NaN;
+    };
+    return Number.isSafeInteger(bytes) && bytes >= 0
+      ? Valid(new ByteSize(bytes))
+      : invalid(`expected a whole number of bytes such as 512KB or 10MiB, got ${describeValue(input)}`);
+  }
+
+  private constructor(readonly bytes: number) {}
+
+  /** The largest unit that divides the size exactly, such as `10MiB`. */
+  toString(): string {
+    const units = (Object.entries(byteUnits) as [ByteUnit, number][]).sort((left, right) => right[1] - left[1]);
+    const [unit, size] = units.find(([, size]) => this.bytes !== 0 && this.bytes % size === 0) ?? ["B", 1];
+    return `${this.bytes / size}${unit}`;
+  }
+
+  toJSON(): string do {
+    this.toString();
+  }
+}
+
+/** A TCP or UDP port from 0 to 65535; 0 asks the operating system for a free port. */
+export final class Port implements ConfigValue {
+  static readonly label = "port";
+
+  static decode(input: unknown): Decoded<Port> {
+    const value = typeof input === "string" && /^\d+$/u.test(input) ? Number(input) : input;
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 65_535
+      ? Valid(new Port(value))
+      : invalid(`expected a port from 0 to 65535, got ${describeValue(input)}`);
+  }
+
+  private constructor(readonly number: number) {}
+
+  toString(): string do {
+    String(this.number);
+  }
+
+  toJSON(): number do {
+    this.number;
+  }
+}

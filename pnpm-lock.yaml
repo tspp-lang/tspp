@@ -405,6 +405,15 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
+  packages/example-projects/config-schema:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/example-projects/ledger:
     dependencies:
       '@tspp/command-kit':

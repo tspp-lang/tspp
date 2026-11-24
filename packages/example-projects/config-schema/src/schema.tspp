@@ -1,0 +1,299 @@
+import {
+  type Decoded,
+  describeValue,
+  Invalid,
+  invalid,
+  issue,
+  type Issue,
+  nested,
+  Valid,
+  valueOrThrow,
+} from "./issues.js";
+
+/** A property of an object schema. */
+export interface Field {
+  readonly key: string;
+  readonly schema: Schema<unknown>;
+}
+
+/** What to do with keys that an object schema does not declare. */
+export type UnknownKeys = "reject" | "ignore";
+
+/** The shape of a schema, which explanations and environment variables follow into nested values. */
+export data Structure = Scalar
+  | Fields(fields: readonly Field[], unknownKeys: UnknownKeys)
+  | Elements(element: Schema<unknown>)
+  | Entries(value: Schema<unknown>)
+  | Alternatives(options: readonly Schema<unknown>[]);
+
+export interface SchemaOptions {
+  readonly structure?: Structure;
+  readonly description?: string;
+  /** Converts the text of an environment variable into the input this schema expects; text is kept by default. */
+  readonly readText?: (text: string) => unknown;
+}
+
+/** Decodes untrusted input, such as parsed JSON, into a value of type `T`. Schemas are immutable. */
+export class Schema<T> {
+  readonly optional: boolean = false;
+  readonly structure: Structure;
+  readonly description: string | undefined;
+  private readonly decoder: (input: unknown) => Decoded<T>;
+  private readonly textReader: (text: string) => unknown;
+
+  constructor(readonly label: string, decoder: (input: unknown) => Decoded<T>, options: SchemaOptions = {}) {
+    this.decoder = decoder;
+    this.structure = options.structure ?? Scalar;
+    this.description = options.description;
+    this.textReader = options.readText ?? (text => text);
+  }
+
+  /** Decodes `input`, reporting every issue at its path below the input. */
+  decode(input: unknown): Decoded<T> do {
+    this.decoder(input);
+  }
+
+  /** Decodes `input` or throws a `ConfigError` listing every issue. */
+  parse(input: unknown): T do {
+    valueOrThrow(this.decode(input));
+  }
+
+  readText(text: string): unknown do {
+    this.textReader(text);
+  }
+
+  /** The same schema with a description, which explanations show. */
+  describe(description: string): Schema<T> do {
+    new Schema(this.label, this.decoder, this.options({ description }));
+  }
+
+  /** Accepts only decoded values for which `check` holds, reporting `message` otherwise. */
+  refine(check: (value: T) => boolean, message: string): Schema<T> do {
+    new Schema(this.label, input => match this.decoder(input) {
+      Valid(value) => check(value) ? Valid(value) : invalid(message),
+      Invalid(issues) => Invalid(issues),
+    }, this.options({}));
+  }
+
+  protected options(overrides: SchemaOptions): SchemaOptions do {
+    ({ structure: this.structure, description: this.description, readText: this.textReader, ...overrides });
+  }
+}
+
+/** A schema whose key may be missing from an object; it decodes a missing value as `undefined`. */
+export class OptionalSchema<T> extends Schema<T | undefined> {
+  override readonly optional = true;
+
+  constructor(readonly inner: Schema<T>) {
+    super(inner.label, input => input === undefined ? Valid(undefined) : inner.decode(input), {
+      structure: inner.structure,
+      description: inner.description,
+      readText: text => inner.readText(text),
+    });
+  }
+}
+
+function expected(label: string, input: unknown): Decoded do {
+  invalid(`expected ${label}, got ${describeValue(input)}`);
+}
+
+const numberText = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/iu;
+const readNumber = (text: string): unknown => numberText.test(text.trim()) ? Number(text) : text;
+
+/** Reads structured values from an environment variable as JSON, keeping text that is not JSON. */
+function readJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  }
+  catch {
+    return text;
+  }
+}
+
+export function string(): Schema<string> do {
+  new Schema("string", input => typeof input === "string" ? Valid(input) : expected("a string", input));
+}
+
+export function number(): Schema<number> do {
+  new Schema("number", input => typeof input === "number" && Number.isFinite(input) ? Valid(input) : expected("a finite number", input), {
+    readText: readNumber,
+  });
+}
+
+export function integer(): Schema<number> do {
+  new Schema("integer", input => typeof input === "number" && Number.isSafeInteger(input) ? Valid(input) : expected("an integer", input), {
+    readText: readNumber,
+  });
+}
+
+export function boolean(): Schema<boolean> do {
+  new Schema("boolean", input => typeof input === "boolean" ? Valid(input) : expected("true or false", input), {
+    readText: text => ({ true: true, false: false, "1": true, "0": false } as Record<string, boolean>)[text.trim().toLowerCase()] ?? text,
+  });
+}
+
+/** Accepts any input unchanged, for values that the application checks itself. */
+export function unknown(): Schema<unknown> do {
+  new Schema("unknown", input => Valid(input), { readText: readJson });
+}
+
+export type Primitive = string | number | boolean | null;
+
+/** Accepts exactly one of `values`, such as a log level. */
+export function oneOf<const T extends readonly [Primitive, ...Primitive[]]>(...values: T): Schema<T[number]> {
+  const allowed: readonly T[number][] = [...values];
+  const label = allowed.map(value => JSON.stringify(value)).join(" | ");
+  const message = allowed.length === 1 ? label : `one of ${allowed.map(value => JSON.stringify(value)).join(", ")}`;
+  return new Schema(label, input => do {
+    const found = allowed.find(value => value === input);
+    found === undefined ? expected(message, input) : Valid(found);
+  }, {
+    readText: text => allowed.find(value => String(value) === text) ?? text,
+  });
+}
+
+export function literal<const T extends Primitive>(value: T): Schema<T> do {
+  oneOf(value);
+}
+
+export function array<T>(element: Schema<T>): Schema<readonly T[]> {
+  return new Schema(`${element.label}[]`, input => {
+    if (!Array.isArray(input)) return expected("an array", input);
+    const values: T[] = [];
+    const issues: Issue[] = [];
+    input.forEach((item: unknown, index) => match element.decode(item) {
+      Valid(value) => void values.push(value),
+      Invalid(found) => void issues.push(...nested(index, found)),
+    });
+    return issues.length ? Invalid(issues) : Valid(Object.freeze(values));
+  }, { structure: Elements(element), readText: readJson });
+}
+
+function isPlainObject(input: unknown): input is Readonly<Record<string, unknown>> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) return false;
+  const prototype = Object.getPrototypeOf(input);
+  return prototype === Object.prototype || prototype === null;
+}
+
+/** An object with any keys whose values all match `value`, such as named database connections. */
+export function record<T>(value: Schema<T>): Schema<Readonly<Record<string, T>>> {
+  return new Schema(`record of ${value.label}`, input => {
+    if (!isPlainObject(input)) return expected("an object", input);
+    const entries: [string, T][] = [];
+    const issues: Issue[] = [];
+    for (const [key, item] of Object.entries(input)) {
+      match value.decode(item) {
+        Valid(decoded) => void entries.push([key, decoded]),
+        Invalid(found) => void issues.push(...nested(key, found)),
+      };
+    }
+    return issues.length ? Invalid(issues) : Valid(Object.freeze(Object.fromEntries(entries)));
+  }, { structure: Entries(value), readText: readJson });
+}
+
+export interface ObjectOptions {
+  /** Keys the schema does not declare are rejected by default, so that misspelled settings are reported. */
+  readonly unknownKeys?: UnknownKeys;
+}
+
+/** The output of `object(shape)`: keys of optional schemas are optional, and every key is read-only. */
+export type ObjectOf<S> =
+  let Optional = OptionalKeys<S> in
+  Simplify<
+    { readonly [K in Exclude<keyof S, Optional>]: Infer<S[K]> }
+    & { readonly [K in Extract<keyof S, Optional>]?: Exclude<Infer<S[K]>, undefined> }
+  >;
+
+/** The type a schema decodes to. */
+export type Infer<S> = match S {
+  Schema<infer T>: T,
+  _: never
+};
+
+type OptionalKeys<S> = {
+  [K in keyof S]-?: match S[K] {
+    OptionalSchema<_>: K,
+    _: never
+  }
+}[keyof S];
+
+type Simplify<T> = { [K in keyof T]: T[K] } & {};
+
+export type Shape = { readonly [key: string]: Schema<unknown> };
+
+export function object<const S extends Shape>(shape: S, options: ObjectOptions = {}): Schema<ObjectOf<S>> {
+  const fields: readonly Field[] = Object.entries(shape).map(([key, schema]) => ({ key, schema }));
+  const declared = new Set(fields.map(field => field.key));
+  const unknownKeys = options.unknownKeys ?? "reject";
+  return new Schema("object", input => {
+    if (!isPlainObject(input)) return expected("an object", input);
+    const output: Record<string, unknown> = {};
+    const issues: Issue[] = [];
+    for (const { key, schema } of fields) {
+      const value = Object.hasOwn(input, key) ? input[key] : undefined;
+      if (value === undefined && !schema.optional) {
+        issues.push(issue("missing required key", [key]));
+        continue;
+      }
+      match schema.decode(value) {
+        Valid(decoded) => void (decoded === undefined || (output[key] = decoded)),
+        Invalid(found) => void issues.push(...nested(key, found)),
+      };
+    }
+    if (unknownKeys === "reject") {
+      for (const key of Object.keys(input).filter(key => !declared.has(key))) {
+        const suggestion = closest(key, [...declared]);
+        issues.push(issue(suggestion === undefined ? "unknown key" : `unknown key; did you mean "${suggestion}"?`, [key]));
+      }
+    }
+    // The fields decoded every declared key, so the object has the type that the shape computes.
+    return issues.length ? Invalid(issues) : Valid(Object.freeze(output) as ObjectOf<S>);
+  }, { structure: Fields(fields, unknownKeys), readText: readJson });
+}
+
+export function optional<T>(schema: Schema<T>): OptionalSchema<T> do {
+  new OptionalSchema(schema);
+}
+
+/** Accepts the first of `options` that decodes the input. */
+export function union<const S extends readonly [Schema<unknown>, ...Schema<unknown>[]]>(...options: S): Schema<{ [I in keyof S]: Infer<S[I]> }[number]> {
+  type Output = { [I in keyof S]: Infer<S[I]> }[number];
+  const label = options.map(option => option.label).join(" | ");
+  return new Schema(label, input => {
+    const failures: (readonly Issue[])[] = [];
+    for (const option of options) {
+      const decoded = option.decode(input);
+      if (decoded._tag === "Valid") return Valid(decoded.value as Output);
+      failures.push(decoded.issues);
+    }
+    // An option whose issues are all below the input recognized its shape, so its issues say what is wrong.
+    const recognized = failures.filter(issues => issues.every(item => item.path.length)).sort((left, right) => left.length - right.length)[0];
+    return recognized ? Invalid(recognized) : expected(label, input);
+  }, {
+    structure: Alternatives(options),
+    readText: text => options.map(option => option.readText(text)).find((value, index) => options[index]!.decode(value)._tag === "Valid") ?? text,
+  });
+}
+
+/** The closest of `candidates` to a misspelled `key`, if one is near enough to be a likely typo. */
+function closest(key: string, candidates: readonly string[]): string | undefined {
+  const scored = candidates.map(candidate => ({ candidate, distance: distance(key.toLowerCase(), candidate.toLowerCase()) }));
+  const best = scored.sort((left, right) => left.distance - right.distance)[0];
+  return best && best.distance <= Math.max(1, Math.floor(best.candidate.length / 4)) ? best.candidate : undefined;
+}
+
+/** Edits that turn `left` into `right`, where swapping two adjacent letters is one edit, as typing mistakes are. */
+function distance(left: string, right: string): number {
+  const rows = Array.from({ length: left.length + 1 }, (_, row) => Array.from({ length: right.length + 1 }, (_, column) => row || column));
+  for (let row = 1; row <= left.length; row++) {
+    for (let column = 1; column <= right.length; column++) {
+      const cost = left[row - 1] === right[column - 1] ? 0 : 1;
+      let best = Math.min(rows[row - 1]![column]! + 1, rows[row]![column - 1]! + 1, rows[row - 1]![column - 1]! + cost);
+      if (row > 1 && column > 1 && left[row - 1] === right[column - 2] && left[row - 2] === right[column - 1]) {
+        best = Math.min(best, rows[row - 2]![column - 2]! + 1);
+      }
+      rows[row]![column] = best;
+    }
+  }
+  return rows[left.length]![right.length]!;
+}
