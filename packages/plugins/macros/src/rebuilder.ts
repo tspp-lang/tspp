@@ -186,7 +186,11 @@ function createRebuild(ts: TSPPTypeScript, program: TS.Program, result: MacroExp
                     const types = elements.map((element, index) => {
                         const name = toEntityName(element);
                         if (!name) return factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword);
-                        const type = index === 0 || meanings[index] !== "type" ? factory.createTypeQueryNode(name) : factory.createTypeReferenceNode(name);
+                        const meaning = meanings[index];
+                        // A generic type is named with `any` arguments, which satisfy every constraint and default.
+                        const type = index === 0 || meaning?.kind !== "type"
+                            ? factory.createTypeQueryNode(name)
+                            : factory.createTypeReferenceNode(name, meaning.arity ? Array.from({ length: meaning.arity }, () => factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword)) : undefined);
                         return ts.setTextRange(type, { pos: element.pos, end: element.end });
                     });
                     // Every node keeps a source range, so editor services find the names and skip the rest.
@@ -221,13 +225,17 @@ function createRebuild(ts: TSPPTypeScript, program: TS.Program, result: MacroExp
         onRebuilt: rebuilt => expansionsByProgram.set(rebuilt, expansions),
     };
 
-    /** Whether each name of a projected invocation is a value (named with `typeof`) or only a type. */
-    function getTargetMeanings(sourceFile: TS.SourceFile, start: number, end: number): readonly ("value" | "type")[] {
+    /** Whether each name of a projected invocation is a value (named with `typeof`) or only a type, and its type parameter count. */
+    function getTargetMeanings(sourceFile: TS.SourceFile, start: number, end: number): readonly TargetMeaning[] {
         const statement = findStatement(ts, sourceFile, start, end);
         const elements = statement && ts.isExpressionStatement(statement) ? getProjectedElements(ts, statement) : undefined;
         return (elements ?? []).map(element => {
             const symbol = resolve(element);
-            return symbol && !(symbol.flags & ts.SymbolFlags.Value) && symbol.flags & ts.SymbolFlags.Type ? "type" : "value";
+            if (!symbol || symbol.flags & ts.SymbolFlags.Value || !(symbol.flags & ts.SymbolFlags.Type)) return { kind: "value" };
+            const arity = Math.max(0, ...(symbol.declarations ?? []).map(declaration =>
+                (ts.isInterfaceDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration)) ? declaration.typeParameters?.length ?? 0 : 0
+            ));
+            return { kind: "type", arity };
         });
     }
 
@@ -257,6 +265,8 @@ function createRebuild(ts: TSPPTypeScript, program: TS.Program, result: MacroExp
         return ts.setTextRange(factory.createQualifiedName(left, right), expression);
     }
 }
+
+type TargetMeaning = { readonly kind: "value"; } | { readonly kind: "type"; readonly arity: number; };
 
 function restoreWorkerResult(ts: TSPPTypeScript, program: TS.Program, result: MacroWorkerResult): MacroExpansionResult {
     const invocations: ExpandedMacroInvocation[] = result.expansions.map(expansion => {
@@ -296,5 +306,9 @@ function workerFailureResult(ts: TSPPTypeScript, program: TS.Program, error: Mac
 /** Parsed worker results carry positions in another text; without positions they print and check as generated nodes. */
 function markSynthetic(ts: TSPPTypeScript, node: TS.Node): void {
     ts.setTextRange(node, { pos: -1, end: -1 });
-    ts.forEachChild(node, child => markSynthetic(ts, child));
+    // Lists keep positions of their own, which the checker compares with their neighbours' (as type arguments are).
+    ts.forEachChild(node, child => markSynthetic(ts, child), nodes => {
+        ts.setTextRange(nodes, { pos: -1, end: -1 });
+        for (const child of nodes) markSynthetic(ts, child);
+    });
 }

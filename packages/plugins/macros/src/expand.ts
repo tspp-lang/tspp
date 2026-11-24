@@ -1,6 +1,7 @@
 import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
+import { createDescriber } from "./describe";
 import { findStatement, firstIdentifier, forEachDescendant, getProjectedElements, sourceFileOf, tokenStartOf } from "./nodes";
 import { describeTimeout, macroDiagnosticCodes, type MacroTimeoutBudget, readMacroOptions } from "./options";
 import {
@@ -65,6 +66,7 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     let printer = ts.createPrinter();
     const moduleCache = new Map<string, Record<string, unknown>>();
     const macroTypeScript = createMacroTypeScript(ts);
+    const describe = createDescriber(ts, checker);
     let macroProgram: TS.Program | undefined;
     let macroHost: MacroCompilerHost | undefined;
     let inputKey: string | undefined;
@@ -351,6 +353,7 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
                 },
                 sourceFile: invocationSource,
                 macroInvocation: invocation.statement,
+                describe,
                 report: (item: MacroDiagnostic) => reported.push(item),
                 fail: (message: string) => ({ kind: "macro-failure", diagnostics: [{ message }] }),
             });

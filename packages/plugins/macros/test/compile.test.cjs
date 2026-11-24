@@ -139,6 +139,149 @@ test("exposes keyword type annotations to typed macros", () => {
   assert.match(outputs.get("/file.d.ts"), /export declare const BoxTypeName: string;/);
 });
 
+/** Compiles `source` against the SDK declarations with the standard library, as typed macro authors do. */
+function buildTyped(files) {
+  return createProgram({
+    ...files,
+    "/sdk.d.ts": readFileSync(require.resolve("../dist/sdk.d.ts"), "utf8"),
+  }, { declaration: true, moduleResolution: ts.ModuleResolutionKind.Node10, noLib: false });
+}
+
+test("names generic types as targets without type arguments", () => {
+  const { program } = build(`
+    macro function check() {}
+    interface Box<T extends string, U = number> { value: T; other: U }
+    type Pair<A, B> = [A, B];
+    macro check(Box, Pair);
+  `);
+  assert.deepEqual(messages(program), []);
+});
+
+test("describes interfaces, type aliases, and classes as written", () => {
+  const { program } = buildTyped({
+    "/models.tspp": "export class Port {}\nexport interface Base { id: string }",
+    "/file.tspp": `
+      import type { MacroContext, MacroTarget, MacroTypeSyntax } from "./sdk";
+      import { Port, type Base } from "./models";
+      // Targets are summarized so that the description can be compared as JSON.
+      const plain = (type: MacroTypeSyntax): unknown => {
+        switch (type.kind) {
+          case "reference": return { ...type, arguments: type.arguments.map(plain), target: type.target && type.target.name };
+          case "array": return { ...type, element: plain(type.element) };
+          case "union": return { ...type, types: type.types.map(plain) };
+          case "object": return { ...type, members: type.members.map(member => ({ ...member, type: plain(member.type) })) };
+          default: return type;
+        }
+      };
+      macro function describeAll(targets: readonly MacroTarget[], context: MacroContext) {
+        const described = targets.map(target => {
+          const declaration = context.describe(target.node);
+          if (declaration?.kind === "interface") {
+            return { ...declaration, heritage: declaration.heritage.map(plain), members: declaration.members.map(member => ({ ...member, type: plain(member.type) })) };
+          }
+          return declaration?.kind === "type-alias" ? { ...declaration, type: plain(declaration.type) } : declaration ?? null;
+        });
+        const { factory, NodeFlags } = context.typescript;
+        return factory.createVariableStatement(undefined, factory.createVariableDeclarationList([
+          factory.createVariableDeclaration("described", undefined, undefined, factory.createStringLiteral(JSON.stringify(described))),
+        ], NodeFlags.Const));
+      }
+      interface Settings<T> extends Base {
+        /** Where the server listens. */
+        readonly port: Port;
+        name?: (string);
+        mode: "fast" | -1 | true | null;
+        tags: readonly string[];
+        nested: { value: T[] };
+        "quoted-key": unknown;
+        method(): void;
+        [key: string]: unknown;
+      }
+      type Alias = Array<number>;
+      const value = 1;
+      macro describeAll(Settings, Alias, Port, value);
+      void described;
+    `,
+  });
+  assert.deepEqual(diagnosticMessages(program), []);
+  const [expansion] = getMacroExpansions(program, "/file.tspp");
+  const described = JSON.parse(JSON.parse(/= (".*");$/su.exec(expansion.text)[1]));
+  const keyword = (name, text = name) => ({ kind: "keyword", keyword: name, text });
+  const literal = (value, text) => ({ kind: "literal", value, text });
+  assert.deepEqual(described, [
+    {
+      kind: "interface",
+      name: "Settings",
+      typeParameters: ["T"],
+      exported: false,
+      heritage: [{ kind: "reference", name: "Base", arguments: [], target: "Base", text: "Base" }],
+      members: [
+        { name: "port", optional: false, readonly: true, type: { kind: "reference", name: "Port", arguments: [], target: "Port", text: "Port" }, documentation: "Where the server listens." },
+        { name: "name", optional: true, readonly: false, type: keyword("string"), documentation: undefined },
+        {
+          name: "mode", optional: false, readonly: false, documentation: undefined,
+          type: { kind: "union", text: '"fast" | -1 | true | null', types: [literal("fast", '"fast"'), literal(-1, "-1"), literal(true, "true"), literal(null, "null")] },
+        },
+        { name: "tags", optional: false, readonly: false, type: { kind: "array", element: keyword("string"), readonly: true, text: "readonly string[]" }, documentation: undefined },
+        {
+          name: "nested", optional: false, readonly: false, documentation: undefined,
+          type: {
+            kind: "object", text: "{ value: T[] }", unsupportedMembers: [],
+            members: [{
+              name: "value", optional: false, readonly: false, documentation: undefined,
+              type: { kind: "array", readonly: false, text: "T[]", element: { kind: "reference", name: "T", arguments: [], target: "T", text: "T" } },
+            }],
+          },
+        },
+        { name: "quoted-key", optional: false, readonly: false, type: keyword("unknown"), documentation: undefined },
+      ].map(member => JSON.parse(JSON.stringify(member))),
+      unsupportedMembers: ["method(): void;", "[key: string]: unknown;"],
+    },
+    { kind: "type-alias", name: "Alias", typeParameters: [], exported: false, type: { kind: "reference", name: "Array", arguments: [keyword("number")], target: "Array", text: "Array<number>" } },
+    { kind: "class", name: "Port", typeParameters: [], exported: true },
+    null,
+  ]);
+});
+
+test("generates imports, calls, and object literals with typed factories", () => {
+  const { program } = buildTyped({
+    "/library.tspp": "export function make<T>(options: T): T { return options; }",
+    "/file.tspp": `
+      import type { MacroContext, MacroTarget } from "./sdk";
+      macro function generate([target]: readonly MacroTarget[], context: MacroContext) {
+        const { factory, SyntaxKind, NodeFlags } = context.typescript;
+        const options = factory.createObjectLiteralExpression([
+          factory.createPropertyAssignment("plain", factory.createNumericLiteral(-2)),
+          factory.createPropertyAssignment("needs-quotes", factory.createArrayLiteralExpression([factory.createTrue(), factory.createFalse(), factory.createNull()])),
+          factory.createPropertyAssignment("name", factory.createPropertyAccessExpression(factory.createIdentifier("JSON"), "stringify")),
+        ], true);
+        const call = factory.createCallExpression(factory.createIdentifier(target.name + "$make"), undefined, [options]);
+        return [
+          factory.createImportStatement("./library", [{ name: "make", alias: target.name + "$make" }]),
+          factory.createVariableStatement([factory.createModifier(SyntaxKind.ExportKeyword)], factory.createVariableDeclarationList([
+            factory.createVariableDeclaration(target.name + "Options", undefined, factory.createTypeReferenceNode("globalThis.Record", [
+              factory.createKeywordTypeNode(SyntaxKind.StringKeyword), factory.createKeywordTypeNode(SyntaxKind.UnknownKeyword),
+            ]), call),
+          ], NodeFlags.Const)),
+        ];
+      }
+      interface Box {}
+      macro generate(Box);
+      export const plain: unknown = BoxOptions.plain;
+    `,
+  });
+  assert.deepEqual(diagnosticMessages(program), []);
+  const [expansion] = getMacroExpansions(program, "/file.tspp");
+  assert.equal(expansion.text, [
+    'import { make as Box$make } from "./library";',
+    "export const BoxOptions: globalThis.Record<string, unknown> = Box$make({",
+    "    plain: -2,",
+    '    "needs-quotes": [true, false, null],',
+    "    name: JSON.stringify",
+    "});",
+  ].join("\n"));
+});
+
 test("reports an invalid generated tree and keeps subsequent macro expansions", async () => {
   const content = `
     ${exposeTypeNameSource().replace(", literal);", ', target.name === "Broken" ? "aaa" : literal);')}
@@ -249,6 +392,22 @@ test("preserves diagnostic categories reported by macros and workers", async () 
   `);
   const diagnostic = program.getSemanticDiagnostics().find(item => ts.flattenDiagnosticMessageText(item.messageText, "\n").includes("review this declaration"));
   assert.equal(diagnostic?.category, ts.DiagnosticCategory.Warning);
+});
+
+test("checks generated type arguments after a worker returns them", async () => {
+  const { program } = await buildAsync(`
+    macro function list(_targets, context) {
+      const { factory, SyntaxKind, NodeFlags } = context.typescript;
+      const type = factory.createTypeReferenceNode("Array", [factory.createKeywordTypeNode(SyntaxKind.StringKeyword)]);
+      return factory.createVariableStatement(undefined, factory.createVariableDeclarationList([
+        factory.createVariableDeclaration("names", undefined, type, factory.createArrayLiteralExpression([])),
+      ], NodeFlags.Const));
+    }
+    interface Array<T> { length: number }
+    macro list();
+    const count: number = names.length;
+  `);
+  assert.deepEqual(messages(program), []);
 });
 
 test("turns validation failures into diagnostics", () => {
