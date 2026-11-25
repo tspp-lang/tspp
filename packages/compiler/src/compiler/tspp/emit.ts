@@ -9,6 +9,7 @@ import {
 } from "../_namespaces/ts.js";
 import type {
     Bundle,
+    EmitTextWriter,
     EmitHost,
     EmitResolver,
     Expression,
@@ -42,10 +43,10 @@ function formatDeclarationHeader(plugins: readonly string[]): string {
 
 /**
  * The provisional header of a `.d.tspp` file, naming every active plugin, or undefined for any other file. The header
- * is written before the file prints, and `finishTSPPDeclarationHeader` narrows it to the plugins whose syntax it holds.
+ * is written before the file prints, and `finishTSPPDeclarationHeader` narrows it after printing to the plugins whose syntax it holds.
  * @internal
  */
-export function startTSPPDeclarationHeader(filePath: string): string | undefined {
+export function getTSPPDeclarationHeader(filePath: string): string | undefined {
     const plugins = getActiveTSPPPlugins().map(plugin => plugin.manifest.id).sort();
     if (!fileExtensionIs(filePath, ".d.tspp") || !plugins.length) return undefined;
     startRecordingRestoringPlugins();
@@ -53,14 +54,19 @@ export function startTSPPDeclarationHeader(filePath: string): string | undefined
 }
 
 /**
- * The printed `.d.tspp` text with its first line, the provisional `header`, naming only the plugins that restored syntax
- * in it, and how far that moved later text. A file that needs no plugin keeps the line, so line-based maps stay valid.
+ * Narrows the provisional `header` that starts the printed `.d.tspp` text in `writer` to the plugins that restored syntax
+ * in it, and returns `sourceMapUrlPos` moved by the change. A file that needs no plugin keeps the line, so line-based maps
+ * stay valid. Does nothing without a header.
  * @internal
  */
-export function finishTSPPDeclarationHeader(text: string, header: string): { readonly text: string; readonly shift: number; } {
+export function finishTSPPDeclarationHeader(writer: EmitTextWriter, header: string | undefined, sourceMapUrlPos: number | undefined): number | undefined {
+    if (!header) return sourceMapUrlPos;
     const narrowed = formatDeclarationHeader(stopRecordingRestoringPlugins());
-    if (!text.startsWith(header)) return { text, shift: 0 };
-    return { text: narrowed + text.slice(header.length), shift: narrowed.length - header.length };
+    const text = writer.getText();
+    if (!text.startsWith(header) || narrowed === header) return sourceMapUrlPos;
+    writer.clear();
+    writer.rawWrite(narrowed + text.slice(header.length));
+    return sourceMapUrlPos === undefined ? undefined : sourceMapUrlPos + narrowed.length - header.length;
 }
 
 /** Whether the compatible `.d.ts` beside a `.d.tspp` declaration file is blocked from being written. @internal */
