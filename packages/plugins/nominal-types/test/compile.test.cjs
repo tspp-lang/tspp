@@ -433,6 +433,22 @@ test("newtype constructors can only be called directly", () => {
   assert.match(diagnosticMessages(program)[0], /The extension value 'UserId' can only be used as the target of a direct call/);
 });
 
+test("a data type without a runtime value is exported as a type", () => {
+  const { program } = createProgram({
+    "/lib.tspp": `export data Shape = Box(size: number) | Dot;\nexport data Pair = Pair(left: number, right: number);\n`,
+    "/index.tspp": `import { Shape } from "./lib";
+      export { Shape as Local };
+      export { Box, Dot, Shape } from "./lib";
+      export { type Shape as Named, Pair } from "./lib";
+      export type { Shape as Whole } from "./lib";
+    `,
+  });
+  const diagnostics = program.getSemanticDiagnostics(program.getSourceFile("/index.tspp"));
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [18088, 18088], diagnosticMessages(program).join("\n"));
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1), [2, 3]);
+  assert.match(diagnosticMessages(program)[0], /'Shape' is a data type without a runtime value of its own; export it as 'type Shape'/);
+});
+
 test("hover preserves the source spans of type parameters in nominal declarations", () => {
   const source = [
     "// Prefix keeps declaration offsets nonzero.",

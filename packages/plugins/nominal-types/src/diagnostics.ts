@@ -12,8 +12,8 @@ interface VariantInfo {
 }
 
 /**
- * Reports what the lowered TypeScript cannot: a `newtype` over `any`, `unknown`, or `never`, and `match` patterns
- * that are unknown, malformed, duplicated, or not exhaustive. The tag tests a lowered `match` generates sit at zero
+ * Reports what the lowered TypeScript cannot: a `newtype` over `any`, `unknown`, or `never`, a value export of a
+ * `data` type that has no runtime value, and `match` patterns that are unknown, malformed, duplicated, or not exhaustive. The tag tests a lowered `match` generates sit at zero
  * width inside it; the checker's comparison and narrowing errors on them only restate pattern errors and are dropped.
  */
 /** Unused-declaration codes, which on a declaration's generated companions would only invite deleting them. */
@@ -196,6 +196,34 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
         return named.name !== node || ts.isExportAssignment(parent);
     }
 
+    /**
+     * Whether `symbol` is a `data` type whose only value meaning is its brand namespace. The brand class is ambient and
+     * has no runtime value, so a value export of such a name would emit a binding that does not exist.
+     */
+    function isTypeOnlyData(symbol: TS.Symbol): boolean {
+        if (symbol.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable | ts.SymbolFlags.Class | ts.SymbolFlags.Enum)) return false;
+        return (symbol.declarations ?? []).some(declaration => ts.isModuleDeclaration(declaration)
+            && declaration.body !== undefined && ts.isModuleBlock(declaration.body)
+            && declaration.body.statements.some(statement => ts.isClassDeclaration(statement)
+                && statement.members.some(member => member.name !== undefined && ts.isIdentifier(member.name) && ts.idText(member.name) === "__tsppNominal")));
+    }
+
+    /** `export { D }` and `export { D } from "..."` of a type-only `data` type, which must be written `export { type D }`. */
+    function checkTypeOnlyExports(sourceFile: TS.SourceFile, checker: TS.TypeChecker, error: (start: number, end: number, code: number, messageText: string) => void): void {
+        for (const statement of sourceFile.statements) {
+            if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue;
+            for (const specifier of statement.exportClause.elements) {
+                if (specifier.isTypeOnly) continue;
+                const local = checker.getSymbolAtLocation(specifier.name);
+                const target = local && local.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(local) : local;
+                if (!target || !isTypeOnlyData(target)) continue;
+                const name = ts.idText(specifier.propertyName && ts.isIdentifier(specifier.propertyName) ? specifier.propertyName : specifier.name as TS.Identifier);
+                error(tokenStart(sourceFile, specifier.pos), specifier.end, 18088,
+                    `'${name}' is a data type without a runtime value of its own; export it as 'type ${name}'.`);
+            }
+        }
+    }
+
     return {
         id: "nominal-types",
         getSemanticDiagnostics: (sourceFile, checker) => {
@@ -218,6 +246,7 @@ export function createNominalDiagnostics(ts: TSPPTypeScript, declarations: Nomin
                 };
                 visit(sourceFile);
             }
+            checkTypeOnlyExports(sourceFile, checker, error);
             for (const match of matchesIn(sourceFile)) {
                 // A match whose arms never read the scrutinee (only `_`, or arms lost to syntax errors) has nothing to check.
                 if (!match.scrutinee.parent) continue;
