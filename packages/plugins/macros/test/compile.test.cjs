@@ -370,6 +370,32 @@ test("loads source dependencies imported by a macro implementation", async () =>
   assert.match(getMacroExpansions(program, "/index.tspp")[0].text, /var ImportedName: "Imported" = "Imported";/);
 });
 
+test("runs macros from an ES module package as CommonJS", () => {
+  const { program } = build({
+    "/package.json": JSON.stringify({ type: "module" }),
+    "/helper.tspp": 'export const prefix = "Imported";',
+    "/macros.tspp": `
+      import { prefix } from "./helper.js";
+      export macro function expose(_targets, context) {
+        const literal = context.factory.createStringLiteral(prefix);
+        return context.factory.createVariableStatement(undefined, context.factory.createVariableDeclarationList([
+          context.factory.createVariableDeclaration("ImportedName", undefined, context.factory.createLiteralTypeNode(literal), literal),
+        ]));
+      }
+    `,
+    "/index.tspp": `
+      import { expose } from "./macros.js";
+      macro expose();
+      export const checked: "Imported" = ImportedName;
+    `,
+  }, { module: ts.ModuleKind.Node16, moduleResolution: ts.ModuleResolutionKind.Node16 });
+  assert.deepEqual(messages(program), []);
+  const outputs = new Map();
+  program.emit(undefined, (fileName, text) => outputs.set(fileName, text));
+  // The project's own output stays an ES module.
+  assert.match(outputs.get("/index.js"), /^export const checked/m);
+});
+
 test("does not execute unrelated top-level statements while loading a macro", () => {
   const { program } = build(`
     const prefix = "safe";

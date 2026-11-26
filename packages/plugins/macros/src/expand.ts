@@ -90,11 +90,13 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     function getMacroProgram() {
         if (!macroProgram) {
             // The macro program binds its own copy of each source file: a caching host would otherwise hand it the
-            // trees of `program`, and binding them again would detach them from `program`'s checker.
+            // trees of `program`, and binding them again would detach them from `program`'s checker. Macro modules run
+            // as CommonJS, so a file in a `"type": "module"` package must not be emitted as an ES module.
             const reparse = (source: TS.SourceFile | undefined, languageVersionOrOptions: TS.ScriptTarget | TS.CreateSourceFileOptions) =>
                 !source || source.isDeclarationFile || !source.fileName.endsWith(".tspp")
                     ? source
-                    : ts.createSourceFile(source.fileName, source.text, languageVersionOrOptions, /*setParentNodes*/ true, ts.ScriptKind.TS);
+                    : ts.createSourceFile(source.fileName, source.text, typeof languageVersionOrOptions === "object"
+                        ? { ...languageVersionOrOptions, impliedNodeFormat: ts.ModuleKind.CommonJS } : languageVersionOrOptions, /*setParentNodes*/ true, ts.ScriptKind.TS);
             macroHost = Object.create(host) as MacroCompilerHost;
             macroHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) =>
                 reparse(host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile), languageVersionOrOptions);
