@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TS++ Scene Viewer</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <canvas id="view" aria-label="3D scene"></canvas>
+    <p id="status" hidden></p>
+    <aside id="panel">
+      <h1>TS++ Scene Viewer</h1>
+      <p class="hint">Drag to orbit, scroll or pinch to zoom.</p>
+      <fieldset>
+        <legend>View</legend>
+        <label><input type="radio" name="mode" value="shaded" checked /> Materials</label>
+        <label><input type="radio" name="mode" value="normals" /> Normals</label>
+      </fieldset>
+      <label class="row">Sun <input id="light" type="range" min="0" max="360" value="40" /></label>
+      <label class="row"><input id="animate" type="checkbox" checked /> Animate</label>
+      <details>
+        <summary>WGSL of the Plastic material</summary>
+        <pre id="wgsl"></pre>
+      </details>
+    </aside>
+    <script type="module" src="./dist/main.js"></script>
+  </body>
+</html>

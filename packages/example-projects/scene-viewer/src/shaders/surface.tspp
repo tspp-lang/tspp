@@ -1,0 +1,44 @@
+// The uniforms and the vertex stage that every material of the viewer shares.
+
+import { type Mat3, type Mat4, type Vec2, type Vec3, type Vec4, vec4 } from "@tspp/engine/math";
+import type { StandardVertex } from "@tspp/engine/scene";
+import type { Builtin } from "@tspp/engine/shader";
+
+/** What every material reads about the frame. */
+export interface Frame {
+  viewProjection: Mat4;
+  eye: Vec3;
+  /** The direction the sunlight travels in. */
+  lightDirection: Vec3;
+  lightColor: Vec3;
+  sky: Vec3;
+  ground: Vec3;
+  time: number;
+}
+
+/** What every material reads about the object it draws. */
+export interface Model {
+  matrix: Mat4;
+  normalMatrix: Mat3;
+  color: Vec3;
+  shininess: number;
+}
+
+/** A point of a surface, interpolated across each triangle. */
+export interface Surface {
+  clip: Builtin<"position", Vec4>;
+  world: Vec3;
+  normal: Vec3;
+  uv: Vec2;
+}
+
+/** Places a vertex of the model in the world and on the screen. */
+export function placeSurface(vertex: StandardVertex, frame: Frame, model: Model): Surface {
+  const world = model.matrix.mul(vec4(vertex.position, 1));
+  return {
+    clip: frame.viewProjection.mul(world),
+    world: world.xyz,
+    normal: model.normalMatrix.mul(vertex.normal),
+    uv: vertex.uv,
+  };
+}

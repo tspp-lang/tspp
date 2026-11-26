@@ -1,0 +1,40 @@
+import { Mat4 } from "../math/mat.js";
+import { Vec3 } from "../math/vec.js";
+
+const up = new Vec3(0, 1, 0);
+const limit = Math.PI / 2 - 0.01;
+
+/**
+ * A camera that circles `target` at `distance`. `yaw` turns it around the vertical axis and `pitch` raises it, both in
+ * radians; `fovY` is its vertical field of view. Changes return a new camera.
+ */
+export data class OrbitCamera(target: Vec3, distance: number, yaw: number, pitch: number, fovY: number) {
+  /** Where the camera is. */
+  eye(): Vec3 {
+    const flat = Math.cos(this.pitch);
+    return this.target.add(new Vec3(flat * Math.sin(this.yaw), Math.sin(this.pitch), flat * Math.cos(this.yaw)).scale(this.distance));
+  }
+
+  view(): Mat4 {
+    return Mat4.lookAt(this.eye(), this.target, up);
+  }
+
+  projection(aspect: number): Mat4 {
+    return Mat4.perspective(this.fovY, aspect, Math.max(this.distance / 1000, 0.01), this.distance * 100);
+  }
+
+  /** The projection times the view, which takes world positions to clip space. */
+  viewProjection(aspect: number): Mat4 {
+    return this.projection(aspect).mul(this.view());
+  }
+
+  /** Turned by `yaw` and raised by `pitch`, short of looking straight down or up. */
+  orbited(yaw: number, pitch: number): OrbitCamera {
+    return this.copy({ yaw: this.yaw + yaw, pitch: Math.min(Math.max(this.pitch + pitch, -limit), limit) });
+  }
+
+  /** Moved toward the target by `factor` below 1 or away from it above 1, within `[near, far]`. */
+  zoomed(factor: number, near = 0.5, far = 100): OrbitCamera {
+    return this.copy({ distance: Math.min(Math.max(this.distance * factor, near), far) });
+  }
+}

@@ -1,0 +1,6 @@
+export {
+  type Builtin, defineShader, type ShaderDescription, type ShaderModule, type UniformBinding, type UniformField, type UniformLayout,
+  type VertexAttribute, type VertexLayout, type WgslType,
+} from "./module.js";
+export { packVertices, writeUniforms } from "./layout.js";
+export { shaderModule } from "./macro.js";

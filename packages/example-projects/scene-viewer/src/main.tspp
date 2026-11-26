@@ -1,0 +1,97 @@
+// Starts the viewer: WebGPU, one pipeline per material, a mesh and uniforms per object, the camera controls and the
+// controls of the page.
+
+import { Vec3 } from "@tspp/engine/math";
+import { type BindGroup, GpuUnavailableError, type Mesh, type Pipeline, Renderer, type Uniforms } from "@tspp/engine/gpu";
+import { animate, meshOf, OrbitCamera, OrbitControls, type StandardVertex } from "@tspp/engine/scene";
+import { NormalsModule, PlasticModule, TilesModule } from "./shaders/materials.js";
+import type { Frame, Model } from "./shaders/surface.js";
+import { demoScene, type SceneObject, NormalView, Shaded, type ViewMode, sunDirection, transformAt } from "./scene.js";
+
+type Bindings = { readonly frame: Frame; readonly model: Model };
+
+interface Drawable {
+  readonly object: SceneObject;
+  readonly mesh: Mesh<StandardVertex>;
+  readonly model: Uniforms<Model>;
+  readonly bindings: BindGroup<Bindings>;
+}
+
+const sky = new Vec3(0.55, 0.68, 0.85);
+const ground = new Vec3(0.28, 0.24, 0.2);
+
+function element<T extends HTMLElement>(id: string): T {
+  const found = document.getElementById(id);
+  if (!found) throw new Error(`the page has no #${id}`);
+  return found as T;
+}
+
+async function start(): Promise<void> {
+  const canvas = element<HTMLCanvasElement>("view");
+  const status = element<HTMLElement>("status");
+  let renderer: Renderer;
+  try {
+    renderer = await Renderer.create(canvas);
+  }
+  catch (error) {
+    status.textContent = error instanceof GpuUnavailableError ? error.message : `WebGPU failed to start: ${String(error)}`;
+    status.hidden = false;
+    return;
+  }
+
+  const plastic = await renderer.createPipeline(PlasticModule);
+  const tiles = await renderer.createPipeline(TilesModule);
+  const normals = await renderer.createPipeline(NormalsModule);
+  const frame = renderer.createUniforms(plastic, "frame");
+
+  const drawables: Drawable[] = demoScene().map(object => {
+    const model = renderer.createUniforms(plastic, "model");
+    return { object, mesh: renderer.createMesh(plastic, meshOf(object.shape)), model, bindings: renderer.createBindGroup(plastic, { frame, model }) };
+  });
+
+  const controls = new OrbitControls(canvas, new OrbitCamera(new Vec3(0, 0.6, 0), 7, 0.5, 0.35, Math.PI / 4));
+  const animated = element<HTMLInputElement>("animate");
+  const light = element<HTMLInputElement>("light");
+  let mode: ViewMode = Shaded;
+  for (const input of document.querySelectorAll<HTMLInputElement>("input[name=mode]")) {
+    input.addEventListener("change", () => {
+      mode = input.value === "normals" ? NormalView : Shaded;
+    });
+  }
+  element<HTMLElement>("wgsl").textContent = PlasticModule.code;
+
+  let sceneTime = 0;
+  animate((_time, delta) => {
+    if (animated.checked) sceneTime += delta;
+    const camera = controls.camera;
+    frame.write({
+      viewProjection: camera.viewProjection(renderer.aspect),
+      eye: camera.eye(),
+      lightDirection: sunDirection(Number(light.value) * Math.PI / 180),
+      lightColor: new Vec3(1.1, 1.05, 0.95),
+      sky,
+      ground,
+      time: sceneTime,
+    });
+    renderer.frame({ r: sky.x, g: sky.y, b: sky.z, a: 1 }, pass => {
+      for (const drawable of drawables) {
+        const transform = transformAt(drawable.object, sceneTime);
+        const matrix = transform.matrix();
+        const material = drawable.object.material;
+        drawable.model.write({
+          matrix,
+          normalMatrix: matrix.normalMatrix(),
+          color: match material { Plastic(color, _) => color, Tiles(color) => color },
+          shininess: match material { Plastic(_, shininess) => shininess, Tiles(_) => 16 },
+        });
+        const pipeline: Pipeline<StandardVertex, Bindings> = match mode {
+          Shaded => match material { Plastic(_, _) => plastic, Tiles(_) => tiles },
+          NormalView => normals,
+        };
+        pass.draw(pipeline, drawable.bindings, drawable.mesh);
+      }
+    });
+  });
+}
+
+void start();

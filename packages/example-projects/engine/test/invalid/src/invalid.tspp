@@ -1,0 +1,70 @@
+import { type Vec2, Vec3, Vec4, vec4 } from "@tspp/engine/math";
+import { type Builtin, shaderModule } from "@tspp/engine/shader";
+
+interface Vertex { position: Vec3; }
+interface Surface { clip: Builtin<"position", Vec4>; }
+interface NoPosition { color: Vec3; }
+interface Settings { scale: number; tint?: Vec3; }
+interface Frame { scale: number; }
+
+namespace Untyped {
+  export function vertex(input: Vertex, frame: Frame) {
+    return { clip: vec4(input.position, frame.scale) };
+  }
+}
+
+namespace Random {
+  export function vertex(input: Vertex): Surface {
+    return { clip: vec4(input.position, Math.random()) };
+  }
+}
+
+namespace Global {
+  const scale = 2;
+  export function vertex(input: Vertex): Surface {
+    return { clip: vec4(input.position, scale) };
+  }
+}
+
+namespace Unclipped {
+  export function vertex(input: Vertex): NoPosition {
+    return { color: input.position };
+  }
+}
+
+namespace Optional {
+  export function vertex(input: Vertex, settings: Settings): Surface {
+    return { clip: vec4(input.position, settings.scale) };
+  }
+}
+
+namespace Looping {
+  export function vertex(input: Vertex): Surface {
+    const values = [1, 2];
+    return { clip: vec4(input.position, values.length) };
+  }
+}
+
+namespace Twice {
+  export function vertex(input: Vertex, frame: Vertex): Surface {
+    return { clip: vec4(input.position, 1) };
+  }
+}
+
+namespace Callback {
+  export function vertex(input: Vertex): Surface {
+    return { clip: [1].map(() => vec4(input.position, 1))[0]! };
+  }
+}
+
+macro shaderModule(Untyped);
+macro shaderModule(Random);
+macro shaderModule(Global);
+macro shaderModule(Unclipped);
+macro shaderModule(Optional);
+macro shaderModule(Looping);
+macro shaderModule(Twice);
+macro shaderModule(Callback);
+
+// Vectors of different sizes do not mix, although a Vec3 has every member a Vec2 has.
+export const mixed: Vec2 = new Vec3(1, 2, 3);

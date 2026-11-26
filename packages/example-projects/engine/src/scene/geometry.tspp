@@ -1,0 +1,112 @@
+// Meshes of simple shapes. Triangles wind counterclockwise as seen from outside, which is WebGPU's front face.
+
+import { Vec2, Vec3 } from "../math/vec.js";
+import type { MeshData } from "../gpu/renderer.js";
+
+/** The vertex of the generated meshes; a shader whose vertex input has a subset of these fields can draw them. */
+export interface StandardVertex {
+  position: Vec3;
+  normal: Vec3;
+  uv: Vec2;
+}
+
+/** A shape centered on the origin. */
+export data Shape =
+  Box(size: Vec3)
+  | Sphere(radius: number, segments: number, rings: number)
+  | Plane(width: number, depth: number)
+  | Torus(radius: number, tube: number, segments: number, sides: number);
+
+/** The mesh of `shape`. */
+export function meshOf(shape: Shape): MeshData<StandardVertex> {
+  return match shape {
+    Box(size) => box(size),
+    Sphere(radius, segments, rings) => sphere(radius, segments, rings),
+    Plane(width, depth) => plane(width, depth),
+    Torus(radius, tube, segments, sides) => torus(radius, tube, segments, sides),
+  };
+}
+
+function requireCount(name: string, value: number, least: number): void {
+  if (!Number.isInteger(value) || value < least) throw new RangeError(`${name} must be an integer of at least ${least}, not ${value}`);
+}
+
+/**
+ * A grid of `columns` × `rows` quads whose vertex at (u, v) in [0, 1]² is `vertexAt(u, v)`. The quad (u, v), (u + du, v),
+ * (u + du, v + dv), (u, v + dv) faces the viewer when u runs right and v runs up as seen from outside.
+ */
+function grid(columns: number, rows: number, vertexAt: (u: number, v: number) => StandardVertex): MeshData<StandardVertex> {
+  const vertices: StandardVertex[] = [];
+  const indices: number[] = [];
+  for (let row = 0; row <= rows; row++) {
+    for (let column = 0; column <= columns; column++) vertices.push(vertexAt(column / columns, row / rows));
+  }
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const a = row * (columns + 1) + column;
+      const b = a + 1;
+      const c = a + columns + 2;
+      const d = a + columns + 1;
+      indices.push(a, b, c, a, c, d);
+    }
+  }
+  return { vertices, indices };
+}
+
+function merge(meshes: readonly MeshData<StandardVertex>[]): MeshData<StandardVertex> {
+  const vertices: StandardVertex[] = [];
+  const indices: number[] = [];
+  for (const mesh of meshes) {
+    const base = vertices.length;
+    vertices.push(...mesh.vertices);
+    indices.push(...mesh.indices.map(index => index + base));
+  }
+  return { vertices, indices };
+}
+
+function box(size: Vec3): MeshData<StandardVertex> {
+  const half = size.scale(0.5);
+  // Each face: its outward normal, and the directions in which u and v run as seen from outside.
+  const faces: readonly (readonly [Vec3, Vec3, Vec3])[] = [
+    [new Vec3(1, 0, 0), new Vec3(0, 0, -1), new Vec3(0, 1, 0)],
+    [new Vec3(-1, 0, 0), new Vec3(0, 0, 1), new Vec3(0, 1, 0)],
+    [new Vec3(0, 1, 0), new Vec3(1, 0, 0), new Vec3(0, 0, -1)],
+    [new Vec3(0, -1, 0), new Vec3(1, 0, 0), new Vec3(0, 0, 1)],
+    [new Vec3(0, 0, 1), new Vec3(1, 0, 0), new Vec3(0, 1, 0)],
+    [new Vec3(0, 0, -1), new Vec3(-1, 0, 0), new Vec3(0, 1, 0)],
+  ];
+  return merge(faces.map(([normal, right, up]) => grid(1, 1, (u, v) => ({
+    position: normal.add(right.scale(u * 2 - 1)).add(up.scale(v * 2 - 1)).mul(half),
+    normal,
+    uv: new Vec2(u, 1 - v),
+  }))));
+}
+
+function sphere(radius: number, segments: number, rings: number): MeshData<StandardVertex> {
+  requireCount("segments", segments, 3);
+  requireCount("rings", rings, 2);
+  return grid(segments, rings, (u, v) => {
+    // v runs from the south pole up to the north pole; u runs eastwards, which is right as seen from outside.
+    const polar = Math.PI * (1 - v);
+    const azimuth = -2 * Math.PI * u;
+    const normal = new Vec3(Math.sin(polar) * Math.cos(azimuth), Math.cos(polar), Math.sin(polar) * Math.sin(azimuth));
+    return { position: normal.scale(radius), normal, uv: new Vec2(u, 1 - v) };
+  });
+}
+
+function plane(width: number, depth: number): MeshData<StandardVertex> {
+  const normal = new Vec3(0, 1, 0);
+  return grid(1, 1, (u, v) => ({ position: new Vec3((u - 0.5) * width, 0, (0.5 - v) * depth), normal, uv: new Vec2(u, 1 - v) }));
+}
+
+function torus(radius: number, tube: number, segments: number, sides: number): MeshData<StandardVertex> {
+  requireCount("segments", segments, 3);
+  requireCount("sides", sides, 3);
+  return grid(segments, sides, (u, v) => {
+    const around = -2 * Math.PI * u;
+    const turn = 2 * Math.PI * v;
+    const center = new Vec3(Math.cos(around), 0, Math.sin(around));
+    const normal = center.scale(-Math.cos(turn)).add(new Vec3(0, -Math.sin(turn), 0));
+    return { position: center.scale(radius).add(normal.scale(tube)), normal, uv: new Vec2(u, v) };
+  });
+}

@@ -1,0 +1,13 @@
+/** Calls `frame` before each repaint with the time in seconds since the start and since the last call; returns a stop function. */
+export function animate(frame: (time: number, delta: number) => void): () => void {
+  let start: number | undefined;
+  let last = 0;
+  let handle = requestAnimationFrame(function tick(now: number) {
+    start ??= now;
+    const time = (now - start) / 1000;
+    frame(time, time - last);
+    last = time;
+    handle = requestAnimationFrame(tick);
+  });
+  return () => cancelAnimationFrame(handle);
+}

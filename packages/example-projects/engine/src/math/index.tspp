@@ -1,0 +1,6 @@
+export { Vec2, Vec3, Vec4, type Vector } from "./vec.js";
+export { Mat3, Mat4 } from "./mat.js";
+export {
+  abs, clamp, cos, cross, distance, dot, exp, type Float, floor, type Same, fract, length, max, min, mix, normalize, pow, reflect,
+  saturate, sin, smoothstep, sqrt, step, vec2, vec3, vec4,
+} from "./functions.js";

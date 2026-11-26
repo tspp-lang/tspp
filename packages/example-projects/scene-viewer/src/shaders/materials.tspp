@@ -1,0 +1,54 @@
+// The materials of the viewer. Each namespace is a shader that `shaderModule` compiles to WGSL; its functions also run
+// on the CPU, which the tests use.
+
+import { abs, distance, floor, fract, mix, normalize, saturate, smoothstep, type Vec4, vec3, vec4 } from "@tspp/engine/math";
+import type { StandardVertex } from "@tspp/engine/scene";
+import { shaderModule } from "@tspp/engine/shader";
+import { display, illuminate } from "./lighting.js";
+import { type Frame, type Model, placeSurface, type Surface } from "./surface.js";
+
+/** A smooth surface in the model's color. */
+export namespace Plastic {
+  export function vertex(input: StandardVertex, frame: Frame, model: Model): Surface {
+    return placeSurface(input, frame, model);
+  }
+
+  export function fragment(surface: Surface, frame: Frame, model: Model): Vec4 {
+    return vec4(display(illuminate(surface, frame, model.color, model.shininess)), 1);
+  }
+}
+
+/** A floor of one-unit tiles in two shades of the model's color, fading into the sky with distance. */
+export namespace Tiles {
+  export function vertex(input: StandardVertex, frame: Frame, model: Model): Surface {
+    return placeSurface(input, frame, model);
+  }
+
+  /** 0 on dark tiles and 1 on light ones. */
+  export function parity(x: number, z: number): number {
+    return abs(fract((floor(x) + floor(z)) * 0.5) * 2);
+  }
+
+  export function fragment(surface: Surface, frame: Frame, model: Model): Vec4 {
+    const shade = mix(0.55, 1, parity(surface.world.x, surface.world.z));
+    const light = illuminate(surface, frame, model.color.scale(shade), model.shininess);
+    const fade = smoothstep(8, 18, distance(surface.world, frame.eye));
+    return vec4(display(mix(light, frame.sky, fade)), 1);
+  }
+}
+
+/** Shows the direction each surface faces, x, y and z as red, green and blue. */
+export namespace Normals {
+  export function vertex(input: StandardVertex, frame: Frame, model: Model): Surface {
+    return placeSurface(input, frame, model);
+  }
+
+  export function fragment(surface: Surface, frame: Frame, model: Model): Vec4 {
+    const color = normalize(surface.normal).scale(0.5).add(vec3(0.5));
+    return vec4(saturate(color), 1);
+  }
+}
+
+macro shaderModule(Plastic);
+macro shaderModule(Tiles);
+macro shaderModule(Normals);

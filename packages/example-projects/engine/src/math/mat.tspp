@@ -1,0 +1,186 @@
+// Column-major matrices of 32-bit floats, laid out as WGSL `mat3x3f` and `mat4x4f` expect. `mul` is the matrix
+// product, WGSL `a * b`, for another matrix or a vector.
+
+import { Vec3, Vec4 } from "./vec.js";
+
+/** A 3×3 matrix, mostly for transforming normals. */
+export final class Mat3 {
+  private declare readonly size: 9;
+
+  /** The nine elements, column after column. */
+  readonly elements: readonly number[];
+
+  constructor(elements: readonly number[]) {
+    if (elements.length !== 9) throw new RangeError(`a Mat3 has 9 elements, not ${elements.length}`);
+    this.elements = Object.freeze([...elements]);
+  }
+
+  static identity(): Mat3 {
+    return new Mat3([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  }
+
+  /** The element in `column` and `row`. */
+  at(column: number, row: number): number {
+    return this.elements[column * 3 + row]!;
+  }
+
+  mul(other: Mat3): Mat3;
+  mul(vector: Vec3): Vec3;
+  mul(other: Mat3 | Vec3): Mat3 | Vec3 {
+    if (other instanceof Vec3) {
+      const v = other.components;
+      const out = [0, 1, 2].map(row => this.at(0, row) * v[0]! + this.at(1, row) * v[1]! + this.at(2, row) * v[2]!);
+      return new Vec3(out[0]!, out[1]!, out[2]!);
+    }
+    const out: number[] = [];
+    for (let column = 0; column < 3; column++) {
+      for (let row = 0; row < 3; row++) {
+        let sum = 0;
+        for (let k = 0; k < 3; k++) sum += this.at(k, row) * other.at(column, k);
+        out.push(sum);
+      }
+    }
+    return new Mat3(out);
+  }
+
+  transpose(): Mat3 {
+    const out: number[] = [];
+    for (let column = 0; column < 3; column++) for (let row = 0; row < 3; row++) out.push(this.at(row, column));
+    return new Mat3(out);
+  }
+
+  determinant(): number {
+    const [a, b, c, d, e, f, g, h, i] = this.elements as [number, number, number, number, number, number, number, number, number];
+    return a * (e * i - f * h) - d * (b * i - c * h) + g * (b * f - c * e);
+  }
+
+  /** The inverse; a singular matrix has none. */
+  inverse(): Mat3 {
+    const [a, b, c, d, e, f, g, h, i] = this.elements as [number, number, number, number, number, number, number, number, number];
+    const det = this.determinant();
+    if (det === 0) throw new RangeError("a singular matrix has no inverse");
+    const s = 1 / det;
+    return new Mat3([
+      (e * i - f * h) * s, (c * h - b * i) * s, (b * f - c * e) * s,
+      (f * g - d * i) * s, (a * i - c * g) * s, (c * d - a * f) * s,
+      (d * h - e * g) * s, (b * g - a * h) * s, (a * e - b * d) * s,
+    ]);
+  }
+
+  equals(other: Mat3): boolean {
+    return this.elements.every((value, index) => value === other.elements[index]);
+  }
+}
+
+/** A 4×4 matrix for affine transforms and projections. */
+export final class Mat4 {
+  private declare readonly size: 16;
+
+  /** The sixteen elements, column after column. */
+  readonly elements: readonly number[];
+
+  constructor(elements: readonly number[]) {
+    if (elements.length !== 16) throw new RangeError(`a Mat4 has 16 elements, not ${elements.length}`);
+    this.elements = Object.freeze([...elements]);
+  }
+
+  static identity(): Mat4 {
+    return new Mat4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  }
+
+  static translation(offset: Vec3): Mat4 {
+    return new Mat4([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, offset.x, offset.y, offset.z, 1]);
+  }
+
+  static scaling(factors: Vec3): Mat4 {
+    return new Mat4([factors.x, 0, 0, 0, 0, factors.y, 0, 0, 0, 0, factors.z, 0, 0, 0, 0, 1]);
+  }
+
+  /** A rotation by `angle` radians around the unit vector `axis`, counterclockwise when the axis points at the viewer. */
+  static rotation(axis: Vec3, angle: number): Mat4 {
+    const { x, y, z } = axis.normalize();
+    const c = Math.cos(angle);
+    const s = Math.sin(angle);
+    const t = 1 - c;
+    return new Mat4([
+      t * x * x + c, t * x * y + s * z, t * x * z - s * y, 0,
+      t * x * y - s * z, t * y * y + c, t * y * z + s * x, 0,
+      t * x * z + s * y, t * y * z - s * x, t * z * z + c, 0,
+      0, 0, 0, 1,
+    ]);
+  }
+
+  /**
+   * A right-handed perspective projection onto WebGPU's clip space, whose depth runs from 0 at `near` to 1 at `far`.
+   * `fovY` is the vertical field of view in radians.
+   */
+  static perspective(fovY: number, aspect: number, near: number, far: number): Mat4 {
+    if (!(near > 0 && far > near)) throw new RangeError("a perspective needs 0 < near < far");
+    const f = 1 / Math.tan(fovY / 2);
+    const range = 1 / (near - far);
+    return new Mat4([f / aspect, 0, 0, 0, 0, f, 0, 0, 0, 0, far * range, -1, 0, 0, near * far * range, 0]);
+  }
+
+  /** The view matrix of a camera at `eye` looking at `target`, with `up` roughly upwards on screen. */
+  static lookAt(eye: Vec3, target: Vec3, up: Vec3): Mat4 {
+    const forward = eye.sub(target).normalize();
+    const right = up.cross(forward).normalize();
+    const upward = forward.cross(right);
+    return new Mat4([
+      right.x, upward.x, forward.x, 0,
+      right.y, upward.y, forward.y, 0,
+      right.z, upward.z, forward.z, 0,
+      -right.dot(eye), -upward.dot(eye), -forward.dot(eye), 1,
+    ]);
+  }
+
+  /** The element in `column` and `row`. */
+  at(column: number, row: number): number {
+    return this.elements[column * 4 + row]!;
+  }
+
+  mul(other: Mat4): Mat4;
+  mul(vector: Vec4): Vec4;
+  mul(other: Mat4 | Vec4): Mat4 | Vec4 {
+    if (other instanceof Vec4) {
+      const v = other.components;
+      const out = [0, 1, 2, 3].map(row => this.at(0, row) * v[0]! + this.at(1, row) * v[1]! + this.at(2, row) * v[2]! + this.at(3, row) * v[3]!);
+      return new Vec4(out[0]!, out[1]!, out[2]!, out[3]!);
+    }
+    const out: number[] = [];
+    for (let column = 0; column < 4; column++) {
+      for (let row = 0; row < 4; row++) {
+        let sum = 0;
+        for (let k = 0; k < 4; k++) sum += this.at(k, row) * other.at(column, k);
+        out.push(sum);
+      }
+    }
+    return new Mat4(out);
+  }
+
+  /** Transforms a point, with `w` = 1. */
+  transformPoint(point: Vec3): Vec3 {
+    const result = this.mul(new Vec4(point.x, point.y, point.z, 1));
+    return result.xyz.scale(1 / result.w);
+  }
+
+  transpose(): Mat4 {
+    const out: number[] = [];
+    for (let column = 0; column < 4; column++) for (let row = 0; row < 4; row++) out.push(this.at(row, column));
+    return new Mat4(out);
+  }
+
+  /** The upper-left 3×3 block, which holds the rotation and scale of an affine transform. */
+  toMat3(): Mat3 {
+    return new Mat3([0, 1, 2].flatMap(column => [0, 1, 2].map(row => this.at(column, row))));
+  }
+
+  /** The matrix that transforms normals as this one transforms points: the inverse transpose of its 3×3 block. */
+  normalMatrix(): Mat3 {
+    return this.toMat3().inverse().transpose();
+  }
+
+  equals(other: Mat4): boolean {
+    return this.elements.every((value, index) => value === other.elements[index]);
+  }
+}

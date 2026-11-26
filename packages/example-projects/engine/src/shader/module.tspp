@@ -1,0 +1,68 @@
+// What the `shaderModule` macro generates: the WGSL code of a shader namespace and the memory layouts of its vertex
+// input and uniform structs, which the CPU needs to fill buffers the shader can read.
+
+/**
+ * Marks a field of a vertex output struct as a WGSL built-in value instead of a value the GPU interpolates. The type is
+ * the field's own type on the CPU: `clip: Builtin<"position", Vec4>` is a `Vec4`.
+ */
+export type Builtin<Name extends "position", T> = T & { readonly [builtinName]?: Name };
+declare const builtinName: unique symbol;
+
+/** The WGSL type of a value that the CPU stores in a buffer. */
+export type WgslType = "f32" | "vec2f" | "vec3f" | "vec4f" | "mat3x3f" | "mat4x4f";
+
+/** One field of a vertex input struct, read from an interleaved vertex buffer. */
+export interface VertexAttribute {
+  readonly name: string;
+  readonly location: number;
+  readonly offset: number;
+  readonly format: "float32" | "float32x2" | "float32x3" | "float32x4";
+}
+
+/** How the fields of one vertex lie in a buffer. */
+export interface VertexLayout {
+  readonly stride: number;
+  readonly attributes: readonly VertexAttribute[];
+}
+
+/** One field of a uniform struct, at its WGSL offset in bytes. */
+export type UniformField =
+  | { readonly name: string; readonly offset: number; readonly type: WgslType }
+  | { readonly name: string; readonly offset: number; readonly type: "struct"; readonly layout: UniformLayout };
+
+/** A uniform struct as WGSL lays it out: its size in bytes and its fields. */
+export interface UniformLayout {
+  readonly name: string;
+  readonly size: number;
+  readonly fields: readonly UniformField[];
+}
+
+/** A uniform buffer that the shader reads through `@group(0) @binding(binding)`, named as the entry parameter. */
+export interface UniformBinding {
+  readonly name: string;
+  readonly binding: number;
+  readonly layout: UniformLayout;
+}
+
+/** A shader namespace compiled to WGSL. */
+export interface ShaderDescription {
+  readonly name: string;
+  readonly code: string;
+  readonly vertex?: { readonly entry: string; readonly layout: VertexLayout };
+  readonly fragment?: { readonly entry: string };
+  readonly bindings: readonly UniformBinding[];
+}
+
+/**
+ * A compiled shader whose vertex input is `Vertex` and whose uniforms are `Bindings`, an object type from each binding
+ * name to the struct it holds. The types only exist for the checker, so that a mesh or a uniform value of the wrong
+ * shape cannot be given to the shader.
+ */
+export interface ShaderModule<Vertex, Bindings> extends ShaderDescription {
+  readonly types?: { readonly vertex: Vertex; readonly bindings: Bindings };
+}
+
+/** Wraps the description that `shaderModule` generates. */
+export function defineShader<Vertex, Bindings>(description: ShaderDescription): ShaderModule<Vertex, Bindings> {
+  return Object.freeze(description);
+}

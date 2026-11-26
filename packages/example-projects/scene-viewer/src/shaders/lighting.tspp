@@ -1,0 +1,26 @@
+// Lighting shared by the materials: a sky and ground ambient, a Blinn-Phong sun and a rim, then tone mapping.
+
+import { dot, max, mix, normalize, pow, saturate, type Vec3, vec3 } from "@tspp/engine/math";
+import type { Frame, Surface } from "./surface.js";
+
+/** The light that reaches the eye from a surface of `albedo` at `surface`. */
+export function illuminate(surface: Surface, frame: Frame, albedo: Vec3, shininess: number): Vec3 {
+  const normal = normalize(surface.normal);
+  const toLight = frame.lightDirection.negate().normalize();
+  const toEye = normalize(frame.eye.sub(surface.world));
+  const ambient = mix(frame.ground, frame.sky, normal.y * 0.5 + 0.5).mul(albedo).scale(0.35);
+  const diffuse = albedo.mul(frame.lightColor).scale(max(dot(normal, toLight), 0));
+  let specular = vec3(0);
+  if (dot(normal, toLight) > 0) {
+    const halfway = normalize(toLight.add(toEye));
+    specular = frame.lightColor.scale(pow(max(dot(normal, halfway), 0), shininess) * 0.5);
+  }
+  const rim = frame.sky.scale(pow(1 - saturate(dot(normal, toEye)), 3) * 0.2);
+  return ambient.add(diffuse).add(specular).add(rim);
+}
+
+/** Maps light to display values: Reinhard tone mapping, then gamma 2.2 for a canvas that is not sRGB. */
+export function display(light: Vec3): Vec3 {
+  const mapped = light.div(light.add(vec3(1)));
+  return pow(mapped, vec3(1 / 2.2));
+}

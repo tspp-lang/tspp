@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "Node16",
+    "moduleResolution": "Node16",
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmitOnError": true,
+    "types": [],
+    "plugins": [{ "name": "ts-plus-plus/plugins/macros", "tspp": true }]
+  },
+  "include": ["src/**/*.tspp"]
+}
