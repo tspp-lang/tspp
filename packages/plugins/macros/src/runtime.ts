@@ -107,6 +107,7 @@ export function createMacroTypeScript(ts: TSPPTypeScript) {
     return {
         factory,
         SyntaxKind: {
+            ...namedValues(kinds),
             FunctionDeclaration: kinds.FunctionDeclaration,
             ExportKeyword: kinds.ExportKeyword,
             AnyKeyword: kinds.AnyKeyword,
@@ -122,8 +123,13 @@ export function createMacroTypeScript(ts: TSPPTypeScript) {
             UnknownKeyword: kinds.UnknownKeyword,
             VoidKeyword: kinds.VoidKeyword,
         } satisfies MacroContext["typescript"]["SyntaxKind"],
-        NodeFlags: { Const: ts.NodeFlags.Const },
+        NodeFlags: { ...namedValues(ts.NodeFlags), Const: ts.NodeFlags.Const },
     };
+}
+
+/** The members of a numeric enum by name, without its reverse mapping from values to names. */
+function namedValues(enumObject: object): Record<string, number> {
+    return Object.fromEntries(Object.entries(enumObject).filter((entry): entry is [string, number] => typeof entry[1] === "number"));
 }
 
 function entityName(factory: TS.NodeFactory, name: string): TS.EntityName {

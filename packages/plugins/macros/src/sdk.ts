@@ -109,6 +109,10 @@ export interface MacroContext {
   readonly factory: MacroFactory;
   readonly typescript: {
     readonly factory: MacroFactory;
+    /**
+     * Every `SyntaxKind` of the compiler API by name, for macros that read the syntax of their targets; the kinds
+     * listed here are the ones the factories take.
+     */
     readonly SyntaxKind: Readonly<Record<string, number> & {
       FunctionDeclaration: number;
       ExportKeyword: number;
@@ -125,6 +129,7 @@ export interface MacroContext {
       UnknownKeyword: number;
       VoidKeyword: number;
     }>;
+    /** Every `NodeFlags` member of the compiler API by name, such as `Const` and `Let` for variable declaration lists. */
     readonly NodeFlags: Readonly<Record<string, number>>;
   };
   readonly sourceFile: MacroSourceFile;

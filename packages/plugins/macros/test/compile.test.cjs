@@ -147,6 +147,25 @@ function buildTyped(files) {
   }, { declaration: true, moduleResolution: ts.ModuleResolutionKind.Node10, noLib: false });
 }
 
+test("names every syntax kind and node flag for macros that read their targets", () => {
+  const { program } = build(`
+    export macro function countLets([target], context) {
+      const { SyntaxKind, NodeFlags, factory } = context.typescript;
+      if (target.node.kind !== SyntaxKind.ModuleDeclaration) return context.fail("expected a namespace");
+      const lets = target.node.body.statements.filter(statement =>
+        statement.kind === SyntaxKind.VariableStatement && (statement.declarationList.flags & NodeFlags.Let) !== 0);
+      const count = factory.createNumericLiteral(lets.length);
+      return factory.createVariableStatement(undefined, factory.createVariableDeclarationList([
+        factory.createVariableDeclaration("letCount", undefined, factory.createLiteralTypeNode(count), count),
+      ], NodeFlags.Const));
+    }
+    namespace Counters { export let a = 1; export const b = 2; export let c = 3; }
+    macro countLets(Counters);
+    const checked: 2 = letCount;
+  `);
+  assert.deepEqual(messages(program), []);
+});
+
 test("names generic types as targets without type arguments", () => {
   const { program } = build(`
     macro function check() {}
