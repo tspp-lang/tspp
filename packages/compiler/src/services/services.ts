@@ -1472,6 +1472,7 @@ export function createLanguageServiceSourceFile(
 export function updateLanguageServiceSourceFile(sourceFile: SourceFile, scriptSnapshot: IScriptSnapshot, version: string, textChangeRange: TextChangeRange | undefined, aggressiveChecks?: boolean): SourceFile {
     // If we were given a text change range, and our version or open-ness changed, then
     // incrementally parse this file.
+    textChangeRange = tsppSyntax.getSourceFileUpdateRange(sourceFile, textChangeRange); // TSPP-SLOT(source-projection)
     if (textChangeRange) {
         if (version !== sourceFile.version) {
             let newText: string;
@@ -1649,8 +1650,7 @@ export function createLanguageService(
     let lastProjectVersion: string;
     let lastTypesRootVersion = 0;
     let programInvalidated = false; // TSPP-SLOT(program-rebuild)
-    // A program rebuilder settled work after the current program was built. Rebuild on the next request, but keep the
-    // current program until then: editor requests may arrive before the host has entered its update cycle.
+    // Keep the current program until the next request: asynchronous rebuilds may settle before the host updates.
     const invalidateProgram = () => { // TSPP-SLOT(program-rebuild)
         programInvalidated = true;
         lastProjectVersion = undefined!;

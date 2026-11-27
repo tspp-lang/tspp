@@ -853,3 +853,40 @@ test("a language service keeps its program until a file changes, and then expand
   assert.notEqual(changed, program);
   assert.match(getMacroExpansions(changed, "/main.tspp")[0].text, /SecondName/);
 });
+
+test("restores invalid macro diagnostics after ranged edits of projected source", () => {
+  const fileName = "/edited.tspp";
+  const prefix = "macro function validate() {} interface User { id: number } macro validate(";
+  const suffix = "); macro validate(User);";
+  let version = 0;
+  let snapshot;
+  const service = ts.createLanguageService({
+    getScriptFileNames: () => [fileName],
+    getScriptVersion: () => String(version),
+    getScriptSnapshot: name => name === fileName ? snapshot : undefined,
+    getCurrentDirectory: () => "/",
+    getCompilationSettings: () => defaultOptions,
+    getDefaultLibFileName: () => "/lib.d.ts",
+    fileExists: name => name === fileName,
+    readFile: name => name === fileName ? snapshot.getText(0, snapshot.getLength()) : undefined,
+  });
+  let previousTarget = "";
+  try {
+    for (const target of ["1", "User", "1", "User", "1"]) {
+      const previousSnapshot = snapshot;
+      const content = prefix + target + suffix;
+      const changeRange = ts.createTextChangeRange(ts.createTextSpan(prefix.length, previousTarget.length), target.length);
+      snapshot = {
+        getText: (start, end) => content.slice(start, end),
+        getLength: () => content.length,
+        getChangeRange: old => old === previousSnapshot ? changeRange : undefined,
+      };
+      version++;
+      const diagnostics = service.getSyntacticDiagnostics(fileName);
+      assert.equal(diagnostics.some(diagnostic => diagnostic.code === 1434), target === "1", `edit ${version}: ${target}`);
+      previousTarget = target;
+    }
+  } finally {
+    service.dispose();
+  }
+});

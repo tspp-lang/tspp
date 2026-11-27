@@ -18,6 +18,7 @@ import {
     isLiteralKind,
     isNamedImports,
     isTemplateLiteralKind,
+    isTSPPFileName,
     isTSPPSourceCopy,
     isTSPPSyntaxNode,
 } from "../_namespaces/ts.js";
@@ -34,6 +35,7 @@ import type {
     SourceFileLike,
     SyntaxList,
     TextRange,
+    TextChangeRange,
 } from "../_namespaces/ts.js";
 import {
     Extension,
@@ -49,6 +51,15 @@ import {
 // keywords and names between parsed nodes.
 
 const scanner = createScanner(ScriptTarget.Latest, /*skipTrivia*/ true);
+
+/**
+ * TS++ files already require a full parse. Their old text may be projected, so an incremental edit must read the
+ * complete authored snapshot instead of copying projected prefixes and suffixes into the new source.
+ * @internal
+ */
+export function getSourceFileUpdateRange(sourceFile: SourceFile, changeRange: TextChangeRange | undefined): TextChangeRange | undefined {
+    return isTSPPFileName(sourceFile.fileName) ? undefined : changeRange;
+}
 
 /**
  * The node under `position` among what a plugin bound beside `node`'s children, which has source positions but is not
