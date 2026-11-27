@@ -321,6 +321,31 @@ test("reports an invalid generated tree and keeps subsequent macro expansions", 
   }
 });
 
+test("rejects malformed child lists even when the printer accepts them", async () => {
+  const content = `
+    ${exposeTypeNameSource()}
+    macro function malformed(targets, context) {
+      const { factory } = context.typescript;
+      return factory.createVariableStatement(undefined, factory.createVariableDeclarationList(
+        factory.createVariableDeclaration("bad", undefined, undefined, factory.createNumericLiteral(1)),
+      ));
+    }
+    interface User {}
+    macro malformed();
+    macro exposeTypeName(User);
+    const checked: "User" = UserTypeName;
+  `;
+  for (const program of [build(content).program, (await buildAsync(content)).program]) {
+    const [diagnostic, ...others] = program.getSemanticDiagnostics();
+    assert.deepEqual(others, []);
+    assert.match(ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"), /Macro 'malformed' returned an invalid syntax tree/);
+    assert.equal(content.slice(diagnostic.start, diagnostic.start + diagnostic.length), "macro malformed();");
+    const [broken, valid] = getMacroExpansions(program, "/file.tspp");
+    assert.equal(broken.text, "");
+    assert.match(valid.text, /^var UserTypeName: "User" = "User";$/);
+  }
+});
+
 test("checks suggestion diagnostics on the expanded file", async () => {
   // The rebuilt file is re-created by the factory; the checker must treat it as the parse tree rather than following
   // `original` to the unexpanded, unbound file.

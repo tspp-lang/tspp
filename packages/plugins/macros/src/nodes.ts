@@ -42,3 +42,12 @@ export function forEachDescendant(ts: TSPPTypeScript, node: TS.Node, callback: (
         forEachDescendant(ts, child, callback);
     });
 }
+
+/**
+ * The printer accepts some malformed child lists, such as a declaration node where an array belongs. Walk the tree
+ * as the binder will, so invalid macro results fail before entering the rebuilt program.
+ */
+export function validateMacroTree(ts: TSPPTypeScript, node: TS.Node): void {
+    if (!node || typeof node.kind !== "number") throw new Error("Expected a syntax tree node.");
+    ts.forEachChild(node, child => validateMacroTree(ts, child));
+}

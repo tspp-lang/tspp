@@ -2,7 +2,7 @@ import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import { createDescriber } from "./describe";
-import { findStatement, firstIdentifier, forEachDescendant, getProjectedElements, sourceFileOf, tokenStartOf } from "./nodes";
+import { findStatement, firstIdentifier, forEachDescendant, getProjectedElements, sourceFileOf, tokenStartOf, validateMacroTree } from "./nodes";
 import { describeTimeout, macroDiagnosticCodes, type MacroTimeoutBudget, readMacroOptions } from "./options";
 import {
     asyncEvaluations,
@@ -481,6 +481,7 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     function expandedInvocation(sourceFile: TS.SourceFile, syntax: MacroInvocationSyntax, statements: readonly TS.Statement[]): ExpandedMacroInvocation {
         let text: string;
         try {
+            for (const statement of statements) validateMacroTree(ts, statement);
             text = statements.map(statement => printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile)).join("\n");
         }
         catch (error) {
