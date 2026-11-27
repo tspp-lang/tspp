@@ -15,6 +15,7 @@ const diagnosticMessages = join(compilerSource, "compiler/diagnosticMessages.jso
 const normalizedCompilerSource = compilerSource.replaceAll("\\", "/");
 const z3Build = dirname(require.resolve("z3-solver"));
 const examplesRoot = resolve(import.meta.dirname, "../examples");
+const skillsRoot = resolve(import.meta.dirname, "../../skills/tspp");
 const monacoRoot = join(dirname(require.resolve("monaco-editor")), "..", "..");
 /** The feature capsules are this package's dependencies; nothing else lists them. */
 const pluginPackages = Object.keys((JSON.parse(readFileSync(join(import.meta.dirname, "package.json"), "utf8")) as {
@@ -283,6 +284,25 @@ function examplesPlugin(): Plugin {
   };
 }
 
+function skillsBundlePlugin(): Plugin {
+  const id = "virtual:tspp-skills";
+  return {
+    name: "tspp:skills",
+    resolveId(source) { return source === id ? `\0${id}` : undefined; },
+    load(source) {
+      if (source !== `\0${id}`) return undefined;
+      const entryPath = join(skillsRoot, "SKILL.md");
+      const entry = existsSync(entryPath) ? readFileSync(entryPath, "utf8") : "";
+      const files = Object.fromEntries(
+        listFiles(skillsRoot)
+          .filter(file => file.endsWith(".md"))
+          .map(file => [file, readFileSync(join(skillsRoot, file), "utf8")]),
+      );
+      return `export default ${JSON.stringify({ entry, files })};`;
+    },
+  };
+}
+
 /** Nothing works until the editor and the language worker both arrive, so fetch them side by side, not one after the other. */
 function preloadLanguageWorker(): Plugin {
   return {
@@ -381,7 +401,7 @@ export default defineConfig({
   ] },
   optimizeDeps: { include: browserPackages },
   oxc: { exclude: [/packages[\\/]compiler[\\/]src[\\/]/] },
-  plugins: [...workerPlugins(), examplesPlugin(), z3Runtime(), preloadLanguageWorker()],
+  plugins: [...workerPlugins(), examplesPlugin(), skillsBundlePlugin(), z3Runtime(), preloadLanguageWorker()],
   worker: { format: "es", plugins: workerPlugins },
   server: { port: 5173, strictPort: true, headers: isolationHeaders },
   preview: { headers: isolationHeaders },

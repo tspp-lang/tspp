@@ -9,6 +9,9 @@ pre-commit:
     knip:
       glob: 'packages/compiler/**'
       run: pnpm knip
+    skills:
+      glob: '{packages/plugins/*/skills/**,scripts/skills-entry.md,scripts/build-skills.mjs,scripts/plugin-entries.mjs,package.json}'
+      run: node scripts/build-skills.mjs --stage
 
 post-checkout:
   commands:

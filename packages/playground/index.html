@@ -31,6 +31,7 @@
         </div>
       </div>
       <input id="share-link" type="text" readonly hidden aria-label="Share link" />
+      <button id="copy-prompt" type="button" title="Copy full TS++ skills and current code for AI">Copy Prompt</button>
       <button id="share" type="button">Share</button>
     </header>
     <main>
@@ -98,7 +99,15 @@
           <div id="features" class="scroll"></div>
         </section>
         <section>
-          <h2>Problems<span id="problem-count"></span><span id="analysis-status" class="local-status" hidden>Verifying contracts…</span></h2>
+          <div class="problems-header">
+            <h2>Problems<span id="problem-count"></span></h2>
+            <select id="problem-copy-mode" aria-label="Copy error mode" title="Choose what to include when copying diagnostics">
+              <option value="concise">Error + Code</option>
+              <option value="full">With Skills</option>
+            </select>
+            <button id="copy-problems" type="button" title="Copy all diagnostics for AI" disabled><span class="codicon codicon-copy"></span> Copy</button>
+            <span id="analysis-status" class="local-status" hidden>Verifying contracts…</span>
+          </div>
           <div class="scroll"><ul id="problems"></ul></div>
         </section>
       </aside>
