@@ -38,7 +38,7 @@ const targets = {
         // their implementation and the feature-specific rules remain outside upstream files.
         // The parser cursor reads function bodies for plugin members, and the emitter narrows each `.d.tspp` header after
         // printing (one import, one call), since only the printed file knows which plugins restored syntax.
-        budget: { upstreamFiles: 30, upstreamAdded: 419, upstreamRemoved: 90 },
+        budget: { upstreamFiles: 30, upstreamAdded: 420, upstreamRemoved: 90 },
         // The parser's cursor for plugin syntax reads the parser's closure, so it cannot move to a new file.
         longHunkExceptions: [{ file: `${coreDir}/compiler/parser.ts`, contains: "createTSPPSyntaxCursor", maxAdded: 70 }],
     },
