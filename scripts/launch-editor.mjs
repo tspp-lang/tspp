@@ -66,6 +66,18 @@ if (buildResult.status !== 0) {
   process.exit(buildResult.status ?? 1);
 }
 
+function commandExists(command) {
+  const probe = process.platform === "win32" ? "where.exe" : "which";
+  return spawnSync(probe, [command], { stdio: "ignore" }).status === 0;
+}
+
+function resolveAntigravityCommand(hintValue = "") {
+  const candidates = /antigravity[\s_-]*ide/i.test(hintValue)
+    ? ["antigravity-ide", "antigravity"]
+    : ["antigravity", "antigravity-ide"];
+  return candidates.find(commandExists) ?? candidates[0];
+}
+
 function detectEditor() {
   if (process.env.TSPP_EDITOR) {
     return {
@@ -82,7 +94,7 @@ function detectEditor() {
     process.env.ANTIGRAVITY_VSCODE_HOST
   ) {
     return {
-      command: "antigravity",
+      command: resolveAntigravityCommand(process.env.VSCODE_EXEC_PATH),
       source: "ANTIGRAVITY_* env",
     };
   }
@@ -118,7 +130,7 @@ function detectEditor() {
   for (const [key, value] of hintEntries) {
     if (/Antigravity/i.test(value)) {
       return {
-        command: "antigravity",
+        command: resolveAntigravityCommand(value),
         source: `${key} (${value})`,
       };
     }

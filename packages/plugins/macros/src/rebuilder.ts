@@ -28,10 +28,17 @@ let building = false;
 
 const unusedDiagnosticCodes = new Set([6133, 6138, 6192, 6196, 6198, 6199, 6205]);
 
+function normalizeFileName(fileName: string): string {
+    const normalized = fileName.replace(/\\/g, "/");
+    return /^[A-Za-z]:\//.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
 /** The replacement-free part of a program with macros, for `getMacroExpansions` and the playground. */
 export function getMacroExpansions(program: object, fileName?: string): readonly MacroExpansion[] {
     const expansions = expansionsByProgram.get(program) ?? [];
-    return fileName === undefined ? expansions : expansions.filter(expansion => expansion.fileName === fileName);
+    if (fileName === undefined) return expansions;
+    const target = normalizeFileName(fileName);
+    return expansions.filter(expansion => normalizeFileName(expansion.fileName) === target);
 }
 
 export function createMacroPreprocessor(ts: TSPPTypeScript): TSPPSourcePreprocessor {
