@@ -13,6 +13,20 @@
             }
         },
         {
+            "name": "TS++: Launch Example Projects (Keep Alive)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/launch-editor.mjs",
+            "args": [
+                "packages/example-projects"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": {
+                "VSCODE_EXEC_PATH": "${execPath}"
+            }
+        },
+        {
             "name": "TS++: Playground",
             "type": "pwa-chrome",
             "request": "launch",

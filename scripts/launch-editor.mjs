@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,7 +10,17 @@ const rootDir = path.resolve(
   "..",
 );
 const extensionDir = path.resolve(rootDir, "packages/vscode-extension");
-const workspaceDir = path.resolve(rootDir, "packages/examples");
+const requestedWorkspace =
+  process.argv[2] ?? process.env.TSPP_WORKSPACE ?? "packages/examples";
+const workspaceDir = path.resolve(rootDir, requestedWorkspace);
+
+if (!existsSync(workspaceDir)) {
+  console.error(
+    "\x1b[31m%s\x1b[0m",
+    `Workspace directory does not exist: ${workspaceDir}`,
+  );
+  process.exit(1);
+}
 
 function commandInvocation(command, args) {
   if (process.platform !== "win32") return { command, args };
