@@ -1,7 +1,7 @@
 import type { TSPPDiagnosticProvider, TSPPTypeExtension, TSPPTypeHost, TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { evidenceArgumentOf, isEvidence, registerEvidence, runtimeShapeOf, runtimeTypeParameterOf } from "./descriptor";
+import { evidenceArgumentOf, isEvidence, reifiedTypeProperty, registerEvidence, runtimeShapeOf, runtimeTypeParameterOf } from "./descriptor";
 import type { TypeSyntaxModel } from "./kinds";
 import type { LoweredTypecase, Reification } from "./reification";
 
@@ -110,10 +110,17 @@ export function createRuntimeEvidence(ts: TSPPTypeScript, model: TypeSyntaxModel
         typeToTypeNode(type, host) {
             const represented = evidenceArgumentOf(ts, type);
             if (!represented) return undefined;
-            const argument = host.checker.typeToTypeNode(represented, undefined, ts.NodeBuilderFlags.NoTruncation) ?? ts.factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword);
+            const flags = ts.NodeBuilderFlags.NoTruncation;
+            const argument = host.checker.typeToTypeNode(represented, undefined, flags) ?? ts.factory.createKeywordTypeNode(ts.SyntaxKind.UnknownKeyword);
             const node = ts.factory.createTypeReferenceNode("Reified", [argument]);
             printedEvidence.add(node);
-            return node;
+            // `Reified<T>` is the trusted part and the descriptor's members; anything else intersected with it follows.
+            const others = type.flags & ts.TypeFlags.Intersection
+                ? (type as TS.IntersectionType).types.filter(part => !isEvidence(part) && !host.checker.getPropertyOfType(part, reifiedTypeProperty))
+                : [];
+            if (!others.length) return node;
+            const printed = others.map(part => host.checker.typeToTypeNode(part, undefined, flags));
+            return printed.every(part => !!part) ? ts.factory.createIntersectionTypeNode([node, ...printed as TS.TypeNode[]]) : undefined;
         },
         resolveExpressionType(node, host) {
             const typecase = reification.typecases.get(node);

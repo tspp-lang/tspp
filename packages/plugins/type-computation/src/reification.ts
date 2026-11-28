@@ -154,30 +154,41 @@ export function createReification(ts: TSPPTypeScript, model: TypeSyntaxModel): R
         },
     };
 
+    /**
+     * `Reified<T>` is read where TypeScript has just parsed it as a type reference, so it is a type like any other:
+     * an operand of `&` or `|`, or the element of an array type. A file that declares its own `Reified` keeps it.
+     */
+    const reifiedReference = (type: TS.TypeNode | undefined): TS.TypeReferenceNode | undefined => {
+        if (!type) return undefined;
+        if (ts.isArrayTypeNode(type)) return reifiedReference(type.elementType);
+        if (ts.isIndexedAccessTypeNode(type)) return reifiedReference(type.objectType);
+        return ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) && ts.idText(type.typeName) === "Reified" && type.typeArguments
+            ? type
+            : undefined;
+    };
     const reified: TSPPSyntaxExtension = {
-        position: "type",
-        startTokens: [kinds.Identifier],
+        position: "postfix-type",
+        // Whatever follows the type; `<` would apply it, which `Reified<T>` never is.
+        startTokens: Array.from({ length: kinds.LastToken + 1 }, (_, kind) => kind).filter(kind => kind !== kinds.LessThanToken),
         keywords: ["Reified"],
-        isStart: cursor => cursor.tokenText() === "Reified"
-            && !fileDeclaredNames(model, cursor.getSourceText()).has("Reified")
-            && cursor.lookAhead(() => {
-                cursor.nextToken();
-                return cursor.token() === kinds.LessThanToken;
-            }),
+        isStart: cursor => !!reifiedReference(cursor.precedingType) && !fileDeclaredNames(model, cursor.getSourceText()).has("Reified"),
         parse(cursor) {
             const f = cursor.factory;
-            const pos = cursor.getNodePos();
-            const keywordStart = cursor.getTokenStart();
-            cursor.nextToken();
-            const typeArguments = cursor.parseTypeArguments();
-            if (!typeArguments || typeArguments.length !== 1) {
-                throw new Error("Generic type 'Reified' requires 1 type argument(s).");
-            }
-            const end = cursor.getNodePos();
-            const descriptorType = createDescriptorTypeNode(f, typeArguments[0], keywordStart, end);
+            const preceding = cursor.precedingType!;
+            const reference = reifiedReference(preceding)!;
+            if (reference.typeArguments!.length !== 1) throw new Error("Generic type 'Reified' requires 1 type argument(s).");
+            const keywordStart = reference.typeName.end - "Reified".length;
+            const descriptorType = createDescriptorTypeNode(f, reference.typeArguments![0], keywordStart, reference.end);
             model.authored.set(descriptorType, keywordStart);
-            model.descriptorTypes.set(descriptorType, typeArguments[0]);
-            return range(descriptorType, pos, end);
+            model.descriptorTypes.set(descriptorType, reference.typeArguments![0]);
+            const replaced = range(descriptorType, reference.pos, reference.end);
+            const rebuild = (type: TS.TypeNode): TS.TypeNode => {
+                if (type === reference) return replaced;
+                const rebuilt = ts.isArrayTypeNode(type) ? f.createArrayTypeNode(rebuild(type.elementType))
+                    : f.createIndexedAccessTypeNode(rebuild((type as TS.IndexedAccessTypeNode).objectType), (type as TS.IndexedAccessTypeNode).indexType);
+                return range(rebuilt, type.pos, type.end);
+            };
+            return rebuild(preceding);
         },
     };
 

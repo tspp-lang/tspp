@@ -104,7 +104,8 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
         isTypeParameterApplicable: typeParameter => declarationKind(typeParameter.symbol)?.kind === "function",
         typeToTypeNode(type, host) {
             const level = stateOf(host).universeLevels.get(type);
-            return level === undefined ? undefined : ts.factory.createTypeReferenceNode(`Type${level}`);
+            // `Type` is how the lowest universe is written, as in `(A: Type)`.
+            return level === undefined ? undefined : ts.factory.createTypeReferenceNode(level === 0 ? "Type" : `Type${level}`);
         },
     };
 

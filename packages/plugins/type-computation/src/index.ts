@@ -33,7 +33,7 @@ export const typeComputationPlugin = definePlugin({
                 { keyword: "auto", position: "type" },
                 ...builtinTermNames.map(keyword => ({ keyword, position: "type" as const })),
                 { keyword: "reify", position: "expression" },
-                { keyword: "Reified", position: "type" },
+                { keyword: "Reified", position: "postfix-type" },
                 { keyword: "typecase", position: "expression" },
                 { keyword: ":", position: "type-parameter-annotation" },
                 { keyword: ":", position: "type-alias-annotation" },
@@ -341,15 +341,11 @@ function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemant
 /** Type-level syntax shown as it was written, without generated names or a truncated computed body. */
 function authoredQuickInfo(token: { readonly start: number; readonly length: number; readonly text: string; }, display: string | undefined, sourceText: string) {
     const shown = (text: string) => ({ start: token.start, length: token.length, display: text });
-    if (display && /\b_?_tspp_/.test(display)) {
-        // A descriptor's members are what `Reified<T>` already says.
-        const evidence = /(Reified<[^&]*>) & \{\s*kind: "type";\s*text: string;\s*\}/g;
-        return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(evidence, "$1").replace(/ in <[\s\S]*$/, ""));
-    }
     if (display?.startsWith(`type ${token.text}`)) {
         const declaration = computedAliasDisplay(token.text, sourceText);
         if (declaration) return shown(declaration);
     }
+    if (display && /\b_?_tspp_/.test(display)) return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(/ in <[\s\S]*$/, ""));
     return undefined;
 }
 

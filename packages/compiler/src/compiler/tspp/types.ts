@@ -21,6 +21,7 @@ import type {
     Expression,
     GenericType,
     InterfaceType,
+    IntersectionType,
     NamedTupleMember,
     Node,
     NodeLinks,
@@ -342,8 +343,17 @@ export function getTSPPMember(state: TSPPTypeState, node: Node, leftType: Type, 
     return undefined;
 }
 
-/** How the type extension that created `type` writes it, if it does. @internal */
+/**
+ * How the type extension that created `type` writes it, if it does. An intersection with a type an extension created
+ * is that extension's to write too, as when its type is the trusted part of a structural one. @internal
+ */
 export function tsppTypeToTypeNode(state: TSPPTypeState, type: Type): TypeNode | undefined {
-    const owner = state.owners.get(type);
-    return owner?.typeToTypeNode?.(type as never, getHost(state, owner)) as unknown as TypeNode | undefined;
+    const owners = type.flags & TypeFlags.Intersection
+        ? [...new Set((type as IntersectionType).types.map(part => state.owners.get(part)))]
+        : [state.owners.get(type)];
+    for (const owner of owners) {
+        const node = owner?.typeToTypeNode?.(type as never, getHost(state, owner)) as unknown as TypeNode | undefined;
+        if (node) return node;
+    }
+    return undefined;
 }

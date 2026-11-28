@@ -421,7 +421,10 @@ export interface TSPPTypeExtension {
      * rules out when it decides what a type needs to be instantiated with.
      */
     isTypeParameterApplicable?(typeParameter: import("typescript-upstream").TypeParameter): boolean;
-    /** How a type this extension created is written in hovers and messages; undefined for the ordinary text. */
+    /**
+     * How a type this extension created, or an intersection with one, is written in hovers and messages; undefined for
+     * the ordinary text.
+     */
     typeToTypeNode?(type: import("typescript-upstream").Type, host: TSPPTypeHost): import("typescript-upstream").TypeNode | undefined;
 }
 

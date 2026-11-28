@@ -159,3 +159,45 @@ export const evidence: Reified<number> = reify number;
   const typeParameter = 4;
   assert.equal(classOf(source.indexOf("A) =>")), typeParameter);
 });
+
+test("declarations show what was written, and uses show the evidence they take", () => {
+  const source = `export type Describe = (A: Type, value: A) => string;
+export const describe: Describe = (A, value) => "";
+export const described = describe(reify number, 1);
+export const both: Reified<number> & { tag: 1 } = null!;
+export function direct(A: Type, value: A): string { return ""; }
+`;
+  const service = createLanguageService("/main.tspp", source, options);
+  const hover = position => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", position)?.displayParts ?? []);
+  assert.equal(hover(source.indexOf("Describe")), "type Describe = (A: Type, value: A) => string");
+  const help = service.getSignatureHelpItems("/main.tspp", source.indexOf("reify number, 1"), undefined).items[0];
+  assert.deepEqual(help.parameters.map(parameter => ts.displayPartsToString(parameter.displayParts)), ["A: Reified<number>", "value: number"]);
+  assert.equal(hover(source.indexOf("direct")), "function direct(A: Type, value: A): string");
+  // Only the descriptor's own members fold into Reified<T>.
+  assert.match(hover(source.indexOf("both")), /Reified<number> & \{\s*tag: 1;\s*\}/);
+});
+
+test("Reified is a type like the ones around it", () => {
+  const { messages } = compile(`
+    declare const left: Reified<number> & { tag: 1 };
+    declare const right: { tag: 1 } & Reified<number>;
+    declare const either: Reified<number> | Reified<string>;
+    declare const many: Reified<number>[];
+    export const tags: 1[] = [left.tag, right.tag];
+    export const text: string = either.text;
+    export const first: Reified<number> = many[0];`);
+  assert.deepEqual(messages, []);
+  // An operand is evidence only as the compiler made it.
+  const forged = compile(`export const forged: { tag: 1 } & Reified<number> = { tag: 1, kind: "type", text: "number", __tspp_reified_type: 1 as number };`).messages;
+  assert.equal(forged.length, 1, forged.join("\n"));
+});
+
+test("an alias hover shows only that alias, whatever follows it", () => {
+  const source = `export type Identity = <T> =>> T;
+export type Describe = (A: Type, value: A) => string;
+`;
+  const service = createLanguageService("/main.tspp", source, options);
+  const hover = position => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", position)?.displayParts ?? []);
+  assert.doesNotMatch(hover(source.indexOf("Identity")), /Describe/);
+  assert.equal(hover(source.indexOf("Describe")), "type Describe = (A: Type, value: A) => string");
+});
