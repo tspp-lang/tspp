@@ -32,6 +32,7 @@ export const typeComputationPlugin = definePlugin({
                 { keyword: "auto", position: "type" },
                 ...builtinTermNames.map(keyword => ({ keyword, position: "type" as const })),
                 { keyword: "reify", position: "expression" },
+                { keyword: "Reified", position: "type" },
                 { keyword: "typecase", position: "expression" },
                 { keyword: ":", position: "type-parameter-annotation" },
                 { keyword: ":", position: "type-alias-annotation" },
@@ -47,9 +48,10 @@ export const typeComputationPlugin = definePlugin({
                 const model = createTypeSyntaxModel(() => context.compiler.getSyntaxKeywords("declaration"));
                 const [typeSyntax, ...otherSyntax] = createTypeSyntax(ts, model);
                 const restorers = createDeclarationRestorers(ts, model, sourceFile => context.compiler.getAuthoredText(sourceFile));
-                const reification = createReification(ts);
+                const reification = createReification(ts, model);
                 const disposers = [
                     context.compiler.registerSyntaxExtension(reification.reify),
+                    context.compiler.registerSyntaxExtension({ ...reification.reified, ...restorers }),
                     context.compiler.registerSyntaxExtension(reification.typecase),
                     context.compiler.registerProgramRebuilder(reification.selection),
                     context.compiler.registerSourcePreprocessor(partialInferencePreprocessor),
@@ -172,6 +174,7 @@ export { inferDependentTypeUniverse, parseDependentType } from "./dependent";
 
 const reificationDocumentation: Readonly<Record<string, string>> = {
     reify: "Creates a runtime descriptor for the following static type.",
+    Reified: "The type of a runtime type descriptor produced by `reify <Type>`.",
     typecase: "Matches a runtime type descriptor against type patterns in order.",
 };
 
@@ -319,7 +322,7 @@ function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemant
         if (token.kind !== "name" || classified.has(token.start)) continue;
         const end = token.start + token.text.length;
         if (request.sourceText[token.start - 1] === "." && request.sourceText[token.start - 2] !== ".") continue;
-        if (kernelConstants.has(token.text)) tokens.push({ start: token.start, length: token.text.length, type: "type" });
+        if (kernelConstants.has(token.text) || token.text === "Reified") tokens.push({ start: token.start, length: token.text.length, type: "type" });
         else if (afterInfer || (token.text !== "_" && !/^Type\d*$/.test(token.text) && !isTypeScriptKeyword(token.text) && !["match", "reify", "typecase", "auto"].includes(token.text) && request.isOwned(token.start, end))) {
             tokens.push({ start: token.start, length: token.text.length, type: "typeParameter" });
         }

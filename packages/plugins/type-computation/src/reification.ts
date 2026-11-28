@@ -7,6 +7,9 @@ import type {
 } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
+import { fileDeclaredNames } from "./dependent";
+import type { TypeSyntaxModel } from "./kinds";
+
 /** The phantom property through which a descriptor's static type carries the type it describes. */
 export const reifiedTypeProperty = "__tspp_reified_type";
 
@@ -18,6 +21,7 @@ interface LoweredTypecase {
 
 export interface Reification {
     readonly reify: TSPPSyntaxExtension;
+    readonly reified: TSPPSyntaxExtension;
     readonly typecase: TSPPSyntaxExtension;
     /** Emits only the arm the checker selected for each `typecase`. */
     readonly selection: TSPPProgramRebuilder;
@@ -41,7 +45,7 @@ export interface Reification {
  * JavaScript emit replaces the whole expression by the result of the arm the checker resolved, so neither the
  * scrutinee nor the other arms run.
  */
-export function createReification(ts: TSPPTypeScript): Reification {
+export function createReification(ts: TSPPTypeScript, model: TypeSyntaxModel): Reification {
     const kinds = ts.SyntaxKind;
     const typecases = new WeakMap<TS.Node, LoweredTypecase>();
     let typecaseCount = 0;
@@ -81,6 +85,17 @@ export function createReification(ts: TSPPTypeScript): Reification {
         }
     });
 
+    function createDescriptorTypeNode(f: TS.NodeFactory, type: TS.TypeNode, start: number, end: number): TS.TypeLiteralNode {
+        const empty = <T extends TS.Node>(node: T) => range(node, start);
+        return range(f.createTypeLiteralNode(range(f.createNodeArray([
+            empty(f.createPropertySignature(undefined, name(f, "kind"), undefined,
+                empty(f.createLiteralTypeNode(range(f.createStringLiteral("type"), -1))))),
+            empty(f.createPropertySignature(undefined, name(f, "text"), undefined, empty(f.createKeywordTypeNode(kinds.StringKeyword)))),
+            // The represented type keeps its source range, so editor services see the authored type.
+            range(f.createPropertySignature(undefined, range(f.createIdentifier(reifiedTypeProperty), type.pos), undefined, type), type.pos, type.end),
+        ]), start, end)), start, end);
+    }
+
     const reify: TSPPSyntaxExtension = {
         position: "expression",
         startTokens: [kinds.Identifier],
@@ -101,15 +116,35 @@ export function createReification(ts: TSPPTypeScript): Reification {
                 empty(f.createPropertyAssignment(name(f, "kind"), range(f.createStringLiteral("type"), -1))),
                 empty(f.createPropertyAssignment(name(f, "text"), range(f.createStringLiteral(text), -1))),
             ]), keywordStart)));
-            const descriptorType = range(f.createTypeLiteralNode(range(f.createNodeArray([
-                empty(f.createPropertySignature(undefined, name(f, "kind"), undefined,
-                    empty(f.createLiteralTypeNode(range(f.createStringLiteral("type"), -1))))),
-                empty(f.createPropertySignature(undefined, name(f, "text"), undefined, empty(f.createKeywordTypeNode(kinds.StringKeyword)))),
-                // The represented type keeps its source range, so editor services see the authored type.
-                range(f.createPropertySignature(undefined, range(f.createIdentifier(reifiedTypeProperty), type.pos), undefined, type), type.pos, type.end),
-            ]), keywordStart, end)), keywordStart, end);
+            const descriptorType = createDescriptorTypeNode(f, type, keywordStart, end);
             const assertion = range(f.createAsExpression(value, descriptorType), pos, end);
             return range(f.createParenthesizedExpression(assertion), pos, end);
+        },
+    };
+
+    const reified: TSPPSyntaxExtension = {
+        position: "type",
+        startTokens: [kinds.Identifier],
+        keywords: ["Reified"],
+        isStart: cursor => cursor.tokenText() === "Reified"
+            && !fileDeclaredNames(model, cursor.getSourceText()).has("Reified")
+            && cursor.lookAhead(() => {
+                cursor.nextToken();
+                return cursor.token() === kinds.LessThanToken;
+            }),
+        parse(cursor) {
+            const f = cursor.factory;
+            const pos = cursor.getNodePos();
+            const keywordStart = cursor.getTokenStart();
+            cursor.nextToken();
+            const typeArguments = cursor.parseTypeArguments();
+            if (!typeArguments || typeArguments.length !== 1) {
+                throw new Error("Generic type 'Reified' requires 1 type argument(s).");
+            }
+            const end = cursor.getNodePos();
+            const descriptorType = createDescriptorTypeNode(f, typeArguments[0], keywordStart, end);
+            model.authored.set(descriptorType, keywordStart);
+            return range(descriptorType, pos, end);
         },
     };
 
@@ -278,6 +313,7 @@ export function createReification(ts: TSPPTypeScript): Reification {
 
     return {
         reify,
+        reified,
         typecase: { position: "expression", startTokens: [kinds.Identifier], keywords: ["typecase"], isStart: isTypecaseStart, parse: parseTypecase },
         selection,
     };

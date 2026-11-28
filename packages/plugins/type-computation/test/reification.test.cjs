@@ -121,3 +121,30 @@ export const values = typecase list {
   });
   assert.deepEqual(hints, []);
 });
+
+test("Reified<T> types reified descriptors and preserves authored syntax in declarations", () => {
+  const source = `
+    export type Witness<A: Type, F: Type => Type> = [Reified<A>, F<A>];
+    export const pair: Witness<number, <A> =>> A> = [reify number, 1];
+    export const matched = typecase pair[0] { number => "num", _ => "other" };
+    export type Exists<F: Type => Type> = <R>(k: <A>(witness: Reified<A>, val: F<A>) => R) => R;
+  `;
+  const { messages, javascript } = compile(source);
+  assert.deepEqual(messages, []);
+  assert.match(javascript, /exports\.matched = "num";/);
+
+  const { program, outputs } = createProgram({ "/main.tspp": source }, { ...options, declaration: true, emitDeclarationOnly: true });
+  program.emit();
+  const tsppDts = [...outputs].find(([fileName]) => fileName.endsWith(".d.tspp"))?.[1] ?? "";
+  assert.match(tsppDts, /Reified<A>/);
+});
+
+test("local Reified declaration shadows the built-in type", () => {
+  const { messages } = compile(`
+    type Reified<T> = { custom: T };
+    export const ok: Reified<number> = { custom: 1 };
+    // @ts-expect-error local Reified is not the built-in descriptor
+    export const bad: Reified<number> = reify number;
+  `);
+  assert.deepEqual(messages, []);
+});
