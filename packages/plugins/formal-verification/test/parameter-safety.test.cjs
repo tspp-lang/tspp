@@ -9,6 +9,27 @@ const cases = [
     }`,
   },
   {
+    name: "immediate function writes still invalidate a record parameter summary",
+    source: `function change(input: { value: bigint }): void {
+      (() => { input.value = 1n; })();
+    }
+    function read() with { ensures: result === 0n; }: bigint {
+      const input = { value: 0n };
+      change(input);
+      return input.value;
+    }`,
+    rejects: /record parameter is written/,
+  },
+  {
+    name: "immediate function writes still invalidate a contracted scalar summary",
+    source: `function change(value: bigint) with { ensures: result === value; }: bigint {
+      (() => { value = 1n; })();
+      return value;
+    }
+    function read() with { ensures: result === 0n; }: bigint { return change(0n); }`,
+    rejects: /contracted scalar parameter is reassigned/,
+  },
+  {
     name: "a match reads scalar positional fields inside its immediate dispatch",
     source: `type Big = bigint; data Item = Value(value: Big) | Empty;
     function read(input: Item) with { ensures: result >= 0n; }: bigint {

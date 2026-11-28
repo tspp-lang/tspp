@@ -122,10 +122,13 @@ function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: r
         || ts.isGetAccessorDeclaration(declaration) || ts.isSetAccessorDeclaration(declaration) ? declaration.body : undefined;
     if (!body) return undefined;
     let mutation: string | undefined;
-    for (const key of assignedKeys(body)) {
-        if (records.has(key.split(".")[0])) mutation ??= "a record parameter is written";
-        if (hasPostcondition && parameters.includes(key)) mutation ??= "a contracted scalar parameter is reassigned";
-    }
+    const inspectWrites = (node: TS.Node) => {
+        for (const key of assignedKeys(node)) {
+            if (records.has(key.split(".")[0])) mutation ??= "a record parameter is written";
+            if (hasPostcondition && parameters.includes(key)) mutation ??= "a contracted scalar parameter is reassigned";
+        }
+    };
+    inspectWrites(body);
     let unsafe = false;
     const isImmediateFunction = (node: TS.Node): boolean => {
         if (!ts.isArrowFunction(node) && !ts.isFunctionExpression(node)) return false;
@@ -160,7 +163,10 @@ function parameterCallSafety(declaration: TS.SignatureDeclaration, parameters: r
                 target = parent;
             }
         }
-        ts.forEachChild(node, child => visit(child, nested || ts.isFunctionLike(node) && !isImmediateFunction(node), inline || ts.isFunctionLike(node)));
+        // Immediate synchronous calls cannot retain the parameter, but their writes still affect call safety.
+        const immediate = isImmediateFunction(node);
+        if (immediate && (ts.isArrowFunction(node) || ts.isFunctionExpression(node))) inspectWrites(node.body);
+        ts.forEachChild(node, child => visit(child, nested || ts.isFunctionLike(node) && !immediate, inline || ts.isFunctionLike(node)));
     };
     visit(body);
     return unsafe ? "a record parameter is aliased, escaped, or captured" : mutation;
