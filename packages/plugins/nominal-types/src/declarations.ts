@@ -340,7 +340,10 @@ export function createNominalDeclarations(ts: TSPPTypeScript): NominalDeclaratio
         const f = cursor.factory;
         const tag = markGenerated(ts, f.createPropertySignature(readonlyModifier(cursor), f.createIdentifier(dataProperties.tag), undefined,
             f.createLiteralTypeNode(f.createStringLiteral(ts.idText(variant.name)))), variant.start);
-        const fields = variant.fields.map(field => range(f.createPropertySignature(readonlyModifier(cursor), field.name, undefined, field.type), field.name.pos, field.type.end));
+        // A constructor another plugin lowered, such as `(n: Nat, items: Vec<n>) => Sized`, has generated parameter names
+        // with no position; the field then starts at its type.
+        const fields = variant.fields.map(field => range(f.createPropertySignature(readonlyModifier(cursor), field.name, undefined, field.type),
+            field.name.pos >= 0 ? field.name.pos : field.type.pos, field.type.end));
         // Without fields, `readonly never[]` makes a read of a field never, as in an arm a narrowed scrutinee cannot reach.
         const valuesTuple = f.createTypeOperatorNode(kinds.ReadonlyKeyword, variant.fields.length
             ? f.createTupleTypeNode(f.createNodeArray(valueTypes))

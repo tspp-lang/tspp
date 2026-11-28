@@ -4,7 +4,8 @@ import type * as TS from "typescript-upstream";
 
 import { normalizeMlttTerm, type MlttApplication, type MlttExternal, type MlttTerm, type MlttTypeMatch } from "./core";
 import { termToKind, type TypeSyntaxModel } from "./kinds";
-import { getDependentBinderMode, indexedAccessKey, unionKeyPrefix, type IndexedAccessLocation } from "./term-parser";
+import { reifiedTypeProperty } from "./descriptor";
+import { endsDependentSignature, getDependentBinderMode, indexedAccessKey, unionKeyPrefix, type IndexedAccessLocation } from "./term-parser";
 
 interface Binder {
     readonly name: string;
@@ -201,13 +202,16 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
     function lowerFunction(term: Extract<MlttTerm, { kind: "pi"; }>, outerScope: readonly string[]): TS.TypeNode {
         const binders: Binder[] = [];
         let result: MlttTerm = term;
+        // One parameter list is one signature: `(a: A) => (b: B) => C` returns a function, as it does in TypeScript.
         while (result.kind === "pi") {
             binders.push({
                 name: uniqueName(result.parameterName, binders.map(binder => binder.name)),
                 domain: result.domain,
                 mode: getDependentBinderMode(result) ?? "explicit",
             });
+            const ends = endsDependentSignature(result);
             result = result.codomain;
+            if (ends) break;
         }
 
         const scope = [...outerScope];
@@ -221,6 +225,14 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
                 model.declarationKinds.set(parameter, kind);
                 typeParameters.push(parameter);
                 constructorBinders.add(binder.name);
+                scope.unshift(binder.name);
+                return;
+            }
+            // A type passed at run time is a type parameter and its descriptor, as `reify` makes it: `(A: Type) => ...`
+            // is `<A>(A: Reified<A>) => ...`. The two names live in TypeScript's two namespaces.
+            if (kind.kind === "type" && binder.mode === "explicit") {
+                typeParameters.push(factory.createTypeParameterDeclaration(/*modifiers*/ undefined, binder.name));
+                parameters.push(factory.createParameterDeclaration(/*modifiers*/ undefined, /*dotDotDotToken*/ undefined, binder.name, /*questionToken*/ undefined, descriptorType(binder.name)));
                 scope.unshift(binder.name);
                 return;
             }
@@ -240,6 +252,19 @@ export function lowerTermToTypeNode(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor
         // Positioned like every generated node, at the term, for the checker reads the list's range to report it unused.
         const typeParameterList = typeParameters.length ? ts.setTextRange(factory.createNodeArray(typeParameters), { pos: 0, end: 0 }) : undefined;
         return factory.createFunctionTypeNode(typeParameterList, parameters, lower(result, scope));
+    }
+
+    /** `{ kind: "type"; text: string; __tspp_reified_type: T }`, the type of `reify T`. */
+    function descriptorType(name: string): TS.TypeNode {
+        const property = (key: string, type: TS.TypeNode) => factory.createPropertySignature(/*modifiers*/ undefined, key, /*questionToken*/ undefined, type);
+        const represented = reference(name);
+        const descriptor = factory.createTypeLiteralNode([
+            property("kind", factory.createLiteralTypeNode(factory.createStringLiteral("type"))),
+            property("text", keyword(kinds.StringKeyword)),
+            property(reifiedTypeProperty, represented),
+        ]);
+        model.descriptorTypes.set(descriptor, represented);
+        return descriptor;
     }
 
     function lowerTypeMatch(term: LoweringTerm<"type-match">, scope: readonly string[]): TS.TypeNode {

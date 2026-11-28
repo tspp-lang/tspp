@@ -27,17 +27,17 @@
 // 1. 布尔类型 `Bool` 与布尔函数签名
 //
 // `Bool` 是类型系统内置的布尔数据分类，属于 `Type0`，包含 `True` 和 `False` 两个值。
-// 我们可以用 `(value: Bool) -> Bool` 描述一个接收布尔值并返回布尔值的函数类型。
+// 我们可以用 `(value: Bool) => Bool` 描述一个接收布尔值并返回布尔值的函数类型。
 // ----------------------------------------------------------------------------
 // 1. The `Bool` Type & Boolean Function Signatures
 //
 // `Bool` is the built-in boolean data type in `Type0`, inhabited by `True` and `False`.
-// We can write `(value: Bool) -> Bool` to describe a function type from `Bool` to `Bool`.
+// We can write `(value: Bool) => Bool` to describe a function type from `Bool` to `Bool`.
 // ----------------------------------------------------------------------------
 
 // 接收一个 `Bool` 值并返回 `Bool` 的函数类型，它本身是一个基础类型（属于 `Type0`）
 // A function type taking a `Bool` and returning a `Bool`, which itself lives in `Type0`
-export type BooleanConsumer: Type0 = (value: Bool) -> Bool;
+export type BooleanConsumer: Type0 = (value: Bool) => Bool;
 
 // ----------------------------------------------------------------------------
 // 2. 依赖条件消去器 `If<Condition, Motive, ThenBranch, ElseBranch>`

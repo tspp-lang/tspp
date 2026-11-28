@@ -1,0 +1,175 @@
+// ============================================================================
+// 10-dependent-types / 13-runtime-evidence.tspp
+//
+// 运行时类型证据：把类型带到运行时，再在运行时认出它
+//
+// `08` 里的 `typecase` 是在编译期选分支的：描述符的类型写死了，编译器一眼就能看出该走哪条路。
+// 可有些类型要到运行时才知道——比如一个列表里装着各种类型的值，每个值都带着自己的类型。
+// 这时需要两样东西：
+//   - 把类型当作参数传进去：参数写成 `(A: Type)`，调用方用 `reify` 交出这个类型的描述符；
+//   - 在运行时检查描述符：对它做 `typecase`，编译器会生成真正的运行时分支，
+//     并让每个分支里的相关值拿到对应的类型。
+// 描述符只能由编译器生成，手写一个长得一样的对象骗不过类型检查，所以分支里的类型信息是可信的。
+// ============================================================================
+// Runtime Type Evidence: Taking a Type to Runtime, and Recognizing It There
+//
+// The `typecase` of `08` picks its arm at compile time: the descriptor's type is fixed, so the compiler can see
+// which arm applies. Some types are only known at runtime, though — a list of values of different types, say,
+// each carrying its own type. That takes two things:
+//   - Passing the type as a parameter: the parameter is written `(A: Type)`, and callers hand over its `reify`
+//     descriptor;
+//   - Inspecting the descriptor at runtime: a `typecase` on it becomes a real runtime branch, and in each arm the
+//     values that depend on the type get the matching type.
+// Only the compiler makes descriptors: a lookalike object does not pass the type checker, so what an arm learns is
+// trustworthy.
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// 1. 接收一个类型的函数
+//
+// `Describe` 的第一个参数是类型 `A` 本身，第二个参数的类型就是 `A`。
+// 在实现里，`A` 是运行时拿到的描述符；对它做 `typecase` 后，`number` 分支里的 `value` 就能当数字用，
+// `string` 分支里就能当字符串用，用错了方法编译器会直接指出来。
+// ----------------------------------------------------------------------------
+// 1. A Function That Takes a Type
+//
+// The first parameter of `Describe` is the type `A` itself, and the second parameter has type `A`.
+// In the implementation, `A` is the descriptor received at runtime; once `typecase` inspects it, `value` can be used
+// as a number in the `number` arm and as a string in the `string` arm, and calling the wrong method is an error.
+// ----------------------------------------------------------------------------
+
+export type Describe = (A: Type, value: A) => string;
+
+export const describe: Describe = (A, value) => typecase A {
+  number => `number ${value.toFixed(2)}`,
+  string => `text "${value.toUpperCase()}"`,
+  boolean => value ? "yes" : "no",
+  _ => "something else"
+};
+
+// 调用时用 `reify` 传入类型；第二个参数必须与之相符
+// Callers pass the type with `reify`; the second argument has to match it
+export const describedNumber = describe(reify number, 3.14159);
+export const describedText = describe(reify string, "hello");
+export const describedFlag = describe(reify boolean, true);
+
+// ----------------------------------------------------------------------------
+// 2. 匹配到的是“属于”，不是“等于”
+//
+// 传入 `reify "ok"` 时，`A` 是字面量类型 `"ok"`，它属于 `string`，所以会走 `string` 分支。
+// 但这只说明 `A` 是某种字符串，而不是 `A` 就等于 `string`：在分支里 `value` 的类型是 `A & string`，
+// 可以当字符串读，却不能把任意字符串写进一个 `A[]`——那个数组可能只接受 `"ok"`。
+// ----------------------------------------------------------------------------
+// 2. A Match Shows Membership, Not Equality
+//
+// With `reify "ok"`, `A` is the literal type `"ok"`, which is a `string`, so the `string` arm runs.
+// That only shows that `A` is some kind of string, not that `A` is `string`: in the arm, `value` has type
+// `A & string`. It can be read as a string, but an arbitrary string cannot go into an `A[]`, which may only accept
+// `"ok"`.
+// ----------------------------------------------------------------------------
+
+export const describedLiteral = describe(reify "ok", "ok");
+
+export type Shout = (A: Type, items: A[]) => string;
+
+export const shout: Shout = (A, items) => typecase A {
+  string => items.map(item => item.toUpperCase()).join(" "),
+  _ => ""
+};
+
+export const badAppend: Shout = (A, items) => typecase A {
+  // @ts-expect-error `A` 可能只是 `"ok"`，任意字符串不一定是 `A` / `A` may be just `"ok"`, so not every string is an `A`
+  string => String(items.push("more")),
+  _ => ""
+};
+
+// 证据只能由编译器生成：结构相同的普通对象不是 `Reified<number>`
+// Only the compiler makes evidence: a structurally identical object is not a `Reified<number>`
+// @ts-expect-error 伪造的描述符 / a forged descriptor
+export const forged: Reified<number> = { kind: "type", text: "number", __tspp_reified_type: 0 };
+
+// ----------------------------------------------------------------------------
+// 3. 异构列表：每个值都带着自己的类型
+//
+// `Pack` 的第一个字段 `A: Type` 把类型存了下来，它没有出现在结果类型 `AnyValue` 里，
+// 所以对外看来，每个 `AnyValue` 里藏着一个“某种类型”——也就是存在类型 ∃A. A。
+// `match` 打开它时，`A` 既是那个描述符，也代表那个隐藏类型，可以继续交给 `describe` 或 `typecase`。
+// ----------------------------------------------------------------------------
+// 3. A Heterogeneous List: Every Value Carries Its Own Type
+//
+// The first field of `Pack`, `A: Type`, keeps the type. It does not appear in the result type `AnyValue`, so from
+// outside every `AnyValue` hides "some type" — the existential type ∃A. A.
+// When `match` opens it, `A` is that descriptor and stands for the hidden type, ready for `describe` or `typecase`.
+// ----------------------------------------------------------------------------
+
+export data AnyValue {
+  Pack: (A: Type, value: A) => AnyValue
+}
+
+export data ValueList {
+  Empty: ValueList,
+  Item: (head: AnyValue, tail: ValueList) => ValueList
+}
+
+export const mixed: ValueList = Item(
+  Pack(reify number, 42),
+  Item(Pack(reify string, "tspp"), Item(Pack(reify boolean, false), Empty))
+);
+
+export function describeAll(list: ValueList): string[] {
+  return match list {
+    Empty => [],
+    Item(head, tail) => [match head { Pack(A, value) => describe(A, value) }, ...describeAll(tail)]
+  };
+}
+
+// 只把数字加起来：其他类型的值在运行时被 `_` 分支跳过
+// Add up only the numbers: values of other types fall to the `_` arm at runtime
+export function sumNumbers(list: ValueList): number {
+  return match list {
+    Empty => 0,
+    Item(head, tail) => match head {
+      Pack(A, value) => typecase A { number => value, _ => 0 }
+    } + sumNumbers(tail)
+  };
+}
+
+export const descriptions = describeAll(mixed);
+export const total = sumNumbers(mixed);
+
+// 隐藏类型的值不能被原样带出分支：外面没有人知道它是什么类型
+// A value of the hidden type cannot leave its arm as it is: nobody outside knows its type
+const someValue: AnyValue = Pack(reify number, 1);
+// @ts-expect-error 隐藏类型逃逸 / the hidden type would escape
+export const leaked = match someValue { Pack(A, value) => value };
+
+// ----------------------------------------------------------------------------
+// 4. 值本身就是证据：长度与向量
+//
+// 依赖对的第一个分量也可以是普通的值。`Sized` 记下一个长度 `length: Nat`，
+// 第二个字段的类型 `Vec<string, length>` 由这个长度决定。长度本身就在运行时，所以不需要描述符；
+// 打开 `Sized` 后可以直接把长度返回，它会被当作 `number`。
+// ----------------------------------------------------------------------------
+// 4. The Value Is the Evidence: a Length and a Vector
+//
+// The first component of a dependent pair can be an ordinary value too. `Sized` records a `length: Nat`, and that
+// length decides the type `Vec<string, length>` of the second field. The length is already there at runtime, so no
+// descriptor is needed; after opening a `Sized`, the length can be returned directly, as a `number`.
+// ----------------------------------------------------------------------------
+
+// 长度恰好为 `N` 的元组
+// A tuple of exactly `N` elements
+type Vec<T, N extends number, Items extends T[] = []> = Items["length"] extends N ? Items : Vec<T, N, [...Items, T]>;
+
+export data Sized {
+  Sized: (length: Nat, items: Vec<string, length>) => Sized
+}
+
+export const letters: Sized = Sized(3, ["a", "b", "c"]);
+
+export const letterCount = match letters { Sized(length, items) => length };
+
+// 长度和元素个数对不上，构造时就会报错
+// A length that disagrees with the items is rejected where the pair is built
+// @ts-expect-error 长度不符 / the length does not match
+export const mismatched = Sized(2, ["a", "b", "c"]);

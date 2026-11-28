@@ -19,7 +19,7 @@ import {
 } from "./core";
 import { indexedAccessLocations, keywordTypes, lowerTermToTypeNode } from "./lower";
 import { termToKind, type TypeSyntaxModel } from "./kinds";
-import { indexedAccessKey, parseDependentTypeText, startsBuiltinTerm, TermParser, type IndexedAccessLocation, type TermLocation, type TermTokens } from "./term-parser";
+import { getDependentBinderMode, indexedAccessKey, parseDependentTypeText, RemovedTermSyntaxError, startsBuiltinTerm, TermParser, type IndexedAccessLocation, type TermLocation, type TermTokens } from "./term-parser";
 
 // Terms of the dependent type theory inside ordinary type syntax: the parts of an alias TypeScript has no spelling for.
 // The kernel in `core` checks them and works out what they compute; `lower` hands the result to TypeScript as a type.
@@ -36,7 +36,7 @@ export function inferDependentTypeUniverse(term: MlttTerm): number {
     return inferred.level;
 }
 
-/** Tokens of the compiler's parser; `->` is two tokens there. */
+/** Tokens of the compiler's parser. `->`, two tokens there, is read as one, so that its error can say how to write it now. */
 export function cursorTokens(ts: TSPPTypeScript, cursor: TSPPSyntaxCursor): TermTokens {
     const kinds = ts.SyntaxKind;
     const text = () => {
@@ -101,8 +101,8 @@ export function fileAliases(model: TypeSyntaxModel, sourceText: string): Map<str
 
 export function isTermStart(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor): boolean {
     const kinds = ts.SyntaxKind;
-    if (cursor.token() === kinds.OpenParenToken || cursor.token() === kinds.OpenBraceToken) return isBinderStart(cursor, kinds);
-    if (cursor.token() === kinds.LessThanToken) return isTermLambdaStart(ts, model, cursor);
+    if (cursor.token() === kinds.OpenParenToken || cursor.token() === kinds.OpenBraceToken) return isSignatureTermStart(ts, model, cursor);
+    if (cursor.token() === kinds.LessThanToken) return isTermLambdaStart(ts, model, cursor) || isSignatureTermStart(ts, model, cursor);
     if (cursor.token() !== kinds.Identifier) return false;
     const name = cursor.tokenText();
     // An earlier alias with a term of its own, applied: `Inc<Two>` computes.
@@ -260,24 +260,53 @@ function mapValue(value: unknown, visit: (term: MlttTerm) => MlttTerm): unknown 
     return changed ? mapped : value;
 }
 
-/** `(name: ...) ->` or `{name: ...} ->`, which an object or function type cannot continue into. */
-function isBinderStart(cursor: TSPPSyntaxCursor, kinds: TSPPTypeScript["SyntaxKind"]): boolean {
+/**
+ * A function type `(n: Nat) => Vec<n>` or `<A: K>(value: A) => A` that is a term: one that names a type the kernel owns,
+ * such as a universe, `Nat`, or a kind, or one that is the body of an alias annotated with its type, which the kernel
+ * checks against the annotation. Any other function type is TypeScript's own, and lowers to itself anyway. Syntax of
+ * earlier versions, `->` and `{A: K}`, is claimed so that its error says how to write it now.
+ */
+function isSignatureTermStart(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor: TSPPSyntaxCursor): boolean {
     return cursor.lookAhead(() => {
-        const open = cursor.token();
-        const close = open === kinds.OpenParenToken ? kinds.CloseParenToken : kinds.CloseBraceToken;
-        cursor.nextToken();
-        if (cursor.token() !== kinds.Identifier) return false;
-        cursor.nextToken();
-        if (cursor.token() !== kinds.ColonToken) return false;
-        let depth = 1;
-        while (depth > 0) {
-            cursor.nextToken();
-            if (cursor.token() === kinds.EndOfFileToken) return false;
-            if (cursor.token() === open) depth++;
-            else if (cursor.token() === close) depth--;
+        const sourceText = cursor.getSourceText();
+        const annotated = isAnnotatedAliasBody(sourceText, cursor.getTokenStart());
+        const start = cursor.token();
+        try {
+            const term = new TermParser(cursorTokens(ts, cursor), {
+                aliases: fileAliases(model, sourceText),
+                shadowed: fileDeclaredNames(model, sourceText),
+            }).parseOne();
+            return term.kind === "pi" && (annotated || mentionsKernelType(term));
         }
-        return cursor.nextToken() === kinds.MinusToken && cursor.nextToken() === kinds.GreaterThanToken;
+        catch (error) {
+            // An annotated alias's body is the kernel's, so while it is being written its errors are the kernel's too.
+            // Not a type constructor `<A> =>> { ... }`, which TypeScript instantiates whatever its body is.
+            return error instanceof RemovedTermSyntaxError || annotated && start === ts.SyntaxKind.OpenParenToken;
+        }
     });
+}
+
+/** Whether a term names something only the kernel has; a type parameter `<A>` is TypeScript's `Type0` as well. */
+function mentionsKernelType(term: unknown): boolean {
+    if (!term || typeof term !== "object") return false;
+    const current = term as MlttTerm;
+    if (current.kind === "external") return current.arguments.some(mentionsKernelType);
+    if (current.kind === "variable") return false;
+    if (current.kind === "pi") {
+        const ordinaryTypeParameter = getDependentBinderMode(current) === "implicit" && current.domain.kind === "universe" && current.domain.level === 0;
+        return !ordinaryTypeParameter && mentionsKernelType(current.domain) || mentionsKernelType(current.codomain);
+    }
+    if (typeof current.kind === "string" && current.kind !== "type-match" && current.kind !== "lambda") return true;
+    return Object.values(current).some(child => Array.isArray(child) ? child.some(mentionsKernelType) : mentionsKernelType(child));
+}
+
+let maskedSource: { readonly text: string; readonly code: string; } | undefined;
+
+/** Whether `position` starts the body of `type Name: Annotation = ...`. */
+function isAnnotatedAliasBody(sourceText: string, position: number): boolean {
+    if (maskedSource?.text !== sourceText) maskedSource = { text: sourceText, code: maskNonCode(sourceText) };
+    const before = maskedSource.code.slice(Math.max(0, position - 400), position);
+    return /\btype\s+[A-Za-z_$][\w$]*\s*(?:<[^;]*?>\s*)?:(?:=>|[^;=])+=\s*$/u.test(before);
 }
 
 /** Parses a term at the cursor and lowers it to the type node that stands for it. */
@@ -305,6 +334,7 @@ export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor
     }
     model.authored.set(node, start);
     model.authoredEnds.set(node, cursor.getNodePos());
+    model.sourceTexts.set(node, sourceText);
     model.used = true;
     return node;
 }

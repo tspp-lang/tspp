@@ -33,10 +33,24 @@ interface Token {
 }
 
 const binderModes = new WeakMap<MlttTerm, "explicit" | "implicit">();
+/** The last binder of each parameter list: `(a: A, b: B) => C` is one signature, `(a: A) => (b: B) => C` two. */
+const signatureEnds = new WeakSet<MlttTerm>();
 
+/** Whether a binder was a type parameter `<A: K>` or a parameter `(a: A)` of the function type it was written in. */
 export function getDependentBinderMode(term: MlttTerm): "explicit" | "implicit" | undefined {
     return binderModes.get(term);
 }
+
+/** Whether the parameter list a binder was written in ends with it, so the rest of the term is a new signature. */
+export function endsDependentSignature(term: MlttTerm): boolean {
+    return signatureEnds.has(term);
+}
+
+/** Syntax of earlier versions, which the parser recognizes only to say how to write it now. */
+export class RemovedTermSyntaxError extends SyntaxError {}
+
+const removedArrow = "'->' is no longer supported: write '=>', as in '(n: Nat) => Vec<n>'.";
+const removedImplicit = "Implicit binders '{A: K}' are no longer supported: write a type parameter, as in '<A: K>(value: A) => A'.";
 
 /** The tokens a term is parsed from: the text of a term, or the compiler's parser at plugin syntax. */
 export interface TermTokens {
@@ -155,20 +169,28 @@ export class TermParser {
 
     private parseTerm(stop?: string): MlttTerm {
         if (this.at("match")) return this.parseTypeMatch();
-        if (this.at("<")) return this.parseLambda(stop);
-        if ((this.at("(") || this.at("{")) && this.isBinder()) return this.parseBinder(stop);
+        if (this.at("<")) return this.parseTypeParameters(stop);
+        if (this.at("{") && this.isBinder() && this.closesIntoArrow()) this.removed(removedImplicit);
+        if (this.at("(") && (this.isBinder() || this.tokens.peek(1) === ")")) return this.parseSignature([], stop);
         const term = this.parseUnion(stop);
+        if (this.at("->")) this.removed(removedArrow);
         if (!this.at("=>")) return term;
-        // `A => B` is `(_: A) -> B`; the name stays out of the scope, since nothing can refer to it.
+        // `A => B` is `(_: A) => B`; the name stays out of the scope, since nothing can refer to it.
         this.take();
         this.scope.unshift("");
         const codomain = this.parseTerm(stop);
         this.scope.shift();
-        return mlttPi("_", term, codomain);
+        const binder = mlttPi("_", term, codomain);
+        binderModes.set(binder, "explicit");
+        signatureEnds.add(binder);
+        return binder;
     }
 
-    /** `<x: A, y: B> =>> body`; a parameter without a kind is an ordinary type, as it is in any type constructor. */
-    private parseLambda(stop?: string): MlttTerm {
+    /**
+     * `<x: A, y: B> =>> body`, a type-level function, or `<A: K>(value: A) => A`, a function type with type
+     * parameters. A parameter without a kind is an ordinary type, as it is in any type constructor.
+     */
+    private parseTypeParameters(stop?: string): MlttTerm {
         this.expect("<");
         const parameters: { readonly name: string; readonly type: MlttTerm; }[] = [];
         while (!this.at(">")) {
@@ -184,6 +206,7 @@ export class TermParser {
             this.take();
         }
         this.expect(">");
+        if (this.at("(")) return this.parseSignature(parameters, stop);
         this.expect("=>");
         this.expect(">");
         const body = this.parseTerm(stop);
@@ -191,20 +214,42 @@ export class TermParser {
         return parameters.reduceRight<MlttTerm>((result, parameter) => mlttLambda(parameter.name, result, parameter.type), body);
     }
 
-    private parseBinder(stop?: string): MlttTerm {
-        const open = this.take();
-        const close = open === "(" ? ")" : "}";
-        const name = this.identifier();
-        this.expect(":");
-        const domain = this.parseTerm(close);
-        this.expect(close);
-        this.expect("->");
-        this.scope.unshift(name);
+    /**
+     * `(a: A, b: B) => C`, after any type parameters already in scope: a telescope, in which each parameter's type
+     * and the result may name the parameters before it. A parameter of type `Type` is a type passed at run time, as
+     * its descriptor; a type constructor has no run-time value, so it can only be a type parameter.
+     */
+    private parseSignature(typeParameters: readonly { readonly name: string; readonly type: MlttTerm; }[], stop?: string): MlttTerm {
+        this.expect("(");
+        const parameters: { readonly name: string; readonly type: MlttTerm; }[] = [];
+        while (!this.at(")")) {
+            const name = this.identifier();
+            this.expect(":");
+            const type = this.parseTerm(")");
+            if (isTypeConstructorDomain(type)) {
+                this.fail(`Parameter '${name}' ranges over type constructors, which have no run-time value: declare it as a type parameter, as in '<${name}: K>(...) => ...'.`);
+            }
+            parameters.push({ name, type });
+            this.scope.unshift(name);
+            if (!this.at(",")) break;
+            this.take();
+        }
+        this.expect(")");
+        if (this.at("->")) this.removed(removedArrow);
+        this.expect("=>");
         const codomain = this.parseTerm(stop);
-        this.scope.shift();
-        const binder = mlttPi(name, domain, codomain);
-        binderModes.set(binder, open === "{" ? "implicit" : "explicit");
-        return binder;
+        const binders = [
+            ...typeParameters.map(parameter => ({ ...parameter, mode: "implicit" as const })),
+            ...parameters.map(parameter => ({ ...parameter, mode: "explicit" as const })),
+        ];
+        for (let index = 0; index < binders.length; index++) this.scope.shift();
+        if (!binders.length) return codomain;
+        return binders.reduceRight<MlttTerm>((result, binder, index) => {
+            const pi = mlttPi(binder.name, binder.type, result);
+            binderModes.set(pi, binder.mode);
+            if (index === binders.length - 1) signatureEnds.add(pi);
+            return pi;
+        }, codomain);
     }
 
     private parseUnion(stop?: string): MlttTerm {
@@ -363,6 +408,22 @@ export class TermParser {
         return result;
     }
 
+    /** Whether the bracket at the current token is followed, once closed, by `->`: `{A: K} ->` of earlier versions. */
+    private closesIntoArrow(): boolean {
+        const open = this.peek();
+        const close = open === "{" ? "}" : ")";
+        let depth = 0;
+        for (let offset = 0; ; offset++) {
+            const token = this.tokens.peek(offset);
+            if (token === undefined) return false;
+            if (token === open) depth++;
+            else if (token === close && --depth === 0) {
+                const next = this.tokens.peek(offset + 1);
+                return next === "->";
+            }
+        }
+    }
+
     private isBinder(): boolean {
         return /^[A-Za-z_$]/u.test(this.tokens.peek(1) ?? "") && this.tokens.peek(2) === ":";
     }
@@ -388,6 +449,17 @@ export class TermParser {
     private fail(message: string): never {
         throw new SyntaxError(`${message} (offset ${this.tokens.position()})`);
     }
+    private removed(message: string): never {
+        throw new RemovedTermSyntaxError(`${message} (offset ${this.tokens.position()})`);
+    }
+}
+
+/** `K => Type`, the type of a type constructor, as opposed to a universe or a type of values. */
+function isTypeConstructorDomain(term: MlttTerm): boolean {
+    for (let current = term; current.kind === "pi"; current = current.codomain) {
+        if (current.codomain.kind === "universe") return true;
+    }
+    return false;
 }
 
 /** The key of a union or intersection: its separators, which the lowering reads back. */

@@ -147,7 +147,7 @@ const message = match (opt) {
 
 * **Higher-Kinded Types (HKT)**: Kind annotations (`F: Type => Type`), first-class generic interface references, and kind polymorphism.
 * **Anonymous Type Constructors**: `<T> =>> Body` expressions that can be passed directly as type arguments.
-* **Dependent Types**: Pi types (`(n: Nat) -> Vec<n>`), Sigma types, and indexed type families.
+* **Dependent Types**: Pi types (`(n: Nat) => Vec<n>`), Sigma types, and indexed type families.
 * **Type-level `let` & `match`**: Lexical type bindings and ordered, non-distributive structural type matching.
 * **`reify` & `typecase`**: Compile-time reflection producing serialized descriptors and branch selection based on types.
 

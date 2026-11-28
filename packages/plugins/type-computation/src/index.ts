@@ -8,6 +8,7 @@ import { createKindChecker } from "./checker";
 import { computedAliasDisplay } from "./computed-quick-info";
 import { createDeclarationRestorers } from "./declarations";
 import { createNormalFormAnalyzer, createTermDiagnostics, dependentAliasAt, partialInferencePreprocessor } from "./dependent";
+import { combineTypeExtensions, createRuntimeEvidence } from "./evidence";
 import { createReification } from "./reification";
 import { builtinTermNames } from "./term-parser";
 import { createTypeSyntaxModel, kindParameterOwner, universeQuickInfo } from "./kinds";
@@ -49,6 +50,7 @@ export const typeComputationPlugin = definePlugin({
                 const [typeSyntax, ...otherSyntax] = createTypeSyntax(ts, model);
                 const restorers = createDeclarationRestorers(ts, model, sourceFile => context.compiler.getAuthoredText(sourceFile));
                 const reification = createReification(ts, model);
+                const evidence = createRuntimeEvidence(ts, model, reification);
                 const disposers = [
                     context.compiler.registerSyntaxExtension(reification.reify),
                     context.compiler.registerSyntaxExtension({ ...reification.reified, ...restorers }),
@@ -59,7 +61,8 @@ export const typeComputationPlugin = definePlugin({
                     context.compiler.registerDiagnosticProvider(createTermDiagnostics(ts, model)),
                     context.compiler.registerSyntaxExtension({ ...typeSyntax, ...restorers }),
                     ...otherSyntax.map(extension => context.compiler.registerSyntaxExtension(extension)),
-                    context.compiler.registerTypeExtension(createKindChecker(ts, model)),
+                    context.compiler.registerTypeExtension(combineTypeExtensions(evidence.typeExtension, createKindChecker(ts, model))),
+                    context.compiler.registerDiagnosticProvider(evidence.diagnostics),
                     context.compiler.registerDiagnosticProvider({
                         id: "let-bindings",
                         getSemanticDiagnostics: () => [],

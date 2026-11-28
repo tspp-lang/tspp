@@ -11,7 +11,7 @@ import { builtinTermNames, TermParser } from "./term-parser";
  * applications `F<A>` of an already parsed type, and kind annotations after type parameter and type alias names.
  * Everything lowers to ordinary type nodes: `let` and `match` to conditional types, and constructors and applications
  * to function type nodes that the checker extension interprets. Terms of the type theory, which start with a binder
- * `(x: A) ->` or a built-in name such as `Nat`, lower through the kernel (`dependent`).
+ * `(n: Nat) =>` or a built-in name such as `Nat`, lower through the kernel (`dependent`).
  */
 export function createTypeSyntax(ts: TSPPTypeScript, model: TypeSyntaxModel): readonly TSPPSyntaxExtension[] {
     const kinds = ts.SyntaxKind;

@@ -17,6 +17,8 @@ interface State {
     readonly fields: WeakMap<TS.Node, { branch: Branch; path: readonly number[]; }>;
     readonly matches: WeakMap<TS.Node, { declaration: GadtDeclaration; branches: readonly Branch[]; }>;
     readonly preparing: WeakSet<TS.Node>;
+    /** Each arm's authored result, with its branch and its `match`, whose own result may widen a value index. */
+    readonly bodies: WeakMap<TS.Node, { branch: Branch; match: TS.Expression; }>;
 }
 
 /** Constructor equations are local to a match arm; no assignment outside the arm acquires them. */
@@ -26,7 +28,7 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
     const stateOf = (host: TSPPTypeHost): State => {
         hosts.set(host.checker, host);
         let state = states.get(host.checker);
-        if (!state) states.set(host.checker, state = { frames: new WeakMap(), fields: new WeakMap(), matches: new WeakMap(), preparing: new WeakSet() });
+        if (!state) states.set(host.checker, state = { frames: new WeakMap(), fields: new WeakMap(), matches: new WeakMap(), preparing: new WeakSet(), bodies: new WeakMap() });
         return state;
     };
     matches.getGadtVariants = (type, checker) => {
@@ -51,14 +53,39 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
     }
 
     function refine(type: TS.Type, location: TS.Node, host: TSPPTypeHost): TS.Type {
+        if (!matches.count()) return type;
         const state = stateOf(host);
+        // TypeScript may type an arm before its match, as for the quick type of a declaration's initializer.
+        if (state.bodies.get(location) === undefined && location.parent) openEnclosingMatches(location, host);
         const frames: Branch[] = [];
         for (let node: TS.Node | undefined = location; node; node = node.parent) {
             const branch = state.frames.get(node);
             if (branch && !frames.includes(branch)) frames.push(branch);
         }
         for (const branch of frames.reverse()) type = substitute(type, branch, host);
+        // An arm's result is its function's return type too, so a value index widens where the result is typed.
+        const body = state.bodies.get(location);
+        if (body?.branch.reachable && contains(type, body.branch.fresh, host) && !expectedTypeOf(body.match, host)) {
+            type = widenHiddenTypes(type, body.branch, host) ?? type;
+        }
         return type;
+    }
+
+    /**
+     * The type a `match` is expected to have, which each arm is checked against. A bare type parameter is none: in a
+     * callback such as that of `items.map(item => match item { ... })`, it is what the call is still inferring.
+     */
+    function expectedTypeOf(node: TS.Expression, host: TSPPTypeHost): TS.Type | undefined {
+        const contextual = host.getContextualType(node);
+        return contextual && !(contextual.flags & ts.TypeFlags.TypeParameter) ? contextual : undefined;
+    }
+
+    function openEnclosingMatches(location: TS.Node, host: TSPPTypeHost): void {
+        const ancestors: TS.Expression[] = [];
+        for (let parent: TS.Node | undefined = location.parent; parent; parent = parent.parent) {
+            if (matches.matches.has(parent)) ancestors.push(parent as TS.Expression);
+        }
+        for (const parent of ancestors.reverse()) prepare(parent, matches.matches.get(parent)!, host);
     }
 
     function argumentsOf(type: TS.Type, host: TSPPTypeHost): readonly TS.Type[] {
@@ -141,11 +168,20 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
         return !host.checker.isTypeAssignableTo(left, right) && !host.checker.isTypeAssignableTo(right, left);
     }
 
+    /** While set, a parameter intersected with a type that has none of them, as in `A & number`, does not count. */
+    let guardedByIntersections = false;
+
     function contains(type: TS.Type, parameters: ReadonlySet<TS.TypeParameter>, host: TSPPTypeHost, seen = new Set<TS.Type>(), symbols = new Set<TS.Symbol>()): boolean {
         if (!parameters.size) return false;
         if (parameters.has(type as TS.TypeParameter)) return true;
         if (seen.has(type)) return false;
         seen.add(type);
+        if (guardedByIntersections && type.flags & ts.TypeFlags.Intersection) {
+            const parts = (type as TS.IntersectionType).types;
+            if (parts.some(part => !parameters.has(part as TS.TypeParameter) && !contains(part, parameters, host, new Set(), new Set()))) {
+                return parts.some(part => !parameters.has(part as TS.TypeParameter) && contains(part, parameters, host, seen, symbols));
+            }
+        }
         if (argumentsOf(type, host).some(arg => contains(arg, parameters, host, seen, symbols))) return true;
         if (type.flags & ts.TypeFlags.IndexedAccess) {
             const indexed = type as TS.IndexedAccessType;
@@ -234,6 +270,7 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
                 // Or-patterns carry no bindings; only equations shared by all alternatives would be usable.
                 if (arm.patterns.length === 1) describePattern(arm.patterns[0], input, branch, host);
                 state.frames.set(arm.expression, branch);
+                state.bodies.set(arm.body, { branch, match: node });
                 if (arm.guard) state.frames.set(arm.guard, branch);
                 for (const field of arm.fields) state.fields.set(field.expression, { branch, path: field.path });
                 return branch;
@@ -282,6 +319,39 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
         return type;
     }
 
+    /**
+     * A result that mentions hidden types only where a known type can stand for them. A value index, a hidden type
+     * constrained to primitives such as the type of a length, becomes its constraint: `Sized(n, items) => n`, whose
+     * `n: N` with `N extends number`, is a `number`. Any other hidden type may appear only intersected with a type that
+     * does not mention it, as in the `A & number` an arm of a runtime `typecase` refines a value to, and is dropped
+     * there. The result must be assignable to what that gives, so the arm returns a supertype of what it computed;
+     * otherwise the hidden type still escapes, since `unknown` would say nothing about it.
+     */
+    function widenHiddenTypes(type: TS.Type, branch: Branch, host: TSPPTypeHost): TS.Type | undefined {
+        const hidden = [...branch.fresh].filter(parameter => contains(type, new Set([parameter]), host));
+        const replacements = hidden.map(parameter => {
+            const constraint = host.checker.getBaseConstraintOfType(parameter);
+            if (constraint && isPrimitiveIndex(constraint)) return constraint;
+            // A hidden type intersected with a known one, as runtime evidence refines it (`A & number`), is that known
+            // type; anywhere else it says nothing.
+            guardedByIntersections = true;
+            try {
+                return contains(type, new Set([parameter]), host) ? undefined : host.checker.getUnknownType();
+            }
+            finally {
+                guardedByIntersections = false;
+            }
+        });
+        if (replacements.some(replacement => !replacement)) return undefined;
+        const widened = host.instantiate(type, host.createMapper(hidden, replacements as TS.Type[]));
+        return !contains(widened, branch.fresh, host) && host.checker.isTypeAssignableTo(type, widened) ? widened : undefined;
+    }
+
+    function isPrimitiveIndex(type: TS.Type): boolean {
+        if (type.flags & ts.TypeFlags.Union) return (type as TS.UnionType).types.every(isPrimitiveIndex);
+        return !!(type.flags & (ts.TypeFlags.NumberLike | ts.TypeFlags.StringLike | ts.TypeFlags.BooleanLike | ts.TypeFlags.BigIntLike));
+    }
+
     return {
         resolveTypeNode: () => undefined,
         instantiateType: type => type,
@@ -290,11 +360,7 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
             const state = stateOf(host);
             // TypeScript can infer an immediately invoked arrow's parameters before checking its containing call.
             // Open enclosing matches first so that this early query sees the same fresh field types.
-            const ancestors: TS.Expression[] = [];
-            for (let parent: TS.Node | undefined = node.parent; parent; parent = parent.parent) {
-                if (matches.matches.has(parent)) ancestors.push(parent as TS.Expression);
-            }
-            for (const parent of ancestors.reverse()) prepare(parent, matches.matches.get(parent)!, host);
+            openEnclosingMatches(node, host);
             const field = state.fields.get(node);
             if (field) {
                 const type = field.branch.fields.get(field.path.join("."));
@@ -304,7 +370,7 @@ export function createGadtMatches(ts: TSPPTypeScript, declarations: NominalDecla
             if (!match) return undefined;
             const prepared = prepare(node, match, host);
             if (!prepared) return undefined;
-            const expected = host.getContextualType(node);
+            const expected = expectedTypeOf(node, host);
             const results = match.arms.map((arm, i) => checkArm(arm, prepared.branches[i], expected, host));
             return expected ?? host.getUnionType(results.filter((_, i) => prepared.branches[i].reachable));
         },

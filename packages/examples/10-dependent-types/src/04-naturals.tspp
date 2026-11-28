@@ -55,30 +55,32 @@ export type Four: Nat = NatAdd<Two, Two>;
 // 2. 数学归纳法即依赖函数类型（`NaturalNumberInduction`）
 //
 // 回想一下数学归纳法是如何证明“某条性质 P 对所有自然数 N 都成立”的：
-//   第一步（明确命题 P）：给定一个关于自然数 `N` 的性质（在依赖类型中，性质就是一个接收 `N: Nat` 并返回类型 `Type0` 的函数 `P: (N: Nat) -> Type0`）；
+//   第一步（明确命题 P）：给定一个关于自然数 `N` 的性质（在依赖类型中，性质就是一个接收 `N: Nat` 并返回类型 `Type0` 的函数 `P: (N: Nat) => Type0`）；
 //   第二步（证明起点 `zeroCase`）：提供当 `N = Zero` 时性质成立的证明，即一个类型为 `P<Zero>` 的值；
 //   第三步（证明递推步 `successorCase`）：提供一个递推函数——对于任意自然数 `N`，只要假定前一步 `P<N>` 已经成立，就能推导出下一步 `P<Succ<N>>` 也成立；
 //   结论：满足以上条件后，对于任意自然数 `N: Nat`，都能得出 `P<N>` 成立！
 //
-// 把上面四句话直接写成依赖函数签名（Pi 类型），就是下面的 `NaturalNumberInduction`：
+// 把上面四句话直接写成依赖函数签名（Pi 类型），就是下面的 `NaturalNumberInduction`。
+// 性质 `P` 是一个类型族，运行时没有值可传，所以写在尖括号里；其余三项是真正的参数。
 // ----------------------------------------------------------------------------
 // 2. Mathematical Induction as a Dependent Function Type (`NaturalNumberInduction`)
 //
 // Recall how Mathematical Induction proves that a property `P` holds for every natural number `N`:
-//   1. Property (`P`): a proposition indexed by `N` — in dependent types, a family `P: (N: Nat) -> Type0`;
+//   1. Property (`P`): a proposition indexed by `N` — in dependent types, a family `P: (N: Nat) => Type0`;
 //   2. Base case (`zeroCase`): a proof that the property holds for 0, i.e. a term of type `P<Zero>`;
 //   3. Inductive step (`successorCase`): a function showing that for any `N: Nat`, given a proof `previous: P<N>`,
 //      we can construct a proof of `P<Succ<N>>`;
 //   Conclusion: for any target `(N: Nat)`, we obtain a proof of `P<N>`!
 //
-// Writing those four parts directly as a Pi type gives `NaturalNumberInduction`:
+// Writing those four parts directly as a Pi type gives `NaturalNumberInduction`.
+// The property `P` is a type family with no runtime value, so it goes in the angle brackets; the rest are parameters.
 // ----------------------------------------------------------------------------
 
 // 自然数数学归纳原理的完整依赖函数类型签名
 // The complete dependent function signature expressing Mathematical Induction over `Nat`
 export type NaturalNumberInduction: Type1 =
-  (P: (N: Nat) -> Type0) ->
-  (zeroCase: P<Zero>) ->
-  (successorCase: (N: Nat) -> (previous: P<N>) -> P<Succ<N>>) ->
-  (N: Nat) ->
-  P<N>;
+  <P: (N: Nat) => Type0>(
+    zeroCase: P<Zero>,
+    successorCase: (N: Nat, previous: P<N>) => P<Succ<N>>,
+    N: Nat,
+  ) => P<N>;

@@ -2,6 +2,7 @@ import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
 import { kindToDeclarationString, type TypeKind, type TypeSyntaxModel } from "./kinds";
+import { printedEvidence } from "./evidence";
 import { indexedComputationLiterals } from "./lower";
 
 /** Well-known generic globals that a constructor argument may name without type arguments. */
@@ -12,13 +13,17 @@ const genericGlobals = new Set(["Array", "ReadonlyArray", "Promise", "Map", "Rea
  * `.d.ts` writes `unknown` for what TypeScript cannot express and gives constructor aliases placeholder parameters.
  */
 export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntaxModel, getAuthoredText: (sourceFile: TS.SourceFile) => string) {
-    const sourceFileOf = (node: TS.Node): TS.SourceFile => {
-        let current = node;
-        while (!ts.isSourceFile(current)) current = current.parent;
+    /** The file of a node, if it is in one: a copy a plugin parsed for a declaration it generates may have no parents. */
+    const sourceFileOf = (node: TS.Node): TS.SourceFile | undefined => {
+        let current: TS.Node | undefined = node;
+        while (current && !ts.isSourceFile(current)) current = current.parent;
         return current;
     };
     // Authored text, not the parser's: another plugin may have projected away what the declaration must keep.
-    const sourceText = (node: TS.Node) => getAuthoredText(sourceFileOf(node));
+    const sourceText = (node: TS.Node) => {
+        const file = sourceFileOf(node);
+        return file ? getAuthoredText(file) : model.sourceTexts.get(node) ?? "";
+    };
     /**
      * The source text of `node` from `start` to `end`, with each kind annotation written inside it in its declaration
      * form, so that `F: Type => Type` restores as `F: Type0 => Type0` like the rest of the declaration output.
@@ -54,9 +59,12 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
     };
 
     return {
-        restoreDeclaration(node: TS.Node): string | undefined {
+        restoreDeclaration(node: TS.Node, printNested?: (nested: TS.Node) => string): string | undefined {
             const original = ts.getOriginalNode(node);
-            if (original.pos < 0) return undefined;
+            // A descriptor type the declaration emitter reused, as for `const d = reify T`, is the trusted `Reified<T>`.
+            const represented = model.descriptorTypes.get(original);
+            if (represented && printNested && !model.authored.has(original)) return `Reified<${printNested(represented)}>`;
+            if (original.pos < 0 || !sourceFileOf(original) && !model.sourceTexts.has(original)) return undefined;
             const start = model.authored.get(original);
             if (start !== undefined) return authoredText(original, start);
             if (!model.declarationKinds.has(original)) return undefined;
@@ -72,6 +80,8 @@ export function createDeclarationRestorers(ts: TSPPTypeScript, model: TypeSyntax
             const literal = indexedComputationLiterals.get(original);
             if (literal !== undefined) return literal;
             if (model.constructors.has(original) || model.applications.has(original)) return "unknown";
+            // The trusted part of a `Reified<T>`; the structural part beside it is ordinary TypeScript.
+            if (printedEvidence.has(original)) return "unknown";
             if (ts.isTypeAliasDeclaration(original)) {
                 const arity = constructorAliasArity(original);
                 if (!arity) return undefined;

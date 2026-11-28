@@ -17,13 +17,13 @@ function emitted(source) {
 }
 
 test("parses and checks a genuinely dependent identity type", () => {
-  const term = parseDependentType("{A: Type0} -> (value: A) -> A");
+  const term = parseDependentType("<A>(value: A) => A");
   assert.equal(term.kind, "pi");
   assert.deepEqual(mltt.inferMlttType(term), mltt.mlttUniverse(1));
 });
 
 test("keeps ordinary TypeScript generic types behind the external-term boundary", () => {
-  const term = parseDependentType("(items: Array<string>) -> Array<string>");
+  const term = parseDependentType("(items: Array<string>) => Array<string>");
   assert.deepEqual(mltt.inferMlttType(term), mltt.mlttUniverse(0));
   assert.equal(term.domain.kind, "external");
   assert.equal(term.domain.key, "Array");
@@ -32,16 +32,16 @@ test("keeps ordinary TypeScript generic types behind the external-term boundary"
 
 test("Pi types are signatures TypeScript checks", () => {
   assert.deepEqual(check(`
-    type Identity: Type1 = {A: Type0} -> (value: A) -> A;
+    type Identity: Type1 = <A>(value: A) => A;
     const id: Identity = <A>(value: A): A => value;
     export const s: string = id("text");
     export const n: number = id(1);`), []);
   assert.deepEqual(check(`
-    type Identity: Type1 = {A: Type0} -> (value: A) -> A;
+    type Identity: Type1 = <A>(value: A) => A;
     const id: Identity = <A>(value: A): A => value;
     export const bad: string = id(1);`), ["Type 'number' is not assignable to type 'string'."]);
   assert.deepEqual(check(`
-    type Select: Type1 = {A: Type0} -> (left: A) -> {B: Type0} -> (right: B) -> B;
+    type Select: Type1 = <A, B>(left: A, right: B) => B;
     declare const select: Select;
     export const r: string = select<auto, string>(1, "right");`), []);
 });
@@ -99,13 +99,13 @@ test("a match on types is decided by TypeScript, never falling back to any", () 
     type R: Type0 = match number { number: string, _: boolean };
     export const bad: R = 123;`), ["Type 'number' is not assignable to type 'string'."]);
   assert.deepEqual(check(`
-    type Element: Type1 = (A: Type0) -> match A { Array<infer E>: E, _: A };
+    type Element: Type1 = (A: Type0) => match A { Array<infer E>: E, _: A };
     declare const first: Element;
-    export const s: string = first<string[]>(["a"] as never);`).length, 0);
+    export const s: string = first(reify string[]);`).length, 0);
   // The same assignability inside a term and outside one.
   assert.deepEqual(check(`
     type Outside = match "a" { string: 1, _: 2 };
-    type Inside: Type1 = (A: Type0) -> match "a" { string: 1, _: 2 };
+    type Inside: Type1 = (A: Type0) => match "a" { string: 1, _: 2 };
     export const outside: Outside = 1;
     declare const inside: Inside;
     export const value: 1 = inside(null!);`), []);
@@ -135,18 +135,18 @@ test("functions over values compute where they are applied", () => {
 
 test("binders over type constructors are kinded type parameters", async () => {
   assert.deepEqual(check(`
-    type Induction: Type1 = (P: Nat => Type0) -> {N: Nat} -> (base: P<Zero>) -> P<N>;
+    type Induction: Type1 = <P: Nat => Type0, N: Nat>(base: P<Zero>) => P<N>;
     interface Boxes { value: number }
     declare const induct: Induction;`), []);
   const { program } = createProgram(`
-    export type Induction: Type1 = (P: (N: Nat) -> Type0) -> (zero: P<Zero>) -> (N: Nat) -> P<N>;`, options);
+    export type Induction: Type1 = <P: (N: Nat) => Type0>(zero: P<Zero>, N: Nat) => P<N>;`, options);
   assert.deepEqual(diagnosticMessages(program), []);
   assert.deepEqual((await ts.runTSPPProgramAnalyzers(program)).map(diagnostic => diagnostic.message), []);
 });
 
 test("warns where a term has no TypeScript type", async () => {
   const { program } = createProgram(`
-    export type Stuck: Type1 = (P: (x: Nat) -> (y: Nat) -> Eq<Nat, x, y>) -> (N: Nat) -> P<N, N>;`, options);
+    export type Stuck: Type1 = (P: (x: Nat) => (y: Nat) => Eq<Nat, x, y>, N: Nat) => P<N, N>;`, options);
   const analysis = await ts.runTSPPProgramAnalyzers(program);
   assert.equal(analysis.length, 1);
   assert.equal(analysis[0].category, "warning");
@@ -184,7 +184,7 @@ test("terms see later aliases of the same file, and the kinds of type parameters
 
 test("reports the kernel's errors as type errors", () => {
   const messages = check(`
-    export type WrongUniverse: Type0 = (A: Type0) -> A;
+    export type WrongUniverse: Type0 = (A: Type0) => A;
     export type BadSuccessor: Nat = Succ<True>;
     export type WrongAnnotation: Bool = Zero;`);
   assert.equal(messages.length, 3, messages.join("\n"));
@@ -194,12 +194,12 @@ test("reports the kernel's errors as type errors", () => {
 });
 
 test("reports malformed binders as syntax errors", () => {
-  const messages = check("export type MissingDomain: Type1 = (x: ) -> x;\nexport const fine = 1;");
-  assert.ok(messages.some(message => /Expected a type before '\)'/.test(message)), messages.join("\n"));
+  const messages = check("export type MissingDomain: Type1 = (x: ) => x;\nexport const fine = 1;");
+  assert.ok(messages.some(message => /Type expected|Expected a type before '\)'/.test(message)), messages.join("\n"));
 });
 
 test("an unknown name in a term is TypeScript's error, not a silent type", () => {
-  assert.deepEqual(check("export type Bad: Type0 = (x: Mispelled) -> Mispelled;"), ["Cannot find name 'Mispelled'.", "Cannot find name 'Mispelled'."]);
+  assert.deepEqual(check("export type Bad: Type0 = (x: Mispelled) => Mispelled;"), ["Cannot find name 'Mispelled'.", "Cannot find name 'Mispelled'."]);
 });
 
 test("a file's own types keep names that spell built-in terms", () => {
@@ -227,9 +227,9 @@ test("kinds can be terms: type constructors indexed by naturals", () => {
 test("declaration output keeps terms as written and gives TypeScript their values", () => {
   const { rich, compatible } = emitted(`
     export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;
-    export type Identity: Type1 = {A: Type0} -> (value: A) -> A;`);
+    export type Identity: Type1 = <A>(value: A) => A;`);
   assert.match(rich, /export type Two: Nat = NatAdd<Succ<Zero>, Succ<Zero>>;/);
-  assert.match(rich, /export type Identity: Type1 = \{A: Type0\} -> \(value: A\) -> A;/);
+  assert.match(rich, /export type Identity: Type1 = <A>\(value: A\) => A;/);
   assert.match(compatible, /export type Two = 2;/);
   assert.match(compatible, /export type Identity = <A>\(value: A\) => A;/);
 });
@@ -260,7 +260,7 @@ test("parses and normalizes all built-in eliminators", () => {
   );
 
   const pair = parseDependentType(
-    "Pair<Sigma<(value: Nat) -> Eq<Nat, value, Zero>>, Zero, Refl<Nat, Zero>>",
+    "Pair<Sigma<(value: Nat) => Eq<Nat, value, Zero>>, Zero, Refl<Nat, Zero>>",
   );
   assert.deepEqual(mltt.normalizeMlttTerm(mltt.mlttFirst(pair)), mltt.mlttZero());
   assert.equal(mltt.normalizeMlttTerm(mltt.mlttSecond(pair)).kind, "refl");
@@ -287,15 +287,80 @@ test("requires the '_' default arm to close a type match", () => {
 test("binders the rest of a function type does not mention are not reported unused", () => {
   const { createLanguageService } = require("../../test-support/compile.cjs");
   for (const source of [
-    "export type F: Type1 = {A: Type0} -> number;",
-    "export type G: Type1 = {A: Type0} -> {B: Type0} -> number;",
-    "export type H: Type1 = {A: Type0} -> {B: Type0} -> (x: B) -> B;",
-    // As while it is edited: the parameter that used the binder has lost its `(`.
-    "export type I: Type1 = {A: Type0} -> left: A) -> A;",
+    "export type F: Type1 = <A>() => number;",
+    "export type G: Type1 = <A, B>() => number;",
+    "export type H: Type1 = <A, B>(x: B) => B;",
+    // As while it is edited: the parameter list that uses the binder has lost its `)`.
+    "export type I: Type1 = (A: Type0, left: A => A;",
   ]) {
     const service = createLanguageService("/main.tspp", source, { noUnusedLocals: true, noUnusedParameters: true });
     const unused = [...service.getSemanticDiagnostics("/main.tspp"), ...service.getSuggestionDiagnostics("/main.tspp")]
       .filter(diagnostic => [6133, 6205].includes(diagnostic.code));
     assert.deepEqual(unused.map(diagnostic => diagnostic.messageText), [], source);
   }
+});
+
+test("the binders of a lowered Pi type print by name", () => {
+  const { program } = createProgram(`
+    export type V: Type0 = (n: Nat) => Eq<Nat, n, n>;
+    export declare const v: V;
+    export const applied = v(3);`, { ...options, declaration: true });
+  const checker = program.getTypeChecker();
+  const declarations = program.getSourceFile("/main.tspp").statements.filter(ts.isVariableStatement).map(statement => statement.declarationList.declarations[0]);
+  const printed = declarations.map(declaration => checker.typeToString(checker.getTypeAtLocation(declaration.name), undefined, ts.TypeFormatFlags.InTypeAlias));
+  assert.equal(printed[0], "<n extends number>(n: n) => Readonly<{ type: number; left: n; right: n; }>");
+  assert.doesNotMatch(printed.join("\n"), /Missing/);
+  program.emit();
+});
+
+test("one parameter list is one signature, and each further arrow returns a function", () => {
+  const { compatible } = emitted(`
+    export type Together: Type0 = (a: Nat, b: Nat) => Nat;
+    export type Curried: Type0 = (a: Nat) => (b: Nat) => Nat;
+    export type Generic: Type1 = <A, B: Type0>(left: A, right: B) => B;`);
+  assert.match(compatible, /export type Together = \(a: number, b: number\) => number;/);
+  assert.match(compatible, /export type Curried = \(a: number\) => \(b: number\) => number;/);
+  assert.match(compatible, /export type Generic = <A, B>\(left: A, right: B\) => B;/);
+  assert.deepEqual(check(`
+    type Curried: Type0 = (a: Nat) => (b: Nat) => Nat;
+    declare const add: Curried;
+    export const sum: number = add(1)(2);`), []);
+});
+
+test("a parameter of type Type is passed at run time as its descriptor", () => {
+  const { compatible } = emitted(`export type Identity: Type1 = (A: Type0, value: A) => A;`);
+  assert.match(compatible, /export type Identity = <A>\(A: \{\s*kind: "type";\s*text: string;\s*__tspp_reified_type: A;\s*\}, value: A\) => A;/);
+  assert.deepEqual(check(`
+    declare const identity: (A: Type, value: A) => A;
+    export const n: number = identity(reify number, 1);
+    export const s: string = identity(reify string, "text");`), []);
+  assert.deepEqual(check(`
+    declare const identity: (A: Type, value: A) => A;
+    export const bad = identity(reify number, "text");`), ["Argument of type 'string' is not assignable to parameter of type 'number'."]);
+});
+
+test("type constructors can only be type parameters", () => {
+  const messages = check(`export type Induction: Type1 = (P: Nat => Type0, base: P<Zero>) => P<Zero>;`);
+  assert.equal(messages.length, 1, messages.join("\n"));
+  assert.match(messages[0], /Parameter 'P' ranges over type constructors.*<P: K>/);
+  assert.deepEqual(check(`export type Induction: Type1 = <P: Nat => Type0>(base: P<Zero>) => P<Zero>;`), []);
+});
+
+test("an ordinary function type stays TypeScript's", () => {
+  const { compatible } = emitted(`
+    export type Handler = (event: string, count: number) => void;
+    export type Generic = <T>(value: T) => T[];`);
+  assert.match(compatible, /export type Handler = \(event: string, count: number\) => void;/);
+  assert.match(compatible, /export type Generic = <T>\(value: T\) => T\[\];/);
+  // A parameter's name is no type outside a term, as in TypeScript.
+  assert.deepEqual(check(`export type Bad = (n: number) => Array<n>;`), ["'n' refers to a value, but is being used as a type here. Did you mean 'typeof n'?"]);
+});
+
+test("the arrows and implicit binders of earlier versions say how to write them now", () => {
+  const arrow = check(`export type Old: Type0 = (n: Nat) -> Nat;`);
+  assert.ok(arrow.some(message => /'->' is no longer supported: write '=>'/.test(message)), arrow.join("\n"));
+  const implicit = check(`export type Old: Type1 = {A: Type0} -> (value: A) -> A;`);
+  assert.ok(implicit.some(message => /Implicit binders '\{A: K\}' are no longer supported/.test(message)), implicit.join("\n"));
+  // An object type is no binder.
+  assert.deepEqual(check(`export type Fine = let X = { value: number } in X;`), []);
 });

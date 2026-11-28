@@ -66,8 +66,13 @@ result indices. These equations are local to the arm. Constructor parameters
 not determined by the matched indices become fresh, rigid types: two independent
 matches do not establish that their hidden indices are equal. A result which
 still mentions a hidden type must be wrapped in a user-defined data constructor
-or consumed through an interface which hides that type. No `pack` or `unpack`
-keyword is needed. Direct reads of existential constructor fields expose
+or consumed through an interface which hides that type. Two kinds of result
+may leave the arm as a known type instead, because that is a supertype of what
+the arm computed: a value index, a hidden type constrained to primitives such
+as `N extends number` in `Sized: <N extends number>(length: N, items: Vec<N>)`,
+becomes its constraint, so `Sized(length, items) => length` is a `number`; and a
+hidden type intersected with a known one, as runtime evidence refines a value to
+`A & number`, is that known type. No `pack` or `unpack` keyword is needed. Direct reads of existential constructor fields expose
 `unknown`; match the value to obtain their correlated types.
 
 Indexed type arguments are invariant in strict function checking. Use `strict`

@@ -47,7 +47,7 @@ export type ZeroEqualsZero: Type0 = Eq<Nat, Zero, Zero>;
 // 自反性公理的签名：对于任意类型 `A: Type0` 和任意值 `value: A`，命题 `Eq<A, value, value>` 恒成立
 // Signature of the reflexivity law: for any type `A: Type0` and `value: A`, `Eq<A, value, value>` holds
 export type Reflexivity: Type1 =
-  (A: Type0) -> (value: A) -> Eq<A, value, value>;
+  <A>(value: A) => Eq<A, value, value>;
 
 // ----------------------------------------------------------------------------
 // 2. 编译期计算相等：证明 `1 + 1 = 2`
@@ -89,12 +89,13 @@ export type AdditionComputation: Type0 = Eq<
 //     for the reflexive case `Motive<value, value, Refl<Nat, value>>` (`reflexivityCase`)!
 // ----------------------------------------------------------------------------
 
-// 路径归纳法（J 消去器）的完整依赖函数签名
-// Complete dependent function signature for Path Induction (the J eliminator)
+// 路径归纳法（J 消去器）的完整依赖函数签名；和归纳法一样，性质 `Motive` 只在类型层存在，写在尖括号里
+// Complete dependent function signature for Path Induction (the J eliminator); as with induction, the property
+// `Motive` only exists at the type level, so it goes in the angle brackets
 export type PathInduction: Type1 =
-  (Motive: (left: Nat) -> (right: Nat) -> (proof: Eq<Nat, left, right>) -> Type0) ->
-  (reflexivityCase: (value: Nat) -> Motive<value, value, Refl<Nat, value>>) ->
-  (left: Nat) ->
-  (right: Nat) ->
-  (proof: Eq<Nat, left, right>) ->
-  Motive<left, right, proof>;
+  <Motive: (left: Nat, right: Nat, proof: Eq<Nat, left, right>) => Type0>(
+    reflexivityCase: (value: Nat) => Motive<value, value, Refl<Nat, value>>,
+    left: Nat,
+    right: Nat,
+    proof: Eq<Nat, left, right>,
+  ) => Motive<left, right, proof>;

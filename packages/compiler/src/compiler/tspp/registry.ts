@@ -372,10 +372,14 @@ export function isTSPPSyntaxNode(node: Node): boolean {
     return syntaxOwners.has(node);
 }
 
-/** A generated private field's name inside plugin syntax, which has no authored range to print. @internal */
+/**
+ * The name of a declaration plugin syntax generated, which has no authored range to print: a private field, or a type
+ * parameter such as the binder of a lowered dependent function type. @internal
+ */
 export function getTSPPGeneratedDeclarationName(node: Node | undefined): string | undefined {
-    if (!node || !ts.isIdentifier(node) || !ts.nodeIsSynthesized(node)) return undefined;
-    if (!node.parent || !ts.isPropertyDeclaration(node.parent) || !(ts.getCombinedModifierFlags(node.parent) & ts.ModifierFlags.Private)) return undefined;
+    if (!node || !ts.isIdentifier(node) || !ts.nodeIsSynthesized(node) || !node.parent) return undefined;
+    const privateField = ts.isPropertyDeclaration(node.parent) && !!(ts.getCombinedModifierFlags(node.parent) & ts.ModifierFlags.Private);
+    if (!privateField && !ts.isTypeParameterDeclaration(node.parent)) return undefined;
     for (let ancestor: Node | undefined = node; ancestor; ancestor = ancestor.parent) {
         if (isTSPPSyntaxNode(ancestor)) return ts.idText(node);
     }

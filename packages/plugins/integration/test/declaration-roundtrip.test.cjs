@@ -17,7 +17,7 @@ export type Apply<F: Type => Type, X> = F<X>;
 export type Wrap = <T> =>> { wrapped: T };
 export type Twice<T> = let X = { value: T } in [X, X];
 export type Classify<T> = match T { string: "text", _: "other" };
-export data Term = Term(pair: let X = string in [X, X], size: (x: Nat) -> Nat);
+export data Term = Term(pair: let X = string in [X, X], size: (x: Nat) => Nat);
 export newtype Label = let X = string in X;
 export interface Parser {
     static parse(text: string): number;

@@ -10,7 +10,8 @@
 // 为了打通“编译期类型”与“值级表达式”之间的桥梁，TS++ 引入了两个配套特性：
 //   - `reify <Type>`（类型具象化）：把一个编译期类型转化为一个真实存在、可序列化的运行时类型描述符对象；
 //   - `typecase <描述符> { <类型模式> => <结果表达式>, ... }`：在编译期对类型描述符进行结构模式匹配，
-//     直接选出匹配分支对应的表达式（编译后仅保留选中的结果表达式，没有任何运行时分支判断开销！）。
+//     直接选出匹配分支对应的表达式（编译后只保留选中的结果表达式，没有运行时分支判断的开销）。
+//     如果描述符的类型要到运行时才知道，`typecase` 会变成真正的运行时分支，见 `13-runtime-evidence.tspp`。
 // ============================================================================
 // Type Reification & Compile-Time Type Branching (`reify` & `typecase`)
 //
@@ -22,20 +23,23 @@
 //   - `reify <Type>`: turns a compile-time type into a concrete, serializable runtime type descriptor value;
 //   - `typecase <descriptor> { <TypePattern> => <expression>, ... }`: pattern-matches on a type descriptor
 //     at compile time and selects the matching branch expression with zero runtime dispatch overhead.
+//     When the descriptor's type is only known at runtime, `typecase` becomes a real runtime branch instead;
+//     see `13-runtime-evidence.tspp`.
 // ============================================================================
 
 // ----------------------------------------------------------------------------
 // 1. `reify <Type>`：将类型转化为运行时描述符对象
 //
 // 写法：`reify <任意类型>`
-// 效果：产出一个包含 `kind: "type"` 和 `text: string`（类型文本表示）的普通只读对象，
-// 既可以在运行时读取、打印或序列化，也可以传给 `typecase` 做编译期匹配。
+// 效果：产出一个包含 `kind: "type"`、`text: string`（类型文本表示）和 `shape`（供运行时匹配用的类型结构）的普通对象，
+// 既可以在运行时读取、打印或序列化，也可以传给 `typecase` 做匹配。它的类型写作 `Reified<T>`，只有编译器能生成。
 // ----------------------------------------------------------------------------
 // 1. `reify <Type>`: Turning a Type into a Runtime Descriptor Value
 //
 // Syntax: `reify <Type>`
-// Effect: Produces a plain serializable object with `kind: "type"` and `text: string` (the textual form of the type),
-// which can be inspected at runtime or matched at compile time via `typecase`.
+// Effect: Produces a plain serializable object with `kind: "type"`, `text: string` (the textual form of the type), and
+// `shape` (the type's structure, for matching at runtime), which can be inspected at runtime or matched via `typecase`.
+// Its type is written `Reified<T>`, and only the compiler can make one.
 // ----------------------------------------------------------------------------
 
 // 将基础类型 `string` 具象化为值级描述符对象
@@ -56,7 +60,8 @@ export const descriptorText: string = arrayDescriptor.text;
 //
 // 写法：`typecase <描述符> { <类型模式> => <表达式>, _ => <默认表达式> }`
 // 效果：
-//   1. 编译器在编译期直接根据描述符对应的类型选出匹配分支，最终只生成该分支右侧的表达式；
+//   1. 编译器在编译期直接根据描述符对应的类型选出匹配分支，最终只生成该分支右侧的表达式
+//      （描述符表达式如果有副作用，仍会先执行一次）；
 //   2. 如果模式中使用了 `infer <类型变量>`（如 `Array<infer Element>`），捕获到的类型变量 `Element`
 //      可以直接在该分支右侧的值级表达式中作为类型使用（例如 `[] as Element[]`）！
 // ----------------------------------------------------------------------------
@@ -64,7 +69,8 @@ export const descriptorText: string = arrayDescriptor.text;
 //
 // Syntax: `typecase <descriptor> { <TypePattern> => <expression>, _ => <fallback> }`
 // Effect:
-//   1. The compiler selects the matching branch at compile time and emits only the chosen expression;
+//   1. The compiler selects the matching branch at compile time and emits only the chosen expression
+//      (a descriptor expression with side effects still runs once, first);
 //   2. Any `infer <TypeVar>` captured in the pattern (such as `Array<infer Element>`) becomes an in-scope
 //      type parameter inside that branch's expression (for example `[] as Element[]`)!
 // ----------------------------------------------------------------------------
