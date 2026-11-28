@@ -120,3 +120,25 @@ export const show: Show = (`;
   // After a trailing `(`, the parser's missing expression is a child that signature help can find.
   service.getSignatureHelpItems("/main.tspp", source.length, undefined);
 });
+
+test("editors read the dependent signature of a data constructor as type-level syntax", () => {
+  const source = `type Vec<T, N extends number> = T[];
+export data AnyValue { Pack: (A: Type, value: A) => AnyValue }
+export data Sized { Sized: (length: Nat, items: Vec<string, length>) => Sized }
+`;
+  const service = createLanguageService("/main.tspp", source, options);
+  const hover = position => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", position)?.displayParts ?? []);
+  // Data syntax keeps only the parameters of the signature, which still belong to the plugin that parsed it.
+  assert.equal(hover(source.indexOf("A) => AnyValue")), "(type-level name) A");
+  assert.equal(hover(source.indexOf("length>")), "(type-level name) length");
+  const spans = service.getEncodedSemanticClassifications("/main.tspp", { start: 0, length: source.length }, ts.SemanticClassificationFormat.TwentyTwenty).spans;
+  const classOf = position => {
+    for (let index = 0; index < spans.length; index += 3) if (spans[index] === position) return (spans[index + 2] >> 8) - 1;
+    return undefined;
+  };
+  const [typeParameter, type] = [4, 5];
+  assert.equal(classOf(source.indexOf("A) => AnyValue")), typeParameter);
+  // A type the file declares is a type there, not a binder.
+  assert.equal(classOf(source.indexOf("AnyValue }")), type);
+  assert.equal(classOf(source.indexOf("Vec<string")), type);
+});

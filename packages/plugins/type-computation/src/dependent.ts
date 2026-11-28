@@ -326,8 +326,19 @@ export function parseTermType(ts: TSPPTypeScript, model: TypeSyntaxModel, cursor
         cursor.parseErrorAt(cursor.getTokenStart(), Math.max(cursor.getNodePos(), cursor.getTokenStart() + 1), message, diagnosticCodes.syntax);
         skipToEndOfDeclaration(ts, cursor);
     }
-    // Empty, like every generated node: the authored text is no node's, and parent nodes span it.
-    const node = term ? lowerTermToTypeNode(ts, cursor, model, term, start) : ts.setTextRange(cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword), { pos: start, end: start });
+    // The nodes inside are empty, like every generated node, as the authored text is no node's. The root spans the term,
+    // so that editor services know the text is this plugin's even where no plugin syntax encloses it, as in
+    // `type Describe = (A: Type, value: A) => string`. Services walk into a node with a width, though, and take a node
+    // without children for a token, so a root that is a keyword, or whose children have no position, such as a lowered
+    // name, stays empty.
+    const node = term ? lowerTermToTypeNode(ts, cursor, model, term, start) : cursor.factory.createKeywordTypeNode(ts.SyntaxKind.AnyKeyword);
+    let positioned: boolean | undefined;
+    ts.forEachChild(node, child => {
+        positioned = positioned !== false && child.pos >= 0;
+    }, children => {
+        positioned = positioned !== false && children.every(child => child.pos >= 0);
+    });
+    ts.setTextRange(node, { pos: start, end: positioned ? Math.max(start, cursor.getNodePos()) : start });
     if (term) {
         model.terms.set(node, term);
         model.termBuiltins.set(node, builtins);

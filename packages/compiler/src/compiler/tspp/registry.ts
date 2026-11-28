@@ -66,6 +66,13 @@ const syntaxOwners = new WeakMap<object, string>();
 /** Who claims each `keyword @ position`, so that a second plugin is refused when it registers. */
 const syntaxClaims = new Map<string, { pluginId: string; keyword: string; position: string; }>();
 const additionalListElements = new WeakMap<Node, readonly Node[]>();
+/**
+ * Plugin syntax parsed inside other plugin syntax, by the outer node: the outer plugin may keep only parts of it, such as
+ * the parameters of a signature, whose generated nodes have no range of their own.
+ */
+const nestedSyntax = new WeakMap<Node, readonly Node[]>();
+/** The plugin syntax parsed so far inside each plugin syntax being parsed, innermost last. */
+const parsingSyntax: Node[][] = [];
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const semanticTokensProviders = new Map<string, TSPPSemanticTokensProvider>();
 const formattingProviders = new Map<string, TSPPFormattingProvider>();
@@ -296,11 +303,21 @@ export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensi
     if (starting.length > 1) throw new Error(`TSPP plugins ${starting.map(({ pluginId }) => `'${pluginId}'`).join(" and ")} both claim this syntax.`);
     const [{ pluginId, extension }] = starting;
     const start = Math.min(cursor!.getNodePos(), cursor!.modifiers?.pos ?? Infinity, cursor!.precedingType?.pos ?? Infinity);
-    const parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
+    parsingSyntax.push([]);
+    let parsed: Node | readonly Node[];
+    let nested: readonly Node[];
+    try {
+        parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
+    }
+    finally {
+        nested = parsingSyntax.pop()!;
+    }
     const [first, ...rest] = Array.isArray(parsed) ? parsed : [parsed];
     if (typeof first !== "function") [first, ...rest].forEach(node => nestSyntaxRanges(node, start, cursor!.getNodePos()));
     if (cursor!.inAmbientContext() && typeof first !== "function") [first, ...rest].forEach(markAmbient);
     syntaxOwners.set(first, pluginId);
+    if (nested.length) nestedSyntax.set(first, nested);
+    if (typeof first !== "function") parsingSyntax[parsingSyntax.length - 1]?.push(first);
     if (rest.length) additionalListElements.set(first, rest);
     return first;
 }
@@ -400,6 +417,14 @@ function getTSPPSyntaxOwners(sourceFile: SourceFile, start: number, end: number,
         if (span.start <= start && end <= span.end) add(span.pluginId);
     }
     const covers = (node: Node) => node.pos >= 0 && node.pos <= start && end <= node.end && (includeEmptyNodes || node.pos < node.end);
+    /** Adds the owners of plugin syntax parsed inside `node` that contains the range, innermost first. */
+    const addNested = (node: Node): void => {
+        for (const inner of nestedSyntax.get(node) ?? []) {
+            if (!covers(inner)) continue;
+            addNested(inner);
+            add(syntaxOwners.get(inner));
+        }
+    };
     /**
      * Whether `node` contains the range. Plugins generate nodes without a position, or empty ones at token starts that
      * may lie outside their parents, so the inside of plugin syntax is searched whatever its ranges say.
@@ -410,7 +435,10 @@ function getTSPPSyntaxOwners(sourceFile: SourceFile, start: number, end: number,
         ts.forEachChild(node, child => {
             if (insideSyntax || child.pos < 0 || syntaxOwners.has(child) || covers(child)) contains = visit(child, insideSyntax) || contains;
         });
-        if (contains) add(syntaxOwners.get(node));
+        if (contains) {
+            addNested(node);
+            add(syntaxOwners.get(node));
+        }
         return contains;
     };
     visit(sourceFile, /*inSyntax*/ false);

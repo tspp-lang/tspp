@@ -104,7 +104,8 @@ export const typeComputationPlugin = definePlugin({
                         return {
                             start: token.start,
                             length: token.length,
-                            display: `(TS++ dependent types) ${token.text}`,
+                            // `Reified` is a type, like the types it stands next to; the others are keywords.
+                            display: token.text === "Reified" ? "type Reified<T>" : `(TS++ dependent types) ${token.text}`,
                             documentation: reificationDocumentation[token.text],
                         };
                     }
@@ -177,7 +178,7 @@ export { inferDependentTypeUniverse, parseDependentType } from "./dependent";
 
 const reificationDocumentation: Readonly<Record<string, string>> = {
     reify: "Creates a runtime descriptor for the following static type.",
-    Reified: "The type of a runtime type descriptor produced by `reify <Type>`.",
+    Reified: "The type of a runtime type descriptor produced by `reify <Type>`. Only the compiler makes one, so a `Reified<T>` is evidence of `T` at run time.",
     typecase: "Matches a runtime type descriptor against type patterns in order.",
 };
 
@@ -313,10 +314,14 @@ const kernelConstants = new Set(["Bool", "True", "False", "BoolElim", "If", "Nat
 
 /**
  * Names the kernel reads have no TypeScript symbol, so nothing classifies them: all binders render alike here, and so do
- * all constants. Anything the language service did classify keeps its token.
+ * all constants. A name the language service classifies as a type elsewhere in the file renders as one, as where a
+ * dependent signature another plugin keeps only the parameters of names a type. Anything the language service did
+ * classify keeps its token.
  */
 function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemanticToken[] {
     const classified = new Set(request.tokens.map(token => token.start));
+    const typeKinds = new Set(["class", "enum", "interface", "type"]);
+    const declaredTypes = new Set(request.tokens.filter(token => typeKinds.has(token.type)).map(token => request.sourceText.slice(token.start, token.start + token.length)));
     const tokens: TSPPSemanticToken[] = [];
     let previous: string | undefined;
     for (const token of scanTSPPCode(request.sourceText)) {
@@ -327,7 +332,7 @@ function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemant
         if (request.sourceText[token.start - 1] === "." && request.sourceText[token.start - 2] !== ".") continue;
         if (kernelConstants.has(token.text) || token.text === "Reified") tokens.push({ start: token.start, length: token.text.length, type: "type" });
         else if (afterInfer || (token.text !== "_" && !/^Type\d*$/.test(token.text) && !isTypeScriptKeyword(token.text) && !["match", "reify", "typecase", "auto"].includes(token.text) && request.isOwned(token.start, end))) {
-            tokens.push({ start: token.start, length: token.text.length, type: "typeParameter" });
+            tokens.push({ start: token.start, length: token.text.length, type: !afterInfer && declaredTypes.has(token.text) ? "type" : "typeParameter" });
         }
     }
     return tokens;
@@ -336,7 +341,11 @@ function typeLevelSemanticTokens(request: TSPPSemanticTokensRequest): TSPPSemant
 /** Type-level syntax shown as it was written, without generated names or a truncated computed body. */
 function authoredQuickInfo(token: { readonly start: number; readonly length: number; readonly text: string; }, display: string | undefined, sourceText: string) {
     const shown = (text: string) => ({ start: token.start, length: token.length, display: text });
-    if (display && /\b_?_tspp_/.test(display)) return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(/ in <[\s\S]*$/, ""));
+    if (display && /\b_?_tspp_/.test(display)) {
+        // A descriptor's members are what `Reified<T>` already says.
+        const evidence = /(Reified<[^&]*>) & \{\s*kind: "type";\s*text: string;\s*\}/g;
+        return shown(display.replace(/\n\s*(?:readonly )?__tspp\w*[^\n]*/g, "").replace(evidence, "$1").replace(/ in <[\s\S]*$/, ""));
+    }
     if (display?.startsWith(`type ${token.text}`)) {
         const declaration = computedAliasDisplay(token.text, sourceText);
         if (declaration) return shown(declaration);

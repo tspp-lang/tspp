@@ -4,7 +4,7 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
 const vm = require("node:vm");
-const { usePlugins, createProgram, diagnosticMessages, emitJavaScript } = require("../../test-support/compile.cjs");
+const { ts, usePlugins, createProgram, diagnosticMessages, emitJavaScript, createLanguageService } = require("../../test-support/compile.cjs");
 const { typeComputationPlugin } = require("../dist");
 usePlugins(typeComputationPlugin);
 
@@ -138,4 +138,24 @@ test("declaration output keeps evidence trusted for TS++ and plain for TypeScrip
   assert.match(rich, /export type Show = \(A: Type, value: A\) => string;/);
   assert.doesNotMatch(compatible, /Reified|Type,/);
   assert.match(compatible, /export type Show = <A>\(A: \{\s*kind: "type";\s*text: string;\s*__tspp_reified_type: A;\s*\}, value: A\) => string;/);
+});
+
+test("editors describe the types a signature takes, and evidence by its type", () => {
+  const source = `type Describe = (A: Type, value: A) => string;
+export const describe: Describe = (A, value) => typecase A { number => "number", _ => "other" };
+export const evidence: Reified<number> = reify number;
+`;
+  const service = createLanguageService("/main.tspp", source, options);
+  const hover = position => ts.displayPartsToString(service.getQuickInfoAtPosition("/main.tspp", position)?.displayParts ?? []);
+  // The signature lowers to generated nodes, and its binder is still the plugin's to describe.
+  assert.equal(hover(source.indexOf("A) =>")), "(type-level name) A");
+  assert.equal(hover(source.indexOf("A, value)")), "(parameter) A: Reified<A>");
+  assert.equal(hover(source.indexOf("Reified")), "type Reified<T>");
+  const spans = service.getEncodedSemanticClassifications("/main.tspp", { start: 0, length: source.length }, ts.SemanticClassificationFormat.TwentyTwenty).spans;
+  const classOf = position => {
+    for (let index = 0; index < spans.length; index += 3) if (spans[index] === position) return (spans[index + 2] >> 8) - 1;
+    return undefined;
+  };
+  const typeParameter = 4;
+  assert.equal(classOf(source.indexOf("A) =>")), typeParameter);
 });
