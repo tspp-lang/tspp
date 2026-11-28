@@ -427,7 +427,7 @@ function getExpandedSelectionNode(firstType: Node, enclosingNode: Node) {
     // intended to capture the entire type in cases where the user selection is not exactly the entire type
     // currently only implemented for union and intersection types
     return findAncestor(firstType, node => {
-        if (node === enclosingNode || !node.parent) return "quit";
+        if (node === enclosingNode) return "quit";
         if (isUnionTypeNode(node.parent) || isIntersectionTypeNode(node.parent)) {
             return true;
         }

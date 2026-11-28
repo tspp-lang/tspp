@@ -196,7 +196,6 @@ function containingThis(node: Node): boolean {
 
 function getFunctionInfo(file: SourceFile, startPosition: number, program: Program): FunctionInfo | undefined {
     const token = getTokenAtPosition(file, startPosition);
-    if (!token.parent) return undefined;
     const typeChecker = program.getTypeChecker();
     const func = tryGetFunctionFromVariableDeclaration(file, typeChecker, token.parent);
     if (func && !containingThis(func.body) && !typeChecker.containsArgumentsReference(func)) {

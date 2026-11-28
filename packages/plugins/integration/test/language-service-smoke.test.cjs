@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { test } = require("node:test");
-const { ts } = require("../../test-support/compile.cjs");
+const { ts, createLanguageService } = require("../../test-support/compile.cjs");
 const { useAllPlugins } = require("./plugins.cjs");
 
 useAllPlugins();
@@ -208,4 +208,19 @@ test("language service requests never throw on partially typed sources", () => {
     }
   }
   report(failures);
+});
+
+// The end-of-file token is empty, and the services find it as a child of the file: without it, the token at the end of a
+// file without a final line break is the file itself, which has no parent, and refactors read that parent.
+test("language service requests never throw at the end of a file without a final line break", () => {
+  for (const text of ["export const v = 1;", "type Identity: Type1 = (a: Type) => (x: a) => a;", "const d = reify number"]) {
+    const service = createLanguageService("/index.tspp", text, { noLib: false, lib: ["lib.es2022.d.ts"], strict: true });
+    const end = text.length;
+    service.getApplicableRefactors("/index.tspp", end, {});
+    service.getApplicableRefactors("/index.tspp", { pos: 0, end }, {});
+    service.getCompletionsAtPosition("/index.tspp", end, {});
+    service.getQuickInfoAtPosition("/index.tspp", end);
+    service.getSmartSelectionRange("/index.tspp", end);
+    assert.equal(service.getProgram().getSourceFile("/index.tspp").getChildren().at(-1).kind, ts.SyntaxKind.EndOfFileToken);
+  }
 });

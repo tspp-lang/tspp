@@ -82,9 +82,7 @@ function getNodeOrParentOfParentheses(file: SourceFile, startPosition: number) {
 
     if (
         isNonStringBinary &&
-        nestedBinary.parent &&
         isParenthesizedExpression(nestedBinary.parent) &&
-        nestedBinary.parent.parent &&
         isBinaryExpression(nestedBinary.parent.parent)
     ) {
         return nestedBinary.parent.parent;
