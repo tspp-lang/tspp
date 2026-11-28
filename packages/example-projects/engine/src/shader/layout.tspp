@@ -1,0 +1,63 @@
+// Fills buffers with values laid out as a `VertexLayout` or a `UniformLayout` says.
+
+import { Mat3, Mat4 } from "../math/mat.js";
+import { Vec2, Vec3, Vec4 } from "../math/vec.js";
+import type { UniformLayout, VertexLayout, WgslType } from "./module.js";
+
+/** The floats of one value of `type`, as WGSL stores it; a `mat3x3f` pads each column to four floats. */
+function floatsOf(value: unknown, type: WgslType, path: string): readonly number[] {
+  const wrong = () => new TypeError(`${path}: expected a value for ${type}`);
+  switch (type) {
+    case "f32":
+      if (typeof value !== "number") throw wrong();
+      return [value];
+    case "vec2f":
+      if (!(value instanceof Vec2)) throw wrong();
+      return value.components;
+    case "vec3f":
+      if (!(value instanceof Vec3)) throw wrong();
+      return value.components;
+    case "vec4f":
+      if (!(value instanceof Vec4)) throw wrong();
+      return value.components;
+    case "mat3x3f": {
+      if (!(value instanceof Mat3)) throw wrong();
+      const e = value.elements;
+      return [e[0]!, e[1]!, e[2]!, 0, e[3]!, e[4]!, e[5]!, 0, e[6]!, e[7]!, e[8]!, 0];
+    }
+    case "mat4x4f":
+      if (!(value instanceof Mat4)) throw wrong();
+      return value.elements;
+  }
+}
+
+/** Interleaves `vertices` into one buffer; each vertex is an object with the fields of the shader's vertex input. */
+export function packVertices<Vertex>(layout: VertexLayout, vertices: readonly Vertex[]): Float32Array {
+  const floatsPerVertex = layout.stride / 4;
+  const data = new Float32Array(vertices.length * floatsPerVertex);
+  vertices.forEach((vertex, index) => {
+    for (const attribute of layout.attributes) {
+      const type = ({ float32: "f32", float32x2: "vec2f", float32x3: "vec3f", float32x4: "vec4f" } as const)[attribute.format];
+      const value = (vertex as Record<string, unknown>)[attribute.name];
+      data.set(floatsOf(value, type, `vertex ${index}.${attribute.name}`), index * floatsPerVertex + attribute.offset / 4);
+    }
+  });
+  return data;
+}
+
+/** Writes `value` into `target`, which defaults to a new array of the struct's size, and returns the array. */
+export function writeUniforms<T>(layout: UniformLayout, value: T, target: Float32Array = new Float32Array(layout.size / 4)): Float32Array {
+  if (target.length * 4 < layout.size) throw new RangeError(`${layout.name} needs ${layout.size} bytes, not ${target.length * 4}`);
+  write(layout, value, target, 0, layout.name);
+  return target;
+}
+
+function write(layout: UniformLayout, value: unknown, target: Float32Array, base: number, path: string): void {
+  if (typeof value !== "object" || value === null) throw new TypeError(`${path}: expected a ${layout.name}`);
+  for (const field of layout.fields) {
+    const fieldValue = (value as Record<string, unknown>)[field.name];
+    const fieldPath = `${path}.${field.name}`;
+    if (field.type === "struct") write(field.layout, fieldValue, target, base + field.offset, fieldPath);
+    else target.set(floatsOf(fieldValue, field.type, fieldPath), (base + field.offset) / 4);
+  }
+}

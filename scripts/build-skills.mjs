@@ -1,5 +1,6 @@
 // Collects the shipped capsules' skills into the versioned, installable skills/tspp tree.
-// Usage: node scripts/build-skills.mjs [--check]
+// Usage: node scripts/build-skills.mjs [--check | --stage]
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
@@ -147,14 +148,24 @@ export function syncSkills(files, output, { check = false } = {}) {
 }
 
 function main() {
-    if (process.argv.slice(2).some(argument => argument !== "--check")) throw new Error("Usage: node scripts/build-skills.mjs [--check]");
-    const check = process.argv.includes("--check");
+    const args = process.argv.slice(2);
+    if (args.some(argument => argument !== "--check" && argument !== "--stage") || (args.includes("--check") && args.includes("--stage"))) {
+        throw new Error("Usage: node scripts/build-skills.mjs [--check | --stage]");
+    }
+    const check = args.includes("--check");
+    const stage = args.includes("--stage");
     const { changed, stale } = syncSkills(skillFiles(), path.join(root, "skills", "tspp"), { check });
     if (check && (changed.length || stale.length)) {
         console.error(`skills/tspp is out of date (${[...changed, ...stale].join(", ")}). Run pnpm build:skills and commit skills/tspp.`);
         process.exitCode = 1;
+        return;
     }
-    else console.log(check ? "skills/tspp is up to date." : `skills/tspp: ${changed.length} written, ${stale.length} removed.`);
+    if (stage && (changed.length || stale.length)) {
+        const result = spawnSync("git", ["add", "-A", "--", "skills/tspp"], { cwd: root, stdio: "inherit" });
+        if (result.error) throw result.error;
+        if (result.status !== 0) process.exitCode = result.status ?? 1;
+    }
+    console.log(check ? "skills/tspp is up to date." : `skills/tspp: ${changed.length} written, ${stale.length} removed.`);
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();

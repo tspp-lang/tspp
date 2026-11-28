@@ -1,6 +1,7 @@
 import type { LanguageClient } from "./client";
 import { parseProjectConfiguration } from "./configuration";
 import * as monaco from "./monaco";
+import { buildErrorsPromptText, copyText, flashCopied, type ErrorCopyMode, type LocatedDiagnostic, type PromptContext } from "./prompt-copy";
 import type { DiagnosticInfo, FeatureDefinition } from "./protocol";
 import { setDiagnosticMarkers } from "./providers";
 
@@ -12,11 +13,25 @@ export function createProblemChecker(
   languageClient: () => LanguageClient,
   definitions: readonly FeatureDefinition[],
   isDirty: (path: string) => boolean,
+  promptContext: () => PromptContext,
 ) {
   const list = document.getElementById("problems")!;
   const count = document.getElementById("problem-count")!;
+  const copyModeSelect = document.getElementById("problem-copy-mode") as HTMLSelectElement | null;
+  const copyProblemsButton = document.getElementById("copy-problems") as HTMLButtonElement | null;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancellation: monaco.CancellationTokenSource | undefined;
+  let latestDiagnostics: LocatedDiagnostic[] = [];
+
+  if (copyProblemsButton) {
+    copyProblemsButton.onclick = async () => {
+      if (!latestDiagnostics.length) return;
+      const mode: ErrorCopyMode = copyModeSelect?.value === "full" ? "full" : "concise";
+      if (await copyText(buildErrorsPromptText(latestDiagnostics, promptContext(), mode))) {
+        flashCopied(copyProblemsButton);
+      }
+    };
+  }
 
   async function check(): Promise<void> {
     cancellation?.cancel();
@@ -52,8 +67,14 @@ export function createProblemChecker(
   }
 
   function renderProblems(diagnostics: readonly DiagnosticInfo[], fileName: string): void {
+    const locate = (problem: DiagnosticInfo, path: string) => problem.span && models.get(path)?.getPositionAt(problem.span.start);
+    latestDiagnostics = diagnostics.map(problem => ({
+      problem,
+      position: locate(problem, problem.fileName ?? fileName),
+    }));
+    if (copyProblemsButton) copyProblemsButton.disabled = latestDiagnostics.length === 0;
     renderProblemList(list, count, diagnostics, fileName,
-      (problem, path) => problem.span && models.get(path)?.getPositionAt(problem.span.start),
+      locate,
       (path, position) => {
         openFile(path);
         editor.setPosition(position);

@@ -30,3 +30,13 @@ test("formatting restores the indentation of type-level bindings, matches, and c
 test("formatting tidies the spaces of type-level bindings, matches, and constructors", () => {
   assert.equal(formatDocument(withDoubledSpaces(formatted)), formatted);
 });
+
+test("formatting leaves the generated parts of a descriptor alone wherever it is written", () => {
+  const source = `declare function pick(A: unknown, value: number): void;
+pick(reify number, 1);
+export const pair = [reify string, "text"];
+export type Pair = [Reified<number>, number];
+`;
+  assert.equal(formatDocument(source), source);
+  assert.equal(formatDocument(withDoubledSpaces(source)), source);
+});

@@ -1,0 +1,33 @@
+{
+  "name": "@tspp/config-schema",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Typed configuration schemas with layered loading, path-precise errors, and schemas derived from interfaces.",
+  "license": "Apache-2.0",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "tsppTypes": "./dist/index.d.tspp",
+  "exports": {
+    ".": {
+      "tspp-types": "./dist/index.d.tspp",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "tspp-types": "./dist/node.d.tspp",
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    }
+  },
+  "scripts": {
+    "build": "tspp --compile -p tsppconfig.json --pretty false",
+    "check": "tspp --compile -p tsppconfig.json --noEmit --pretty false",
+    "test": "pnpm build && pnpm test:run",
+    "test:run": "node --test --test-concurrency=1 test/*.test.cjs"
+  },
+  "devDependencies": {
+    "ts-plus-plus": "workspace:*",
+    "@types/node": "^22.20.5"
+  }
+}

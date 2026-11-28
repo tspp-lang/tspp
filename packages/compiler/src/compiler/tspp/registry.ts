@@ -66,6 +66,13 @@ const syntaxOwners = new WeakMap<object, string>();
 /** Who claims each `keyword @ position`, so that a second plugin is refused when it registers. */
 const syntaxClaims = new Map<string, { pluginId: string; keyword: string; position: string; }>();
 const additionalListElements = new WeakMap<Node, readonly Node[]>();
+/**
+ * Plugin syntax parsed inside other plugin syntax, by the outer node: the outer plugin may keep only parts of it, such as
+ * the parameters of a signature, whose generated nodes have no range of their own.
+ */
+const nestedSyntax = new WeakMap<Node, readonly Node[]>();
+/** The plugin syntax parsed so far inside each plugin syntax being parsed, innermost last. */
+const parsingSyntax: Node[][] = [];
 const quickInfoProviders = new Map<string, TSPPQuickInfoProvider>();
 const semanticTokensProviders = new Map<string, TSPPSemanticTokensProvider>();
 const formattingProviders = new Map<string, TSPPFormattingProvider>();
@@ -296,11 +303,21 @@ export function tryParseTSPPSyntax(fileName: string, position: TSPPSyntaxExtensi
     if (starting.length > 1) throw new Error(`TSPP plugins ${starting.map(({ pluginId }) => `'${pluginId}'`).join(" and ")} both claim this syntax.`);
     const [{ pluginId, extension }] = starting;
     const start = Math.min(cursor!.getNodePos(), cursor!.modifiers?.pos ?? Infinity, cursor!.precedingType?.pos ?? Infinity);
-    const parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
+    parsingSyntax.push([]);
+    let parsed: Node | readonly Node[];
+    let nested: readonly Node[];
+    try {
+        parsed = extension.parse(cursor!) as unknown as Node | readonly Node[];
+    }
+    finally {
+        nested = parsingSyntax.pop()!;
+    }
     const [first, ...rest] = Array.isArray(parsed) ? parsed : [parsed];
     if (typeof first !== "function") [first, ...rest].forEach(node => nestSyntaxRanges(node, start, cursor!.getNodePos()));
     if (cursor!.inAmbientContext() && typeof first !== "function") [first, ...rest].forEach(markAmbient);
     syntaxOwners.set(first, pluginId);
+    if (nested.length) nestedSyntax.set(first, nested);
+    if (typeof first !== "function") parsingSyntax[parsingSyntax.length - 1]?.push(first);
     if (rest.length) additionalListElements.set(first, rest);
     return first;
 }
@@ -372,10 +389,14 @@ export function isTSPPSyntaxNode(node: Node): boolean {
     return syntaxOwners.has(node);
 }
 
-/** A generated private field's name inside plugin syntax, which has no authored range to print. @internal */
+/**
+ * The name of a declaration plugin syntax generated, which has no authored range to print: a private field, or a type
+ * parameter such as the binder of a lowered dependent function type. @internal
+ */
 export function getTSPPGeneratedDeclarationName(node: Node | undefined): string | undefined {
-    if (!node || !ts.isIdentifier(node) || !ts.nodeIsSynthesized(node)) return undefined;
-    if (!node.parent || !ts.isPropertyDeclaration(node.parent) || !(ts.getCombinedModifierFlags(node.parent) & ts.ModifierFlags.Private)) return undefined;
+    if (!node || !ts.isIdentifier(node) || !ts.nodeIsSynthesized(node) || !node.parent) return undefined;
+    const privateField = ts.isPropertyDeclaration(node.parent) && !!(ts.getCombinedModifierFlags(node.parent) & ts.ModifierFlags.Private);
+    if (!privateField && !ts.isTypeParameterDeclaration(node.parent)) return undefined;
     for (let ancestor: Node | undefined = node; ancestor; ancestor = ancestor.parent) {
         if (isTSPPSyntaxNode(ancestor)) return ts.idText(node);
     }
@@ -396,6 +417,14 @@ function getTSPPSyntaxOwners(sourceFile: SourceFile, start: number, end: number,
         if (span.start <= start && end <= span.end) add(span.pluginId);
     }
     const covers = (node: Node) => node.pos >= 0 && node.pos <= start && end <= node.end && (includeEmptyNodes || node.pos < node.end);
+    /** Adds the owners of plugin syntax parsed inside `node` that contains the range, innermost first. */
+    const addNested = (node: Node): void => {
+        for (const inner of nestedSyntax.get(node) ?? []) {
+            if (!covers(inner)) continue;
+            addNested(inner);
+            add(syntaxOwners.get(inner));
+        }
+    };
     /**
      * Whether `node` contains the range. Plugins generate nodes without a position, or empty ones at token starts that
      * may lie outside their parents, so the inside of plugin syntax is searched whatever its ranges say.
@@ -406,7 +435,10 @@ function getTSPPSyntaxOwners(sourceFile: SourceFile, start: number, end: number,
         ts.forEachChild(node, child => {
             if (insideSyntax || child.pos < 0 || syntaxOwners.has(child) || covers(child)) contains = visit(child, insideSyntax) || contains;
         });
-        if (contains) add(syntaxOwners.get(node));
+        if (contains) {
+            addNested(node);
+            add(syntaxOwners.get(node));
+        }
         return contains;
     };
     visit(sourceFile, /*inSyntax*/ false);
@@ -429,6 +461,17 @@ function printNestedDeclaration(container: Node, nested: Node): string {
  * @internal
  */
 export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean): string | undefined {
+    const restored = restoreDeclaration(node, !!compatibility);
+    if (compatibility || !restoringPlugins) return restored?.text;
+    // A `.d.tspp` file needs a plugin wherever its output differs from the compatible `.d.ts`: where the plugin restores
+    // the node here, even as nothing, or where it writes the node otherwise there, as a plugin whose syntax the upstream
+    // printer keeps does.
+    const different = restored ?? restoreDeclaration(node, /*compatibility*/ true);
+    if (different) restoringPlugins.add(different.pluginId);
+    return restored?.text;
+}
+
+function restoreDeclaration(node: Node, compatibility: boolean): { readonly text: string; readonly pluginId: string; } | undefined {
     const clauseOwner = compatibility ? clauseOwners.get(ts.getOriginalNode(node)) : undefined;
     const owner = clauseOwner ?? syntaxOwners.get(ts.getOriginalNode(node));
     const printNested = (nested: Node) => printNestedDeclaration(node, nested);
@@ -444,7 +487,7 @@ export function getTSPPRestoredDeclaration(node: Node, compatibility?: boolean):
             answeredBy = pluginId;
         }
     }
-    return restored;
+    return answeredBy === undefined ? undefined : { text: restored!, pluginId: answeredBy };
 }
 
 /** The text of a clause plugin syntax parsed after a function's parameters, for `.d.tspp` output. @internal */
@@ -454,7 +497,7 @@ export function getTSPPRestoredFunctionClause(node: Node): string | undefined {
     for (const { pluginId, extension } of [...syntaxExtensions.get("function-clause") ?? [], ...syntaxExtensions.get("header-clause") ?? []]) {
         if (pluginId !== owner) continue;
         const text = extension.restoreFunctionClause?.(node as never);
-        if (text) return text;
+        if (text) return recordRestoringPlugin(pluginId, text);
     }
     return undefined;
 }
@@ -578,11 +621,34 @@ export function registerTSPPCompilerPlugin(plugin: unknown): boolean {
     return true;
 }
 
-/** The first line of a `.d.tspp` file: the plugins of the project that wrote it, which a reader must have to read it. @internal */
-export const tsppDeclarationPluginsHeader = "// @tspp-plugins ";
+/**
+ * The first line of a `.d.tspp` file, followed by the plugins whose syntax the file holds, which a reader must have to
+ * read it: `// @tspp-plugins a,b`. Alone, it says the file needs none. @internal
+ */
+export const tsppDeclarationPluginsHeader = "// @tspp-plugins";
+
+/** The plugins that restored syntax since `startRecordingRestoringPlugins`, while a `.d.tspp` file prints. */
+let restoringPlugins: Set<string> | undefined;
+
+/** Starts collecting the plugins that restore syntax, for the header of the `.d.tspp` file about to print. @internal */
+export function startRecordingRestoringPlugins(): void {
+    restoringPlugins = new Set();
+}
+
+/** The plugins that restored syntax since recording started, sorted; recording stops. @internal */
+export function stopRecordingRestoringPlugins(): readonly string[] {
+    const plugins = [...restoringPlugins ?? []].sort();
+    restoringPlugins = undefined;
+    return plugins;
+}
+
+function recordRestoringPlugin(pluginId: string, text: string): string {
+    restoringPlugins?.add(pluginId);
+    return text;
+}
 
 /**
- * The file to read in place of a `.d.tspp` file written with plugins that are not all active: its compatible `.d.ts`. By
+ * The file to read in place of a `.d.tspp` file that holds syntax of plugins not all active: its compatible `.d.ts`. By
  * design a project reads declarations of plugins it lacks as what they lower to, so a type TypeScript cannot express
  * arrives as that output's `unknown`. Undefined when the file itself is to be read, including one without a header.
  * @internal
@@ -590,8 +656,10 @@ export const tsppDeclarationPluginsHeader = "// @tspp-plugins ";
 export function getTSPPReadableDeclaration(fileName: string, host: { fileExists(fileName: string): boolean; readFile(fileName: string): string | undefined; }): string | undefined {
     if (!fileName.endsWith(".d.tspp")) return undefined;
     const text = host.readFile(fileName);
-    if (!text?.startsWith(tsppDeclarationPluginsHeader)) return undefined;
-    const required = text.slice(tsppDeclarationPluginsHeader.length, text.search(/\r?\n/)).split(",");
+    if (text === undefined) return undefined;
+    const firstLine = text.slice(0, text.search(/\r?\n|$/));
+    if (firstLine !== tsppDeclarationPluginsHeader && !firstLine.startsWith(`${tsppDeclarationPluginsHeader} `)) return undefined;
+    const required = firstLine.slice(tsppDeclarationPluginsHeader.length).trim().split(",").filter(Boolean);
     if (required.every(id => activePlugins.some(plugin => plugin.manifest.id === id))) return undefined;
     const compatible = getTSPPCompatibilityDeclarationFilePath(fileName)!;
     return host.fileExists(compatible) ? compatible : undefined;
@@ -1008,14 +1076,14 @@ export function getPreprocessedFunctionPrefix(
 ): string | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
+    for (const { pluginId, preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreFunctionPrefix?.({
             fileName,
             sourceText: entry.original,
             name,
             declarationStart,
         });
-        if (restored) return restored;
+        if (restored) return recordRestoringPlugin(pluginId, restored);
     }
     return undefined;
 }
@@ -1028,14 +1096,14 @@ export function getPreprocessedFunctionClause(
 ): string | undefined {
     const entry = projectedSources.get(fileName);
     if (!entry) return undefined;
-    for (const { preprocessor } of sortedByKey(sourcePreprocessors)) {
+    for (const { pluginId, preprocessor } of sortedByKey(sourcePreprocessors)) {
         const restored = preprocessor.restoreFunctionClause?.({
             fileName,
             sourceText: entry.original,
             name,
             declarationStart,
         });
-        if (restored) return restored;
+        if (restored) return recordRestoringPlugin(pluginId, restored);
     }
     return undefined;
 }

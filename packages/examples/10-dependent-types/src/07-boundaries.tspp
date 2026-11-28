@@ -18,27 +18,39 @@
 // ============================================================================
 
 // ----------------------------------------------------------------------------
-// 1. 在依赖类型族中使用对象类型与联合类型
+// 1. 在依赖类型中使用对象类型与联合类型
 //
-// 下面的 `BoxFamily` 和 `UnionFamily` 都是从 `Type0` 到 `Type0` 的类型族（属于 `Type1`）：
-//   - `BoxFamily` 接收任意基础类型 `A: Type0`，返回标准对象类型 `Box<A>`；
-//   - `UnionFamily` 接收任意基础类型 `A: Type0`，返回标准联合类型 `A | undefined`。
+// 下面两组写法都直接用到了普通的 TypeScript 类型：
+//   - `BoxFamily` 和 `UnionFamily` 是从 `Type0` 到 `Type0` 的类型族（类型构造器），用 `=>>` 写；
+//   - `MakeBox` 是依赖函数类型：类型 `A` 写在圆括号里，运行时传入，返回值的类型 `Box<A>` 由它决定。
 // ----------------------------------------------------------------------------
-// 1. Using Object Types & Union Types Inside Dependent Type Families
+// 1. Using Object Types & Union Types Inside Dependent Types
 //
-// Both `BoxFamily` and `UnionFamily` below are type families mapping `Type0` to `Type0` (so they inhabit `Type1`):
-//   - `BoxFamily` takes any base type `A: Type0` and returns the standard object type `Box<A>`;
-//   - `UnionFamily` takes any base type `A: Type0` and returns the standard union type `A | undefined`.
+// Both kinds of declaration below use ordinary TypeScript types directly:
+//   - `BoxFamily` and `UnionFamily` are type families (type constructors) from `Type0` to `Type0`, written with `=>>`;
+//   - `MakeBox` is a dependent function type: `A` is in the parentheses, passed at runtime, and decides `Box<A>`.
 // ----------------------------------------------------------------------------
 
 // 标准 TypeScript 泛型对象类型别名
 // A standard TypeScript generic object type alias
 type Box<T> = { value: T };
 
-// 将任意类型 `A: Type0` 包装为 `Box<A>` 的依赖类型族
-// A dependent type family that wraps any `A: Type0` into `Box<A>`
-export type BoxFamily: Type1 = (A: Type0) -> Box<A>;
+// 将任意类型 `A: Type0` 包装为 `Box<A>` 的类型族
+// A type family that wraps any `A: Type0` into `Box<A>`
+export type BoxFamily: Type0 => Type0 = <A> =>> Box<A>;
 
-// 将任意类型 `A: Type0` 转换为可空联合类型 `A | undefined` 的依赖类型族
-// A dependent type family that turns any `A: Type0` into the nullable union `A | undefined`
-export type UnionFamily: Type1 = (A: Type0) -> A | undefined;
+// 将任意类型 `A: Type0` 转换为可空联合类型 `A | undefined` 的类型族
+// A type family that turns any `A: Type0` into the nullable union `A | undefined`
+export type UnionFamily: Type0 => Type0 = <A> =>> A | undefined;
+
+// 类型族的用法和普通泛型一样
+// A type family is applied like any generic
+export const boxed: BoxFamily<number> = { value: 1 };
+export const missing: UnionFamily<string> = undefined;
+
+// 接收一个类型和该类型的值，返回 `Box<A>` 的函数类型；量化了 `Type0`，所以属于 `Type1`
+// A function type that takes a type and a value of it and returns `Box<A>`; it quantifies over `Type0`, so it is in `Type1`
+export type MakeBox: Type1 = (A: Type0, value: A) => Box<A>;
+
+export const makeBox: MakeBox = (_type, value) => ({ value });
+export const madeBox: Box<string> = makeBox(reify string, "boxed");

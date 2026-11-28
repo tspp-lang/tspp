@@ -5,7 +5,19 @@
     "moduleResolution": "NodeNext",
     "rootDir": "src",
     "outDir": "dist",
-    "strict": true
+    "strict": true,
+    "plugins": [
+      { "name": "ts-plus-plus/plugins/modern-syntax", "tspp": true },
+      { "name": "ts-plus-plus/plugins/operator-sections", "tspp": true },
+      { "name": "ts-plus-plus/plugins/advanced-classes", "tspp": true },
+      { "name": "ts-plus-plus/plugins/static-interface-members", "tspp": true },
+      { "name": "ts-plus-plus/plugins/nominal-types", "tspp": true },
+      { "name": "ts-plus-plus/plugins/typeclasses", "tspp": true },
+      { "name": "ts-plus-plus/plugins/type-computation", "tspp": true },
+      { "name": "ts-plus-plus/plugins/algebraic-effects", "tspp": true },
+      { "name": "ts-plus-plus/plugins/formal-verification", "tspp": true },
+      { "name": "ts-plus-plus/plugins/macros", "tspp": true }
+    ]
   },
   "include": ["src/**/*.tspp"]
 }

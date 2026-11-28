@@ -1,0 +1,23 @@
+{
+  "name": "@tspp/scene-viewer",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A WebGPU scene viewer whose materials are TS++ shader functions compiled to WGSL.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "build": "tspp --compile -p tsppconfig.json --pretty false",
+    "check": "tspp --compile -p tsppconfig.json --noEmit --pretty false",
+    "dev": "pnpm build && vite",
+    "bundle": "pnpm build && vite build",
+    "test": "pnpm build && pnpm test:run",
+    "test:run": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "dependencies": {
+    "@tspp/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "ts-plus-plus": "workspace:*",
+    "vite": "^8.0.0"
+  }
+}

@@ -2218,6 +2218,7 @@ namespace Parser {
             parseType: () => parseType() as never,
             parseIdentifier: () => parseIdentifier() as never,
             parseTypeParameters: () => parseTypeParameters() as never,
+            parseFunctionBody: context => parseFunctionBlockOrSemicolon((context?.await ? SignatureFlags.Await : SignatureFlags.None) | (context?.yield ? SignatureFlags.Yield : SignatureFlags.None)) as never, // TSPP-SLOT(syntax-extension)
             parseClassMembers: () => parseClassMembers() as never, // TSPP-SLOT(syntax-extension)
             parseClause: position => createTSPPClause(tryParsePluginSyntax(() => tryParseTSPPSyntax(fileName, position, token(), createTSPPSyntaxCursor))), // TSPP-SLOT(syntax-extension)
             parseTypeArguments: () => parseTypeArgumentsOfTypeReference() as never,

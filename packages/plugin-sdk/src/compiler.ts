@@ -242,6 +242,11 @@ export interface TSPPSyntaxCursor {
     parseType(): import("typescript-upstream").TypeNode;
     parseIdentifier(): import("typescript-upstream").Identifier;
     parseTypeParameters(): import("typescript-upstream").NodeArray<import("typescript-upstream").TypeParameterDeclaration> | undefined;
+    /**
+     * The body after a function, method, or accessor signature, as the parser reads it, including any plugin's
+     * function-body syntax. `await` and `yield` set the body's context; a semicolon in its place gives undefined.
+     */
+    parseFunctionBody(context?: { readonly await?: boolean; readonly yield?: boolean; }): import("typescript-upstream").Block | undefined;
     /** The members of a class body, up to its closing brace, which is left for the plugin. */
     parseClassMembers(): import("typescript-upstream").NodeArray<import("typescript-upstream").ClassElement>;
     /**

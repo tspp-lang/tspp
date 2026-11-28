@@ -52,27 +52,30 @@ void matchedNumber;
 void matchedFallback;
 
 // ----------------------------------------------------------------------------
-// 2. 用 Pi 类型与 `match` 构造类型族（Type Family）
+// 2. 用 `match` 构造类型族（Type Family）
 //
-// 当我们把参数 `(A: Type0) -> ...` 与 `match A { ... }` 组合起来时，就得到了一个完整的类型族：
+// 把 `match A { ... }` 放进类型构造器 `<A> =>> ...`，就得到了一个类型族：
 // 它接收任意基础类型 `A: Type0`：
-//   - 如果 `A` 是数组类型 `Array<infer Element>`，就用 `infer Element` 捕获数组元素类型并返回 `Element`；
-//   - 如果 `A` 是其他任何类型，就走 `_` 分支原样返回 `A` 本身。
-// 因为它是一个从 `Type0` 到 `Type0` 的函数，所以这个类型族本身属于 `Type1`。
+//   - 如果 `A` 是数组类型 `Array<infer Element>`，就用 `infer Element` 捕获元素类型并返回 `Element`；
+//   - 否则走 `_` 分支，原样返回 `A`。
+// 它是从 `Type0` 到 `Type0` 的函数，所以标注为 `Type0 => Type0`，用起来和普通泛型一样。
 // ----------------------------------------------------------------------------
-// 2. Constructing a Type Family with Pi Types & `match`
+// 2. Constructing a Type Family with `match`
 //
-// Combining a Pi binder `(A: Type0) -> ...` with `match A { ... }` creates a Type Family:
+// Put `match A { ... }` inside a type constructor `<A> =>> ...`, and you get a Type Family.
 // Given any base type `A: Type0`:
 //   - If `A` matches `Array<infer Element>`, it captures the element type `Element` and returns `Element`;
 //   - Otherwise, it falls back to `_` and returns `A` unchanged.
-// Because it maps `Type0` to `Type0`, the type family itself has type `Type1`.
+// It is a function from `Type0` to `Type0`, annotated `Type0 => Type0`, and applied like any generic.
 // ----------------------------------------------------------------------------
 
 // 若输入数组类型则提取其元素类型，否则返回该类型自身
 // Extracts the element type if `A` is an `Array`, or returns `A` itself otherwise
-export type ElementOrSelf: Type1 =
-  (A: Type0) -> match A {
+export type ElementOrSelf: Type0 => Type0 =
+  <A> =>> match A {
     Array<infer Element>: Element,
     _: A
   };
+
+export const element: ElementOrSelf<string[]> = "first";
+export const self: ElementOrSelf<number> = 42;

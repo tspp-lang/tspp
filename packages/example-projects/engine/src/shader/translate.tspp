@@ -1,0 +1,801 @@
+// Translates a shader namespace to WGSL while the `shaderModule` macro runs. The functions in the namespace are
+// ordinary TS++ code that the checker has already typed, so this file only maps each construct to its WGSL form and
+// rejects what WGSL cannot express. It reads compiler nodes and the checker through the narrow views below.
+
+import type { ShaderDescription, UniformField, UniformLayout, VertexAttribute, WgslType } from "./module.js";
+
+/** The parts of a compiler node that the translation reads. */
+export interface SyntaxNode {
+  readonly kind: number;
+  readonly flags: number;
+  readonly parent?: SyntaxNode;
+  readonly escapedText?: string;
+  readonly text?: string;
+  readonly fileName?: string;
+  readonly name?: SyntaxNode;
+  readonly body?: SyntaxNode;
+  readonly statements?: readonly SyntaxNode[];
+  readonly parameters?: readonly SyntaxNode[];
+  readonly modifiers?: readonly SyntaxNode[];
+  readonly type?: SyntaxNode;
+  readonly expression?: SyntaxNode;
+  readonly arguments?: readonly SyntaxNode[];
+  readonly left?: SyntaxNode;
+  readonly right?: SyntaxNode;
+  readonly operatorToken?: SyntaxNode;
+  readonly operator?: number;
+  readonly operand?: SyntaxNode;
+  readonly condition?: SyntaxNode;
+  readonly whenTrue?: SyntaxNode;
+  readonly whenFalse?: SyntaxNode;
+  readonly thenStatement?: SyntaxNode;
+  readonly elseStatement?: SyntaxNode;
+  readonly initializer?: SyntaxNode;
+  readonly incrementor?: SyntaxNode;
+  readonly statement?: SyntaxNode;
+  readonly declarationList?: SyntaxNode;
+  readonly declarations?: readonly SyntaxNode[];
+  readonly properties?: readonly SyntaxNode[];
+  readonly questionToken?: SyntaxNode;
+  getStart?(): number;
+  getText?(): string;
+}
+
+/** The parts of a checker type that the translation reads. */
+export interface CheckedType {
+  readonly flags: number;
+  readonly symbol?: CheckedSymbol;
+  readonly aliasSymbol?: CheckedSymbol;
+  readonly aliasTypeArguments?: readonly CheckedType[];
+  readonly value?: unknown;
+}
+
+export interface CheckedSymbol {
+  readonly escapedName: string;
+  readonly declarations?: readonly SyntaxNode[];
+}
+
+/** The checker calls that the translation makes. */
+export interface ShaderChecker {
+  getTypeAtLocation(node: SyntaxNode): CheckedType;
+  getContextualType(node: SyntaxNode): CheckedType | undefined;
+  getSymbolAtLocation(node: SyntaxNode): CheckedSymbol | undefined;
+  getPropertiesOfType(type: CheckedType): readonly CheckedSymbol[];
+  getTypeOfSymbol(symbol: CheckedSymbol): CheckedType;
+  typeToString(type: CheckedType): string;
+}
+
+/** A construct that WGSL cannot express, at the node that holds it. */
+export class ShaderError extends Error {
+  constructor(message: string, readonly node: SyntaxNode) {
+    super(message);
+  }
+}
+
+/** The result of translating a namespace: the description, and the types that the generated code names. */
+export interface Translation {
+  readonly description: ShaderDescription;
+  /** The vertex input struct as the invocation can name it, when there is a vertex entry. */
+  readonly vertexType?: string;
+  /** Each uniform binding and its struct as the invocation can name it. */
+  readonly bindingTypes: readonly { readonly name: string; readonly type: string }[];
+}
+
+/** The engine's vector and matrix classes, by name, and their WGSL types. */
+const valueTypes: Readonly<Record<string, WgslType>> = {
+  Vec2: "vec2f",
+  Vec3: "vec3f",
+  Vec4: "vec4f",
+  Mat3: "mat3x3f",
+  Mat4: "mat4x4f",
+};
+
+/** Methods of the vector and matrix classes as WGSL operators or built-ins. */
+const methods: Readonly<Record<string, { readonly operator: string } | { readonly builtin: string; readonly arity: number }>> = {
+  add: { operator: "+" },
+  sub: { operator: "-" },
+  mul: { operator: "*" },
+  div: { operator: "/" },
+  scale: { operator: "*" },
+  negate: { builtin: "-", arity: 0 },
+  dot: { builtin: "dot", arity: 1 },
+  cross: { builtin: "cross", arity: 1 },
+  length: { builtin: "length", arity: 0 },
+  normalize: { builtin: "normalize", arity: 0 },
+  transpose: { builtin: "transpose", arity: 0 },
+};
+
+/** Fields of the vector classes that are WGSL components or swizzles. */
+const components = new Set(["x", "y", "z", "w", "xy", "xyz"]);
+
+/** Functions of `math/functions` that are WGSL built-ins of the same name, and the vector constructors. */
+const builtins = new Set([
+  "abs", "clamp", "cos", "cross", "distance", "dot", "exp", "floor", "fract", "length", "max", "min", "mix", "normalize",
+  "pow", "reflect", "saturate", "sin", "smoothstep", "sqrt", "step",
+]);
+const constructors: Readonly<Record<string, WgslType>> = { vec2: "vec2f", vec3: "vec3f", vec4: "vec4f" };
+
+/** Constants of `Math` that a shader may read. */
+const mathConstants: Readonly<Record<string, number>> = { PI: Math.PI, E: Math.E, SQRT2: Math.SQRT2 };
+
+/**
+ * Names a WGSL program cannot declare: its keywords and reserved words, and the predeclared names that generated code
+ * calls, which a local of the same name would shadow. Such a TS++ name gets a trailing `_`.
+ */
+const reserved = new Set([
+  // Keywords.
+  "alias", "break", "case", "const", "const_assert", "continue", "continuing", "default", "diagnostic", "discard", "else",
+  "enable", "false", "fn", "for", "if", "let", "loop", "override", "requires", "return", "struct", "switch", "true", "var",
+  "while",
+  // Reserved words.
+  "NULL", "Self", "abstract", "active", "alignas", "alignof", "as", "asm", "asm_fragment", "async", "attribute", "auto",
+  "await", "become", "binding_array", "cast", "catch", "class", "co_await", "co_return", "co_yield", "coherent",
+  "column_major", "common", "compile", "compile_fragment", "concept", "const_cast", "consteval", "constexpr", "constinit",
+  "crate", "debugger", "decltype", "delete", "demote", "demote_to_helper", "do", "dynamic_cast", "enum", "explicit",
+  "export", "extends", "extern", "external", "fallthrough", "filter", "final", "finally", "friend", "from", "fxgroup",
+  "get", "goto", "groupshared", "highp", "impl", "implements", "import", "inline", "instanceof", "interface", "layout",
+  "lowp", "macro", "macro_rules", "match", "mediump", "meta", "mod", "module", "move", "mut", "mutable", "namespace",
+  "new", "nil", "noexcept", "noinline", "nointerpolation", "noperspective", "null", "nullptr", "of", "operator",
+  "package", "packoffset", "partition", "pass", "patch", "pixelfragment", "precise", "precision", "premerge", "priv",
+  "protected", "pub", "public", "readonly", "ref", "regardless", "register", "reinterpret_cast", "require", "resource",
+  "restrict", "self", "set", "shared", "sizeof", "smooth", "snorm", "static", "static_assert", "static_cast", "std",
+  "subroutine", "super", "target", "template", "this", "thread_local", "throw", "trait", "try", "type", "typedef",
+  "typeid", "typename", "typeof", "union", "unless", "unorm", "unsafe", "unsized", "use", "using", "varying", "virtual",
+  "volatile", "wgsl", "where", "with", "writeonly", "yield",
+  // Predeclared names that generated code uses.
+  "bool", "f32", "select", "transpose", "vec2f", "vec3f", "vec4f", "mat3x3f", "mat4x4f", ...builtins,
+]);
+
+/** A struct that the shader uses, with the role that decides its attributes. */
+interface StructInfo {
+  readonly name: string;
+  readonly type: CheckedType;
+  role: "plain" | "vertex-input" | "stage-output" | "uniform";
+  readonly fields: readonly FieldInfo[];
+}
+
+interface FieldInfo {
+  /** The WGSL name. */
+  readonly name: string;
+  /** The name in TS++, which the CPU reads values by. */
+  readonly source: string;
+  readonly type: ShaderType;
+  readonly builtin?: string;
+}
+
+/** A type as the shader sees it: a value type, `bool`, or a struct. */
+type ShaderType = { readonly kind: "value"; readonly wgsl: WgslType } | { readonly kind: "bool" } | { readonly kind: "struct"; readonly struct: StructInfo };
+
+const wgslName = (type: ShaderType): string => type.kind === "value" ? type.wgsl : type.kind === "bool" ? "bool" : type.struct.name;
+
+/** Byte alignment and size of each value type in WGSL's memory layout. */
+const memory: Readonly<Record<WgslType, { readonly align: number; readonly size: number }>> = {
+  f32: { align: 4, size: 4 },
+  vec2f: { align: 8, size: 8 },
+  vec3f: { align: 16, size: 12 },
+  vec4f: { align: 16, size: 16 },
+  mat3x3f: { align: 16, size: 48 },
+  mat4x4f: { align: 16, size: 64 },
+};
+
+const roundUp = (value: number, alignment: number) => Math.ceil(value / alignment) * alignment;
+
+/** `text` without the parentheses around all of it, where its context needs none. */
+function bare(text: string): string {
+  if (!text.startsWith("(") || !text.endsWith(")")) return text;
+  let depth = 0;
+  for (let index = 0; index < text.length - 1; index++) {
+    if (text[index] === "(") depth++;
+    else if (text[index] === ")") depth--;
+    if (depth === 0) return text;
+  }
+  return text.slice(1, -1);
+}
+
+/** Translates the functions of the namespace `namespace`, whose name in the invoking file is `namespaceName`. */
+export function translateShader(
+  namespace: SyntaxNode,
+  namespaceName: string,
+  typescript: { readonly SyntaxKind: Readonly<Record<string, number>>; readonly NodeFlags: Readonly<Record<string, number>> },
+  checker: ShaderChecker,
+): Translation {
+  return new Translator(namespace, namespaceName, typescript.SyntaxKind, checker, typescript.NodeFlags.Const!).run();
+}
+
+class Translator {
+  private readonly structs = new Map<string, StructInfo>();
+  /** Functions that the shader calls, by declaration, with their WGSL names. */
+  private readonly helpers = new Map<SyntaxNode, string>();
+  private readonly pending: SyntaxNode[] = [];
+  private readonly functionNames = new Set<string>();
+  private entries = new Set<SyntaxNode>();
+  /** The function being translated, whose parameters and locals its body may read. */
+  private current: SyntaxNode | undefined;
+  /** Uniform bindings by WGSL name, with the parameter name in TS++ that the CPU side names them by. */
+  private readonly bindings = new Map<string, { readonly struct: StructInfo; readonly binding: number; readonly type: string; readonly source: string }>();
+  private readonly building = new Set<string>();
+  private indent = "";
+
+  constructor(
+    private readonly namespace: SyntaxNode,
+    private readonly namespaceName: string,
+    private readonly kinds: Readonly<Record<string, number>>,
+    private readonly checker: ShaderChecker,
+    private readonly constFlag: number,
+  ) {}
+
+  run(): Translation {
+    const functions = (this.namespace.body?.statements ?? []).filter(statement => {
+      if (statement.kind === this.kinds.FunctionDeclaration) return true;
+      if (statement.kind === this.kinds.InterfaceDeclaration || statement.kind === this.kinds.TypeAliasDeclaration) return false;
+      throw new ShaderError("a shader namespace holds only functions, interfaces and type aliases", statement);
+    });
+    const byName = new Map(functions.map(declaration => [this.identifier(declaration.name!), declaration]));
+    const vertex = byName.get("vertex");
+    const fragment = byName.get("fragment");
+    if (!vertex && !fragment) throw new ShaderError("a shader namespace needs a function named 'vertex' or 'fragment'", this.namespace);
+    this.entries = new Set([vertex, fragment].filter(entry => entry !== undefined));
+    for (const entry of this.entries) this.functionNames.add(this.identifier(entry.name!));
+    for (const declaration of functions) if (!this.entries.has(declaration)) this.helperName(declaration);
+
+    const parts: string[] = [];
+    let vertexStage: ShaderDescription["vertex"];
+    let vertexType: string | undefined;
+    let stageOutput: StructInfo | undefined;
+    if (vertex) {
+      const [input, ...resources] = this.parametersOf(vertex, "the vertex entry");
+      if (!input) throw new ShaderError("the vertex entry takes its vertex input struct as its first parameter", vertex);
+      const inputStruct = this.structParameter(input, "vertex-input", "the vertex input");
+      this.bindResources(resources);
+      stageOutput = this.returnStruct(vertex, "stage-output", "the vertex entry returns a struct with a Builtin<\"position\", Vec4> field");
+      if (!stageOutput.fields.some(field => field.builtin === "position")) {
+        throw new ShaderError(`${stageOutput.name} needs a field of type Builtin<"position", Vec4> for the clip-space position`, vertex.type!);
+      }
+      vertexType = this.typeReferenceText(input.type!);
+      vertexStage = { entry: "vertex", layout: this.vertexLayout(inputStruct) };
+    }
+    if (fragment) {
+      const [input, ...resources] = this.parametersOf(fragment, "the fragment entry");
+      if (!input) throw new ShaderError("the fragment entry takes the vertex output struct as its first parameter", fragment);
+      const inputStruct = this.structParameter(input, "stage-output", "the fragment input");
+      if (stageOutput && inputStruct !== stageOutput) {
+        throw new ShaderError(`the fragment entry reads ${inputStruct.name}, but the vertex entry writes ${stageOutput.name}`, input);
+      }
+      this.bindResources(resources);
+      const returned = this.typeOfAnnotation(fragment.type, fragment, "the fragment entry");
+      if (returned.kind !== "value" || returned.wgsl !== "vec4f") throw new ShaderError("the fragment entry returns the color as a Vec4", fragment.type ?? fragment);
+    }
+
+    const entryParts = [vertex && this.functionText(vertex, "@vertex "), fragment && this.functionText(fragment, "@fragment ")];
+    const helperParts: string[] = [];
+    // Translating a function can reach further functions, which join the queue.
+    for (let next = this.pending.shift(); next; next = this.pending.shift()) helperParts.push(this.functionText(next, ""));
+    for (const struct of this.structs.values()) parts.push(this.structText(struct));
+    for (const [name, binding] of this.bindings) parts.push(`@group(0) @binding(${binding.binding}) var<uniform> ${name}: ${binding.struct.name};\n`);
+    parts.push(...helperParts, ...entryParts.filter(part => part !== undefined));
+
+    const bindings = [...this.bindings.values()].map(binding => ({ name: binding.source, binding: binding.binding, layout: this.uniformLayout(binding.struct) }));
+    return {
+      description: {
+        name: this.namespaceName,
+        code: parts.join("\n"),
+        ...(vertexStage ? { vertex: vertexStage } : {}),
+        ...(fragment ? { fragment: { entry: "fragment" } } : {}),
+        bindings,
+      },
+      ...(vertexType ? { vertexType } : {}),
+      bindingTypes: [...this.bindings.values()].map(binding => ({ name: binding.source, type: binding.type })),
+    };
+  }
+
+  // Declarations
+
+  private parametersOf(declaration: SyntaxNode, what: string): readonly SyntaxNode[] {
+    const parameters = declaration.parameters ?? [];
+    for (const parameter of parameters) {
+      if (!parameter.type) throw new ShaderError(`${what}: write the type of '${this.identifier(parameter.name!)}'`, parameter);
+      if (parameter.initializer || parameter.questionToken) throw new ShaderError(`${what}: shader parameters cannot be optional`, parameter);
+    }
+    return parameters;
+  }
+
+  private structParameter(parameter: SyntaxNode, role: StructInfo["role"], what: string): StructInfo {
+    const type = this.typeOfAnnotation(parameter.type, parameter, what);
+    if (type.kind !== "struct") throw new ShaderError(`${what} must be an interface`, parameter.type!);
+    this.assignRole(type.struct, role, parameter.type!);
+    return type.struct;
+  }
+
+  private returnStruct(declaration: SyntaxNode, role: StructInfo["role"], hint: string): StructInfo {
+    const type = this.typeOfAnnotation(declaration.type, declaration, "the vertex entry");
+    if (type.kind !== "struct") throw new ShaderError(hint, declaration.type ?? declaration);
+    this.assignRole(type.struct, role, declaration.type!);
+    return type.struct;
+  }
+
+  /** Gives each further entry parameter a uniform binding, shared by entries that name it alike. */
+  private bindResources(parameters: readonly SyntaxNode[]): void {
+    for (const parameter of parameters) {
+      const source = this.identifier(parameter.name!);
+      const name = this.name(source);
+      const type = this.typeOfAnnotation(parameter.type, parameter, `the uniform parameter '${source}'`);
+      if (type.kind !== "struct") throw new ShaderError(`the uniform parameter '${name}' must be an interface`, parameter.type!);
+      const existing = this.bindings.get(name);
+      if (existing && existing.struct !== type.struct) {
+        throw new ShaderError(`'${name}' is a ${existing.struct.name} in one entry and a ${type.struct.name} in another`, parameter.type!);
+      }
+      this.assignRole(type.struct, "uniform", parameter.type!);
+      if (!existing) this.bindings.set(name, { struct: type.struct, binding: this.bindings.size, type: this.typeReferenceText(parameter.type!), source });
+    }
+  }
+
+  private assignRole(struct: StructInfo, role: StructInfo["role"], node: SyntaxNode): void {
+    if (struct.role === role || role === "plain") return;
+    if (struct.role !== "plain") throw new ShaderError(`${struct.name} cannot be both ${this.roleText(struct.role)} and ${this.roleText(role)}`, node);
+    struct.role = role;
+    for (const field of struct.fields) {
+      if (field.type.kind === "bool") throw new ShaderError(`${struct.name}.${field.name}: ${this.roleText(role)} cannot hold a boolean`, node);
+      if (role !== "uniform" && field.type.kind !== "value") throw new ShaderError(`${struct.name}.${field.name}: ${this.roleText(role)} holds only numbers and vectors`, node);
+      if (role !== "uniform" && field.type.kind === "value" && field.type.wgsl.startsWith("mat")) {
+        throw new ShaderError(`${struct.name}.${field.name}: ${this.roleText(role)} holds only numbers and vectors`, node);
+      }
+      if (field.builtin && role !== "stage-output") throw new ShaderError(`${struct.name}.${field.name}: only a vertex output has built-in fields`, node);
+      if (role === "uniform" && field.type.kind === "struct") this.assignRole(field.type.struct, "uniform", node);
+    }
+  }
+
+  private roleText(role: StructInfo["role"]): string {
+    return { "plain": "a plain struct", "vertex-input": "a vertex input", "stage-output": "a vertex output", "uniform": "a uniform" }[role];
+  }
+
+  // Types
+
+  private typeOfAnnotation(annotation: SyntaxNode | undefined, owner: SyntaxNode, what: string): ShaderType {
+    if (!annotation) throw new ShaderError(`${what}: write the type, since WGSL needs it`, owner);
+    return this.shaderType(this.checker.getTypeAtLocation(annotation), annotation);
+  }
+
+  private shaderType(type: CheckedType, node: SyntaxNode): ShaderType {
+    if (type.aliasSymbol?.escapedName === "Builtin") return this.builtinType(type, node);
+    const text = this.checker.typeToString(type);
+    if (text === "number") return { kind: "value", wgsl: "f32" };
+    if (text === "boolean") return { kind: "bool" };
+    const symbol = type.symbol;
+    const declaration = symbol?.declarations?.[0];
+    if (symbol && declaration?.kind === this.kinds.ClassDeclaration && valueTypes[symbol.escapedName] && this.isEngineFile(declaration, /math[\\/](vec|mat)\./u)) {
+      return { kind: "value", wgsl: valueTypes[symbol.escapedName]! };
+    }
+    if (symbol && declaration?.kind === this.kinds.InterfaceDeclaration) return { kind: "struct", struct: this.struct(symbol, type, node) };
+    throw new ShaderError(`a shader has no type for '${text}'; use number, boolean, a vector or matrix class, or an interface`, node);
+  }
+
+  private struct(symbol: CheckedSymbol, type: CheckedType, node: SyntaxNode): StructInfo {
+    const name = this.name(symbol.escapedName);
+    if (this.building.has(name)) throw new ShaderError(`${name} contains itself, which WGSL does not allow`, node);
+    const existing = this.structs.get(name);
+    if (existing) {
+      if (existing.type !== type) throw new ShaderError(`two different interfaces are named ${name}`, node);
+      return existing;
+    }
+    const declaration = symbol.declarations![0]!;
+    if ((declaration as { typeParameters?: readonly unknown[] }).typeParameters?.length) throw new ShaderError(`${name}: a shader struct cannot be generic`, node);
+    this.building.add(name);
+    if (this.isDefaultLibrary(declaration)) throw new ShaderError(`a shader has no type for '${symbol.escapedName}'`, node);
+    const fields = this.checker.getPropertiesOfType(type).map(property => {
+      const propertyType = this.checker.getTypeOfSymbol(property);
+      const fieldNode = property.declarations?.[0] ?? node;
+      const where = `${name}.${property.escapedName}`;
+      if (fieldNode.questionToken) throw new ShaderError(`${where}: a shader struct has no optional fields`, fieldNode);
+      try {
+        if (propertyType.aliasSymbol?.escapedName === "Builtin") {
+          const builtin = propertyType.aliasTypeArguments?.[0]?.value;
+          return { name: this.name(property.escapedName), source: property.escapedName, type: this.builtinType(propertyType, fieldNode), builtin: String(builtin) };
+        }
+        return { name: this.name(property.escapedName), source: property.escapedName, type: this.shaderType(propertyType, fieldNode) };
+      }
+      catch (error) {
+        // Say which field, where the field is declared.
+        if (error instanceof ShaderError && error.node === fieldNode && !error.message.startsWith(name)) throw new ShaderError(`${where}: ${error.message}`, fieldNode);
+        throw error;
+      }
+    });
+    // A struct is added once its fields are known, so structs come out before the structs that hold them.
+    this.building.delete(name);
+    const struct: StructInfo = { name, type, role: "plain", fields };
+    this.structs.set(name, struct);
+    return struct;
+  }
+
+  private builtinType(type: CheckedType, node: SyntaxNode): ShaderType {
+    const valueType = type.aliasTypeArguments?.[1];
+    if (!valueType) throw new ShaderError("Builtin takes a name and a type", node);
+    return this.shaderType(valueType, node);
+  }
+
+  /** How the invoking file names the type in `annotation`: qualified by the namespace when it is declared there. */
+  private typeReferenceText(annotation: SyntaxNode): string {
+    const declaration = this.checker.getTypeAtLocation(annotation).symbol?.declarations?.[0];
+    const text = annotation.getText!();
+    return declaration && this.isInside(declaration, this.namespace) ? `${this.namespaceName}.${text}` : text;
+  }
+
+  // Layouts
+
+  private vertexLayout(struct: StructInfo): { readonly stride: number; readonly attributes: readonly VertexAttribute[] } {
+    let offset = 0;
+    const attributes = struct.fields.map((field, location) => {
+      const wgsl = (field.type as { readonly wgsl: WgslType }).wgsl;
+      const format = ({ f32: "float32", vec2f: "float32x2", vec3f: "float32x3", vec4f: "float32x4" } as const)[wgsl as "f32"];
+      const attribute = { name: field.source, location, offset, format };
+      offset += memory[wgsl].size;
+      return attribute;
+    });
+    return { stride: offset, attributes };
+  }
+
+  private uniformLayout(struct: StructInfo): UniformLayout {
+    let offset = 0;
+    let alignment = 16;
+    const fields = struct.fields.map((field): UniformField => {
+      if (field.type.kind === "struct") {
+        const layout = this.uniformLayout(field.type.struct);
+        offset = roundUp(offset, 16);
+        const placed = { name: field.source, offset, type: "struct" as const, layout };
+        offset += layout.size;
+        return placed;
+      }
+      const wgsl = (field.type as { readonly wgsl: WgslType }).wgsl;
+      const { align, size } = memory[wgsl];
+      alignment = Math.max(alignment, align);
+      offset = roundUp(offset, align);
+      const placed = { name: field.source, offset, type: wgsl };
+      offset += size;
+      return placed;
+    });
+    return { name: struct.name, size: roundUp(offset, alignment), fields };
+  }
+
+  private structText(struct: StructInfo): string {
+    let location = 0;
+    const lines = struct.fields.map(field => {
+      let attribute = "";
+      if (field.builtin) attribute = `@builtin(${field.builtin}) `;
+      else if (struct.role === "vertex-input" || struct.role === "stage-output") attribute = `@location(${location++}) `;
+      // WGSL aligns a nested struct by its own members; the uniform layout places it at 16 bytes and pads it to 16.
+      else if (struct.role === "uniform" && field.type.kind === "struct") attribute = `@align(16) @size(${this.uniformLayout(field.type.struct).size}) `;
+      return `  ${attribute}${field.name}: ${wgslName(field.type)},\n`;
+    });
+    return `struct ${struct.name} {\n${lines.join("")}}\n`;
+  }
+
+  // Functions and statements
+
+  /**
+   * The WGSL name of a function the shader calls, queued for translation the first time. A function outside the
+   * namespace is named after the namespaces that hold it, such as `Common_surface`.
+   */
+  private helperName(declaration: SyntaxNode): string {
+    const known = this.helpers.get(declaration);
+    if (known) return known;
+    const path = [this.identifier(declaration.name!)];
+    if (!this.isInside(declaration, this.namespace)) {
+      for (let parent = declaration.parent; parent; parent = parent.parent) {
+        if (parent.kind === this.kinds.ModuleDeclaration && parent.name) path.unshift(this.identifier(parent.name));
+      }
+    }
+    const base = this.name(path.join("_"));
+    let name = base;
+    for (let count = 2; this.functionNames.has(name); count++) name = `${base}_${count}`;
+    this.functionNames.add(name);
+    this.helpers.set(declaration, name);
+    this.pending.push(declaration);
+    return name;
+  }
+
+  private functionText(declaration: SyntaxNode, stage: string): string {
+    const name = this.helpers.get(declaration) ?? this.name(this.identifier(declaration.name!));
+    this.current = declaration;
+    const isEntry = stage !== "";
+    const parameters = this.parametersOf(declaration, `'${name}'`);
+    const shown = isEntry ? parameters.slice(0, 1) : parameters;
+    const list = shown.map(parameter => `${this.name(this.identifier(parameter.name!))}: ${wgslName(this.typeOfAnnotation(parameter.type, parameter, `'${name}'`))}`);
+    if (!declaration.type) throw new ShaderError(`'${name}': write the return type, since WGSL needs it`, declaration);
+    const isVoid = this.checker.typeToString(this.checker.getTypeAtLocation(declaration.type)) === "void";
+    const returned = isVoid ? undefined : this.typeOfAnnotation(declaration.type, declaration, `'${name}'`);
+    let arrow = "";
+    if (returned) arrow = stage === "@fragment " ? " -> @location(0) vec4f" : ` -> ${wgslName(returned)}`;
+    if (!declaration.body) throw new ShaderError(`'${name}' has no body`, declaration);
+    this.indent = "";
+    return `${stage}fn ${name}(${list.join(", ")})${arrow} ${this.block(declaration.body)}\n`;
+  }
+
+  private block(block: SyntaxNode): string {
+    const outer = this.indent;
+    this.indent += "  ";
+    const lines = (block.statements ?? []).map(statement => this.statement(statement));
+    this.indent = outer;
+    return `{\n${lines.join("")}${outer}}`;
+  }
+
+  private statement(statement: SyntaxNode): string {
+    const k = this.kinds;
+    const line = (text: string) => `${this.indent}${text}\n`;
+    switch (statement.kind) {
+      case k.VariableStatement:
+        return this.declarationList(statement.declarationList!).map(text => line(`${text};`)).join("");
+      case k.ExpressionStatement:
+        return line(`${this.assignment(statement.expression!)};`);
+      case k.ReturnStatement:
+        return line(statement.expression ? `return ${this.top(statement.expression)};` : "return;");
+      case k.IfStatement:
+        return line(this.ifText(statement));
+      case k.Block:
+        return line(this.block(statement));
+      case k.ForStatement: {
+        const initializer = statement.initializer;
+        let init = "";
+        if (initializer) {
+          init = initializer.kind === k.VariableDeclarationList ? this.declarationList(initializer).join(", ") : this.assignment(initializer);
+        }
+        const condition = statement.condition ? this.top(statement.condition) : "";
+        const update = statement.incrementor ? this.assignment(statement.incrementor) : "";
+        return line(`for (${init}; ${condition}; ${update}) ${this.body(statement.statement!)}`);
+      }
+      case k.WhileStatement:
+        return line(`while (${this.top(statement.expression!)}) ${this.body(statement.statement!)}`);
+      case k.BreakStatement:
+        return line("break;");
+      case k.ContinueStatement:
+        return line("continue;");
+    }
+    throw new ShaderError(`a shader cannot contain ${this.describeKind(statement.kind)}`, statement);
+  }
+
+  private body(statement: SyntaxNode): string {
+    if (statement.kind === this.kinds.Block) return this.block(statement);
+    return this.block({ kind: this.kinds.Block!, flags: 0, statements: [statement] });
+  }
+
+  private ifText(statement: SyntaxNode): string {
+    let text = `if (${this.top(statement.expression!)}) ${this.body(statement.thenStatement!)}`;
+    const otherwise = statement.elseStatement;
+    if (otherwise) text += otherwise.kind === this.kinds.IfStatement ? ` else ${this.ifText(otherwise)}` : ` else ${this.body(otherwise)}`;
+    return text;
+  }
+
+  /** `const` declarations become WGSL `let`, and `let` declarations become `var`. */
+  private declarationList(list: SyntaxNode): readonly string[] {
+    const isConst = (list.flags & this.constFlag) !== 0;
+    return (list.declarations ?? []).map(declaration => {
+      if (declaration.name!.kind !== this.kinds.Identifier) throw new ShaderError("a shader cannot destructure", declaration);
+      const name = this.name(this.identifier(declaration.name!));
+      const type = declaration.type ? `: ${wgslName(this.typeOfAnnotation(declaration.type, declaration, `'${name}'`))}` : "";
+      if (!declaration.initializer) {
+        if (isConst || !type) throw new ShaderError(`'${name}' needs a type or a value`, declaration);
+        return `var ${name}${type}`;
+      }
+      return `${isConst ? "let" : "var"} ${name}${type} = ${this.top(declaration.initializer)}`;
+    });
+  }
+
+  /** An expression statement or `for` update: an assignment, an increment, or a call. */
+  private assignment(expression: SyntaxNode): string {
+    const k = this.kinds;
+    if (expression.kind === k.BinaryExpression) {
+      const operator = this.assignmentOperator(expression.operatorToken!.kind);
+      if (operator) {
+        if (expression.left!.kind !== k.Identifier && expression.left!.kind !== k.PropertyAccessExpression) {
+          throw new ShaderError("a shader assigns only to variables and their fields", expression.left!);
+        }
+        return `${this.expression(expression.left!)} ${operator} ${this.top(expression.right!)}`;
+      }
+    }
+    if (expression.kind === k.PostfixUnaryExpression || expression.kind === k.PrefixUnaryExpression) {
+      const operator = expression.operator === k.PlusPlusToken ? "+=" : expression.operator === k.MinusMinusToken ? "-=" : undefined;
+      if (operator) return `${this.expression(expression.operand!)} ${operator} 1.0`;
+    }
+    if (expression.kind === k.CallExpression) return this.expression(expression);
+    throw new ShaderError("this expression does nothing in a shader", expression);
+  }
+
+  private assignmentOperator(kind: number): string | undefined {
+    const k = this.kinds;
+    return ({ [k.EqualsToken!]: "=", [k.PlusEqualsToken!]: "+=", [k.MinusEqualsToken!]: "-=", [k.AsteriskEqualsToken!]: "*=", [k.SlashEqualsToken!]: "/=" } as Record<number, string>)[kind];
+  }
+
+  // Expressions
+
+  /** An expression whose context needs no parentheses around it. */
+  private top(node: SyntaxNode): string {
+    return bare(this.expression(node));
+  }
+
+  private expression(node: SyntaxNode): string {
+    const k = this.kinds;
+    switch (node.kind) {
+      case k.NumericLiteral:
+        return this.float(Number(node.text));
+      case k.TrueKeyword:
+        return "true";
+      case k.FalseKeyword:
+        return "false";
+      case k.Identifier:
+        return this.reference(node);
+      case k.ParenthesizedExpression:
+        return `(${this.top(node.expression!)})`;
+      case k.PrefixUnaryExpression: {
+        const operator = ({ [k.MinusToken!]: "-", [k.ExclamationToken!]: "!", [k.PlusToken!]: "" } as Record<number, string>)[node.operator!];
+        if (operator === undefined) throw new ShaderError("a shader changes variables only in statements", node);
+        if (node.operand!.kind === k.NumericLiteral && operator === "-") return this.float(-Number(node.operand!.text));
+        return `${operator}${this.operand(node.operand!)}`;
+      }
+      case k.BinaryExpression:
+        return this.binary(node);
+      case k.ConditionalExpression:
+        return `select(${this.top(node.whenFalse!)}, ${this.top(node.whenTrue!)}, ${this.top(node.condition!)})`;
+      case k.PropertyAccessExpression:
+        return this.property(node);
+      case k.CallExpression:
+        return this.call(node);
+      case k.NewExpression:
+        return this.construction(node);
+      case k.ObjectLiteralExpression:
+        return this.structLiteral(node);
+    }
+    throw new ShaderError(`a shader cannot contain ${this.describeKind(node.kind)}`, node);
+  }
+
+  /** An operand of a unary operator, in parentheses unless it is simple. */
+  private operand(node: SyntaxNode): string {
+    const text = this.expression(node);
+    return /^[\w.]+$/u.test(text) ? text : `(${text})`;
+  }
+
+  private float(value: number): string {
+    if (!Number.isFinite(value)) throw new RangeError(`a shader has no number ${value}`);
+    const text = String(value);
+    return /[.e]/u.test(text) ? text : `${text}.0`;
+  }
+
+  private binary(node: SyntaxNode): string {
+    const k = this.kinds;
+    const operators: Record<number, string> = {
+      [k.PlusToken!]: "+", [k.MinusToken!]: "-", [k.AsteriskToken!]: "*", [k.SlashToken!]: "/", [k.PercentToken!]: "%",
+      [k.LessThanToken!]: "<", [k.LessThanEqualsToken!]: "<=", [k.GreaterThanToken!]: ">", [k.GreaterThanEqualsToken!]: ">=",
+      [k.EqualsEqualsEqualsToken!]: "==", [k.ExclamationEqualsEqualsToken!]: "!=", [k.AmpersandAmpersandToken!]: "&&", [k.BarBarToken!]: "||",
+    };
+    const kind = node.operatorToken!.kind;
+    const operator = operators[kind];
+    if (operator) return `(${this.expression(node.left!)} ${operator} ${this.expression(node.right!)})`;
+    if (kind === k.EqualsEqualsToken || kind === k.ExclamationEqualsToken) throw new ShaderError("write === or !== in a shader", node);
+    if (this.assignmentOperator(kind)) throw new ShaderError("a shader assigns only in statements", node);
+    throw new ShaderError(`a shader has no operator '${node.operatorToken!.getText!()}'`, node);
+  }
+
+  private reference(node: SyntaxNode): string {
+    const name = this.identifier(node);
+    if (name === "undefined") throw new ShaderError("a shader has no undefined", node);
+    const declaration = this.checker.getSymbolAtLocation(node)?.declarations?.[0];
+    if (!declaration || !this.current || !this.isInside(declaration, this.current)) {
+      throw new ShaderError(`a shader reads only its parameters and local variables, not '${name}'`, node);
+    }
+    if (declaration.kind === this.kinds.FunctionDeclaration) throw new ShaderError(`a shader calls '${name}' but cannot pass it around`, node);
+    return this.name(name);
+  }
+
+  private property(node: SyntaxNode): string {
+    const object = node.expression!;
+    const name = this.identifier(node.name!);
+    if (object.kind === this.kinds.Identifier && this.identifier(object) === "Math" && !this.checker.getSymbolAtLocation(object)?.declarations?.some(d => this.isInside(d, this.current!))) {
+      const value = mathConstants[name];
+      if (value === undefined) throw new ShaderError(`a shader cannot use Math.${name}; call the built-in of @tspp/engine/math instead`, node);
+      return this.float(value);
+    }
+    const type = this.shaderType(this.checker.getTypeAtLocation(object), object);
+    if (type.kind === "struct") {
+      if (!type.struct.fields.some(field => field.name === this.name(name))) throw new ShaderError(`${type.struct.name} has no field '${name}'`, node);
+    }
+    else if (!(type.kind === "value" && !type.wgsl.startsWith("mat") && components.has(name))) {
+      throw new ShaderError(`a shader cannot read '${name}' of a ${wgslName(type)}`, node);
+    }
+    return `${this.operand(object)}.${this.name(name)}`;
+  }
+
+  private call(node: SyntaxNode): string {
+    const k = this.kinds;
+    const callee = node.expression!;
+    const args = (node.arguments ?? []).map(argument => this.top(argument));
+    if (callee.kind === k.PropertyAccessExpression && !this.isNamespace(callee.expression!)) {
+      const receiver = callee.expression!;
+      const method = this.identifier(callee.name!);
+      if (receiver.kind === k.Identifier && this.identifier(receiver) === "Math") {
+        throw new ShaderError(`a shader cannot call Math.${method}; call the built-in of @tspp/engine/math instead`, callee);
+      }
+      const type = this.shaderType(this.checker.getTypeAtLocation(receiver), receiver);
+      const mapping = type.kind === "value" ? methods[method] : undefined;
+      if (!mapping) throw new ShaderError(`a shader cannot call '${method}' of a ${wgslName(type)}`, callee);
+      const self = this.expression(receiver);
+      if ("operator" in mapping) return `(${self} ${mapping.operator} ${this.expression(node.arguments![0]!)})`;
+      if (mapping.builtin === "-") return `(-${this.operand(receiver)})`;
+      return `${mapping.builtin}(${[self, ...args].join(", ")})`;
+    }
+    if (callee.kind !== k.Identifier && callee.kind !== k.PropertyAccessExpression) throw new ShaderError("a shader calls only functions by name", callee);
+    const name = this.identifier(callee.kind === k.Identifier ? callee : callee.name!);
+    const declaration = this.checker.getTypeAtLocation(callee).symbol?.declarations?.[0];
+    if (declaration && this.isEngineFile(declaration, /math[\\/]functions\./u)) {
+      if (constructors[name]) return `${constructors[name]}(${args.join(", ")})`;
+      if (builtins.has(name)) return `${name}(${args.join(", ")})`;
+      throw new ShaderError(`'${name}' of @tspp/engine/math has no WGSL form`, callee);
+    }
+    if (declaration && this.entries.has(declaration)) throw new ShaderError(`a shader cannot call the entry '${name}'`, callee);
+    if (declaration?.kind === k.FunctionDeclaration && declaration.body) return `${this.helperName(declaration)}(${args.join(", ")})`;
+    throw new ShaderError(`a shader calls only functions declared with a body in TS++ source and the built-ins of @tspp/engine/math, not '${name}'`, callee);
+  }
+
+  private construction(node: SyntaxNode): string {
+    const type = this.shaderType(this.checker.getTypeAtLocation(node), node);
+    if (type.kind !== "value" || type.wgsl.startsWith("mat")) throw new ShaderError("a shader constructs only vectors with new", node);
+    return `${type.wgsl}(${(node.arguments ?? []).map(argument => this.top(argument)).join(", ")})`;
+  }
+
+  /** An object literal of an interface type, which becomes the WGSL constructor of that struct. */
+  private structLiteral(node: SyntaxNode): string {
+    const contextual = this.checker.getContextualType(node);
+    const type = contextual && this.shaderType(contextual, node);
+    if (type?.kind !== "struct") throw new ShaderError("an object in a shader needs an interface type from its context", node);
+    const values = new Map<string, SyntaxNode>();
+    for (const property of node.properties ?? []) {
+      if (property.kind === this.kinds.PropertyAssignment) values.set(this.identifier(property.name!), property.initializer!);
+      else if (property.kind === this.kinds.ShorthandPropertyAssignment) values.set(this.identifier(property.name!), property.name!);
+      else throw new ShaderError("a shader object lists its fields as name: value", property);
+    }
+    const args = type.struct.fields.map(field => {
+      const value = [...values].find(([name]) => this.name(name) === field.name)?.[1];
+      if (!value) throw new ShaderError(`${type.struct.name} needs '${field.name}'`, node);
+      return this.top(value);
+    });
+    return `${type.struct.name}(${args.join(", ")})`;
+  }
+
+  // Names and nodes
+
+  private identifier(node: SyntaxNode): string {
+    const text = node.escapedText ?? node.text;
+    if (typeof text !== "string") throw new ShaderError("a shader names things with plain identifiers", node);
+    return text;
+  }
+
+  /** A TS++ name as a WGSL identifier. */
+  private name(name: string): string {
+    if (name.startsWith("__")) return `u${name}`;
+    return reserved.has(name) ? `${name}_` : name;
+  }
+
+  /** Whether `node` names a namespace, as in `Common.surface(...)`. */
+  private isNamespace(node: SyntaxNode): boolean {
+    // The type of a namespace, imported or not, is `typeof` the namespace, whose symbol is the namespace's.
+    return this.checker.getTypeAtLocation(node).symbol?.declarations?.some(declaration => declaration.kind === this.kinds.ModuleDeclaration) ?? false;
+  }
+
+  private isInside(node: SyntaxNode, ancestor: SyntaxNode): boolean {
+    for (let current: SyntaxNode | undefined = node; current; current = current.parent) if (current === ancestor) return true;
+    return false;
+  }
+
+  /** Whether `node` is declared in a default library such as `lib.es5.d.ts`, whose interfaces are not shader structs. */
+  private isDefaultLibrary(node: SyntaxNode): boolean {
+    return this.isEngineFile(node, /[\\/]lib\.[\w.]*\.d\.ts$/u);
+  }
+
+  private isEngineFile(node: SyntaxNode, pattern: RegExp): boolean {
+    let current: SyntaxNode | undefined = node;
+    while (current?.parent) current = current.parent;
+    return typeof current?.fileName === "string" && pattern.test(current.fileName);
+  }
+
+  private describeKind(kind: number): string {
+    const name = Object.keys(this.kinds).find(key => this.kinds[key] === kind) ?? "this syntax";
+    const words = name.replace(/([a-z])([A-Z])/gu, "$1 $2").toLowerCase();
+    return `${/^[aeiou]/u.test(words) ? "an" : "a"} ${words}`;
+  }
+}

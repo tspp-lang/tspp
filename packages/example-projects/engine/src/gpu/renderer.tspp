@@ -1,0 +1,222 @@
+// WebGPU resources typed by the shader that uses them. A `Pipeline<Vertex, Bindings>` takes only meshes of `Vertex`
+// and bind groups of `Bindings`, so a mesh or a uniform buffer made for another shader does not compile. The type
+// parameters are invariant: a mesh packed for one vertex layout is never drawn with another, even a narrower one.
+
+import { packVertices, writeUniforms } from "../shader/layout.js";
+import type { ShaderModule, UniformLayout } from "../shader/module.js";
+
+/** Buffer, texture and shader stage flags of the WebGPU specification, which the DOM library declares only as types. */
+const BufferUsage = { COPY_DST: 0x08, INDEX: 0x10, VERTEX: 0x20, UNIFORM: 0x40 } as const;
+const TextureUsage = { RENDER_ATTACHMENT: 0x10 } as const;
+const ShaderStage = { VERTEX: 0x1, FRAGMENT: 0x2 } as const;
+
+/** The vertices of a mesh and the indices of its triangles, three per triangle. */
+export interface MeshData<Vertex> {
+  readonly vertices: readonly Vertex[];
+  readonly indices: readonly number[];
+}
+
+/** A failure to start WebGPU, with a message for the user. */
+export class GpuUnavailableError extends Error {}
+
+/** How a pipeline draws its triangles. */
+export interface PipelineOptions {
+  /** Which faces to skip; `"back"` by default. */
+  readonly cullMode?: GPUCullMode;
+}
+
+/** Only for the checker: a type that relates `T` to nothing but itself. */
+type Exactly<T> = (value: T) => T;
+
+/**
+ * A render pipeline for one shader module. Its bind group layout is written out from the shader's bindings, so
+ * pipelines with the same `Bindings` accept the same bind groups, as their types say.
+ */
+export final class Pipeline<Vertex, Bindings> {
+  declare private readonly types?: Exactly<{ readonly vertex: Vertex; readonly bindings: Bindings }>;
+
+  constructor(readonly module: ShaderModule<Vertex, Bindings>, readonly pipeline: GPURenderPipeline, readonly bindGroupLayout: GPUBindGroupLayout) {}
+}
+
+/** Vertex and index buffers holding a mesh for shaders whose vertex input is `Vertex`. */
+export final class Mesh<Vertex> {
+  declare private readonly types?: Exactly<Vertex>;
+
+  constructor(readonly vertexBuffer: GPUBuffer, readonly indexBuffer: GPUBuffer, readonly indexCount: number) {}
+
+  destroy(): void {
+    this.vertexBuffer.destroy();
+    this.indexBuffer.destroy();
+  }
+}
+
+/** A uniform buffer holding one `T`, laid out for the shader. */
+export final class Uniforms<T> {
+  private readonly data: Float32Array<ArrayBuffer>;
+
+  constructor(private readonly device: GPUDevice, readonly layout: UniformLayout, readonly buffer: GPUBuffer) {
+    this.data = new Float32Array(layout.size / 4);
+  }
+
+  /** Replaces the value the shader reads. */
+  write(value: T): void {
+    writeUniforms(this.layout, value, this.data);
+    this.device.queue.writeBuffer(this.buffer, 0, this.data);
+  }
+
+  destroy(): void {
+    this.buffer.destroy();
+  }
+}
+
+/** The uniform buffers for each binding of a shader. */
+export type UniformSet<Bindings> = { readonly [Name in keyof Bindings]: Uniforms<Bindings[Name]> };
+
+/** A bind group that gives a pipeline of `Bindings` its uniform buffers. */
+export final class BindGroup<Bindings> {
+  declare private readonly types?: Exactly<Bindings>;
+
+  constructor(readonly group: GPUBindGroup) {}
+}
+
+/** A render pass in progress, from `Renderer.frame`. */
+export final class RenderPass {
+  constructor(private readonly encoder: GPURenderPassEncoder) {}
+
+  draw<Vertex, Bindings>(pipeline: Pipeline<Vertex, Bindings>, bindings: BindGroup<Bindings>, mesh: Mesh<Vertex>): void {
+    this.encoder.setPipeline(pipeline.pipeline);
+    this.encoder.setBindGroup(0, bindings.group);
+    this.encoder.setVertexBuffer(0, mesh.vertexBuffer);
+    this.encoder.setIndexBuffer(mesh.indexBuffer, "uint32");
+    this.encoder.drawIndexed(mesh.indexCount);
+  }
+}
+
+/** A color with components from 0 to 1. */
+export interface Color {
+  readonly r: number;
+  readonly g: number;
+  readonly b: number;
+  readonly a: number;
+}
+
+/** Draws into a canvas with WebGPU, with a depth buffer that follows the canvas size. */
+export final class Renderer {
+  private depth: GPUTexture | undefined;
+
+  private constructor(
+    readonly canvas: HTMLCanvasElement,
+    readonly device: GPUDevice,
+    private readonly context: GPUCanvasContext,
+    readonly format: GPUTextureFormat,
+  ) {}
+
+  /** Starts WebGPU on `canvas`; fails with a `GpuUnavailableError` where the browser or the GPU does not support it. */
+  static async create(canvas: HTMLCanvasElement): Promise<Renderer> {
+    if (!("gpu" in navigator)) throw new GpuUnavailableError("This browser does not support WebGPU.");
+    const adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) throw new GpuUnavailableError("No GPU adapter is available for WebGPU.");
+    const device = await adapter.requestDevice();
+    const context = canvas.getContext("webgpu") as GPUCanvasContext | null;
+    if (!context) throw new GpuUnavailableError("The canvas has no WebGPU context.");
+    const format = navigator.gpu.getPreferredCanvasFormat();
+    context.configure({ device, format, alphaMode: "opaque" });
+    return new Renderer(canvas, device, context, format);
+  }
+
+  /** The width of the canvas divided by its height. */
+  get aspect(): number {
+    return this.canvas.width / Math.max(this.canvas.height, 1);
+  }
+
+  /** Compiles `module` into a pipeline; reports WGSL errors as an exception. */
+  async createPipeline<Vertex, Bindings>(module: ShaderModule<Vertex, Bindings>, options: PipelineOptions = {}): Promise<Pipeline<Vertex, Bindings>> {
+    if (!module.vertex || !module.fragment) throw new TypeError(`${module.name} needs both a vertex and a fragment entry to draw`);
+    const shader = this.device.createShaderModule({ label: module.name, code: module.code });
+    const info = await shader.getCompilationInfo();
+    const errors = info.messages.filter(message => message.type === "error");
+    if (errors.length) {
+      throw new Error(`${module.name} does not compile as WGSL:\n${errors.map(message => `${message.lineNum}:${message.linePos} ${message.message}`).join("\n")}`);
+    }
+    const layout = module.vertex.layout;
+    const bindGroupLayout = this.device.createBindGroupLayout({
+      label: module.name,
+      entries: module.bindings.map(binding => ({ binding: binding.binding, visibility: ShaderStage.VERTEX | ShaderStage.FRAGMENT, buffer: { type: "uniform" } })),
+    });
+    const pipeline = await this.device.createRenderPipelineAsync({
+      label: module.name,
+      layout: this.device.createPipelineLayout({ bindGroupLayouts: [bindGroupLayout] }),
+      vertex: {
+        module: shader,
+        entryPoint: module.vertex.entry,
+        buffers: [{
+          arrayStride: layout.stride,
+          attributes: layout.attributes.map(attribute => ({ shaderLocation: attribute.location, offset: attribute.offset, format: attribute.format })),
+        }],
+      },
+      fragment: { module: shader, entryPoint: module.fragment.entry, targets: [{ format: this.format }] },
+      primitive: { topology: "triangle-list", cullMode: options.cullMode ?? "back" },
+      depthStencil: { format: "depth24plus", depthWriteEnabled: true, depthCompare: "less" },
+    });
+    return new Pipeline(module, pipeline, bindGroupLayout);
+  }
+
+  /** Uploads `data` in the vertex layout of `pipeline`. */
+  createMesh<Vertex, Bindings>(pipeline: Pipeline<Vertex, Bindings>, data: MeshData<Vertex>): Mesh<Vertex> {
+    const vertices = packVertices(pipeline.module.vertex!.layout, data.vertices);
+    const indices = new Uint32Array(data.indices);
+    const vertexBuffer = this.device.createBuffer({ size: vertices.byteLength, usage: BufferUsage.VERTEX | BufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(vertexBuffer, 0, vertices);
+    const indexBuffer = this.device.createBuffer({ size: Math.max(indices.byteLength, 4), usage: BufferUsage.INDEX | BufferUsage.COPY_DST });
+    this.device.queue.writeBuffer(indexBuffer, 0, indices);
+    return new Mesh(vertexBuffer, indexBuffer, indices.length);
+  }
+
+  /** A uniform buffer for the binding `name` of `pipeline`, optionally holding `initial`. */
+  createUniforms<Vertex, Bindings, Name extends keyof Bindings & string>(pipeline: Pipeline<Vertex, Bindings>, name: Name, initial?: Bindings[Name]): Uniforms<Bindings[Name]> {
+    const binding = pipeline.module.bindings.find(candidate => candidate.name === name);
+    if (!binding) throw new RangeError(`${pipeline.module.name} has no binding '${name}'`);
+    const buffer = this.device.createBuffer({ size: binding.layout.size, usage: BufferUsage.UNIFORM | BufferUsage.COPY_DST });
+    const uniforms = new Uniforms<Bindings[Name]>(this.device, binding.layout, buffer);
+    if (initial !== undefined) uniforms.write(initial);
+    return uniforms;
+  }
+
+  /** A bind group of `pipeline` over one uniform buffer per binding. */
+  createBindGroup<Vertex, Bindings>(pipeline: Pipeline<Vertex, Bindings>, uniforms: UniformSet<Bindings>): BindGroup<Bindings> {
+    const entries = pipeline.module.bindings.map(binding => ({
+      binding: binding.binding,
+      resource: { buffer: (uniforms as Record<string, Uniforms<unknown>>)[binding.name]!.buffer },
+    }));
+    return new BindGroup(this.device.createBindGroup({ layout: pipeline.bindGroupLayout, entries }));
+  }
+
+  /** Matches the canvas to its displayed size in device pixels. */
+  resize(): void {
+    const ratio = globalThis.devicePixelRatio ?? 1;
+    const width = Math.max(1, Math.round(this.canvas.clientWidth * ratio));
+    const height = Math.max(1, Math.round(this.canvas.clientHeight * ratio));
+    if (this.canvas.width !== width || this.canvas.height !== height) {
+      this.canvas.width = width;
+      this.canvas.height = height;
+    }
+  }
+
+  /** Draws one frame: clears to `clear`, then lets `draw` record its draw calls. */
+  frame(clear: Color, draw: (pass: RenderPass) => void): void {
+    this.resize();
+    const { width, height } = this.canvas;
+    if (!this.depth || this.depth.width !== width || this.depth.height !== height) {
+      this.depth?.destroy();
+      this.depth = this.device.createTexture({ size: [width, height], format: "depth24plus", usage: TextureUsage.RENDER_ATTACHMENT });
+    }
+    const encoder = this.device.createCommandEncoder();
+    const pass = encoder.beginRenderPass({
+      colorAttachments: [{ view: this.context.getCurrentTexture().createView(), clearValue: clear, loadOp: "clear", storeOp: "store" }],
+      depthStencilAttachment: { view: this.depth.createView(), depthClearValue: 1, depthLoadOp: "clear", depthStoreOp: "store" },
+    });
+    draw(new RenderPass(pass));
+    pass.end();
+    this.device.queue.submit([encoder.finish()]);
+  }
+}

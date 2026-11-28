@@ -1,8 +1,8 @@
 # 03-advanced-classes — 现代类与封闭类层次 / Modern Classes & Sealed Class Hierarchies
 
-本目录演示 TS++ 在面向对象编程（OOP）层面引入的六项现代类特性。它们消除了传统 TypeScript 类中的私有后备字段样板、单例声明样板与值对象方法样板，并提供编译期强制的封闭类层次（`sealed`）与终态约束（`final`）。
+本目录演示 TS++ 在面向对象编程（OOP）层面引入的七项现代类特性。它们消除了传统 TypeScript 类中的私有后备字段样板、单例声明样板与值对象方法样板，提供编译期强制的封闭类层次（`sealed`）与终态约束（`final`），并允许一个类同时继承多个基类。
 
-This directory demonstrates six modern object-oriented class features in TS++. They eliminate boilerplate for private backing fields, singletons, and value classes, while enforcing compile-time inheritance boundaries via `sealed` and `final`.
+This directory demonstrates seven modern object-oriented class features in TS++. They eliminate boilerplate for private backing fields, singletons, and value classes, enforce compile-time inheritance boundaries via `sealed` and `final`, and let a class inherit from several bases.
 
 ---
 
@@ -16,6 +16,7 @@ This directory demonstrates six modern object-oriented class features in TS++. T
 | **`with` 非破坏性拷贝** | `const p2 = with(p0, { x: 10, y: 20 });` | 基于原实例创建一个仅更新指定属性的新副本，原实例保持不变，且在编译期严格校验属性名。<br/>Creates a new copy with updated properties without mutating the original instance, with strict compile-time property checking. |
 | **`sealed class` 封闭类** | `sealed abstract class Outcome { ... }` | 限制该基类只能在**当前源文件内**被继承，配合 `object` 与 `data class` 构造封闭的类分支层次。<br/>Restricts subclassing to the **declaring source file**, enabling closed algebraic class hierarchies. |
 | **`final` 类与方法** | `final class LockedBox` / `final isResolved()` | 禁止类被继承（`final class`）或禁止基类方法被子类重写（`final` 方法）。<br/>Forbids subclassing a class (`final class`) or overriding a method in subclasses (`final` method). |
+| **多继承** | `class Panel extends Shape, Labeled, Describable` | 第一个基类是普通父类，之后的基类被复制到继承链上，并与原类共享私有字段、静态字段和 `instanceof`；两个基类提供同名成员时直接报错。<br/>The first base is an ordinary parent; later bases are copied onto the chain and share private fields, static fields, and `instanceof` with the original. The same member from two bases is an error. |
 
 ---
 
@@ -25,6 +26,8 @@ This directory demonstrates six modern object-oriented class features in TS++. T
    Covers `field` backing properties, `object` singletons, `data class` synthesized methods, and `with` copy expressions.
 2. **[`src/02-sealed-and-final.tspp`](./src/02-sealed-and-final.tspp)** — `sealed class` 封闭类层次、`final` 类与方法，以及违反约束时的编译期报错验证（`@ts-expect-error`）。
    Covers `sealed class` hierarchies, `final` classes and methods, and compile-time boundary checks (`@ts-expect-error`).
+3. **[`src/03-multiple-inheritance.tspp`](./src/03-multiple-inheritance.tspp)** — 多继承：组合多个基类的行为、额外基类的抽象成员，以及成员冲突与不可复制基类的编译期报错。
+   Covers multiple inheritance: mapped constructor arguments and order, explicit `super[Base]` dispatch, shared private state, abstract members, and compile-time errors for conflicting members or missing constructor arguments.
 
 ---
 

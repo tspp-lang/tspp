@@ -34,6 +34,9 @@
 | [local-ip](./local-ip/README.md) | 查看本机网卡与 IP 地址，支持筛选和 JSON 输出 |
 | [task-kit](./task-kit/README.md) | 定义、准备和运行任务及其依赖的工具库 |
 | [ledger](./ledger/README.md) | 本地人民币账本，支持账户收支、转账、精确分账和 CSV 导入导出 |
+| [config-schema](./config-schema/README.md) | 分层加载并校验类型安全的配置，报告精确到路径和来源的错误，可从 interface 派生模式 |
+| [engine](./engine/README.md) | 小型 WebGPU 引擎：向量数学、用 TS++ 函数编写并在编译期翻译为 WGSL 的着色器、GPU 资源与场景 |
+| [scene-viewer](./scene-viewer/README.md) | 基于 engine 的浏览器 3D 场景查看器，材质都是 TS++ 着色器函数 |
 
 ---
 
@@ -82,3 +85,6 @@ tutorials live in [examples](../examples/README.md).
 | [local-ip](./local-ip/README.md) | Inspect local interfaces and IP addresses with filtering and JSON output |
 | [task-kit](./task-kit/README.md) | Define, prepare, and run tasks and their dependencies |
 | [ledger](./ledger/README.md) | Local CNY ledger with accounts, transfers, exact splitting, and CSV import/export |
+| [config-schema](./config-schema/README.md) | Typed configuration loaded in layers, with errors naming each path and source, and schemas derived from interfaces |
+| [engine](./engine/README.md) | A small WebGPU engine: vector math, shaders written as TS++ functions and translated to WGSL at compile time, GPU resources and scenes |
+| [scene-viewer](./scene-viewer/README.md) | A 3D scene viewer for the browser built on engine, whose materials are TS++ shader functions |

@@ -25,8 +25,9 @@ test("reify produces a serializable descriptor whose type carries the represente
     export const represented: string[] = null! as typeof list.__tspp_reified_type;
   `);
   assert.deepEqual(messages, []);
-  assert.match(javascript, /exports\.text = \{ kind: "type", text: "string" \};/);
-  assert.match(javascript, /exports\.list = \{ kind: "type", text: "Array<string>" \};/);
+  // The run-time shape lists what the type is a union of; a type no run-time pattern can test has none.
+  assert.match(javascript, /exports\.text = \{ kind: "type", text: "string", shape: \["string"\] \};/);
+  assert.match(javascript, /exports\.list = \{ kind: "type", text: "Array<string>", shape: null \};/);
   assert.match(declarations, /__tspp_reified_type: Array<string>;/);
 });
 
@@ -40,11 +41,12 @@ test("typecase selects the first arm whose pattern accepts the described type an
     export const fallback = typecase reify boolean { number => 1, string => "text", _ => false };
   `);
   assert.deepEqual(messages, []);
-  assert.match(javascript, /exports\.selected = "text";/);
+  assert.match(javascript, /exports\.selected = \(\(effect\(\), text\), "text"\);/);
   assert.match(javascript, /exports\.accepted = "string";/);
   assert.match(javascript, /exports\.fallback = false;/);
-  // Neither the scrutinee nor the other arms run.
-  assert.doesNotMatch(javascript, /effect\(\)|_tspp|__tspp/);
+  // The scrutinee runs once, for its effects; the other arms do not run.
+  assert.equal(javascript.match(/effect\(\)/g).length, 1);
+  assert.doesNotMatch(javascript, /_tspp|__tspp|"number"/);
   assert.match(declarations, /selected: string;/);
   assert.match(declarations, /fallback: boolean;/);
 });
@@ -120,4 +122,31 @@ export const values = typecase list {
     includeInlayFunctionLikeReturnTypeHints: true,
   });
   assert.deepEqual(hints, []);
+});
+
+test("Reified<T> types reified descriptors and preserves authored syntax in declarations", () => {
+  const source = `
+    export type Witness<A: Type, F: Type => Type> = [Reified<A>, F<A>];
+    export const pair: Witness<number, <A> =>> A> = [reify number, 1];
+    export const matched = typecase pair[0] { number => "num", _ => "other" };
+    export type Exists<F: Type => Type> = <R>(k: <A>(witness: Reified<A>, val: F<A>) => R) => R;
+  `;
+  const { messages, javascript } = compile(source);
+  assert.deepEqual(messages, []);
+  assert.match(javascript, /exports\.matched = "num";/);
+
+  const { program, outputs } = createProgram({ "/main.tspp": source }, { ...options, declaration: true, emitDeclarationOnly: true });
+  program.emit();
+  const tsppDts = [...outputs].find(([fileName]) => fileName.endsWith(".d.tspp"))?.[1] ?? "";
+  assert.match(tsppDts, /Reified<A>/);
+});
+
+test("local Reified declaration shadows the built-in type", () => {
+  const { messages } = compile(`
+    type Reified<T> = { custom: T };
+    export const ok: Reified<number> = { custom: 1 };
+    // @ts-expect-error local Reified is not the built-in descriptor
+    export const bad: Reified<number> = reify number;
+  `);
+  assert.deepEqual(messages, []);
 });

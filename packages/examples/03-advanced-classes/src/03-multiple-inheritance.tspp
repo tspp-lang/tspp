@@ -1,0 +1,138 @@
+// ============================================================================
+// 03-advanced-classes / 03-multiple-inheritance.tspp
+//
+// 多继承：`class C extends A, B, ...`
+//
+// super({ A: [x], B: [y] }) 为每个直接基类提供参数。参数先按书写顺序全部求值，
+// 再按映射顺序在同一个对象上初始化各个基类。super[A].method() 显式选择基类。
+// 映射中的基类必须是本次编译的 .tspp 顶层类；私有状态、静态字段与 instanceof 保持共享。
+// 无构造器的旧写法继续把参数传给第一个基类，其余基类使用空参数。
+// All arguments evaluate first; mapped bases then initialize the shared object in property order.
+// Use super[Base].method() for explicit dispatch. Mapped bases must be eligible top-level .tspp classes.
+// Legacy classes without constructors still forward arguments to the first base only.
+// ============================================================================
+
+export {};
+
+// ----------------------------------------------------------------------------
+// 1. 用多个基类组合行为
+// 1. Combining behavior from several bases
+// ----------------------------------------------------------------------------
+
+class Shape {
+  constructor(public readonly width: number, public readonly height: number) {}
+
+  area(): number {
+    return this.width * this.height;
+  }
+}
+
+// 额外基类：带私有状态与静态计数器
+// An additional base with private state and a static counter
+class Labeled {
+  static labeled = 0;
+  #label = "unnamed";
+
+  get label(): string {
+    return this.#label;
+  }
+
+  rename(label: string): this {
+    this.#label = label;
+    Labeled.labeled++;
+    return this;
+  }
+
+  hasSameLabel(other: Labeled): boolean {
+    return this.#label === other.#label;
+  }
+}
+
+// 额外基类：带抽象成员，子类必须实现
+// An additional base with an abstract member that the class must implement
+abstract class Describable {
+  abstract describe(): string;
+
+  print(): string {
+    return `<${this.describe()}>`;
+  }
+}
+
+class Panel extends Shape, Labeled, Describable {
+  describe(): string {
+    return `${this.label}: ${this.area()}`;
+  }
+}
+
+const panel = new Panel(3, 4).rename("door");
+const sticker = new Labeled().rename("door");
+
+// 两个构造器都带参数，按 Offset -> Shape 的映射顺序初始化。
+// Both constructors take parameters; the map initializes Offset before Shape.
+class Offset {
+  constructor(public readonly amount: number = 10) {}
+  shift(value: number): number { return value + this.amount; }
+}
+
+class ShiftedPanel extends Shape, Offset {
+  constructor(width: number, height: number, amount: number) {
+    super({ Offset: [amount], Shape: [width, height] });
+  }
+
+  shiftedArea(): number {
+    return super[Offset].shift(super[Shape].area());
+  }
+}
+
+const shifted = new ShiftedPanel(3, 4, 10);
+
+// ----------------------------------------------------------------------------
+// 2. 编译期拒绝的写法
+// 2. What the compiler rejects
+// ----------------------------------------------------------------------------
+
+class Left {
+  side(): string {
+    return "left";
+  }
+}
+
+class Right {
+  side(): string {
+    return "right";
+  }
+}
+
+class Measured {
+  constructor(public readonly size: number) {}
+}
+
+// 1. 两个基类提供同名成员
+// 1. Two bases with a member of the same name
+// @ts-expect-error [TS19122] Member 'side' is inherited from both 'Left' and 'Right'.
+class Ambiguous extends Shape, Left, Right {}
+
+// 2. 需要参数的额外基类必须在映射中显式提供参数
+// 2. An additional base with required parameters needs mapped construction
+export function makeSized(): unknown {
+  // @ts-expect-error [TS19121] Base 'Measured' requires constructor arguments; add a constructor with 'super({ Base: [...] })'.
+  class Sized extends Shape, Measured {}
+  return Sized;
+}
+
+// 3. 没有实现额外基类的抽象成员
+// 3. An abstract member of an additional base left unimplemented
+// @ts-expect-error [TS19123] Non-abstract class 'Silent' does not implement abstract member 'describe' inherited from 'Describable'.
+class Silent extends Shape, Describable {}
+
+export const rejected = [Ambiguous, Silent];
+
+console.log("[03-multiple-inheritance]", {
+  printed: panel.print(),
+  shiftedArea: shifted.shiftedArea(),
+  isShape: panel instanceof Shape,
+  isLabeled: panel instanceof Labeled,
+  isDescribable: panel instanceof Describable,
+  sharesPrivateState: sticker.hasSameLabel(panel),
+  renamed: Labeled.labeled,
+});

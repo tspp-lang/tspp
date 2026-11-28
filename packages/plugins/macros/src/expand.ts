@@ -1,7 +1,8 @@
 import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import { findStatement, firstIdentifier, forEachDescendant, getProjectedElements, sourceFileOf, tokenStartOf } from "./nodes";
+import { createDescriber } from "./describe";
+import { findStatement, firstIdentifier, forEachDescendant, getProjectedElements, sourceFileOf, tokenStartOf, validateMacroTree } from "./nodes";
 import { describeTimeout, macroDiagnosticCodes, type MacroTimeoutBudget, readMacroOptions } from "./options";
 import {
     asyncEvaluations,
@@ -65,6 +66,7 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     let printer = ts.createPrinter();
     const moduleCache = new Map<string, Record<string, unknown>>();
     const macroTypeScript = createMacroTypeScript(ts);
+    const describe = createDescriber(ts, checker);
     let macroProgram: TS.Program | undefined;
     let macroHost: MacroCompilerHost | undefined;
     let inputKey: string | undefined;
@@ -88,11 +90,13 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     function getMacroProgram() {
         if (!macroProgram) {
             // The macro program binds its own copy of each source file: a caching host would otherwise hand it the
-            // trees of `program`, and binding them again would detach them from `program`'s checker.
+            // trees of `program`, and binding them again would detach them from `program`'s checker. Macro modules run
+            // as CommonJS, so a file in a `"type": "module"` package must not be emitted as an ES module.
             const reparse = (source: TS.SourceFile | undefined, languageVersionOrOptions: TS.ScriptTarget | TS.CreateSourceFileOptions) =>
                 !source || source.isDeclarationFile || !source.fileName.endsWith(".tspp")
                     ? source
-                    : ts.createSourceFile(source.fileName, source.text, languageVersionOrOptions, /*setParentNodes*/ true, ts.ScriptKind.TS);
+                    : ts.createSourceFile(source.fileName, source.text, typeof languageVersionOrOptions === "object"
+                        ? { ...languageVersionOrOptions, impliedNodeFormat: ts.ModuleKind.CommonJS } : languageVersionOrOptions, /*setParentNodes*/ true, ts.ScriptKind.TS);
             macroHost = Object.create(host) as MacroCompilerHost;
             macroHost.getSourceFile = (fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile) =>
                 reparse(host.getSourceFile(fileName, languageVersionOrOptions, onError, shouldCreateNewSourceFile), languageVersionOrOptions);
@@ -351,6 +355,7 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
                 },
                 sourceFile: invocationSource,
                 macroInvocation: invocation.statement,
+                describe,
                 report: (item: MacroDiagnostic) => reported.push(item),
                 fail: (message: string) => ({ kind: "macro-failure", diagnostics: [{ message }] }),
             });
@@ -476,6 +481,7 @@ export function expandCompileTimeMacros(options: MacroExpansionOptions, allowAsy
     function expandedInvocation(sourceFile: TS.SourceFile, syntax: MacroInvocationSyntax, statements: readonly TS.Statement[]): ExpandedMacroInvocation {
         let text: string;
         try {
+            for (const statement of statements) validateMacroTree(ts, statement);
             text = statements.map(statement => printer.printNode(ts.EmitHint.Unspecified, statement, sourceFile)).join("\n");
         }
         catch (error) {

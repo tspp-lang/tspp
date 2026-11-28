@@ -1,0 +1,117 @@
+// The WGSL built-in functions that shaders call, implemented for the CPU. A shader function calls these by the same
+// names, and `shader/translate.tspp` emits the WGSL built-in of that name. Scalar functions also apply to vectors,
+// component by component, as in WGSL.
+
+import { Vec2, Vec3, Vec4, type Vector } from "./vec.js";
+
+/** A vector of two components, or of one value repeated. */
+export function vec2(value: number): Vec2;
+export function vec2(x: number, y: number): Vec2;
+export function vec2(x: number, y: number = x): Vec2 {
+  return new Vec2(x, y);
+}
+
+/** A vector of three components, of one value repeated, or of a `Vec2` and a third component. */
+export function vec3(value: number): Vec3;
+export function vec3(xy: Vec2, z: number): Vec3;
+export function vec3(x: number, y: number, z: number): Vec3;
+export function vec3(first: number | Vec2, second?: number, third?: number): Vec3 {
+  if (first instanceof Vec2) return new Vec3(first.x, first.y, second!);
+  return second === undefined ? new Vec3(first, first, first) : new Vec3(first, second, third!);
+}
+
+/** A vector of four components, of one value repeated, or of a `Vec3` and a fourth component. */
+export function vec4(value: number): Vec4;
+export function vec4(xyz: Vec3, w: number): Vec4;
+export function vec4(x: number, y: number, z: number, w: number): Vec4;
+export function vec4(first: number | Vec3, second?: number, third?: number, fourth?: number): Vec4 {
+  if (first instanceof Vec3) return new Vec4(first.x, first.y, first.z, second!);
+  return second === undefined ? new Vec4(first, first, first, first) : new Vec4(first, second, third!, fourth!);
+}
+
+/** A value that a componentwise built-in accepts: a number or a vector. */
+export type Float = number | Vector;
+
+/** The result of a componentwise built-in: `number` for any number, so `abs(1)` is not typed as `1`. */
+export type Same<T extends Float> = T extends number ? number : T;
+
+function rebuild<V extends Vector>(like: V, components: readonly number[]): V {
+  const [x = 0, y = 0, z = 0, w = 0] = components;
+  if (like instanceof Vec2) return new Vec2(x, y) as V;
+  if (like instanceof Vec3) return new Vec3(x, y, z) as V;
+  return new Vec4(x, y, z, w) as V;
+}
+
+/** Applies `operation` to each component of the arguments, which have the shape of the first. */
+function componentwise<T extends Float>(operation: (...values: number[]) => number, first: T, ...rest: readonly Float[]): Same<T> {
+  if (typeof first === "number") return operation(first, ...rest.map(value => typeof value === "number" ? value : value.components[0]!)) as Same<T>;
+  const vector = first as Vector;
+  const columns = rest.map(value => typeof value === "number" ? vector.components.map(() => value) : value.components);
+  return rebuild(vector, vector.components.map((value, index) => operation(value, ...columns.map(column => column[index]!)))) as Same<T>;
+}
+
+export function abs<T extends Float>(value: T): Same<T> { return componentwise<T>(Math.abs, value); }
+export function floor<T extends Float>(value: T): Same<T> { return componentwise<T>(Math.floor, value); }
+export function fract<T extends Float>(value: T): Same<T> { return componentwise<T>(x => x - Math.floor(x), value); }
+export function sqrt<T extends Float>(value: T): Same<T> { return componentwise<T>(Math.sqrt, value); }
+export function sin<T extends Float>(value: T): Same<T> { return componentwise<T>(Math.sin, value); }
+export function cos<T extends Float>(value: T): Same<T> { return componentwise<T>(Math.cos, value); }
+export function exp<T extends Float>(value: T): Same<T> { return componentwise<T>(Math.exp, value); }
+export function pow<T extends Float>(base: T, exponent: T): Same<T> { return componentwise<T>(Math.pow, base, exponent); }
+export function min<T extends Float>(a: T, b: T): Same<T> { return componentwise<T>(Math.min, a, b); }
+export function max<T extends Float>(a: T, b: T): Same<T> { return componentwise<T>(Math.max, a, b); }
+
+/** `value` limited to `[low, high]`. */
+export function clamp<T extends Float>(value: T, low: T, high: T): Same<T> {
+  return componentwise<T>((x, a, b) => Math.min(Math.max(x, a), b), value, low, high);
+}
+
+/** `value` limited to `[0, 1]`. */
+export function saturate<T extends Float>(value: T): Same<T> {
+  return componentwise<T>(x => Math.min(Math.max(x, 0), 1), value);
+}
+
+/** The linear blend from `a` at `t` = 0 to `b` at `t` = 1; `t` may also be given per component. */
+export function mix<T extends Float>(a: T, b: T, t: T | number): Same<T> {
+  return componentwise<T>((x, y, s) => x + (y - x) * s, a, b, t);
+}
+
+/** 0 where `value` is below `edge`, else 1. */
+export function step<T extends Float>(edge: T, value: T): Same<T> {
+  return componentwise<T>((e, x) => x < e ? 0 : 1, edge, value);
+}
+
+/** The smooth Hermite step from 0 at `low` to 1 at `high`. */
+export function smoothstep<T extends Float>(low: T, high: T, value: T): Same<T> {
+  return componentwise<T>((a, b, x) => {
+    const t = Math.min(Math.max((x - a) / (b - a), 0), 1);
+    return t * t * (3 - 2 * t);
+  }, low, high, value);
+}
+
+export function dot<V extends Vector>(a: V, b: V): number {
+  return a.components.reduce((sum, value, index) => sum + value * b.components[index]!, 0);
+}
+
+export function cross(a: Vec3, b: Vec3): Vec3 {
+  return a.cross(b);
+}
+
+export function length(value: Vector): number {
+  return Math.hypot(...value.components);
+}
+
+export function distance<V extends Vector>(a: V, b: V): number {
+  return Math.hypot(...a.components.map((value, index) => value - b.components[index]!));
+}
+
+export function normalize<V extends Vector>(value: V): V {
+  const size = length(value);
+  return rebuild(value, value.components.map(component => component / size));
+}
+
+/** The direction of `incident` mirrored about the plane with unit normal `normal`. */
+export function reflect<V extends Vector>(incident: V, normal: V): V {
+  const twice = 2 * dot(normal, incident);
+  return rebuild(incident, incident.components.map((value, index) => value - twice * normal.components[index]!));
+}

@@ -9,6 +9,7 @@ import {
 } from "../_namespaces/ts.js";
 import type {
     Bundle,
+    EmitTextWriter,
     EmitHost,
     EmitResolver,
     Expression,
@@ -28,16 +29,44 @@ import {
     getPreprocessedFunctionPrefix,
     getTSPPRestoredFunctionClause,
     isTSPPFileName,
+    startRecordingRestoringPlugins,
+    stopRecordingRestoringPlugins,
     tsppDeclarationPluginsHeader,
 } from "./registry.js";
 
 // Declaration output of TS++ files (`TSPP-SLOT(declaration-output)` sites): a `.d.tspp` declaration that keeps plugin
 // syntax, and beside it a TypeScript-compatible `.d.ts` printed from the same declaration transform.
 
-/** The header of a `.d.tspp` file written with the plugins active now, or undefined for any other file. @internal */
+function formatDeclarationHeader(plugins: readonly string[]): string {
+    return plugins.length ? `${tsppDeclarationPluginsHeader} ${plugins.join(",")}` : tsppDeclarationPluginsHeader;
+}
+
+/**
+ * The provisional header of a `.d.tspp` file, naming every active plugin, or undefined for any other file. The header
+ * is written before the file prints, and `finishTSPPDeclarationHeader` narrows it after printing to the plugins whose syntax it holds.
+ * @internal
+ */
 export function getTSPPDeclarationHeader(filePath: string): string | undefined {
     const plugins = getActiveTSPPPlugins().map(plugin => plugin.manifest.id).sort();
-    return fileExtensionIs(filePath, ".d.tspp") && plugins.length ? tsppDeclarationPluginsHeader + plugins.join(",") : undefined;
+    if (!fileExtensionIs(filePath, ".d.tspp") || !plugins.length) return undefined;
+    startRecordingRestoringPlugins();
+    return formatDeclarationHeader(plugins);
+}
+
+/**
+ * Narrows the provisional `header` that starts the printed `.d.tspp` text in `writer` to the plugins that restored syntax
+ * in it, and returns `sourceMapUrlPos` moved by the change. A file that needs no plugin keeps the line, so line-based maps
+ * stay valid. Does nothing without a header.
+ * @internal
+ */
+export function finishTSPPDeclarationHeader(writer: EmitTextWriter, header: string | undefined, sourceMapUrlPos: number | undefined): number | undefined {
+    if (!header) return sourceMapUrlPos;
+    const narrowed = formatDeclarationHeader(stopRecordingRestoringPlugins());
+    const text = writer.getText();
+    if (!text.startsWith(header) || narrowed === header) return sourceMapUrlPos;
+    writer.clear();
+    writer.rawWrite(narrowed + text.slice(header.length));
+    return sourceMapUrlPos === undefined ? undefined : sourceMapUrlPos + narrowed.length - header.length;
 }
 
 /** Whether the compatible `.d.ts` beside a `.d.tspp` declaration file is blocked from being written. @internal */

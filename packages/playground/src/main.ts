@@ -10,6 +10,7 @@ import { createOutputController } from "./outputs";
 import { createProblemChecker } from "./problems";
 import { addParentDirectories, baseName, normalizedPath, parentDirectory, renderProjectTree as renderTree, updateProjectTreeSelection, replacePathPrefix, validItemName } from "./projectTree";
 import type { ProjectFiles } from "./protocol";
+import { setupCopyPromptButton, type PromptContext } from "./prompt-copy";
 import { formatModel, registerProviders, setDiagnosticMarkers } from "./providers";
 import { setupSettings } from "./settings";
 import { decodeShared, encodeExample, encodeState, onSharedStateChange, type SharedState } from "./share";
@@ -97,7 +98,8 @@ const projectFiles = (): ProjectFiles => Object.fromEntries([...resources, ...sa
 const isDirty = (path: string) => models.get(path)?.getValue() !== savedContents.get(path);
 const dirtyFiles = () => new Set([...models.keys()].filter(isDirty));
 const isLiveFile = (path: string) => path !== "/tsppconfig.json" && !path.endsWith(".md");
-const { requestCheck, cancelCheck } = createProblemChecker(editor, models, () => active, openFile, languageClient, definitions, isDirty);
+const promptContext = (): PromptContext => ({ activeFile: active, features: currentFeatures(), definitions, files: projectFiles(), models });
+const { requestCheck, cancelCheck } = createProblemChecker(editor, models, () => active, openFile, languageClient, definitions, isDirty, promptContext);
 
 function disposeDraft(): void {
   if (!draftClient) return;
@@ -523,12 +525,8 @@ function scheduleCheck() {
   requestCheck(300);
   const example = syncExampleSelect();
   history.replaceState(null, "", "#" + (example ? encodeExample(example.id, active, example.entry) : encodeState({
-    files: projectFiles(),
-    features: [...selected],
-    active,
-    open: tabs.paths,
-    preview: tabs.preview,
-    directories: [...directories].sort(),
+    files: projectFiles(), features: [...selected], active,
+    open: tabs.paths, preview: tabs.preview, directories: [...directories].sort(),
   })));
   shareLink.hidden = true;
 }
@@ -544,5 +542,6 @@ onSharedStateChange(stateFromHash, state => {
   loadProject(state);
 });
 
+setupCopyPromptButton(element<HTMLButtonElement>("copy-prompt"), promptContext);
 setupShareButton(shareButton, shareLink);
 void setupVersionSelector(element<HTMLSelectElement>("versions"), () => dirtyFiles().size > 0);

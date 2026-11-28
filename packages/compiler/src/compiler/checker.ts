@@ -31184,6 +31184,7 @@ export function createTypeChecker(host: TypeCheckerHost): TypeChecker {
             return type;
         }
 
+        type = refineTSPPTypeAtLocation(tsppTypes, type, node); // TSPP-SLOT(type-extension)
         type = getNarrowableTypeForReference(type, node, checkMode);
 
         // The declaration container is the innermost function that encloses the declaration of the variable

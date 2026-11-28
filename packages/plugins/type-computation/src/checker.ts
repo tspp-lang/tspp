@@ -232,7 +232,13 @@ export function createKindChecker(ts: TSPPTypeScript, model: TypeSyntaxModel): T
      * for the value it spells: a term lowers to `2`, which is of kind `Nat`.
      */
     function hasKind(state: CheckerState, type: TS.Type, expected: TypeKind): boolean {
-        if (expected.kind !== "term") return kindsEqual(getKind(state, type), expected);
+        if (expected.kind !== "term") {
+            const actual = getKind(state, type);
+            // A natural or boolean binder is a type parameter TypeScript knows as `number` or `boolean`, so it can be the
+            // argument of an ordinary generic, as in `(n: Nat, items: Vec<number, n>) => ...`.
+            if (expected.kind === "type" && expected.level === 0 && actual.kind === "term" && (actual.term.kind === "nat-type" || actual.term.kind === "bool-type")) return true;
+            return kindsEqual(actual, expected);
+        }
         const declared = state.kinds.get(type) ?? declarationKind(type.symbol);
         if (declared) return kindsEqual(declared, expected);
         // A natural or boolean an open binder leaves undecided lowers to `number` or `boolean`.

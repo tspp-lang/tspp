@@ -1,0 +1,38 @@
+import { readFileSync } from "node:fs";
+
+import { ConfigError, issue } from "./issues.js";
+import { environmentLayer, type EnvironmentOptions, type Layer } from "./layers.js";
+import type { Schema } from "./schema.js";
+
+export interface JsonFileOptions {
+  /** A missing optional file is no layer; any other problem is still an error. */
+  readonly optional?: boolean;
+}
+
+/** Reads a JSON file as a layer named after its path. Unreadable or malformed files throw a `ConfigError`. */
+export function jsonFileLayer(path: string, options: JsonFileOptions = {}): Layer | undefined {
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  }
+  catch (error) {
+    if (options.optional && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw fileError(path, `cannot read the file: ${(error as Error).message}`);
+  }
+  try {
+    return { name: path, values: JSON.parse(text.replace(/^﻿/u, "")) };
+  }
+  catch (error) {
+    throw fileError(path, `the file is not valid JSON: ${(error as Error).message}`);
+  }
+}
+
+function fileError(path: string, message: string): ConfigError do {
+  const found = issue(message);
+  new ConfigError([found.copy({ source: path })]);
+}
+
+/** `environmentLayer` over the variables of this process. */
+export function processEnvironmentLayer(schema: Schema<unknown>, options: EnvironmentOptions): Layer do {
+  environmentLayer(schema, process.env, options);
+}

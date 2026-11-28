@@ -20,7 +20,7 @@ Start with value-level expressions and class ergonomics that require no type-the
   Expression-oriented `let ... in` bindings, `do { ... }` completion blocks, `do` function bodies, `use <-` trailing closures, and `def` deep-readonly declarations.
 - **[`02-operator-sections`](./02-operator-sections)** — **运算符与属性切片**：使用 `_` 占位符快速编写极简函数表达式（如 `(_ + 1)`、`(10 - _)`、`(_ / _)`、`(_.name)`）。
   Placeholder-based operator and member sections using `_`, such as `(_ + 1)`, `(10 - _)`, `(_ / _)`, and `(_.name)`.
-- **[`03-advanced-classes`](./03-advanced-classes)** — **现代类与封闭继承层次**：使用 `field` 声明自带隐式存储的访问器属性、使用 `object` 声明单例、使用 `data class` 与 `with` 处理不可变值对象，并通过 `sealed class` 与 `final` 构建受控的封闭类层次。
+- **[`03-advanced-classes`](./03-advanced-classes)** — **现代类与封闭继承层次**：使用 `field` 声明自带隐式存储的访问器属性、使用 `object` 声明单例、使用 `data class` 与 `with` 处理不可变值对象，通过 `sealed class` 与 `final` 构建受控的封闭类层次，并用 `class C extends A, B` 同时继承多个基类。
   `field` backing properties, `object` singletons, `data class`, `with` copy expressions, `sealed class` hierarchies, and `final` modifiers.
 - **[`04-static-interface-members`](./04-static-interface-members)** — **接口中的静态成员契约**：在 `interface` 中同时声明 `static` 属性、静态工厂方法（如 `static deserialize(): this`）与实例方法契约。
   Declaring `static` property and factory contracts alongside instance members inside interfaces.

@@ -4,6 +4,8 @@ import { formatTSPPSyntax, layoutTSPPCode } from "@tspp/plugin-sdk/language-serv
 import { createAdvancedClassDeclarations } from "./class-decl";
 import { createAdvancedClassDiagnostics } from "./diagnostics";
 import { createFieldSyntax, findEnclosingAccessorName } from "./field";
+import { createMultipleInheritance } from "./multiple-inheritance";
+import { createMultipleInheritanceEmit } from "./multiple-inheritance-emit";
 import { createObjectSyntax } from "./object";
 import { createWithSyntax } from "./with";
 
@@ -165,7 +167,8 @@ export const advancedClassesPlugin = definePlugin({
             activate(context) {
                 const ts = context.ts;
                 const objects = createObjectSyntax(ts);
-                const classDecls = createAdvancedClassDeclarations(ts);
+                const multiple = createMultipleInheritance(ts);
+                const classDecls = createAdvancedClassDeclarations(ts, multiple);
                 const fieldSyntax = createFieldSyntax(ts);
                 const withSyntax = createWithSyntax(ts);
 
@@ -174,7 +177,10 @@ export const advancedClassesPlugin = definePlugin({
                 context.onDispose(context.compiler.registerSyntaxExtension(fieldSyntax.extension));
                 context.onDispose(context.compiler.registerSyntaxExtension(withSyntax.extension));
 
-                const diagnostics = createAdvancedClassDiagnostics(ts, classDecls, fieldSyntax, withSyntax);
+                const programs = new WeakMap<import("typescript-upstream").TypeChecker, import("typescript-upstream").Program>();
+                context.onDispose(context.compiler.registerProgramRebuilder(createMultipleInheritanceEmit(ts, multiple, program => programs.set(program.getTypeChecker(), program))));
+
+                const diagnostics = createAdvancedClassDiagnostics(ts, classDecls, fieldSyntax, withSyntax, multiple, programs);
                 return context.compiler.registerDiagnosticProvider(diagnostics);
             },
         },

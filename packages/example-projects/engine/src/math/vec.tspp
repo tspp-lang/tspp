@@ -1,0 +1,62 @@
+// Vectors of 32-bit floats. On the CPU they are immutable values; in a shader they become WGSL `vec2f`, `vec3f` and
+// `vec4f`, and each method maps to one WGSL operator or built-in (see `shader/translate.tspp`), so a function written
+// with them runs the same way in both places.
+
+/** A two-component vector. */
+export data class Vec2(x: number, y: number) {
+  /** Keeps vectors of different sizes apart, which structural typing alone would not. */
+  private declare readonly size: 2;
+
+  add(other: Vec2): Vec2 { return new Vec2(this.x + other.x, this.y + other.y); }
+  sub(other: Vec2): Vec2 { return new Vec2(this.x - other.x, this.y - other.y); }
+  /** The componentwise product, WGSL `a * b`. */
+  mul(other: Vec2): Vec2 { return new Vec2(this.x * other.x, this.y * other.y); }
+  div(other: Vec2): Vec2 { return new Vec2(this.x / other.x, this.y / other.y); }
+  scale(factor: number): Vec2 { return new Vec2(this.x * factor, this.y * factor); }
+  negate(): Vec2 { return new Vec2(-this.x, -this.y); }
+  dot(other: Vec2): number { return this.x * other.x + this.y * other.y; }
+  length(): number { return Math.hypot(this.x, this.y); }
+  normalize(): Vec2 { return this.scale(1 / this.length()); }
+  get components(): readonly number[] { return [this.x, this.y]; }
+}
+
+/** A three-component vector, for positions, directions, normals and RGB colors. */
+export data class Vec3(x: number, y: number, z: number) {
+  private declare readonly size: 3;
+
+  add(other: Vec3): Vec3 { return new Vec3(this.x + other.x, this.y + other.y, this.z + other.z); }
+  sub(other: Vec3): Vec3 { return new Vec3(this.x - other.x, this.y - other.y, this.z - other.z); }
+  mul(other: Vec3): Vec3 { return new Vec3(this.x * other.x, this.y * other.y, this.z * other.z); }
+  div(other: Vec3): Vec3 { return new Vec3(this.x / other.x, this.y / other.y, this.z / other.z); }
+  scale(factor: number): Vec3 { return new Vec3(this.x * factor, this.y * factor, this.z * factor); }
+  negate(): Vec3 { return new Vec3(-this.x, -this.y, -this.z); }
+  dot(other: Vec3): number { return this.x * other.x + this.y * other.y + this.z * other.z; }
+  cross(other: Vec3): Vec3 {
+    return new Vec3(this.y * other.z - this.z * other.y, this.z * other.x - this.x * other.z, this.x * other.y - this.y * other.x);
+  }
+  length(): number { return Math.hypot(this.x, this.y, this.z); }
+  normalize(): Vec3 { return this.scale(1 / this.length()); }
+  get xy(): Vec2 { return new Vec2(this.x, this.y); }
+  get components(): readonly number[] { return [this.x, this.y, this.z]; }
+}
+
+/** A four-component vector, for homogeneous positions and RGBA colors. */
+export data class Vec4(x: number, y: number, z: number, w: number) {
+  private declare readonly size: 4;
+
+  add(other: Vec4): Vec4 { return new Vec4(this.x + other.x, this.y + other.y, this.z + other.z, this.w + other.w); }
+  sub(other: Vec4): Vec4 { return new Vec4(this.x - other.x, this.y - other.y, this.z - other.z, this.w - other.w); }
+  mul(other: Vec4): Vec4 { return new Vec4(this.x * other.x, this.y * other.y, this.z * other.z, this.w * other.w); }
+  div(other: Vec4): Vec4 { return new Vec4(this.x / other.x, this.y / other.y, this.z / other.z, this.w / other.w); }
+  scale(factor: number): Vec4 { return new Vec4(this.x * factor, this.y * factor, this.z * factor, this.w * factor); }
+  negate(): Vec4 { return new Vec4(-this.x, -this.y, -this.z, -this.w); }
+  dot(other: Vec4): number { return this.x * other.x + this.y * other.y + this.z * other.z + this.w * other.w; }
+  length(): number { return Math.hypot(this.x, this.y, this.z, this.w); }
+  normalize(): Vec4 { return this.scale(1 / this.length()); }
+  get xy(): Vec2 { return new Vec2(this.x, this.y); }
+  get xyz(): Vec3 { return new Vec3(this.x, this.y, this.z); }
+  get components(): readonly number[] { return [this.x, this.y, this.z, this.w]; }
+}
+
+/** Any vector. */
+export type Vector = Vec2 | Vec3 | Vec4;

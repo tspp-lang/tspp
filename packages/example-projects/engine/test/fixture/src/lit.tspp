@@ -1,0 +1,57 @@
+import { clamp, dot, max, mix, normalize, pow, reflect, type Mat3, type Mat4, type Vec3, Vec4, vec4 } from "@tspp/engine/math";
+import { type Builtin, shaderModule } from "@tspp/engine/shader";
+
+export interface Vertex {
+  position: Vec3;
+  normal: Vec3;
+}
+
+export interface Surface {
+  clip: Builtin<"position", Vec4>;
+  world: Vec3;
+  normal: Vec3;
+}
+
+export interface Light {
+  direction: Vec3;
+  color: Vec3;
+}
+
+export interface Frame {
+  viewProjection: Mat4;
+  model: Mat4;
+  normalMatrix: Mat3;
+  eye: Vec3;
+  time: number;
+  light: Light;
+}
+
+export namespace Lit {
+  export function vertex(input: Vertex, frame: Frame): Surface {
+    const world = frame.model.mul(vec4(input.position, 1));
+    return {
+      clip: frame.viewProjection.mul(world),
+      world: world.xyz,
+      normal: frame.normalMatrix.mul(input.normal),
+    };
+  }
+
+  export function shade(normal: Vec3, toLight: Vec3, toEye: Vec3, shininess: number): number {
+    const diffuse = max(dot(normal, toLight), 0);
+    let specular = 0;
+    if (diffuse > 0) {
+      specular = pow(max(dot(reflect(toLight.negate(), normal), toEye), 0), shininess);
+    }
+    return diffuse + specular * 0.5;
+  }
+
+  export function fragment(surface: Surface, frame: Frame): Vec4 {
+    const n = normalize(surface.normal);
+    const toEye = frame.eye.sub(surface.world).normalize();
+    const light = shade(n, frame.light.direction.normalize().negate(), toEye, 32);
+    const color = mix(frame.light.color.scale(0.1), frame.light.color, clamp(light, 0, 1));
+    return new Vec4(color.x, color.y, color.z, 1);
+  }
+}
+
+macro shaderModule(Lit);

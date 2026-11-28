@@ -323,6 +323,17 @@ test("guards, or-patterns, and nested patterns lower after binding fields", () =
   assert.doesNotMatch(nested, /match envelope/);
 });
 
+test("an underscore field pattern ignores its field and may repeat", () => {
+  const source = `
+    data Shape = Rect(width: number, height: number, label: string) | Dot;
+    const shape: Shape = Rect(2, 3, "r");
+    const area = match shape { Rect(width, _, _) => width, Dot => 0 };
+    const rect = match shape { Rect(_, _, _) => 1, Dot => 0 };`;
+  assert.deepEqual(messagesOf(source), []);
+  const javascript = javascriptOf(source);
+  assert.doesNotMatch(javascript, /\(_\b|, _\b/);
+});
+
 test("feature-rich declarations keep newtype and data syntax", () => {
   const { program, outputs } = createProgram(`
     export newtype UserId = number;
@@ -420,6 +431,22 @@ test("newtype constructors can only be called directly", () => {
   assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [18062, 18062, 18062, 18062], diagnosticMessages(program).join("\n"));
   assert.deepEqual(lines, [5, 6, 7, 11]);
   assert.match(diagnosticMessages(program)[0], /The extension value 'UserId' can only be used as the target of a direct call/);
+});
+
+test("a data type without a runtime value is exported as a type", () => {
+  const { program } = createProgram({
+    "/lib.tspp": `export data Shape = Box(size: number) | Dot;\nexport data Pair = Pair(left: number, right: number);\n`,
+    "/index.tspp": `import { Shape } from "./lib";
+      export { Shape as Local };
+      export { Box, Dot, Shape } from "./lib";
+      export { type Shape as Named, Pair } from "./lib";
+      export type { Shape as Whole } from "./lib";
+    `,
+  });
+  const diagnostics = program.getSemanticDiagnostics(program.getSourceFile("/index.tspp"));
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.code), [18088, 18088], diagnosticMessages(program).join("\n"));
+  assert.deepEqual(diagnostics.map(diagnostic => diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line + 1), [2, 3]);
+  assert.match(diagnosticMessages(program)[0], /'Shape' is a data type without a runtime value of its own; export it as 'type Shape'/);
 });
 
 test("hover preserves the source spans of type parameters in nominal declarations", () => {

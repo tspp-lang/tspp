@@ -1,7 +1,7 @@
 import type { TSPPTypeScript } from "@tspp/plugin-sdk/compiler";
 import type * as TS from "typescript-upstream";
 
-import type { MacroContext, MacroDiagnostic } from "./sdk";
+import type { MacroContext, MacroDiagnostic, MacroImportBinding } from "./sdk";
 
 /** CompilerHost members a host may provide to run macros outside Node.js or to tune them; none is required. */
 export interface MacroCompilerHost extends TS.CompilerHost {
@@ -74,18 +74,40 @@ export function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
 
 /** Exposes the host factory, including the helper for macros that return further macro invocations. */
 export function createMacroTypeScript(ts: TSPPTypeScript) {
-    const factory = Object.create(ts.factory) as TS.NodeFactory & {
+    const base = ts.factory;
+    const factory = Object.create(base) as TS.NodeFactory & {
         createMacroInvocationStatement(macro: TS.EntityName, targets: readonly TS.EntityName[]): TS.Statement;
+        createImportStatement(moduleSpecifier: string, bindings: readonly MacroImportBinding[]): TS.Statement;
     };
     factory.createMacroInvocationStatement = (macro, targets) => {
-        const statement = ts.factory.createExpressionStatement(ts.factory.createVoidZero());
+        const statement = base.createExpressionStatement(base.createVoidZero());
         nestedInvocations.set(statement, { macro, targets });
         return statement;
     };
+    // The SDK promises these forms for any value, which the host factory leaves to its callers.
+    factory.createNumericLiteral = (value: string | number, flags?: TS.TokenFlags) => typeof value === "number" && (value < 0 || Object.is(value, -0))
+        ? base.createPrefixUnaryExpression(ts.SyntaxKind.MinusToken, base.createNumericLiteral(-value, flags)) as unknown as TS.NumericLiteral
+        : base.createNumericLiteral(value, flags);
+    factory.createPropertyAssignment = (name: string | TS.PropertyName, initializer: TS.Expression) =>
+        base.createPropertyAssignment(typeof name === "string" && !/^[A-Za-z_$][\w$]*$/u.test(name) ? base.createStringLiteral(name) : name, initializer);
+    factory.createTypeReferenceNode = (name: string | TS.EntityName, typeArguments?: readonly TS.TypeNode[]) =>
+        base.createTypeReferenceNode(typeof name === "string" ? entityName(base, name) : name, typeArguments);
+    factory.createImportStatement = (moduleSpecifier, bindings) => base.createImportDeclaration(
+        /*modifiers*/ undefined,
+        base.createImportClause(/*phaseModifier*/ undefined, /*name*/ undefined, base.createNamedImports(bindings.map(binding =>
+            base.createImportSpecifier(
+                /*isTypeOnly*/ false,
+                binding.alias === undefined || binding.alias === binding.name ? undefined : base.createIdentifier(binding.name),
+                base.createIdentifier(binding.alias ?? binding.name),
+            )
+        ))),
+        base.createStringLiteral(moduleSpecifier),
+    );
     const kinds = ts.SyntaxKind;
     return {
         factory,
         SyntaxKind: {
+            ...namedValues(kinds),
             FunctionDeclaration: kinds.FunctionDeclaration,
             ExportKeyword: kinds.ExportKeyword,
             AnyKeyword: kinds.AnyKeyword,
@@ -101,8 +123,18 @@ export function createMacroTypeScript(ts: TSPPTypeScript) {
             UnknownKeyword: kinds.UnknownKeyword,
             VoidKeyword: kinds.VoidKeyword,
         } satisfies MacroContext["typescript"]["SyntaxKind"],
-        NodeFlags: { Const: ts.NodeFlags.Const },
+        NodeFlags: { ...namedValues(ts.NodeFlags), Const: ts.NodeFlags.Const },
     };
+}
+
+/** The members of a numeric enum by name, without its reverse mapping from values to names. */
+function namedValues(enumObject: object): Record<string, number> {
+    return Object.fromEntries(Object.entries(enumObject).filter((entry): entry is [string, number] => typeof entry[1] === "number"));
+}
+
+function entityName(factory: TS.NodeFactory, name: string): TS.EntityName {
+    const [first, ...rest] = name.split(".");
+    return rest.reduce<TS.EntityName>((left, right) => factory.createQualifiedName(left, right), factory.createIdentifier(first!));
 }
 
 export function toInvocation(ts: TSPPTypeScript, nested: { readonly macro: TS.EntityName; readonly targets: readonly TS.EntityName[]; }): Invocation {

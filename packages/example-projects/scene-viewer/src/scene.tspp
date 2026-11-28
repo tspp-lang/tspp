@@ -1,0 +1,47 @@
+// The objects of the demo scene and how they move.
+
+import { Vec3 } from "@tspp/engine/math";
+import { Box, Plane, type Shape, Sphere, Torus, Transform } from "@tspp/engine/scene";
+
+/** Which material draws an object when the view shows materials. */
+export data Material = Plastic(color: Vec3, shininess: number) | Tiles(color: Vec3);
+
+/** What the viewer shows: each object's material, or the normals of every surface. */
+export data ViewMode = Shaded | NormalView;
+
+/** An object of the scene; `spin` is its turn per second around each axis, in radians. */
+export interface SceneObject {
+  readonly name: string;
+  readonly shape: Shape;
+  readonly material: Material;
+  readonly transform: Transform;
+  readonly spin: Vec3;
+}
+
+/** The demo scene: a tiled floor with a sphere, a box and a torus on it. */
+export function demoScene(): readonly SceneObject[] {
+  const still = new Vec3(0, 0, 0);
+  return [
+    { name: "floor", shape: Plane(24, 24), material: Tiles(new Vec3(0.75, 0.75, 0.72)), transform: Transform.at(new Vec3(0, 0, 0)), spin: still },
+    { name: "sphere", shape: Sphere(0.8, 48, 32), material: Plastic(new Vec3(0.85, 0.25, 0.2), 64), transform: Transform.at(new Vec3(-2.2, 0.8, 0)), spin: still },
+    { name: "box", shape: Box(new Vec3(1.2, 1.2, 1.2)), material: Plastic(new Vec3(0.2, 0.6, 0.65), 24), transform: Transform.at(new Vec3(0, 0.9, 0)), spin: new Vec3(0, 0.6, 0) },
+    {
+      name: "torus",
+      shape: Torus(0.6, 0.22, 64, 24),
+      material: Plastic(new Vec3(0.9, 0.7, 0.25), 96),
+      transform: Transform.at(new Vec3(2.2, 0.9, 0)),
+      spin: new Vec3(0.8, 0.3, 0),
+    },
+  ];
+}
+
+/** Where `object` is `time` seconds after the start. */
+export function transformAt(object: SceneObject, time: number): Transform {
+  return object.transform.copy({ rotation: object.transform.rotation.add(object.spin.scale(time)) });
+}
+
+/** The direction of sunlight that comes from `angle` radians around the vertical axis, 50° above the horizon. */
+export function sunDirection(angle: number): Vec3 {
+  const elevation = (50 * Math.PI) / 180;
+  return new Vec3(Math.cos(elevation) * Math.sin(angle), Math.sin(elevation), Math.cos(elevation) * Math.cos(angle)).negate();
+}

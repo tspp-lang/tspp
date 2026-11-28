@@ -1,0 +1,52 @@
+import type { OrbitCamera } from "./camera.js";
+
+/** Turns an `OrbitCamera` by dragging on an element and zooms it with the wheel or a pinch. */
+export final class OrbitControls {
+  private readonly pointers = new Map<number, { x: number; y: number }>();
+  private readonly abort = new AbortController();
+
+  /** Radians per pixel dragged. */
+  sensitivity = 0.008;
+
+  constructor(private readonly element: HTMLElement, public camera: OrbitCamera) {
+    const options = { signal: this.abort.signal };
+    element.style.touchAction = "none";
+    element.addEventListener("pointerdown", event => {
+      element.setPointerCapture(event.pointerId);
+      this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }, options);
+    element.addEventListener("pointermove", event => this.move(event), options);
+    const release = (event: PointerEvent) => this.pointers.delete(event.pointerId);
+    element.addEventListener("pointerup", release, options);
+    element.addEventListener("pointercancel", release, options);
+    element.addEventListener("wheel", event => {
+      event.preventDefault();
+      this.camera = this.camera.zoomed(Math.exp(event.deltaY * 0.001));
+    }, { ...options, passive: false });
+  }
+
+  private move(event: PointerEvent): void {
+    const last = this.pointers.get(event.pointerId);
+    if (!last) return;
+    const before = this.spread();
+    this.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.pointers.size === 1) {
+      this.camera = this.camera.orbited(-(event.clientX - last.x) * this.sensitivity, (event.clientY - last.y) * this.sensitivity);
+    }
+    else if (this.pointers.size === 2 && before > 0) {
+      this.camera = this.camera.zoomed(before / Math.max(this.spread(), 1));
+    }
+  }
+
+  /** The distance between the first two pointers. */
+  private spread(): number {
+    const [a, b] = [...this.pointers.values()];
+    return a && b ? Math.hypot(a.x - b.x, a.y - b.y) : 0;
+  }
+
+  /** Removes the listeners. */
+  dispose(): void {
+    this.abort.abort();
+    this.pointers.clear();
+  }
+}

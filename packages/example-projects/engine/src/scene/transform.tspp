@@ -1,0 +1,22 @@
+import { Mat4 } from "../math/mat.js";
+import { Vec3 } from "../math/vec.js";
+
+const xAxis = new Vec3(1, 0, 0);
+const yAxis = new Vec3(0, 1, 0);
+const zAxis = new Vec3(0, 0, 1);
+
+/** Where an object is: scaled first, then rotated by `rotation`, Euler angles in radians applied as Z, X, then Y, then moved. */
+export data class Transform(position: Vec3, rotation: Vec3, scale: Vec3) {
+  static at(position: Vec3): Transform {
+    return new Transform(position, new Vec3(0, 0, 0), new Vec3(1, 1, 1));
+  }
+
+  /** The model matrix, which takes the object's coordinates to the world's. */
+  matrix(): Mat4 {
+    return Mat4.translation(this.position)
+      .mul(Mat4.rotation(yAxis, this.rotation.y))
+      .mul(Mat4.rotation(xAxis, this.rotation.x))
+      .mul(Mat4.rotation(zAxis, this.rotation.z))
+      .mul(Mat4.scaling(this.scale));
+  }
+}

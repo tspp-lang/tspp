@@ -1,0 +1,31 @@
+import { deriveSchema, Duration, Port } from "@tspp/config-schema";
+
+type LogLevel = "debug" | "info" | "warn" | "error";
+
+interface Endpoint {
+  url: string;
+  /** How long to wait for a response. */
+  timeout?: Duration;
+}
+
+interface Named {
+  /** The name shown in logs. */
+  name: string;
+}
+
+export interface Settings extends Named {
+  readonly port: Port;
+  host?: string;
+  level: LogLevel;
+  retries?: number | undefined;
+  verbose: boolean;
+  tags: readonly string[];
+  upstreams: Record<string, Endpoint>;
+  fallback: Endpoint | null;
+  database: {
+    url: string;
+    pool: ReadonlyArray<number>;
+  };
+}
+
+macro deriveSchema(Settings);

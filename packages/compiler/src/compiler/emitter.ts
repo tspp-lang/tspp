@@ -428,6 +428,7 @@ import {
     emitTSPPCompatibilityDeclaration,
     emitTSPPRestoredFunctionClause,
     emitTSPPRestoredFunctionPrefix,
+    finishTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
     getTSPPCompatibilityImportTypeArgument,
     getTSPPCompatibilityModuleSpecifier,
     getTSPPDeclarationHeader, // TSPP-SLOT(declaration-output)
@@ -1069,6 +1070,7 @@ export function emitFiles(
             writer.writeLine();
         }
 
+        sourceMapUrlPos = finishTSPPDeclarationHeader(writer, tsppDeclarationHeader, sourceMapUrlPos); // TSPP-SLOT(declaration-output)
         // Write the output file
         const text = writer.getText();
         const data: WriteFileCallbackData = { sourceMapUrlPos, diagnostics: transform.diagnostics };

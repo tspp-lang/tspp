@@ -274,7 +274,7 @@ importers:
         version: 2.1.0
       '@types/node':
         specifier: latest
-        version: 26.6.6
+        version: 26.6.10
       '@types/source-map-support':
         specifier: ^0.5.10
         version: 0.5.10
@@ -334,7 +334,7 @@ importers:
         version: 3.3.1
       knip:
         specifier: ^5.85.0
-        version: 5.88.1(@types/node@26.6.6)(typescript@5.9.3)
+        version: 5.88.1(@types/node@26.6.10)(typescript@5.9.3)
       minimist:
         specifier: ^1.2.8
         version: 1.2.8
@@ -405,6 +405,21 @@ importers:
         specifier: workspace:*
         version: link:../../compiler
 
+  packages/example-projects/config-schema:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.20.5
+        version: 22.20.5
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
+  packages/example-projects/engine:
+    devDependencies:
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+
   packages/example-projects/ledger:
     dependencies:
       '@tspp/command-kit':
@@ -430,6 +445,19 @@ importers:
       ts-plus-plus:
         specifier: workspace:*
         version: link:../../compiler
+
+  packages/example-projects/scene-viewer:
+    dependencies:
+      '@tspp/engine':
+        specifier: workspace:*
+        version: link:../engine
+    devDependencies:
+      ts-plus-plus:
+        specifier: workspace:*
+        version: link:../../compiler
+      vite:
+        specifier: ^8.0.0
+        version: 8.3.5(@types/node@26.6.10)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1)
 
   packages/example-projects/task-kit:
     dependencies:
@@ -2074,6 +2102,9 @@ packages:
 
   '@types/node@24.19.2':
     resolution: {integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==}
+
+  '@types/node@26.6.10':
+    resolution: {integrity: sha512-WJuPHoGB8WNQuTksNF7SOQpnH02PXeDYz4iueWbBT6/hTWnShY5F3T/hoJA3fY9+uYReDZ7pyTKKx83jQa7aGg==}
 
   '@types/node@26.6.6':
     resolution: {integrity: sha512-MzQj+8Kx3XI40OmUAE6Qoh58ZMNstNNMwn2nfd3qWsfe7nDNSqJNzes4njhz6AHwrSHOffSLwXU6yb474Q4aog==}
@@ -4568,6 +4599,10 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  '@types/node@26.6.10':
+    dependencies:
+      undici-types: 8.9.0
+
   '@types/node@26.6.6':
     dependencies:
       undici-types: 8.9.0
@@ -5721,10 +5756,10 @@ snapshots:
     dependencies:
       '@keyv/serialize': 1.1.1
 
-  knip@5.88.1(@types/node@26.6.6)(typescript@5.9.3):
+  knip@5.88.1(@types/node@26.6.10)(typescript@5.9.3):
     dependencies:
       '@nodelib/fs.walk': 1.2.8
-      '@types/node': 26.6.6
+      '@types/node': 26.6.10
       fast-glob: 3.3.3
       formatly: 0.3.0
       jiti: 2.7.0
@@ -6438,6 +6473,21 @@ snapshots:
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 22.20.5
+      esbuild: 0.27.3
+      fsevents: 2.3.3
+      jiti: 2.7.0
+      terser: 5.51.2
+      yaml: 2.9.1
+
+  vite@8.3.5(@types/node@26.6.10)(esbuild@0.27.3)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1):
+    dependencies:
+      lightningcss: 1.33.0
+      picomatch: 4.0.7
+      postcss: 8.5.32
+      rolldown: 1.2.16
+      tinyglobby: 0.2.17
+    optionalDependencies:
+      '@types/node': 26.6.10
       esbuild: 0.27.3
       fsevents: 2.3.3
       jiti: 2.7.0

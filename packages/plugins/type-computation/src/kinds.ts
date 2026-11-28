@@ -170,6 +170,16 @@ export interface TypeSyntaxModel {
     readonly unchecked: WeakSet<TS.Node>;
     /** An alias's annotation as a term, for the kernel to check its body against. */
     readonly termAnnotations: WeakMap<TS.Node, MlttTerm>;
+    /**
+     * Descriptor types `{ kind: "type"; text: string; __tspp_reified_type: T }`, which `reify T`, `Reified<T>`, and a
+     * parameter `(A: Type)` lower to, with the node of `T`. The checker gives each the trusted `Reified<T>`.
+     */
+    readonly descriptorTypes: WeakMap<TS.Node, TS.TypeNode>;
+    /**
+     * The text a lowered term was parsed from, for declaration output of a copy that is in no file: another plugin may
+     * parse a type twice, once for a declaration it generates.
+     */
+    readonly sourceTexts: WeakMap<TS.Node, string>;
     /** The file being parsed: its earlier aliases, and the names it declares itself. */
     file?: { sourceText: string; readonly aliases: Map<string, MlttTerm>; declared?: ReadonlySet<string>; };
     /** Whether any kind annotation or type constructor was parsed, so that ordinary programs skip kind work. */
@@ -190,6 +200,8 @@ export function createTypeSyntaxModel(getDeclarationKeywords: () => readonly str
         termBuiltins: new WeakMap(),
         unchecked: new WeakSet(),
         termAnnotations: new WeakMap(),
+        descriptorTypes: new WeakMap(),
+        sourceTexts: new WeakMap(),
         used: false,
     };
 }

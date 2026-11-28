@@ -54,6 +54,15 @@ declare module "virtual:tspp-editor-keywords" {
   export default keywords;
 }
 
+declare module "virtual:tspp-skills" {
+  interface SkillsBundle {
+    readonly entry: string;
+    readonly files: Readonly<Record<string, string>>;
+  }
+  const skills: SkillsBundle;
+  export default skills;
+}
+
 declare module "monaco-editor/languages/definitions/markdown/markdown.js" {
   import type { languages } from "monaco-editor";
   export const conf: languages.LanguageConfiguration;

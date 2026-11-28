@@ -1,0 +1,70 @@
+/** A key of an object or an index of an array, from the root of the configuration. */
+export type PathSegment = string | number;
+
+/**
+ * One reason a configuration value was rejected. `source` names where the value came from, such as a file or an
+ * environment variable, once a loader knows it.
+ */
+export data class Issue(path: readonly PathSegment[], message: string, source: string | undefined)
+
+/** The outcome of decoding: a value, or every issue found, in input order. */
+export data Decoded<T = never> = Valid(value: T) | Invalid(issues: readonly Issue[]);
+
+export function issue(message: string, path: readonly PathSegment[] = []): Issue do {
+  new Issue(path, message, undefined);
+}
+
+export function invalid(message: string): Decoded do {
+  Invalid([issue(message)]);
+}
+
+/** Issues found inside a nested value, moved under the key or index that holds it. */
+export function nested(segment: PathSegment, issues: readonly Issue[]): Issue[] do {
+  issues.map(item => new Issue([segment, ...item.path], item.message, item.source));
+}
+
+const identifier = /^[A-Za-z_$][\w$]*$/u;
+
+/** Formats a path as written in JavaScript: `servers[0].host`, or `<root>` for the whole configuration. */
+export function formatPath(path: readonly PathSegment[]): string {
+  if (!path.length) return "<root>";
+  return path.map((segment, index) => typeof segment === "number"
+    ? `[${segment}]`
+    : identifier.test(segment)
+    ? `${index ? "." : ""}${segment}`
+    : `[${JSON.stringify(segment)}]`).join("");
+}
+
+export function formatIssue(item: Issue): string do {
+  const location = `${formatPath(item.path)}: ${item.message}`;
+  item.source === undefined ? location : `${location} (from ${item.source})`;
+}
+
+/** Describes a rejected input briefly, for messages such as `expected an integer, got "abc"`. */
+export function describeValue(value: unknown): string {
+  if (value === undefined) return "nothing";
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "an array";
+  if (typeof value === "object") return "an object";
+  if (typeof value === "string") return JSON.stringify(value.length > 40 ? `${value.slice(0, 37)}...` : value);
+  if (typeof value === "bigint") return `${value}n`;
+  return String(value);
+}
+
+/** Thrown by the throwing entry points, with every issue that `Invalid` would carry. */
+export class ConfigError extends Error {
+  readonly issues: readonly Issue[];
+
+  constructor(issues: readonly Issue[]) {
+    super(["Invalid configuration:", ...issues.map(item => `  ${formatIssue(item)}`)].join("\n"));
+    this.name = "ConfigError";
+    this.issues = Object.freeze([...issues]);
+  }
+}
+
+export function valueOrThrow<T>(decoded: Decoded<T>): T do {
+  match decoded {
+    Valid(value) => value,
+    Invalid(issues) => do { throw new ConfigError(issues); },
+  };
+}

@@ -1,0 +1,39 @@
+{
+  "name": "@tspp/engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A small WebGPU engine: vector math, shaders written as TS++ functions and compiled to WGSL, GPU resources, and scenes.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./math": {
+      "tspp-types": "./dist/math/index.d.tspp",
+      "types": "./dist/math/index.d.ts",
+      "default": "./dist/math/index.js"
+    },
+    "./shader": {
+      "tspp-types": "./dist/shader/index.d.tspp",
+      "types": "./dist/shader/index.d.ts",
+      "default": "./dist/shader/index.js"
+    },
+    "./gpu": {
+      "tspp-types": "./dist/gpu/index.d.tspp",
+      "types": "./dist/gpu/index.d.ts",
+      "default": "./dist/gpu/index.js"
+    },
+    "./scene": {
+      "tspp-types": "./dist/scene/index.d.tspp",
+      "types": "./dist/scene/index.d.ts",
+      "default": "./dist/scene/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tspp --compile -p tsppconfig.json --pretty false",
+    "check": "tspp --compile -p tsppconfig.json --noEmit --pretty false",
+    "test": "pnpm build && pnpm test:run",
+    "test:run": "node --test --test-concurrency=1 test/*.test.mjs"
+  },
+  "devDependencies": {
+    "ts-plus-plus": "workspace:*"
+  }
+}

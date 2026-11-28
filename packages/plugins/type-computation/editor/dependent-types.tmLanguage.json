@@ -69,7 +69,7 @@
       "name": "support.type.universe.tspp"
     },
     {
-      "match": "\\b(?:Bool|True|False|BoolElim|If|Nat|Zero|Succ|NatAdd|NatElim|Eq|Refl|J|Sigma|Pair|First|Second|Lam|Ann)\\b",
+      "match": "\\b(?:Bool|True|False|BoolElim|If|Nat|Zero|Succ|NatAdd|NatElim|Eq|Refl|J|Sigma|Pair|First|Second|Lam|Ann|Reified)\\b",
       "name": "support.type.mltt.tspp"
     },
     {

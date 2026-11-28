@@ -4,7 +4,7 @@ const { TSPPPluginHost } = require("@tspp/plugin-sdk/host");
 const { ts } = require("../../test-support/compile.cjs");
 const { advancedClassesPlugin } = require("../dist");
 
-test("registers its syntax extensions and diagnostics, and removes them on dispose", () => {
+test("registers its syntax extensions, diagnostics, and rebuilder, and removes them on dispose", () => {
   const registered = new Set();
   const register = kind => (_pluginId, value) => {
     const key = `${kind}:${value.position ?? value.id}`;
@@ -15,6 +15,7 @@ test("registers its syntax extensions and diagnostics, and removes them on dispo
     registerSyntaxExtension: register("syntax"),
     registerDiagnosticProvider: register("diagnostics"),
     registerSourcePreprocessor: register("preprocessor"),
+    registerProgramRebuilder: register("rebuilder"),
   };
   const logger = { debug() {}, info() {}, warn() {}, error() {} };
   const host = new TSPPPluginHost({ compilerVersion: "0.0.0", logger, compiler, ts });
@@ -25,6 +26,7 @@ test("registers its syntax extensions and diagnostics, and removes them on dispo
   assert(registered.has("syntax:primary-expression"));
   assert(registered.has("syntax:expression"));
   assert(registered.has("diagnostics:advanced-classes-diagnostics"));
+  assert(registered.has("rebuilder:advanced-classes-multiple-inheritance"));
 
   host.dispose();
   assert.equal(registered.size, 0);

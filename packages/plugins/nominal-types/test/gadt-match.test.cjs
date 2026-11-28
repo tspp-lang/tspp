@@ -110,3 +110,21 @@ test("a computed scrutinee is evaluated once and guarded bodies retain their ind
   assert.equal(exports.count, 1);
   assert.equal(exports.result, 5n);
 });
+
+test("a hidden value index widens to its constraint when it is returned", () => {
+  const sized = `
+    type Vec<T, N extends number, Items extends T[] = []> = Items["length"] extends N ? Items : Vec<T, N, [...Items, T]>;
+    data Sized { Sized: <N extends number>(length: N, items: Vec<number, N>) => Sized }
+    declare const sized: Sized;`;
+  assert.deepEqual(check(`${sized}
+    export const length = match sized { Sized(length, items) => length };
+    export const checked: number = length;`), []);
+  // The items' type has no supertype to stand for it, so it still has to be wrapped.
+  assert.ok(check(`${sized}
+    export const leak = match sized { Sized(length, items) => items };`).some(message => /hidden constructor type escapes/.test(message)));
+  // A hidden type without a primitive constraint would only widen to `unknown`.
+  assert.ok(check(`
+    data Packed = Pack<A>(value: A): Packed;
+    declare const packed: Packed;
+    export const leak = match packed { Pack(value) => value };`).some(message => /hidden constructor type escapes/.test(message)));
+});

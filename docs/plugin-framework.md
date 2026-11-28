@@ -166,16 +166,25 @@ TS++ mode can use `createTSPPConfigHost` to obtain an isolated host wrapper.
 
 This is designed behaviour, not a fallback for something that went wrong:
 
-> A `.d.tspp` file is read only by a project that has every plugin of the project that
-> wrote it. Any other project reads the compatible `.d.ts` beside it.
+> A `.d.tspp` file is read only by a project that has every plugin whose syntax the file
+> holds. Any other project reads the compatible `.d.ts` beside it.
 
-A `.d.tspp` file's first line names those plugins (`// @tspp-plugins a,b`); the host
-compares it with the active ones during module resolution, before recording the
-resolved path, extension, or package identity. A program's file-loading path also
-checks explicit roots and custom host results. Package `tsppTypes`, the `tspp-types`
-condition, and project references all follow the rule. It
-counts the writer's plugins, not the syntax a file happens to use: a file without plugin
-syntax is the same either way.
+A `.d.tspp` file's first line names those plugins (`// @tspp-plugins a,b`), or none
+(`// @tspp-plugins`); the host compares it with the active ones during module resolution,
+before recording the resolved path, extension, or package identity. A program's file-loading
+path also checks explicit roots and custom host results. Package `tsppTypes`, the
+`tspp-types` condition, and project references all follow the rule.
+
+The rule counts each file's syntax, not every plugin of the project that wrote it, so a
+project needs only the plugins of the files it reads: a library's macro can be invoked by
+a project with just the macros plugin. A plugin's syntax is in a file wherever the two
+outputs differ: where it restores a declaration for `.d.tspp` output, even as nothing,
+where it restores a function clause or prefix, and where it writes a declaration otherwise
+in the compatible `.d.ts`, as a plugin whose syntax the upstream printer keeps does. The
+writer records them while the file prints and narrows the header, written first with every
+active plugin, afterwards; the header stays one line, so declaration maps keep their lines.
+Each file is read one way or the other on its own, so a project may read some files of a
+package with their syntax and the rest as they lower.
 
 The module resolver's two declaration-selection call sites use the existing
 `declaration-output` host helper. Waiting until a file is loaded leaves a `.d.tspp`

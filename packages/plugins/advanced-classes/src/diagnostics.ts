@@ -7,6 +7,10 @@ import type * as TS from "typescript-upstream";
 
 import type { AdvancedClassInfo, createAdvancedClassDeclarations } from "./class-decl";
 import type { createFieldSyntax } from "./field";
+import { DIAGNOSTIC_PROTOTYPE_OPERATION, type MultipleInheritance } from "./multiple-inheritance";
+import { checkMappedSuper } from "./mapped-super-checks";
+import { checkMultipleBases, tokenStart } from "./multiple-inheritance-checks";
+import { createPrototypeCheck } from "./prototype-checks";
 import type { createWithSyntax } from "./with";
 
 export const DIAGNOSTIC_CANNOT_INHERIT_FINAL = 19101;
@@ -33,8 +37,11 @@ export function createAdvancedClassDiagnostics(
     classDecls: ReturnType<typeof createAdvancedClassDeclarations>,
     fieldSyntax: ReturnType<typeof createFieldSyntax>,
     withSyntax: ReturnType<typeof createWithSyntax>,
+    multiple: MultipleInheritance,
+    programs: WeakMap<TS.TypeChecker, TS.Program>,
 ): TSPPDiagnosticProvider {
     const kinds = ts.SyntaxKind;
+    const prototypeChecks = new WeakMap<TS.TypeChecker, ReturnType<typeof createPrototypeCheck>>();
 
     /**
      * The classes `node` inherits from, nearest first, as the checker sees them: a base can be written as a name, a
@@ -66,6 +73,25 @@ export function createAdvancedClassDiagnostics(
         return bases;
     }
 
+    /**
+     * An error in the interface a class with several bases lowers to sits without width at the end of the class: it belongs
+     * to the class's name. That two bases conflict is this plugin's own error, reported at the base.
+     */
+    function moveInterfaceDiagnostic(diagnostic: TS.Diagnostic): TS.Diagnostic | false | undefined {
+        if (!diagnostic.file || diagnostic.start === undefined || diagnostic.length) return undefined;
+        let owner: TS.ClassDeclaration | undefined;
+        const find = (node: TS.Node): void => {
+            if (owner || node.pos > diagnostic.start! || node.end < diagnostic.start!) return;
+            if (ts.isClassDeclaration(node) && multiple.getMultipleBases(node)?.end === diagnostic.start) owner = node;
+            else ts.forEachChild(node, find);
+        };
+        find(diagnostic.file);
+        if (!owner?.name) return undefined;
+        if (diagnostic.code === 2320) return false;
+        const start = tokenStart(ts, owner.name, diagnostic.file);
+        return { ...diagnostic, start, length: owner.name.end - start };
+    }
+
     return {
         id: "advanced-classes-diagnostics",
         getSemanticDiagnostics(sourceFile, checker) {
@@ -84,9 +110,31 @@ export function createAdvancedClassDiagnostics(
                 }
             }
 
+            let checkPrototype = prototypeChecks.get(checker);
+            if (!checkPrototype) {
+                checkPrototype = createPrototypeCheck(ts, multiple, programs.get(checker), checker);
+                prototypeChecks.set(checker, checkPrototype);
+            }
+
             function visit(node: TS.Node) {
+                checkPrototype!(node, (at, messageText) => {
+                    const start = tokenStart(ts, at, sourceFile);
+                    diagnostics.push({ file: sourceFile, start, length: Math.max(1, at.end - start), messageText, category: ts.DiagnosticCategory.Error, code: DIAGNOSTIC_PROTOTYPE_OPERATION });
+                });
                 // Check class inheritance
                 if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
+                    const multipleBases = ts.isClassDeclaration(node) ? multiple.getMultipleBases(node) : undefined;
+                    if (multipleBases) {
+                        const report = (at: TS.Node, code: number, messageText: string) => {
+                            const start = tokenStart(ts, at, sourceFile);
+                            diagnostics.push({ file: sourceFile, start, length: Math.max(1, at.end - start), messageText, category: ts.DiagnosticCategory.Error, code });
+                        };
+                        checkMappedSuper(ts, multiple, node as TS.ClassDeclaration, checker, report);
+                        checkMultipleBases(ts, multiple, node as TS.ClassDeclaration, checker, (at, code, messageText) => {
+                            const start = tokenStart(ts, at, sourceFile);
+                            diagnostics.push({ file: sourceFile, start, length: Math.max(1, at.end - start), messageText, category: ts.DiagnosticCategory.Error, code });
+                        });
+                    }
                     if (node.heritageClauses) {
                         for (const clause of node.heritageClauses) {
                             if (clause.token === kinds.ExtendsKeyword) {
@@ -94,12 +142,20 @@ export function createAdvancedClassDiagnostics(
                                 for (const typeNode of clause.types.slice(0, 1)) {
                                     const bases = getBaseClasses(node, checker);
                                     if (bases.length) {
-                                        const nodeStart = typeof typeNode.getStart === "function" ? typeNode.getStart(sourceFile) : typeNode.pos;
+                                        const typeNodeStart = typeof typeNode.getStart === "function" ? typeNode.getStart(sourceFile) : typeNode.pos;
                                         const nodeEnd = typeof typeNode.getEnd === "function" ? typeNode.getEnd() : typeNode.end;
-                                        const nodeLen = Math.max(1, nodeEnd - nodeStart);
+                                        const typeNodeLen = Math.max(1, nodeEnd - typeNodeStart);
 
                                         for (const { declaration, info, direct } of bases) {
                                             if (!direct || !info) continue;
+                                            // A class with several bases names each of them where it was written.
+                                            const written = multipleBases?.bases.find(base => {
+                                                const symbol = checker.getSymbolAtLocation(ts.isPropertyAccessExpression(base) ? base.name : base);
+                                                const target = symbol && symbol.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(symbol) : symbol;
+                                                return !!target?.declarations?.some(candidate => ts.getOriginalNode(candidate) === ts.getOriginalNode(declaration));
+                                            });
+                                            const nodeStart = written ? tokenStart(ts, written, sourceFile) : typeNodeStart;
+                                            const nodeLen = written ? Math.max(1, written.end - nodeStart) : typeNodeLen;
 
                                             // 1. Check final class inheritance
                                             if (info.isFinal) {
@@ -162,6 +218,18 @@ export function createAdvancedClassDiagnostics(
         },
 
         filterDiagnostic(diagnostic) {
+            if ([2511, 2674, 2675].includes(diagnostic.code) && diagnostic.file && diagnostic.start !== undefined) {
+                const at = diagnostic.start;
+                const probeAt = (node: TS.Node): boolean => multiple.isConstructorProbe(node) && node.pos <= at && at <= node.end && ts.isNewExpression(node) && !node.arguments?.some(argument => argument.pos <= at && at < argument.end) || !!ts.forEachChild(node, probeAt);
+                if (probeAt(diagnostic.file)) return false;
+            }
+            if ([2445, 2446].includes(diagnostic.code) && diagnostic.file && diagnostic.start !== undefined) {
+                const at = diagnostic.start;
+                const selectionAt = (node: TS.Node): boolean => (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && !!multiple.getSelectedSuper(node.expression) && node.pos <= at && at <= node.end || !!ts.forEachChild(node, selectionAt);
+                if (selectionAt(diagnostic.file)) return false;
+            }
+            const moved = moveInterfaceDiagnostic(diagnostic);
+            if (moved !== undefined) return moved;
             if ((diagnostic.code === 2304 || diagnostic.code === 2552) && diagnostic.file && diagnostic.start !== undefined) {
                 const start = diagnostic.start;
                 const end = start + (diagnostic.length ?? 0);

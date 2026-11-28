@@ -69,12 +69,11 @@ export function parseClassBodyMembers(
         return params;
     };
 
-    /** A body, or none in a declaration file or an overload, which ends with a semicolon. */
-    const parseBody = (): TS.Block | undefined => {
-        if (cursor.token() === kinds.OpenBraceToken) return cursor.parseStatement() as TS.Block;
-        cursor.parseOptional(kinds.SemicolonToken);
-        return undefined;
-    };
+    /**
+     * A body as the parser reads one, so another plugin's body syntax such as `do { ... }` works here too; or none in a
+     * declaration file or an overload, which ends with a semicolon.
+     */
+    const parseBody = (context?: { readonly await?: boolean; readonly yield?: boolean; }): TS.Block | undefined => cursor.parseFunctionBody(context);
 
     cursor.parseExpected(kinds.OpenBraceToken);
 
@@ -99,6 +98,7 @@ export function parseClassBodyMembers(
         let isFinal = false;
         let isField = false;
         let isAsync = false;
+        let isGenerator = false;
         let isStatic = false;
         let isReadonly = false;
         let isAbstract = false;
@@ -156,6 +156,11 @@ export function parseClassBodyMembers(
                 isAsync = true;
                 seenMemberModifiers.set("async", modStart);
                 cursor.nextToken();
+            } else if (token === kinds.AsteriskToken) {
+                // `*` comes last, right before the name of a generator method.
+                isGenerator = true;
+                cursor.nextToken();
+                break;
             } else if (text === "final") {
                 const isModifier = cursor.lookAhead(() => {
                     cursor.nextToken();
@@ -376,10 +381,10 @@ export function parseClassBodyMembers(
                 returnType = cursor.parseType();
             }
 
-            const body = parseBody();
+            const body = parseBody({ await: isAsync, yield: isGenerator });
             const methodDecl = f.createMethodDeclaration(
                 memberModifiers.length ? f.createNodeArray(memberModifiers) : undefined,
-                undefined,
+                isGenerator ? f.createToken(kinds.AsteriskToken) : undefined,
                 memberName,
                 questionToken,
                 typeParameters,

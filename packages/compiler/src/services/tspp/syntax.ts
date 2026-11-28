@@ -18,6 +18,7 @@ import {
     isLiteralKind,
     isNamedImports,
     isTemplateLiteralKind,
+    isTSPPFileName,
     isTSPPSourceCopy,
     isTSPPSyntaxNode,
 } from "../_namespaces/ts.js";
@@ -34,6 +35,7 @@ import type {
     SourceFileLike,
     SyntaxList,
     TextRange,
+    TextChangeRange,
 } from "../_namespaces/ts.js";
 import {
     Extension,
@@ -49,6 +51,15 @@ import {
 // keywords and names between parsed nodes.
 
 const scanner = createScanner(ScriptTarget.Latest, /*skipTrivia*/ true);
+
+/**
+ * TS++ files already require a full parse. Their old text may be projected, so an incremental edit must read the
+ * complete authored snapshot instead of copying projected prefixes and suffixes into the new source.
+ * @internal
+ */
+export function getSourceFileUpdateRange(sourceFile: SourceFile, changeRange: TextChangeRange | undefined): TextChangeRange | undefined {
+    return isTSPPFileName(sourceFile.fileName) ? undefined : changeRange;
+}
 
 /**
  * The node under `position` among what a plugin bound beside `node`'s children, which has source positions but is not
@@ -75,10 +86,14 @@ export function createTSPPChildren(node: Node, sourceFile: SourceFileLike | unde
     scanner.setText((sourceFile || node.getSourceFile()).text);
     let pos = node.pos;
     let hasSyntheticChildren = false;
+    // Outside plugin syntax, an empty child is the parser's, such as the missing expression after a trailing `(`, and
+    // stays a child, as upstream: editor features look for it beside the token before it.
+    const ordinary = !isInsideTSPPSyntax(node);
     const processNode = (child: Node) => {
         // A generated child has no tokens, an empty one marks no place, and the tokens of a copy are its original's: the
         // source around them is still scanned.
-        if (child.pos < 0 || child.end < 0 || child.pos === child.end || isTSPPSourceCopy(child)) {
+        const generatedEmpty = child.pos === child.end && !(ordinary && !isTSPPSyntaxNode(child));
+        if (child.pos < 0 || child.end < 0 || generatedEmpty || isTSPPSourceCopy(child)) {
             hasSyntheticChildren = true;
             return;
         }
@@ -153,6 +168,14 @@ function inTokenWalkOrder(children: Node[], sourceFile: SourceFileLike | undefin
 
 function isInTSPPFile(node: Node) {
     return !!(getSourceFileOfNode(node) as SourceFile | undefined)?.fileName.endsWith(Extension.Tspp);
+}
+
+/** Whether a node is plugin syntax or inside it. */
+function isInsideTSPPSyntax(node: Node): boolean {
+    for (let current: Node | undefined = node; current; current = current.parent) {
+        if (isTSPPSyntaxNode(current)) return true;
+    }
+    return false;
 }
 
 function isPositionless(range: TextRange) {

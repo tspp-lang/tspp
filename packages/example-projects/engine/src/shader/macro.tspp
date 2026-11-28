@@ -1,0 +1,80 @@
+import type { MacroContext, MacroNode, MacroReturn, MacroTarget } from "ts-plus-plus/plugins/macros/sdk";
+import { ShaderError, type ShaderChecker, type SyntaxNode, translateShader } from "./translate.js";
+
+/** The module that generated code imports `defineShader` from. */
+const library = "@tspp/engine/shader";
+
+/** The node factory calls for a type literal, which the typed factory does not offer. */
+interface TypeLiteralFactory {
+  createTypeLiteralNode(members: readonly MacroNode[]): MacroNode;
+  createPropertySignature(modifiers: readonly MacroNode[] | undefined, name: string, questionToken: undefined, type: MacroNode): MacroNode;
+}
+
+/** Turns a plain value of strings, numbers, arrays and objects into an expression that builds it. */
+function literal(context: MacroContext, value: unknown): MacroNode {
+  const factory = context.factory;
+  if (typeof value === "string") return factory.createStringLiteral(value);
+  if (typeof value === "number") return factory.createNumericLiteral(value);
+  if (Array.isArray(value)) return factory.createArrayLiteralExpression(value.map(element => literal(context, element)), value.length > 0);
+  const properties = Object.entries(value as Record<string, unknown>).map(([key, field]) => factory.createPropertyAssignment(key, literal(context, field)));
+  return factory.createObjectLiteralExpression(properties, true);
+}
+
+/** The line and column of `node` in its file, for messages. */
+function position(node: SyntaxNode): string {
+  let file: SyntaxNode | undefined = node;
+  while (file?.parent) file = file.parent;
+  const text = file?.text;
+  const start = node.getStart?.();
+  if (typeof text !== "string" || start === undefined) return "";
+  const before = text.slice(0, start).split("\n");
+  return ` (line ${before.length}, column ${before.at(-1)!.length + 1})`;
+}
+
+/**
+ * Compiles a namespace of shader functions to WGSL and generates `const <Name>Module`, a `ShaderModule` that holds the
+ * code and the buffer layouts, exported when the namespace is.
+ *
+ * The namespace has a `vertex` entry, a `fragment` entry or both, and any helper functions. The first parameter of
+ * `vertex` is the vertex input interface, whose fields become vertex attributes in order; it returns the interface
+ * that `fragment` takes first, whose field typed `Builtin<"position", Vec4>` is the clip-space position and whose
+ * other fields are interpolated. `fragment` returns the color as a `Vec4`. Further entry parameters are uniform
+ * interfaces, bound in order of first appearance. Functions use numbers, booleans, the vectors and matrices of
+ * `@tspp/engine/math` with their methods and built-in functions, and interfaces as structs; every parameter and
+ * return type is written out. Each function still runs on the CPU as written.
+ */
+export macro function shaderModule(targets: readonly MacroTarget[], context: MacroContext): MacroReturn {
+  const [target] = targets;
+  const { SyntaxKind, NodeFlags } = context.typescript;
+  if (!target || targets.length > 1 || target.node.kind !== SyntaxKind.ModuleDeclaration) {
+    return context.fail("shaderModule takes one namespace of shader functions");
+  }
+  const namespace = target.node as unknown as SyntaxNode;
+  let translation;
+  try {
+    translation = translateShader(namespace, target.name, { SyntaxKind, NodeFlags }, context.checker as ShaderChecker);
+  }
+  catch (error) {
+    if (error instanceof ShaderError) return context.fail(`${target.name}${position(error.node)}: ${error.message}`);
+    throw error;
+  }
+
+  const factory = context.factory;
+  const raw = context.typescript.factory as unknown as TypeLiteralFactory;
+  const alias = (name: string) => `${target.name.replace(/\./gu, "$")}$${name}`;
+  const vertexType = translation.vertexType
+    ? factory.createTypeReferenceNode(translation.vertexType)
+    : factory.createKeywordTypeNode(SyntaxKind.NeverKeyword);
+  const bindingsType = raw.createTypeLiteralNode(translation.bindingTypes.map(binding =>
+    raw.createPropertySignature([factory.createModifier(SyntaxKind.ReadonlyKeyword)], binding.name, undefined, factory.createTypeReferenceNode(binding.type))
+  ));
+  const call = factory.createCallExpression(factory.createIdentifier(alias("defineShader")), [vertexType, bindingsType], [literal(context, translation.description)]);
+  const exported = (namespace.modifiers ?? []).some(modifier => modifier.kind === SyntaxKind.ExportKeyword);
+  return [
+    factory.createImportStatement(library, [{ name: "defineShader", alias: alias("defineShader") }]),
+    factory.createVariableStatement(
+      exported ? [factory.createModifier(SyntaxKind.ExportKeyword)] : undefined,
+      factory.createVariableDeclarationList([factory.createVariableDeclaration(`${target.name.split(".").at(-1)}Module`, undefined, undefined, call)], NodeFlags.Const),
+    ),
+  ];
+}

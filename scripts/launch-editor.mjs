@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -9,7 +10,17 @@ const rootDir = path.resolve(
   "..",
 );
 const extensionDir = path.resolve(rootDir, "packages/vscode-extension");
-const workspaceDir = path.resolve(rootDir, "packages/examples");
+const requestedWorkspace =
+  process.argv[2] ?? process.env.TSPP_WORKSPACE ?? "packages/examples";
+const workspaceDir = path.resolve(rootDir, requestedWorkspace);
+
+if (!existsSync(workspaceDir)) {
+  console.error(
+    "\x1b[31m%s\x1b[0m",
+    `Workspace directory does not exist: ${workspaceDir}`,
+  );
+  process.exit(1);
+}
 
 function commandInvocation(command, args) {
   if (process.platform !== "win32") return { command, args };
@@ -55,6 +66,18 @@ if (buildResult.status !== 0) {
   process.exit(buildResult.status ?? 1);
 }
 
+function commandExists(command) {
+  const probe = process.platform === "win32" ? "where.exe" : "which";
+  return spawnSync(probe, [command], { stdio: "ignore" }).status === 0;
+}
+
+function resolveAntigravityCommand(hintValue = "") {
+  const candidates = /antigravity[\s_-]*ide/i.test(hintValue)
+    ? ["antigravity-ide", "antigravity"]
+    : ["antigravity", "antigravity-ide"];
+  return candidates.find(commandExists) ?? candidates[0];
+}
+
 function detectEditor() {
   if (process.env.TSPP_EDITOR) {
     return {
@@ -71,7 +94,7 @@ function detectEditor() {
     process.env.ANTIGRAVITY_VSCODE_HOST
   ) {
     return {
-      command: "antigravity",
+      command: resolveAntigravityCommand(process.env.VSCODE_EXEC_PATH),
       source: "ANTIGRAVITY_* env",
     };
   }
@@ -107,7 +130,7 @@ function detectEditor() {
   for (const [key, value] of hintEntries) {
     if (/Antigravity/i.test(value)) {
       return {
-        command: "antigravity",
+        command: resolveAntigravityCommand(value),
         source: `${key} (${value})`,
       };
     }

@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "TS++: Launch in Terminal (Keep Alive)",
+            "name": "TS++: Launch Examples (Keep Alive)",
             "type": "node",
             "request": "launch",
             "program": "${workspaceFolder}/scripts/launch-editor.mjs",
@@ -13,8 +13,22 @@
             }
         },
         {
+            "name": "TS++: Launch Example Projects (Keep Alive)",
+            "type": "node",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/launch-editor.mjs",
+            "args": [
+                "packages/example-projects"
+            ],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "env": {
+                "VSCODE_EXEC_PATH": "${execPath}"
+            }
+        },
+        {
             "name": "TS++: Playground",
-            "type": "pwa-chrome",
+            "type": "chrome",
             "request": "launch",
             "url": "http://localhost:5173/",
             "webRoot": "${workspaceFolder}/packages/playground",

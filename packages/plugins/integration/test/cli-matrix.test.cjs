@@ -370,6 +370,59 @@ export const holds: Holds<Array> = { items: [1] };
   }
 });
 
+test("a project with only the plugins one declaration file needs reads that file with its syntax", () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
+  try {
+    installCompiler(directory);
+    const compile = (cwd, plugins) => {
+      fs.writeFileSync(path.join(cwd, "tsppconfig.json"), JSON.stringify({
+        compilerOptions: { target: "es2022", module: "nodenext", moduleResolution: "nodenext", outDir: "out", rootDir: "src", types: [], strict: true, declaration: true, plugins: plugins.map(plugin => ({ name: pluginName(plugin), tspp: true })) },
+        include: ["src"],
+      }));
+      const result = spawnSync(process.execPath, ["--max-old-space-size=1024", tsc, "-p", "."], { cwd, encoding: "utf8" });
+      return { status: result.status, output: `${result.stdout}${result.stderr}` };
+    };
+    // The library uses three plugins, but its macro's file only needs the macros plugin, and its entry none.
+    const library = path.join(directory, "node_modules", "library");
+    fs.mkdirSync(path.join(library, "src"), { recursive: true });
+    fs.writeFileSync(path.join(library, "src", "index.tspp"), `export const doubled = do { 21 * 2 };
+export * from "./flags.js";
+export * from "./macros.js";
+`);
+    fs.writeFileSync(path.join(library, "src", "flags.tspp"), "export data Flag = On | Off;\n");
+    fs.writeFileSync(path.join(library, "src", "macros.tspp"), `export ${macro.replace("named([target], context)", "named([target]: any[], context: any)")}\n`);
+    fs.writeFileSync(path.join(library, "package.json"), JSON.stringify({
+      name: "library", type: "commonjs",
+      exports: { ".": { "tspp-types": "./out/index.d.tspp", types: "./out/index.d.ts", default: "./out/index.js" } },
+    }));
+    fs.symlinkSync(path.join(directory, "node_modules"), path.join(library, "node_modules"), "junction");
+    const built = compile(library, ["nominal-types", "modern-syntax", "macros"]);
+    assert.equal(built.status, 0, built.output);
+    const header = name => fs.readFileSync(path.join(library, "out", `${name}.d.tspp`), "utf8").split(/\r?\n/)[0];
+    assert.equal(header("index"), "// @tspp-plugins");
+    assert.equal(header("flags"), "// @tspp-plugins nominal-types");
+    assert.equal(header("macros"), "// @tspp-plugins macros");
+
+    const consumer = path.join(directory, "consumer");
+    fs.mkdirSync(path.join(consumer, "src"), { recursive: true });
+    fs.symlinkSync(path.join(directory, "node_modules"), path.join(consumer, "node_modules"), "junction");
+    fs.writeFileSync(path.join(consumer, "package.json"), JSON.stringify({ type: "commonjs" }));
+    // The data type arrives through the compatible flags.d.ts, and the macro through macros.d.tspp.
+    fs.writeFileSync(path.join(consumer, "src", "index.tspp"), `import { named, On, type Flag } from "library";
+interface Settings { port: number }
+macro named(Settings);
+export const name: string = SettingsName;
+export const flag: Flag = On;
+export const wrong: Flag = 1;
+`);
+    const used = compile(consumer, ["macros"]);
+    assert.deepEqual(used.output.split(/\r?\n/).filter(line => /error TS/.test(line)).map(line => /error (TS\d+)/.exec(line)[1]), ["TS2322"], used.output);
+  }
+  finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("a project finds plugins installed above it, however -p names it", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "tspp-cli-"));
   try {

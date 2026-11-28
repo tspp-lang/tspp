@@ -42,7 +42,7 @@ function printMlttTermWorker(term: MlttTerm, names: readonly string[]): string {
       return `J<${printMlttTermWorker(term.type, names)}, ${printMlttTermWorker(term.motive, names)}, ${printMlttTermWorker(term.reflexivityCase, names)}, ${printMlttTermWorker(term.left, names)}, ${printMlttTermWorker(term.right, names)}, ${printMlttTermWorker(term.equality, names)}>`;
     case "sigma": {
       const name = freshName(term.parameterName, names);
-      return `Sigma<(${name}: ${printMlttTermWorker(term.domain, names)}) -> ${printMlttTermWorker(term.codomain, [name, ...names])}>`;
+      return `Sigma<(${name}: ${printMlttTermWorker(term.domain, names)}) => ${printMlttTermWorker(term.codomain, [name, ...names])}>`;
     }
     case "pair":
       return `Pair<${printMlttTermWorker(term.sigmaType, names)}, ${printMlttTermWorker(term.first, names)}, ${printMlttTermWorker(term.second, names)}>`;

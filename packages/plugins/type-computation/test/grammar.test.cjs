@@ -29,9 +29,10 @@ const samples = new Map([
   ["First", "type X = First<A>;"],
   ["Second", "type X = Second<A>;"],
   ["Ann", "type X = Ann<A, B>;"],
-  ["Sigma", "type X = Sigma<(a: Nat) -> Nat>;"],
+  ["Sigma", "type X = Sigma<(a: Nat) => Nat>;"],
   ["auto", "select<auto, string>(1);"],
   ["reify", "const runtime = reify(Bool);"],
+  ["Reified", "type Descriptor = Reified<number>;"],
   ["typecase", "const t = typecase d { number => 1, _ => 2 };"],
 ]);
 

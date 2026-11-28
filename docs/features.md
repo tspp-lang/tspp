@@ -10,7 +10,7 @@ Features are opt-in and composable via `tsppconfig.json` (`compilerOptions.plugi
 
 | Feature Capsule | Package Name | Status | Key Capabilities | Example Project |
 | :--- | :--- | :--- | :--- | :--- |
-| [**Advanced Classes**](#1-advanced-classes) | `ts-plus-plus/plugins/advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods | [`03-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/03-advanced-classes) |
+| [**Advanced Classes**](#1-advanced-classes) | `ts-plus-plus/plugins/advanced-classes` | Stable | `field` backing storage, `object` singletons, `data class`, `with` copy expressions, `sealed class`, `final class` & methods, multiple inheritance | [`03-advanced-classes`](file:///e:/Repos/ts-plus-plus/packages/examples/03-advanced-classes) |
 | [**Modern Syntax**](#2-modern-syntax) | `ts-plus-plus/plugins/modern-syntax` | Stable | `let ... in ...` expressions, `do { ... }` blocks, completion-valued bodies, `def` deep-readonly declarations, `use <-` trailing closures | [`01-modern-syntax`](file:///e:/Repos/ts-plus-plus/packages/examples/01-modern-syntax) |
 | [**Formal Verification**](#3-formal-verification) | `ts-plus-plus/plugins/formal-verification` | Stable | SMT/Z3 automated theorem proving, `requires`/`ensures` contracts, `assert:`/`assume:` proof points, `invariant:` loop and class invariants, refinement types | [`12-formal-verification`](file:///e:/Repos/ts-plus-plus/packages/examples/12-formal-verification) |
 | [**Nominal Types & ADTs**](#4-nominal-types--algebraic-data-types) | `ts-plus-plus/plugins/nominal-types` | Stable | Zero-cost `newtype` nominal abstractions, tagged union `data` declarations, exhaustive pattern `match` expressions with guards | [`05-nominal-types`](file:///e:/Repos/ts-plus-plus/packages/examples/05-nominal-types), [`06-newtype-consumer`](file:///e:/Repos/ts-plus-plus/packages/examples/06-newtype-consumer) |
@@ -38,6 +38,7 @@ Features are opt-in and composable via `tsppconfig.json` (`compilerOptions.plugi
 * **`with` Expressions**: Non-destructive copy expression for data classes and objects (`with(point, { x: 10 })`).
 * **`sealed class`**: Closed type hierarchies restricted to inheritance within the declaring file, enabling full Algebraic Data Types (ADTs) when combined with `object` and `data class`.
 * **`final class` & `final` Methods**: Compile-time prevention of subclassing and method overrides.
+* **Multiple Inheritance**: `class C extends A, B` initializes each base with `super({ A: [x], B: [y] })`. All arguments evaluate once before constructors run in the map's written order on one shared instance; `super[A].method()` selects a base explicitly. Copied bases share private fields, static fields, and `instanceof` with the original; duplicate members remain errors. Mapped bases must be eligible top-level `.tspp` classes of the compilation, while legacy no-constructor/`super(args)` classes retain their ordinary first-base path. Prototype reflection on affected classes and instances is restricted; see the [plugin guide](../packages/plugins/advanced-classes/README.md#multiple-inheritance) for the exact scope.
 
 ```typescript
 sealed abstract class NetworkResult {
@@ -146,7 +147,7 @@ const message = match (opt) {
 
 * **Higher-Kinded Types (HKT)**: Kind annotations (`F: Type => Type`), first-class generic interface references, and kind polymorphism.
 * **Anonymous Type Constructors**: `<T> =>> Body` expressions that can be passed directly as type arguments.
-* **Dependent Types**: Pi types (`(n: Nat) -> Vec<n>`), Sigma types, and indexed type families.
+* **Dependent Types**: Pi types (`(n: Nat) => Vec<n>`), Sigma types, and indexed type families.
 * **Type-level `let` & `match`**: Lexical type bindings and ordered, non-distributive structural type matching.
 * **`reify` & `typecase`**: Compile-time reflection producing serialized descriptors and branch selection based on types.
 
