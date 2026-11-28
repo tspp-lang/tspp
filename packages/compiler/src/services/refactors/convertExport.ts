@@ -123,7 +123,7 @@ function getInfo(context: RefactorContext, considerPartialSpans = true): ExportI
     const span = getRefactorContextSpan(context);
     const token = getTokenAtPosition(file, span.start);
     const exportNode = !!(token.parent && getSyntacticModifierFlags(token.parent) & ModifierFlags.Export) && considerPartialSpans ? token.parent : getParentNodeInSpan(token, file, span);
-    if (!exportNode || (!isSourceFile(exportNode.parent) && !(isModuleBlock(exportNode.parent) && isAmbientModule(exportNode.parent.parent)))) {
+    if (!exportNode || !exportNode.parent || (!isSourceFile(exportNode.parent) && !(isModuleBlock(exportNode.parent) && exportNode.parent.parent && isAmbientModule(exportNode.parent.parent)))) {
         return { error: getLocaleSpecificMessage(Diagnostics.Could_not_find_export_statement) };
     }
 

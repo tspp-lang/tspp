@@ -141,7 +141,7 @@ function getInliningInfo(file: SourceFile, startPosition: number, tryWithReferen
     const token = getTouchingPropertyName(file, startPosition);
     const parent = token.parent;
 
-    if (!isIdentifier(token)) {
+    if (!isIdentifier(token) || !parent) {
         return undefined;
     }
 
